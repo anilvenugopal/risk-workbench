@@ -8,20 +8,20 @@ deploying to it. For explanations and troubleshooting, see
 [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) — this file only lists commands
 in order.
 
-Placeholders throughout: `dev-user` (the account name), `172.19.253.47`
+Placeholders throughout: `cinreadm` (the account name), `172.19.253.47`
 (the RHEL9 box's IP — find it fresh each session, see below),
-`/opt/risk-workbench` (the app directory). A real production server's
+`/rms` (the app directory). A real production server's
 account name and IP are infra's to assign — substitute those when known.
 
 ---
 
-## 1. Install RHEL9 on WSL2
+## 1. Install RHEL9 (only on WSL2)
 
 Covered in [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md): create a free Red
 Hat Developer account, build a RHEL9 WSL image via Red Hat's Image
 Builder, install it with `wsl --install --from-file`, register it with
 `subscription-manager`, fix the locale gap, and create a personal
-non-`cloud-user` account (`dev-user`) with `sudo` via the `wheel` group.
+non-`cloud-user` account (`cinreadm`) with `sudo` via the `wheel` group.
 
 Find the box's current IP (re-check each session — WSL2 may reassign it):
 
@@ -48,16 +48,16 @@ chmod 600 ~/.ssh/authorized_keys
 Verify — should return with no password prompt:
 
 ```bash
-ssh -i ~/.ssh/risk-workbench-deploy dev-user@172.19.253.47 "echo ok"
+ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47 "echo ok"
 ```
 
-## 3. One-time system setup (run on RHEL9, as `dev-user`)
+## 3. One-time system setup (run on RHEL9, as `cinreadm`)
 
 Copy `infra/scripts/rhel9/rhel9-setup.sh` to the server first (the repo
 isn't cloned yet at this point), `chmod +x` it, then:
 
 ```bash
-DEPLOY_USER=dev-user APP_DIR=/opt/risk-workbench bash rhel9-setup.sh
+DEPLOY_USER=cinreadm APP_DIR=/rms bash rhel9-setup.sh
 ```
 
 Installs: git, Python 3.14 + pip, `unixODBC-devel`, the Microsoft ODBC
@@ -66,8 +66,8 @@ make, gettext, rsync. Does **not** install Podman — that's a separate,
 optional step (Section 6), needed only for a local WSL2 SQL Server
 instance, never for a real deployment target.
 
-Also: creates `/opt/risk-workbench` (owned by `dev-user`), starts nginx as
-a systemd service, grants `dev-user` two narrow passwordless `sudo` rules
+Also: creates `/rms` (owned by `cinreadm`), starts nginx as
+a systemd service, grants `cinreadm` two narrow passwordless `sudo` rules
 (writing `/etc/nginx/conf.d/`, reloading nginx), creates the Valkey data
 directory, and sets `vm.overcommit_memory=1`. Full detail:
 [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md).
@@ -76,19 +76,19 @@ Verify the two sudo grants landed correctly:
 
 ```bash
 sudo cat /etc/sudoers.d/risk-workbench-nginx-reload
-# dev-user ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+# cinreadm ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
 
 sudo cat /etc/sudoers.d/risk-workbench-nginx-conf-write
-# dev-user ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/conf.d/risk-workbench.conf
+# cinreadm ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/conf.d/risk-workbench.conf
 ```
 
 ## 4. Place the secrets file
 
-`/opt/risk-workbench` now exists (created by step 3). Copy the real
+`/rms` now exists (created by step 3). Copy the real
 `infra/.env` there — never generated or pushed by any script:
 
 ```
-/opt/risk-workbench/infra/.env
+/rms/infra/.env
 ```
 
 ## 5. (Optional, WSL2-only) Local SQL Server via Podman
@@ -98,9 +98,9 @@ Skip this if pointing at a real, separately-hosted SQL Server instead.
 ```bash
 scp -i ~/.ssh/risk-workbench-deploy \
     infra/scripts/rhel9/rhel9-setup-podman-mssql.sh \
-    dev-user@172.19.253.47:/opt/risk-workbench/infra/scripts/rhel9/
-ssh -i ~/.ssh/risk-workbench-deploy dev-user@172.19.253.47 \
-    "APP_DIR=/opt/risk-workbench DEPLOY_USER=dev-user bash /opt/risk-workbench/infra/scripts/rhel9/rhel9-setup-podman-mssql.sh"
+    cinreadm@172.19.253.47:/rms/infra/scripts/rhel9/
+ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47 \
+    "APP_DIR=/rms DEPLOY_USER=cinreadm bash /rms/infra/scripts/rhel9/rhel9-setup-podman-mssql.sh"
 ```
 
 Installs Podman, does the one-time rootless setup, and **creates** (does
@@ -112,8 +112,8 @@ network connectivity to whatever `infra/.env` points at, container or not.
 ## 6. Verify prerequisites (remote, no password prompt expected)
 
 ```bash
-ssh -i ~/.ssh/risk-workbench-deploy dev-user@172.19.253.47 \
-    "APP_DIR=/opt/risk-workbench DEPLOY_USER=dev-user PYTHON_PKG=python3.14 bash /opt/risk-workbench/infra/scripts/rhel9/rhel9-check-prereqs.sh"
+ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47 \
+    "APP_DIR=/rms DEPLOY_USER=cinreadm PYTHON_PKG=python3.14 bash /rms/infra/scripts/rhel9/rhel9-check-prereqs.sh"
 ```
 
 Checks packages, commands, directory ownership, the nginx sudo grants,
@@ -125,8 +125,8 @@ network reachability. Read-only — safe to run anytime.
 **Push-based (from Ubuntu/dev machine/CI) — the real deployment path:**
 
 ```bash
-DEPLOY_HOST=dev-user@172.19.253.47 \
-DEPLOY_DIR=/opt/risk-workbench \
+DEPLOY_HOST=cinreadm@172.19.253.47 \
+DEPLOY_DIR=/rms \
 SSH_KEY=~/.ssh/risk-workbench-deploy \
 bash infra/scripts/rhel9/rhel9-ssh-deploy.sh
 ```
@@ -139,22 +139,22 @@ runs migrations, and reloads nginx. RHEL9 never talks to GitHub directly.
 **Pull-based (run directly on RHEL9) — manual/local alternative:**
 
 ```bash
-APP_DIR=/opt/risk-workbench BRANCH=main bash infra/scripts/rhel9/rhel9-pull-code.sh
-APP_DIR=/opt/risk-workbench DEPLOY_USER=dev-user PYTHON_PKG=python3.14 bash infra/scripts/rhel9/rhel9-check-prereqs.sh
+APP_DIR=/rms BRANCH=main bash infra/scripts/rhel9/rhel9-pull-code.sh
+APP_DIR=/rms DEPLOY_USER=cinreadm PYTHON_PKG=python3.14 bash infra/scripts/rhel9/rhel9-check-prereqs.sh
 PYTHON_BIN=python3.14 bash infra/scripts/rhel9/rhel9-app-install.sh
 ```
 
 `rhel9-app-install.sh` takes `PYTHON_BIN`, not `BRANCH` — it doesn't fetch
 code itself, only installs dependencies and migrates against whatever's
-already on disk. Must be run from inside `/opt/risk-workbench`.
+already on disk. Must be run from inside `/rms`.
 
 ## 8. Start and stop the app
 
 ```bash
-ssh -i ~/.ssh/risk-workbench-deploy dev-user@172.19.253.47 \
-    "APP_DIR=/opt/risk-workbench bash /opt/risk-workbench/infra/scripts/rhel9/rhel9-start.sh"
-ssh -i ~/.ssh/risk-workbench-deploy dev-user@172.19.253.47 \
-    "APP_DIR=/opt/risk-workbench bash /opt/risk-workbench/infra/scripts/rhel9/rhel9-stop.sh"
+ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47 \
+    "APP_DIR=/rms bash /rms/infra/scripts/rhel9/rhel9-start.sh"
+ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47 \
+    "APP_DIR=/rms bash /rms/infra/scripts/rhel9/rhel9-stop.sh"
 ```
 
 Starts/stops Valkey, uvicorn, one Dramatiq worker process per queue (one per
@@ -172,8 +172,8 @@ both the venv and the `app` package from the checkout.
 Check worker health at any point (before/after start or stop) with:
 
 ```bash
-ssh -i ~/.ssh/risk-workbench-deploy dev-user@172.19.253.47 \
-    "APP_DIR=/opt/risk-workbench bash /opt/risk-workbench/infra/scripts/rhel9/rhel9-worker-health.sh"
+ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47 \
+    "APP_DIR=/rms bash /rms/infra/scripts/rhel9/rhel9-worker-health.sh"
 ```
 
 Lists every queue with its PID-file status and an independent process-scan
@@ -185,7 +185,7 @@ Tail one queue's worker log or the poller log directly on the host (no
 Makefile on RHEL9 — plain scripts, same as `rhel9-start.sh`/`rhel9-stop.sh`):
 
 ```bash
-APP_DIR=/opt/risk-workbench bash infra/scripts/rhel9/rhel9-logs-worker.sh upload_edm
+APP_DIR=/rms bash infra/scripts/rhel9/rhel9-logs-worker.sh upload_edm
 bash infra/scripts/rhel9/rhel9-logs-poller.sh
 ```
 
@@ -196,7 +196,7 @@ doesn't exist yet — usually meaning that worker/the poller isn't running.
 ## 9. (Optional, WSL2-only) Start/stop the local SQL Server container
 
 ```bash
-APP_DIR=/opt/risk-workbench bash infra/scripts/rhel9/rhel9-start-podman-mssql.sh
+APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start-podman-mssql.sh
 bash infra/scripts/rhel9/rhel9-stop-podman-mssql.sh
 ```
 

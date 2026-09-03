@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /rms}"
 PID_DIR="${PID_DIR:-/var/lib/risk-workbench/pids}"
 mkdir -p "$PID_DIR"
 

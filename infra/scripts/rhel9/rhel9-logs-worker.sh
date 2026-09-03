@@ -11,7 +11,7 @@
 
 set -uo pipefail
 
-APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /rms}"
 QUEUE="${1:-}"
 
 cd "$APP_DIR"

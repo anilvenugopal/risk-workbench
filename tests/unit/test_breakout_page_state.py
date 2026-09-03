@@ -58,12 +58,14 @@ def _mk_job(portfolio_id: str, *, dimension: str = "lob",
         output=output, error=error, now=NOW, updated=updated)
 
 
-def _mk_follow_up(breakout_job_id: str, *, status: str) -> None:
+def _mk_follow_up(breakout_job_id: str, edm_id: str, *, status: str) -> None:
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
         "status_code, attempt_count, inserted_at, updated_at) VALUES "
-        "(:i, 'rwb_job', :r, 'backfill_edm_detail', :s, 1, :now, :now)",
-        {"i": str(uuid.uuid4()), "r": breakout_job_id, "s": status,
+        "(:i, 'rwb_job', :r, 'edm', :e, 'edm', :e, "
+        "'backfill_edm_detail', :s, 1, :now, :now)",
+        {"i": str(uuid.uuid4()), "r": breakout_job_id, "e": edm_id, "s": status,
          "now": NOW}, connection="WORKBENCH")
 
 
@@ -233,7 +235,7 @@ def test_the_banner_shows_figures_filling_in_while_the_follow_up_runs(
     source_id = _mk_portfolio(edm_id)
     jid = _mk_job(source_id, output=dict(_outcomes(_ok("A"), _ok("B")),
                                         created=2))
-    _mk_follow_up(jid, status="running")
+    _mk_follow_up(jid, edm_id, status="running")
 
     banner = page_state(edm_id).banner
 
@@ -249,7 +251,7 @@ def test_a_settled_successful_run_shows_no_banner(iteration2_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     jid = _mk_job(source_id, output=dict(_outcomes(_ok("A")), created=1))
-    _mk_follow_up(jid, status="succeeded")
+    _mk_follow_up(jid, edm_id, status="succeeded")
 
     assert page_state(edm_id).banner is None
 
@@ -259,7 +261,7 @@ def test_a_partial_failure_banner_survives_the_follow_up(iteration2_db):
     source_id = _mk_portfolio(edm_id)
     jid = _mk_job(source_id, output=dict(
         _outcomes(_ok("A"), _bad("B", "RM 500")), created=1))
-    _mk_follow_up(jid, status="succeeded")
+    _mk_follow_up(jid, edm_id, status="succeeded")
 
     banner = page_state(edm_id).banner
 

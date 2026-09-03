@@ -1,18 +1,47 @@
 // app.js — the small client-side sliver. Alpine handles modal state, the
 // Ctrl/Cmd-J shortcut, focus, and arrow-key navigation; HTMX handles the
 // search request and result rendering (see the shell's #search-results).
+
+// ── Theme (dark/light) ────────────────────────────────────────────────────────
+// Runs at the top of this non-deferred, head-loaded script — before <body>
+// paints — so .dark lands on <html> with no flash of the wrong theme. No saved
+// choice follows the OS setting; once the toggle is clicked, the explicit
+// choice sticks and no longer tracks prefers-color-scheme changes.
+const THEME_KEY = 'rwb-theme';
+(function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch (e) {}
+  const dark = saved ? saved === 'dark'
+    : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.classList.toggle('dark', dark);
+})();
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.querySelector('[data-theme-toggle]');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const dark = !document.documentElement.classList.contains('dark');
+    document.documentElement.classList.toggle('dark', dark);
+    try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch (e) {}
+  });
+});
+
 function appShell() {
   return {
     searchOpen: false,
     init() {
-      // when the modal opens, focus the input and clear stale results
+      // when the modal opens, focus the input and re-fetch the blank-query
+      // fragment (hint + filter pills) fresh from the server rather than
+      // hardcoding it here, so the pill list stays driven by one source
+      // (search_service.PROVIDER_TYPES)
       this.$watch('searchOpen', (v) => {
         if (v) {
           this.$nextTick(() => {
             const i = document.getElementById('search-input');
             if (i) { i.value = ''; i.focus(); }
+            const box = document.querySelector('.search-box');
+            if (box) Alpine.$data(box).activeType = '';
             const r = document.getElementById('search-results');
-            if (r) r.innerHTML = '<div class="sr-hint">Type to search submissions, workflows, templates, and navigation.</div>';
+            if (r) htmx.ajax('GET', '/api/search', { target: r, swap: 'innerHTML' });
           });
         }
       });
@@ -800,6 +829,72 @@ document.addEventListener('alpine:init', () => {
     all(checked) {
       this.boxes().forEach((box) => { box.checked = checked; });
       this.onChange();
+    },
+  }));
+
+  // The Compare modal's cart (spec 013 T-02): strictly client-side — tick
+  // order marks the first pick base (FR-003); Compare opens the built
+  // /results/comparison URL in a new tab (the View pattern), whose render
+  // re-validates every pair. Rows are read only via their data attributes.
+  Alpine.data('compareCart', (maxPairs) => ({
+    picks: [],   // [{id, name, currency}] in tick order
+    pairs: [],   // [{base, second}] in add order
+    error: '',
+    maxPairs,
+    get baseId() { return this.picks.length ? this.picks[0].id : null; },
+    get compareLabel() {
+      const n = this.pairs.length;
+      return 'Compare ' + n + ' pair' + (n === 1 ? '' : 's') + ' ↗';
+    },
+    picked(id) { return this.picks.some((p) => p.id === id); },
+    toggle(e) {
+      this.error = '';
+      const d = e.target.closest('[data-id]').dataset;
+      if (e.target.checked) {
+        this.picks.push({ id: d.id, name: d.name, currency: d.currency || null });
+      } else {
+        this.picks = this.picks.filter((p) => p.id !== d.id);
+      }
+    },
+    addPair() {
+      if (this.picks.length !== 2) return;
+      const [base, second] = this.picks;
+      // refusals leave the picks ticked so the analyst can change one (FR-005)
+      const noCurrency = [base, second].find((p) => !p.currency);
+      if (noCurrency) {
+        this.error = noCurrency.name
+          + ' has no recorded run currency, so it cannot be paired.';
+        return;
+      }
+      if (base.currency !== second.currency) {
+        this.error = 'These analyses were run in different currencies ('
+          + base.currency + ' vs ' + second.currency
+          + ') — figures are never converted, so they cannot be paired.';
+        return;
+      }
+      if (this.pairs.length >= this.maxPairs) {
+        this.error = 'A comparison holds at most ' + this.maxPairs
+          + ' pairs — remove a pair to add another.';
+        return;
+      }
+      this.pairs.push({ base, second });
+      this.picks = [];
+      this.error = '';
+    },
+    removePair(i) {
+      this.pairs.splice(i, 1);
+      this.error = '';
+    },
+    open() {
+      if (!this.pairs.length) return;
+      const params = new URLSearchParams({
+        pairs: this.pairs.map((p) => p.base.id + ':' + p.second.id).join(','),
+      });
+      const ds = this.$root.dataset;
+      if (ds.submission) params.set('submission', ds.submission);
+      if (ds.edm) params.set('edm', ds.edm);
+      window.open('/results/comparison?' + params.toString(), '_blank');
+      this.$root.closest('.modal').remove();
     },
   }));
 

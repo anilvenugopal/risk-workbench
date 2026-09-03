@@ -1111,13 +1111,13 @@ Metrics shown (FR §7):
 
 - **AAL / pure premium** and **standard deviation** (from the EP stats endpoint).
 - **Return-period losses** — expanded set (11 points): 5 / 10 / 25 / 50 / 100 / 250 / 500 / 1000 / 2000 / 5000 / 10000; condensed set (6): 50 / 100 / 250 / 500 / 1000 / 10000. Fixed sets, not user-editable — editing passes through to Risk Modeler (D7, re-affirming design note 05 §4.1). Closes O5-2.
-- **One EP type at a time, OEP default** (note 20 D11; confirmed 8/28 — "No, OEP is great"). Cheryl uses OEP more; showing both meant a merged header that offset the Excel paste.
+- **One EP type at a time, OEP default** (note 20 D11; confirmed 8/28 — "No, OEP is great"). Cheryl uses OEP more; showing both meant a merged header that offset the Excel paste. AAL and standard deviation sit **outside** the selection and do not change with it — the AAL is the same number under either curve (note 20 D12/D13).
 - **No EP-curve graph is required** — "the drawing's not important… I want the numbers." Re-confirmed 8/25.
 - **Units never auto-switch** (D16): a ones / thousands / millions selector, millions default.
 - **Copy table with headers** (D13): any rendered results table pastes into Excel — Cheryl's year-over-year working file, and the broker-sent-a-digital-copy case.
 - **Analysis metadata** shown alongside (the same metadata list reused for broker-result review, §2.3): engine/model version, engine type (DLM vs HD) + version, analysis type/mode, peril (primary + secondary), region, currency, construction, LOB, group type, long-term vs near-term, event-rate scheme / rate vintage, loss amplification (PLA). Rate/event-rate detail sits one drill-down deeper than the rest.
 
-**Perspective switching is essential** — the five perspectives are **GR, RL, WX, QS, GU** (Ground Up added by Wendy 8/25 for checking treaty application; closes O5-3 — the default view is Gross within this set). The perspective selection applies to the whole screen, never per analysis.
+**Perspective switching is essential** — the five perspectives are **GR, RL, WX, QS, GU** (Ground Up added by Wendy 8/25 for checking treaty application; closes O5-3). The default view is **Pre-Cat Net (`RL`)** — revised 8/26 from Gross (note 20 D9; "pre-cat net" and "Reinsurance Layer" are the same `RL` code). The perspective selection applies to the whole screen, never per analysis.
 
 **Density.** Viewing is **uncapped** (confirmed with CIC 8/28, D2 — the ~10 soft guideline was Ben's and never agreed): columns condense to a minimum width, then the view scrolls sideways; demoed at billions-scale values and accepted. A **full listing / full drill-down of all analyses remains available** — anything less is a step back from RiskLink, which lists them all.
 
@@ -1177,11 +1177,13 @@ The Exposure Repository (`EXPOSURE_REPO_URL`) receives pre-aggregated exposure s
 
 ---
 
-## 17. Feature: Broker RDM comparison
+## 17. Feature: Analysis comparison
+
+> **Renamed 2026-08-27 (was "Broker RDM comparison").** A comparison pairs any two finished analyses — user-executed or broker-provided. Own-vs-broker is the headline case, not the boundary: own-vs-own pairs (two portfolios, two templates, a before/after) and broker-vs-broker pairs use the same view.
 
 ### 17.1 Purpose
 
-Analysts must compare their own analysis results against the broker's results (provided as an RDM file) and against prior-year benchmarks. The workbench surfaces this comparison directly rather than requiring export and manual Excel work.
+Analysts must compare analysis results against each other — chiefly their own results against the broker's (provided as an RDM file). The workbench surfaces this comparison directly rather than requiring export and manual Excel work. Pairs are drawn from the merged analyses table the analyst is on (submission or EDM page); cross-submission pairing is not offered, so the year-over-year comparison stays served by copy-with-headers (§16.2 D13) and Cheryl's working Excel file.
 
 ### 17.2 Broker RDM results — retrieval (REST, deduped by `rdm_id`)
 
@@ -1191,12 +1193,15 @@ Importing a broker RDM creates broker analyses as `irp_analysis` rows keyed (`rd
 
 ### 17.3 Comparison view
 
-> **Designed 2026-08-25 (design note 19 §6, D17–D20). Demoed and accepted 2026-08-28 (note 22 D7–D9):** the cart, the 5-pair cap (offered for expansion, declined), the selection-order base (accepted once explained — the base marker must be legible at selection time, not only after the comparison renders), and the cross-currency block. Comparison reads the same `irp_analysis.loss_results` extract as viewing (§16.1).
+> **Designed 2026-08-25 (design note 19 §6, D17–D20); extended 2026-08-26 (design note 20 §6.5, D16/D17); surface and pair scope decided 2026-08-27. Demoed and accepted 2026-08-28 (note 22 D7–D9):** the cart, the 5-pair cap (offered for expansion, declined), the selection-order base (accepted once explained — the base marker must be legible at selection time, not only after the comparison renders), and the cross-currency block. Comparison reads the same `irp_analysis.loss_results` extract as viewing (§16.1) — no Risk Modeler call serves the render.
 
-- **View and Compare are two operations** (D17): viewing is N-up side-by-side; comparing is **strictly pairwise**. Choosing Compare, the analyst picks exactly two analyses per comparison; each pair goes into a **cart**; ~5 pairs render on one screen (a real layout limit, enforceable). A base analysis compared against many was considered and rejected (Wendy: "I don't think we need that").
+- **View and Compare are two operations** (D17): viewing is N-up side-by-side; comparing is **strictly pairwise**. Choosing Compare, the analyst picks exactly two analyses per comparison; each pair goes into a **cart**; 5 pairs render on one screen (a real layout limit, enforceable — confirmed with CIC 8/28 when expansion was offered and declined, closing note 19 O19-8; viewing's ~10 guideline was retired the same day). A base analysis compared against many was considered and rejected (Wendy: "I don't think we need that").
+- **The flow** (note 20 D16): **Compare** is its own action on the merged analyses table — both entry points, submission and EDM page — opening a **modal** that collects the pairs into the cart. Pairs come from the table at hand; the modal offers only analyses with retrieved results.
 - **Selection order is the contract** (D19): the first analysis picked is the base and the first column; percent change follows that order; explicitly decoupled from list order.
-- **Table shape** (D20): columns labelled with analysis names, the leftover row-header column dropped; percent-change columns need no per-pair labelling. Perspective and EP-type selections apply **screen-wide**, to every comparison rendered.
-- Metrics: AAL, return-period OEP/AEP, by perspective — own vs. broker or any pair (e.g. CIC vs. broker — saves the manual Excel step).
+- **Mixed-currency pairs are blocked, never converted** (note 20 D17): two analyses run in different currencies cannot be paired — Wendy: "I would just not let people do it." Enforced in the modal at pair-add time, from the run currency spec 011 stores in `submitted_settings`. **Deliberate asymmetry:** N-up *viewing* keeps showing mixed currencies unconverted — viewing makes no arithmetic claim; comparison computes a percent change.
+- **Table shape** (D20): columns labelled with analysis names, the leftover row-header column dropped; percent-change columns need no per-pair labelling. The comparison renders on a **dedicated comparison page in a new browser tab**, following the dedicated results page's rules (§16.2 D21/D22: breadcrumbs retained, tab title carries the submission or EDM name).
+- **Screen-wide controls, never per pair** (D20 + 8/26 D11): perspective and the single EP-type selection apply to every comparison rendered; AAL and standard deviation sit outside the EP-type selection; the ones/thousands/millions units selector and copy-with-headers work as on the viewing page.
+- Metrics: AAL, standard deviation, return-period OEP/AEP losses, by perspective — for any pair (e.g. CIC vs. broker — saves the manual Excel step).
 - Numbers, not a required overlay chart (no EP graph is required — §16.2). Ben has a prior comparison engine to build on.
 - **Known gap:** the per-analysis software/model version (design note 18 O18-10) — spec 011 FR-021 captures it at retrieval so this view can show which version each side ran in.
 
@@ -1235,21 +1240,22 @@ The `notification_preference` table is re-introduced with this iteration. Per-us
 
 ## 19. Feature: Global search
 
-**Ctrl/Cmd-J** opens a modal (Alpine.js: open/close, keyboard nav, focus trap). Search-as-you-type via HTMX (`hx-trigger="keyup changed delay:200ms"`). A **provider registry** fans out across result groups:
+**Ctrl/Cmd-J** opens a modal (Alpine.js: open/close, keyboard nav, focus trap). Search-as-you-type via HTMX (`hx-trigger="input changed delay:200ms"`). A **provider registry** (`app/services/search_service.py`) fans out across result groups, each provider capped independently (`GROUP_LIMIT`, currently 5) so one noisy provider never crowds out the rest:
 
-- **Navigation** — reads the nav manifest; new nav items are searchable automatically
-- **Submissions** — name, cedant, treaty type
-- **EDMs** — EDM name, submission
-- **RDMs** — RDM name, submission
-- **Portfolios** — portfolio name, EDM
-- **Treaties** — treaty name, EDM
-- **Analyses** — analysis/group name, submission, status
-- **Jobs** — IRP job / RWB job, by type and status
-- **Results** — analysis job name
+- **Pages** — reads the nav manifest (`nav.searchable_nodes()`); new nav items are searchable automatically, filtered by the signed-in user's roles
+- **Submissions** — name, cedant, tagged CRM id
+- **EDMs** — EDM name
+- **RDMs** — RDM name
+- **Analysis Templates** — template name
+- **Users** — display name, email
 
-FR (7/14) also asks that **search, sort, and filter be available on every list section** — portfolios, treaties, analyses, and results, not just submissions — delivered via the shared list ergonomics (§20.4), with the command palette above spanning the same object set.
+**Deferred providers (not built this pass):** Portfolios, Treaties, Analyses (own + broker runs), Jobs (IRP/RWB), and Results. Analyses in particular has no unscoped list function yet — every existing query is scoped to one EDM/RDM/submission — and no single per-analysis detail URL to land a result on (results render via `/results/analyses?ids=...`). These pick up in a later pass over the same provider-registry shape.
 
-Adding a searchable type = register one provider. There is **no customer scoping** to apply (CR-003 M2/O1 — no RLS); every authenticated analyst searches across all deals. Start with SQL `LIKE`; move to Full-Text indexes if volume demands.
+**Filter pills + hotkey footer (2026-09-01 addition, modeled on Palantir Foundry's quicksearch — not in the original spec).** A pill row above the results narrows the fan-out to one provider (`type` query param on `/api/search`); a static footer under the results shows the keyboard hints (`↑↓ Move`, `↵ Select`, `esc Close`). Both are presentation-only — no new keyboard behavior, since `app.js`'s existing `onKey()` already drives arrow/enter navigation over `.sr-item`.
+
+FR (7/14) also asks that **search, sort, and filter be available on every list section** — portfolios, treaties, analyses, and results, not just submissions — delivered via the shared list ergonomics (§20.4), with the command palette above spanning the same object set. That per-list work remains a separate, unscoped item (§20.4).
+
+Adding a searchable type = register one provider (a function in `search_service.py` plus an entry in `PROVIDER_TYPES`). There is **no customer scoping** to apply (CR-003 M2/O1 — no RLS); every authenticated analyst searches across all deals. Providers use SQL `LIKE`; move to Full-Text indexes if volume demands.
 
 ---
 
@@ -1385,7 +1391,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **In:** post-import **backfill** of entity detail data from Risk Modeler — extends the Iteration-2 poller/worker completion path to fetch and store detail fields when an import job goes terminal; §9 EDM detail view (exposure summary: account/location counts, #portfolios, perils, lines of business, geography, currency, TIV/record volume, associated treaties — FR §2.2; sub-perils dropped 2026-07-28 — an analysis-settings attribute, not exposure), redesigned EDM detail page; **treaty viewing** at the EDM level (§12.4 view side — full attribute detail, expand/collapse, horizontal scroll, Excel export; edit is a later RM pass-through, not this iteration); **RDM / broker-analysis viewing** — RDM import already creates `irp_analysis` objects; this iteration surfaces the **broker analyses grouped by `rdm_id` and each analysis's settings/metadata** (§16.2 metadata list) on the RDM/analysis detail pages **and on the EDM detail page** (inline under each portfolio + a standalone RDM-grouped section). Each analysis is **linked to the portfolio it ran against** — captured from Risk Modeler's `exposureResourceId` (type `PORTFOLIO`) and resolved to the owning `irp_portfolio` at read time (a group shows "Group", an unresolvable exposure "— not linked"; distinct from the FR §7 deferred results-comparison linking — see 2026-07-23 change-log). No analysis execution is required — the analyses exist from the RDM import path built in Iteration 2. Broker **loss numbers** (the `loss_results` extract, once per `rdm_id`, §16.1) and the `retrieve_analysis_results` worker are **deferred to Iteration 8** (spec 004 Clarifications 2026-07-23; renumbered 2026-08-25).
 
-**Out:** own-analysis results produced by execution (those extend these same detail pages in Iteration 8); portfolio/geohaz/execution/grouping; treaty create/edit pass-through (§12.4 — bundled with analysis config, Iteration 7); broker side-by-side comparison (Iteration 10); Loss Repository export.
+**Out:** own-analysis results produced by execution (those extend these same detail pages in Iteration 8); portfolio/geohaz/execution/grouping; treaty create/edit pass-through (§12.4 — bundled with analysis config, Iteration 7); analysis comparison (Iteration 10); Loss Repository export.
 
 **Exit:** open an imported EDM and see its exposure summary and treaty detail backfilled from Risk Modeler, with each portfolio's **linked broker analyses inline** and a standalone RDM-grouped analyses section; open an imported RDM and see its **broker analyses and their settings/metadata**, each showing the **portfolio it ran against** (or "Group" / "— not linked") (broker **loss numbers** deferred to Iteration 8 — spec 004 Clarifications 2026-07-23, renumbered 2026-08-25); a newly completed import backfills its detail data automatically via the poller/worker path.
 
@@ -1459,19 +1465,21 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **In:** §14 grouping op (a group is an `irp_analysis` with `is_group=true`, CR-002); the event rate scheme as a group-creation selection with a default (never derived — §16.4); the region-peril simulation set sourced from the API contract or documented with a breaking test (confirm the attribute name first); group run parameters recorded (`submitted_settings` question, O22-1c); the member list view (D16); builder name sort + search (D15); groups listed in line on member EDM pages via the engine column (D24); §13.3 grouping homogeneity check (DLM+HD mixing caught when composing the op) plus the event-rate-scheme case; the prerequisite-gate rule (member analyses must exist and be `FINISHED` — A2); member lookup by analysis ID, never name (O22-16).
 
-**Out:** results export, broker comparison; group membership editing (a later round, D17); nested grouping (unconfirmed with CIC — ask first).
+**Out:** results export, analysis comparison; group membership editing (a later round, D17); nested grouping (unconfirmed with CIC — ask first).
 
 **Exit:** compose a grouping over finished analyses with an explicitly chosen event rate scheme; an invalid mix is caught when the op is composed; the group runs, records what it ran with, shows its member list, and appears on its members' EDM pages — and a matched example run manually in Risk Modeler and in the workbench produces the **same EP curve** (D14).
 
-### Iteration 10 — Broker RDM comparison
+### Iteration 10 — Analysis comparison
 
 > **New placement (2026-07-21).** Promoted to its own iteration between grouping and results export (was bundled into the old Iteration 6).
+>
+> **Renamed and rescoped (2026-08-27).** Was "Broker RDM comparison." A comparison pairs any two finished analyses — user-executed or broker-provided (broker **analyses/settings** viewable since Iteration 3, broker **loss numbers** since Iteration 8). Designed in the 8/25 and 8/26 sessions (§17.3).
 
-**In:** §17 broker RDM comparison — side-by-side of broker-provided results (from RDM import; broker **analyses/settings** viewable since Iteration 3, broker **loss numbers** since Iteration 8) against own executed/grouped results.
+**In:** §17.3 comparison view — **Compare** as its own action on the merged analyses table (both entry points), the pair-cart modal (strictly pairwise, ~5 pairs), the dedicated comparison page in a new browser tab (§16.2 D21/D22 rules), percent change following selection order (first picked = base = first column), screen-wide perspective / EP-type / units controls, copy with headers, the mixed-currency pair guard (note 20 D17), and the engine/model version shown per side (spec 011 FR-021 captured it for this view).
 
-**Out:** Loss Repository export.
+**Out:** Loss Repository export (Iteration 11); cross-submission pairs (year-over-year stays copy-with-headers, §16.2 D13); currency conversion (blocked, never converted).
 
-**Exit:** view a side-by-side comparison of broker RDM results and own results for a submission.
+**Exit:** from a submission's merged analyses table, put two pairs in the cart (own-vs-broker and own-vs-own), see both comparisons on one dedicated page in a new tab with percent change following selection order, switch perspective and EP type screen-wide, and be refused a pair whose analyses ran in different currencies.
 
 ### Iteration 11 — Results export
 
@@ -1502,6 +1510,8 @@ This prompt applies independently to each of the three app-managed databases (`W
 ### Iteration 13 — Global search
 
 > **Consolidated (2026-07-21).** Was split across the old Iteration 3 (framework) and Iteration 7 (remaining providers). Built once here at the end, over the complete entity set — no half-built-then-finished split.
+>
+> **Delivered in part (2026-09-01, branch `avenugopal/global_search`).** The framework and six providers shipped: pages, submissions (name/cedant/CRM id), EDMs, RDMs, analysis templates, and users. Portfolios, treaties, analyses, jobs, groupings, and results remain — see §19's deferred-providers note for why analyses needs more than a registry entry (no unscoped list function, no per-analysis detail URL).
 
 **In:** §19 search framework + §20 command palette (Ctrl/Cmd-J); all providers — navigation, submission, EDM, RDM, jobs, analyses, groupings, and results.
 
@@ -1663,6 +1673,14 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ## 24. Change log
 
+### 2026-09-01 — Iteration 13 partially delivered: six search providers + filter pills/hotkey footer
+
+Scope: §19, §21 Iteration 13, this log. Branch `avenugopal/global_search`. The Ctrl/Cmd-J modal, keyboard nav, and CSS already existed (built ahead of the iteration as part of the shell); this pass added the missing `GET /api/search` route and its provider registry.
+
+- **Six providers shipped:** pages (nav manifest, role-filtered), submissions (name/cedant/tagged CRM id — new `submission_service.search_submissions_global`), EDMs and RDMs (existing `list_edms`/`list_rdms` substring filters), analysis templates (new query), users (new query, active users only).
+- **Portfolios, treaties, analyses, jobs, groupings, and results deferred** — not registered as providers this pass. Analyses needs more than a registry entry: no existing query lists analyses unscoped (every one filters by EDM/RDM/submission), and there is no single per-analysis detail URL to send a result to.
+- **Filter pills + hotkey footer added** — modeled on Palantir Foundry's quicksearch, not in the original §19 text. A pill row narrows the modal to one provider; a static footer shows the keyboard hints. Presentation-only, riding the keyboard handling `app.js` already had.
+
 ### 2026-08-28 — Design session 22: viewing/comparison signed off; grouping demoed with wrong output; client table read-only; Parquet replaces the paginated API
 
 Scope: §1.4 glossary, §16.1, §16.2, §16.3, §16.4 (rewritten), §17.3, §21 Iterations 9 and 11, §23 locked + open decisions, this log; `FUNCTIONAL_REQUIREMENTS.md` §1/§6/§7 updated the same day (§6 Grouping rewritten; §7 Organizing/Comparison rows moved to Implemented against the sign-off). Source: design note 22 (the first build demo since 8/26, plus Cheryl's answers from Cheng against the note-21 asks).
@@ -1676,6 +1694,15 @@ Scope: §1.4 glossary, §16.1, §16.2, §16.3, §16.4 (rewritten), §17.3, §21 
 - **TY located (D26/D27):** `RDM_TREATY` + treaty-description join, its own retrieval call; part B stays deferred, with the retrieval source built as swappable behind one transform/validate/commit flow.
 - **Terminology (D23):** an analysis is *related to* an EDM, never *in* it — glossary and FR updated; EDM-screen copy owed.
 - **Rejected (D22):** displaying submitted-vs-returned metadata — a deliberate non-requirement; applied treaties join the analysis view instead (D21, the last genuine run-facts gap, O22-7).
+
+### 2026-08-27 — §17 renamed to analysis comparison; comparison reconciled to the 8/26 session; Iteration 10 rescoped
+
+Scope: §16.2, §17, §21 Iterations 9–10, this log. Prep for the Iteration-10 spec (branch 013). Sources: design notes 19 §6 and 20 §6.5, plus three decisions Ben made 2026-08-27 while closing the comparison previews. The 8/26–8/27 **export** findings (design notes 20 §7 and 21) are deliberately **not** reconciled here — they belong to the export iteration.
+
+- **§17 renamed "Analysis comparison"** (was "Broker RDM comparison"): a comparison pairs any two finished analyses, user-executed or broker-provided. Own-vs-broker is the headline case, not the boundary — own-vs-own and broker-vs-broker pairs use the same view.
+- **§17.3 extended with the 8/26 decisions:** Compare opens a modal that collects pairs into the cart (note 20 D16); **mixed-currency pairs are blocked outright, never converted** (note 20 D17), reading the run currency spec 011 stores in `submitted_settings` — while N-up viewing deliberately keeps showing mixed currencies unconverted; the screen-wide controls are perspective and the single EP-type selection, with AAL and standard deviation outside it.
+- **Decided 2026-08-27:** the comparison renders on a **dedicated page in a new browser tab** under the §16.2 D21/D22 rules; pairs are **drawn from the merged table the analyst is on** — no cross-submission pairing, so year-over-year stays copy-with-headers; the pair cart's ~5 is enforceable as a layout limit (the ~5 and viewing's ~10 remain proposals unconfirmed with CIC, note 19 O19-8).
+- **§16.2 reconciled to 8/26 where comparison inherits it:** EP type is a selection (note 20 D11), not a side-by-side; AAL and standard deviation sit outside it (D12/D13); the default perspective is **Pre-Cat Net (`RL`)**, not Gross (D9).
 
 ### 2026-08-27 — Design session 21: export walkthrough; workflow-tool reuse ruled out; loss repository schema received
 

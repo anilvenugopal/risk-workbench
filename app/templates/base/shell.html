@@ -38,11 +38,16 @@
 
   <div class="shell__col">
     <header class="shell__topbar">
-      <img class="topbar__appname" src="/static/icons/rwb.svg" alt="Risk Workbench">
+      <img class="topbar__appname topbar__appname--light" src="/static/icons/rwb.svg" alt="Risk Workbench">
+      <img class="topbar__appname topbar__appname--dark" src="/static/icons/rwb_white.svg" alt="Risk Workbench">
       <button class="topbar__search" @click="searchOpen = true" aria-label="Search">
         <span class="topbar__search-ico">⚲</span>
         <span class="topbar__search-hint">Search</span>
         <span class="topbar__kbd">Ctrl J</span>
+      </button>
+      <button class="icon-btn theme-toggle" data-theme-toggle aria-label="Toggle dark mode">
+        <span class="theme-toggle__icon theme-toggle__icon--light">{% include "icons/theme_light.svg" %}</span>
+        <span class="theme-toggle__icon theme-toggle__icon--dark">{% include "icons/theme_dark.svg" %}</span>
       </button>
       <a class="topbar__help" href="#">Help</a>
     </header>
@@ -105,16 +110,18 @@
   {# ── Search modal ── #}
   <div class="search-modal" x-show="searchOpen" x-cloak @click.self="searchOpen = false"
        @keydown.escape.window="searchOpen = false" x-transition.opacity>
-    <div class="search-box" @click.stop>
+    <div class="search-box" @click.stop x-data="{ activeType: '' }">
       <div class="search-box__bar">
         <span class="search-box__ico">⚲</span>
         <input id="search-input" class="search-box__input" type="text" autocomplete="off"
                placeholder="Search submissions, workflows, templates…"
                hx-get="/api/search" hx-trigger="input changed delay:200ms"
-               hx-target="#search-results" name="q" x-ref="searchInput">
+               hx-target="#search-results"
+               hx-vals="js:{type: Alpine.$data(document.querySelector('.search-box')).activeType}"
+               name="q" x-ref="searchInput">
         <span class="search-box__esc">esc</span>
       </div>
-      <div id="search-results" class="search-box__results">
+      <div id="search-results">
         <div class="sr-hint">Type to search submissions, workflows, templates, and navigation.</div>
       </div>
     </div>

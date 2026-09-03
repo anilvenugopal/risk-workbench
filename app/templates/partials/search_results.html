@@ -1,0 +1,47 @@
+{# Global search (Ctrl/Cmd-J) results — PRD §19 plus the filter-pill row and
+   hotkey footer modeled on Palantir Foundry's quicksearch (§19 extension, not
+   in the original spec). hx-get on #search-input and on each .sr-filter both
+   target this whole block, so the active pill and the group list always
+   render from the one server response. app.js's onKey() drives arrow/enter
+   navigation over .sr-item; nothing here needs new JS. #}
+{# Each pill sets Alpine's activeType (read by #search-input's own hx-vals for
+   the next keystroke) before firing its own request for the current term. #}
+<div class="search-box__filters" role="tablist">
+  <button type="button" class="sr-filter{{ ' sr-filter--active' if not active_type }}"
+          @click="activeType = ''"
+          hx-get="/api/search" hx-include="#search-input" hx-vals='{"type": ""}'
+          hx-target="#search-results">All</button>
+  {% for type, title in provider_types %}
+  <button type="button" class="sr-filter{{ ' sr-filter--active' if active_type == type }}"
+          @click="activeType = '{{ type }}'"
+          hx-get="/api/search" hx-include="#search-input" hx-vals='{"type": "{{ type }}"}'
+          hx-target="#search-results">{{ title }}</button>
+  {% endfor %}
+</div>
+<div class="search-box__results">
+  {% if not term %}
+  <div class="sr-hint">Type to search submissions, workflows, templates, and navigation.</div>
+  {% elif not groups %}
+  <div class="sr-hint">No results for &ldquo;{{ term }}&rdquo;.</div>
+  {% else %}
+    {% for group in groups %}
+    <div class="sr-group">
+      <div class="sr-group__title">{{ group.title }}</div>
+      {% for item in group.items %}
+      <a class="sr-item" href="{{ item.href }}">
+        {% if item.rail_icon %}
+        <span class="sr-icon">{% include "icons/" + item.rail_icon + ".svg" ignore missing %}</span>
+        {% endif %}
+        <span class="sr-label">{{ item.label }}</span>
+        {% if item.meta %}<span class="sr-meta">{{ item.meta }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  {% endif %}
+</div>
+<div class="search-box__footer">
+  <span><kbd>&uarr;&darr;</kbd>Move</span>
+  <span><kbd>&crarr;</kbd>Select</span>
+  <span><kbd>esc</kbd>Close</span>
+</div>

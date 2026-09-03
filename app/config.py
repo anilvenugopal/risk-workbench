@@ -127,15 +127,19 @@ class Settings(BaseSettings):
     risk_modeler_base_url: str = ""
     risk_modeler_tenant_name: str = ""
 
-    # ── Notifications (Iteration 2, R10) ────────────────────────────────────────
-    # Comma-separated channels to deliver completion/failure notices on
-    # (any of: teams, email, desktop). Enabling a channel is a config edit.
-    notify_channels: str = ""
-    teams_webhook_url: str = ""
-    smtp_host: str = ""
-    smtp_port: int = 25
-    smtp_from: str = ""
-    notify_email_to: str = ""
+    # ── Email notifications (Graph API, app-only Mail.Send) ─────────────────────
+    # Separate Entra app registration from entra_* (OIDC login) — see
+    # docs/EMAIL_NOTIFICATIONS.md. Empty mail_client_id disables sending: callers
+    # check settings.mail_enabled before calling send_email().
+    mail_tenant_id: str = ""
+    mail_client_id: str = ""
+    mail_client_secret: str = ""
+    mail_sender_address: str = ""
+
+    @computed_field
+    @property
+    def mail_enabled(self) -> bool:
+        return bool(self.mail_tenant_id and self.mail_client_id and self.mail_client_secret)
 
     @computed_field
     @property

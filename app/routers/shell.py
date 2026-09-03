@@ -13,7 +13,13 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app.nav import get_nav_context
-from app.services import analysis_service, edm_service, irp_job_service, submission_service
+from app.services import (
+    analysis_service,
+    edm_service,
+    irp_job_service,
+    search_service,
+    submission_service,
+)
 
 router = APIRouter()
 
@@ -75,6 +81,35 @@ def _results_analyses_url(order: list[str], submission: str, edm: str,
     return "/results/analyses?" + urlencode(params)
 
 
+def _results_comparison_url(pairs: str, submission: str, edm: str) -> str:
+    params = [("pairs", pairs)]
+    if submission:
+        params.append(("submission", submission))
+    if edm:
+        params.append(("edm", edm))
+    return "/results/comparison?" + urlencode(params)
+
+
+def _entry_crumbs(submission: str, edm: str) -> tuple[list[dict], str | None]:
+    """The dedicated results pages' entry-point crumbs: submission entry adds
+    the submission crumb, EDM entry both; the last resolved name is the tab
+    title."""
+    extra_crumbs: list[dict] = []
+    page_name = None
+    sub = (submission_service.get_submission(submission)
+           if submission and _is_uuid(submission) else None)
+    if sub is not None:
+        extra_crumbs.append({"label": sub.name,
+                             "route": f"/submissions/{sub.id}"})
+        page_name = sub.name
+    edm_row = edm_service.get_edm(edm) if edm and _is_uuid(edm) else None
+    if edm_row is not None:
+        extra_crumbs.append({"label": edm_row.name,
+                             "route": f"/edms/{edm_row.id}"})
+        page_name = edm_row.name
+    return extra_crumbs, page_name
+
+
 @router.get("/results/analyses", response_class=HTMLResponse)
 def results_analyses(request: Request, ids: str = "", submission: str = "",
                      edm: str = "", perspective: str = "", ep_type: str = ""):
@@ -89,19 +124,7 @@ def results_analyses(request: Request, ids: str = "", submission: str = "",
     columns, missing = analysis_service.list_results_columns(
         analysis_ids=id_list)
 
-    extra_crumbs: list[dict] = []
-    page_name = None
-    sub = (submission_service.get_submission(submission)
-           if submission and _is_uuid(submission) else None)
-    if sub is not None:
-        extra_crumbs.append({"label": sub.name,
-                             "route": f"/submissions/{sub.id}"})
-        page_name = sub.name
-    edm_row = edm_service.get_edm(edm) if edm and _is_uuid(edm) else None
-    if edm_row is not None:
-        extra_crumbs.append({"label": edm_row.name,
-                             "route": f"/edms/{edm_row.id}"})
-        page_name = edm_row.name
+    extra_crumbs, page_name = _entry_crumbs(submission, edm)
 
     order = [c.id for c in columns]
     view_columns = []
@@ -136,9 +159,65 @@ def results_analyses(request: Request, ids: str = "", submission: str = "",
     })
 
 
+@router.get("/results/comparison", response_class=HTMLResponse)
+def results_comparison(request: Request, pairs: str = "", submission: str = "",
+                       edm: str = "", perspective: str = "", ep_type: str = ""):
+    """The comparison page (spec 013 T-01). ``list_comparison_pairs``
+    re-validates every pair and drops offenders whole, so bad input renders
+    the drop notice or the empty state — never a 500 (P-06). No Risk Modeler
+    call serves the render (FR-016)."""
+    perspectives = analysis_service.list_analysis_perspectives()
+    codes = [p["code"] for p in perspectives]
+    active = (perspective if perspective in codes
+              else analysis_service.DEFAULT_PERSPECTIVE)
+    active_ep = ep_type if ep_type in EP_TYPES else EP_TYPES[0]
+    active_label = next(
+        (p["label"] for p in perspectives if p["code"] == active), active)
+    pair_list, dropped = analysis_service.list_comparison_pairs(
+        pairs=pairs, perspective=active)
+    extra_crumbs, page_name = _entry_crumbs(submission, edm)
+
+    return _render(request, "pages/results_comparison.html",
+                   "results.comparison", {
+        "pairs": pair_list,
+        "dropped": dropped,
+        "perspectives": perspectives,
+        "active_perspective": active,
+        "active_label": active_label,
+        "ep_types": EP_TYPES,
+        "active_ep": active_ep,
+        "rp_labels": analysis_service.expanded_return_periods(),
+        # each toolbar select adds its own value to this GET and hx-includes
+        # the other's, so neither swap drops the other's choice
+        "comparison_base_url": _results_comparison_url(pairs, submission, edm),
+        "max_pairs": analysis_service.MAX_COMPARISON_PAIRS,
+        "extra_crumbs": extra_crumbs,
+        "page_name": page_name,
+    })
+
+
 @router.get("/account", response_class=HTMLResponse)
 def account(request: Request):
     return _render(request, "pages/account.html", "account")
+
+
+@router.get("/api/search", response_class=HTMLResponse)
+def api_search(request: Request, q: str = "", type: str = ""):
+    """The Ctrl/Cmd-J modal's result fragment (PRD §19). Renders only the
+    results/filter-pill markup — no shell, no nav — for the modal's HTMX swap."""
+    current_user = request.state.user
+    term = q.strip()
+    groups = search_service.global_search(
+        term, user_roles=current_user.role_codes or [], type=type or None,
+    )
+    return _templates(request).TemplateResponse(
+        request, "partials/search_results.html", {
+            "term": term,
+            "groups": groups,
+            "provider_types": search_service.PROVIDER_TYPES,
+            "active_type": type,
+        },
+    )
 
 
 # ── Workflows sidebar ─────────────────────────────────────────────────────────

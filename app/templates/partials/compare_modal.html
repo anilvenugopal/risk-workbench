@@ -1,0 +1,100 @@
+{# Compare modal (spec 013 — FR-002/FR-003/FR-004/FR-005). Fetched into
+   #compare-modal-mount, OUTSIDE the self-polling analyses section, so the 3s
+   poll never removes an open modal (breakout-modal precedent). The cart is
+   client-side Alpine state (compareCart in app.js) reading only the rows'
+   data attributes; the /results/comparison render re-validates every pair
+   (T-01), so nothing here is the enforcement. Rows still retrieving or
+   failed are listed, never tickable (FR-002); a row with no recorded run
+   currency is tickable but carries no data-currency, so a pair-add naming it
+   is refused (P-05). #}
+{%- macro row_meta(a) -%}
+<span class="cmp-meta">
+  {% if a.rdm_name %}<span class="cmp-meta__part" title="Broker analysis — source RDM">{{ a.rdm_name }}</span>{% endif %}
+  {% if a.peril %}<span class="cmp-meta__part" title="Peril">{{ a.peril }}</span>{% endif %}
+  {% if a.engine %}<span class="cmp-meta__part" title="Engine">{{ a.engine }}</span>{% endif %}
+  <span class="cmp-meta__part" title="Event rate scheme">{{ a.event_rate_scheme or 'scheme not returned' }}</span>
+  {% if a.submitted_at %}<span class="cmp-meta__part"><time data-utc="{{ a.submitted_at }}" title="{{ a.submitted_at }}">{{ a.submitted_at }}</time></span>{% endif %}
+</span>
+{%- endmacro -%}
+{% set ready = (rows or [])|selectattr('results_state', 'equalto', 'ready')|list %}
+<div class="modal" id="compare-modal">
+  <div class="modal-card modal-card--wide" x-data="compareCart({{ max_pairs }})"
+       {% if submission_id %}data-submission="{{ submission_id }}"{% endif %}
+       {% if edm_id %}data-edm="{{ edm_id }}"{% endif %}>
+    <div class="modal-header"><span class="modal-title">Compare analyses</span></div>
+    <div class="modal-body">
+      {% if gone %}
+      <div class="state-box state-box--warn">{{ gone_message }} Close this
+        dialog; the page updates on its own.</div>
+      {% elif not rows %}
+      <div class="state-box">No analyses in this table yet.</div>
+      {% else %}
+      {% if ready|length < 2 %}
+      <div class="state-box">Fewer than two analyses have retrieved results yet.</div>
+      {% else %}
+      <div class="cmp-hint">Pick two analyses, then add the pair. The first
+        picked is the <strong>base</strong> — percent change reads
+        (second &minus; base) / base.</div>
+      {% endif %}
+      <div class="cmp-list">
+        {% for a in rows %}
+        {% if a.results_state == 'ready' %}
+        <label class="cmp-row" data-id="{{ a.id }}" data-name="{{ a.name }}"
+               {% if a.run_currency %}data-currency="{{ a.run_currency }}"{% endif %}>
+          <input type="checkbox" @change="toggle($event)"
+                 :checked="picked('{{ a.id }}')">
+          <span class="cmp-row__main">
+            <span class="name" title="{{ a.name }}">{{ a.name }}
+              <span class="cmp-badge" x-show="baseId === '{{ a.id }}'" x-cloak>base</span></span>
+            {{ row_meta(a) }}
+          </span>
+          <span class="ccy">{{ a.run_currency or '—' }}</span>
+        </label>
+        {% else %}
+        <div class="cmp-row cmp-row--disabled">
+          <input type="checkbox" disabled>
+          <span class="cmp-row__main">
+            <span class="name" title="{{ a.name }}">{{ a.name }}</span>
+            {{ row_meta(a) }}
+          </span>
+          <span class="ccy">{{ 'retrieval failed' if a.results_state == 'failed' else 'retrieving…' }}</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% if ready|length >= 2 %}
+      <div class="cmp-cart">
+        <div class="cmp-cart__head">Comparison pairs —
+          <span x-text="pairs.length">0</span> of {{ max_pairs }}</div>
+        <div class="cmp-cart__rows">
+          <div class="cmp-cart__empty" x-show="!pairs.length">No pairs yet —
+            tick two analyses, then Add pair.</div>
+          <template x-for="(p, i) in pairs" :key="i">
+            <div class="cmp-pair">
+              <span class="ord" x-text="i + 1"></span>
+              <span x-text="p.base.name"></span>
+              <span class="vs">vs</span>
+              <span x-text="p.second.name"></span>
+              <button type="button" class="x" title="Remove this pair"
+                      @click="removePair(i)">&#10005;</button>
+            </div>
+          </template>
+        </div>
+      </div>
+      {% endif %}
+      {% endif %}
+    </div>
+    <div class="modal-error" x-show="error" x-cloak x-text="error"></div>
+    <div class="modal-footer">
+      <button type="button" class="btn-sm"
+              @click="$el.closest('.modal').remove()">Cancel</button>
+      {% if not gone and ready|length >= 2 %}
+      <button type="button" class="btn-sm" :disabled="picks.length !== 2"
+              @click="addPair()">Add pair</button>
+      <button type="button" class="btn-sm btn-sm--primary"
+              :disabled="!pairs.length" @click="open()"
+              x-text="compareLabel">Compare</button>
+      {% endif %}
+    </div>
+  </div>
+</div>

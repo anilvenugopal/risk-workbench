@@ -344,14 +344,14 @@ def test_submission_entity_table_polls_until_import_is_terminal(
 
 
 @pytest.mark.parametrize(
-    ("kind", "table", "association_table", "entity_column", "backfill_type"),
+    ("kind", "table", "association_table", "entity_column", "backfill_type", "link_type"),
     [
-        ("edms", "irp_edm", "submission_edm", "edm_id", "backfill_edm_detail"),
-        ("rdms", "irp_rdm", "submission_rdm", "rdm_id", "backfill_rdm_analyses"),
+        ("edms", "irp_edm", "submission_edm", "edm_id", "backfill_edm_detail", "edm"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id", "backfill_rdm_analyses", "rdm"),
     ],
 )
 def test_submission_entity_table_polls_until_backfill_is_terminal(
-    client, kind, table, association_table, entity_column, backfill_type,
+    client, kind, table, association_table, entity_column, backfill_type, link_type,
 ):
     created = client.post("/submissions", data=_payload(name=f"Backfill {kind}"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
@@ -370,6 +370,8 @@ def test_submission_entity_table_polls_until_backfill_is_terminal(
         requestor_type="analyst_request",
         requestor_id=entity_id,
         rwb_job_type=backfill_type,
+        link_type=link_type, link_id=entity_id,
+        context_type=link_type, context_id=entity_id,
         input_data={entity_column: entity_id},
     )
 
@@ -414,10 +416,15 @@ def test_edm_table_polls_while_a_breakout_fired_backfill_is_queued(client):
         {"i": portfolio_id, "e": edm_id}, connection="WORKBENCH")
     breakout_job = rwb_job_service.enqueue_rwb_job(
         requestor_type="analyst_request", requestor_id=portfolio_id,
-        rwb_job_type="run_breakout_lob")
+        rwb_job_type="run_breakout_lob",
+        link_type="edm", link_id=edm_id,
+        context_type="portfolio", context_id=portfolio_id)
     rwb_job_service.enqueue_rwb_job(
         requestor_type="rwb_job", requestor_id=breakout_job,
-        rwb_job_type="backfill_edm_detail", input_data={"edm_id": edm_id})
+        rwb_job_type="backfill_edm_detail",
+        link_type="edm", link_id=edm_id,
+        context_type="edm", context_id=edm_id,
+        input_data={"edm_id": edm_id})
 
     live = client.get(f"/submissions/{submission_id}/edms/table")
 
