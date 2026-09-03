@@ -30,6 +30,24 @@ So retrieval is **2 calls per analysis per perspective** (stats + EP curve) × 5
 - TCE-OEP/TCE-AEP arrive free in the same response but are **not stored** (decided 2026-08-25): EP types are OEP and AEP only.
 - The R1 export-flow spike (below) is no longer a blocker for this spec; it moves to the export iteration.
 
+## R3a — HD analyses return a 12-point EP curve with no 2,000-year point
+
+Observed 2026-09-03 from analysis 5676657
+(`CRE_WS_JP_COM_HD_JPWS_Stochastic_Typhoon-Only`, `engineType` HD, `HDv2.1`):
+each of the four EP elements carries 12 return periods — 10,000, 5,000, 1,000,
+500, 250, 200, 100, 50, 25, 10, 5, 2 — not the 10,004-point grid R3 measured on
+a DLM analysis. Ten of the 11 stored return periods are present exactly; 2,000
+is not, and 200 and 2 are points the extract does not store.
+
+The R3 exact-match lookup raised `KeyError: 2000.0` on every HD retrieval,
+failing the `retrieve_analysis_results` job and leaving `loss_results` NULL.
+`_curve_points` now stores `null` for a target the curve does not carry, which
+keeps the "no interpolation" non-negotiable and lets the ten HD points through.
+
+Rejected: interpolating 2,000 between the 1,000 and 5,000 points (invents a
+number RM did not compute, across a gap wide enough to be wrong), and dropping
+2,000 from `STORED_RETURN_PERIODS` (loses a point every DLM analysis reports).
+
 ## R1 — Retrieval mechanism: REST result endpoints vs. export-job Parquet download (O-01)
 
 > **Superseded for viewing by R3 (2026-08-25).** Kept for the export iteration: the export-job path and its broken-download evidence remain the open question there.

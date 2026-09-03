@@ -272,15 +272,16 @@ def finalize_analysis(rwb_job_id: str) -> None:
 
 def _curve_points(element: dict | None) -> dict | None:
     """The 11 stored points from one EP-curve element, by exact return-period
-    match in ``value.returnPeriods``/``value.positionValues`` (every stored
-    target is present in RM's 10,004-point curve). A missing
-    point raises, failing the job rather than storing a partial curve."""
+    match in ``value.returnPeriods``/``value.positionValues`` — never
+    interpolated. A DLM curve carries all 11; an HD curve carries 12 points and
+    no 2,000-year one, so a target the curve does not carry is stored as
+    ``null`` (research R3a)."""
     if element is None:
         return None
     value = element.get("value") or {}
     by_period = dict(zip(value.get("returnPeriods") or [],
                          value.get("positionValues") or []))
-    return {str(rp): by_period[float(rp)] for rp in STORED_RETURN_PERIODS}
+    return {str(rp): by_period.get(float(rp)) for rp in STORED_RETURN_PERIODS}
 
 
 def build_loss_results_extract(*, perspective_codes: list[str],

@@ -415,6 +415,29 @@ def test_builder_looks_up_the_11_points_and_drops_tce():
     assert doc["retrieved_at"] == "2026-08-26T00:00:00Z"
 
 
+def test_builder_stores_null_for_a_point_the_hd_curve_omits():
+    """An HD analysis returns a 12-point curve with no 2,000-year return period
+    (research R3a); the other ten stored points are kept verbatim."""
+    stats, ep = _gr_capture()
+    hd_periods = [10000.0, 5000.0, 1000.0, 500.0, 250.0, 200.0,
+                  100.0, 50.0, 25.0, 10.0, 5.0, 2.0]
+    for element in ep:
+        element["value"] = {"returnPeriods": hd_periods,
+                            "positionValues": list(hd_periods)}
+
+    doc = build_loss_results_extract(
+        perspective_codes=_FIVE, results={"GR": (stats, ep)},
+        settings={"engineType": "HD", "engineVersion": "HDv2.1"},
+        retrieved_at="2026-09-03T00:00:00Z")
+
+    gr = doc["perspectives"]["GR"]
+    assert set(gr["oep"]) == {str(rp) for rp in STORED_RETURN_PERIODS}
+    assert gr["oep"]["2000"] is None
+    assert gr["aep"]["2000"] is None
+    assert gr["oep"]["1000"] == 1000.0
+    assert gr["oep"]["5000"] == 5000.0
+
+
 def test_builder_empty_perspective_is_explicit_null():
     stats, ep = _gr_capture()
     doc = build_loss_results_extract(
