@@ -31,11 +31,11 @@
 
     {% if password_auth_enabled %}
     {% if oidc_auth_enabled %}
-    <div class="signin-divider"><span>OR · LOCAL DEVELOPMENT ONLY</span></div>
+    <div class="signin-divider"><span>OR</span></div>
     {% endif %}
     <div class="signin-backdoor">
-      <div class="signin-backdoor__head">🔒 PASSWORD · FALLBACK</div>
-      <p class="signin-backdoor__body">Sign in with email and password. Only enabled when AUTH_MODE includes password.</p>
+      <div class="signin-backdoor__head">🔒 PASSWORD</div>
+      <p class="signin-backdoor__body">Sign in with email and password.</p>
       <form method="post" action="/auth/login{% if next %}?next={{ next | urlencode }}{% endif %}">
         <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
         <label class="signin-backdoor__label" for="email">EMAIL</label>
