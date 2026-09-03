@@ -35,8 +35,7 @@ per-queue worker framework this feature extends (T-01).
   result into screen 2: a facts strip and one table row per peril / region /
   model-version partition (members by display name; the scheme cell is a
   `<select>` limited to the members' schemes with none preselected where they
-  differ, the shared scheme where they agree, "Different simulation sets"
-  where the partition is incompatible), the blocking problems above the
+  differ, the shared scheme where they agree), the blocking problems above the
   table, and the hidden fingerprint and inspected ids when nothing blocks.
   The same response fills screen 3's summary and simulation count out of
   band. `POST /submissions/{sid}/analyses/group` re-runs the gate in

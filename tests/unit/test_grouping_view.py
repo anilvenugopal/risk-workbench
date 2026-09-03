@@ -56,11 +56,10 @@ def _view(facts_by_member: dict[int, list[GroupingRegionFact]],
                                   suggested_num_of_simulations=1)
 
 
-def _partition(ids, options, *, required=False, compatible=True, key=WS_NA):
+def _partition(ids, options, *, required=False, key=WS_NA):
     return GroupingPartition(
         key=key, analysis_ids=tuple(ids), event_rate_scheme_options=tuple(options),
-        observed_pet_ids=(), event_rate_selection_required=required,
-        simulation_set_compatible=compatible)
+        observed_pet_ids=(), event_rate_selection_required=required)
 
 
 def test_one_shared_scheme_resolves_the_row():
@@ -96,18 +95,6 @@ def test_conflicting_schemes_offer_labelled_options_with_member_counts():
         "event_rate_scheme_id": 739}
     assert row.engine_versions == ("RL23", "RL25")
     assert build_inspection_screen(view).conflict_count == 1
-
-
-def test_incompatible_simulation_sets_win_over_a_required_choice():
-    view = _view({1: [_fact(1, scheme=None)], 2: [_fact(2, scheme=None)]},
-                 (_partition([1, 2], [EventRateSchemeOption(101), EventRateSchemeOption(2)],
-                             required=True, compatible=False),),
-                 output="PLT")
-
-    row, = build_inspection_screen(view).rows
-
-    assert row.mode == "incompatible"
-    assert row.resolved is None
 
 
 def test_a_partition_without_schemes_has_nothing_to_show():

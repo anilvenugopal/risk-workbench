@@ -86,8 +86,7 @@ Fragment states, all rendered into `#group-inspection`:
 - **Ready**: the facts strip ("Group output ELT|PLT", member count, scheme
   mismatch count); the partition table with Peril and Region codes, Model
   version as `<engine versions> · <model version>`, member display names,
-  and the Event-rate scheme cell by row `mode` — `incompatible` (partition
-  not `simulation_set_compatible`) reads "Different simulation sets";
+  and the Event-rate scheme cell by row `mode` —
   `choose` (`event_rate_selection_required`) is a
   `<select name="event_rate_selection" data-partition="<peril> / <region> / <model version>">`
   with an empty first option and one option per `event_rate_scheme_options`

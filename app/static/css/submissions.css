@@ -419,7 +419,6 @@
 .insp-member { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
 .insp-member__name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); }
 .insp-resolved { color: var(--text-primary); overflow-wrap: anywhere; }
-.insp-resolved--block { color: var(--color-negative); }
 .insp-choose { display: flex; flex-direction: column; gap: 3px; }
 .insp-choose .wf-field__hint { color: var(--color-warning); }
 .insp-choose select { text-overflow: ellipsis; }

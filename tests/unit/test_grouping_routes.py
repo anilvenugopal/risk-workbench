@@ -196,34 +196,21 @@ def test_inspect_blocked_names_the_problem_and_offers_no_submit(
     ctx = _seeded_submission()
     ids = ctx["irp_ids"]
     fake_irp.seed_grouping_inspection(ids, blocking=(GroupingProblem(
-        code="differing_pet_ids_unsupported",
-        message="Members use different PETs in one partition.",
+        code="simulation_set_mapping_missing",
+        message="No simulation set maps WS/NA/11.0 under scheme 101.",
         analysis_ids=tuple(ids),
-        partition=GroupingPartitionKey("WS", "NA", "11.0"),
-        pet_ids=(900, 901)),), simulation_set_compatible=False)
+        partition=GroupingPartitionKey("WS", "NA", "11.0")),))
 
     response = _inspect(_client(), ctx)
 
     assert response.status_code == 200
     assert "These members cannot be grouped" in response.text
-    assert "Members use different PETs in one partition." in response.text
+    assert "No simulation set maps WS/NA/11.0 under scheme 101." in response.text
     assert "<li>CRE_P1_T1</li>" in response.text and "<li>CRE_P2_T1</li>" in response.text
-    assert "Different simulation sets" in response.text
     assert "data-inspection-ready" not in response.text
     assert 'name="expected_inspection_fingerprint"' not in response.text
     assert 'name="num_of_simulations"' not in response.text
     assert "Group name" not in response.text  # screen 3's summary stays empty
-
-
-def test_inspect_incompatible_partition_names_the_cell(iteration2_db, fake_irp):
-    ctx = _seeded_submission()
-    fake_irp.seed_grouping_inspection(ctx["irp_ids"],
-                                      simulation_set_compatible=False)
-
-    response = _inspect(_client(), ctx)
-
-    assert "Different simulation sets" in response.text
-    assert 'name="event_rate_selection"' not in response.text
 
 
 def test_inspect_gate_failure_renders_the_error_at_422(iteration2_db, fake_irp):

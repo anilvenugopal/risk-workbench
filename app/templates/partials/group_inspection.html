@@ -47,9 +47,7 @@
               </div>
             </td>
             <td>
-              {% if row.mode == 'incompatible' %}
-              <div class="insp-resolved insp-resolved--block">Different simulation sets</div>
-              {% elif row.mode == 'choose' %}
+              {% if row.mode == 'choose' %}
               <div class="insp-choose">
                 <select class="wf-field__input" name="event_rate_selection" data-partition="{{ row.label }}"
                         aria-label="Event-rate scheme for {{ row.label }}" title="Choose a scheme"

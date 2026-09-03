@@ -27,7 +27,7 @@ class PartitionRow:
     label: str                          # ``WS / NA / 11.0``
     engine_versions: tuple[str, ...]    # distinct, sorted, from the region facts
     member_names: tuple[str, ...]
-    mode: str                           # incompatible | choose | resolved | none
+    mode: str                           # choose | resolved | none
     options: tuple[SchemeOption, ...]
 
     @property
@@ -92,9 +92,7 @@ def _row(view: GroupingInspectionView, part: GroupingPartition) -> PartitionRow:
                    "model_version": key.model_version,
                    "event_rate_scheme_id": opt.event_rate_scheme_id})
         for opt in part.event_rate_scheme_options)
-    if not part.simulation_set_compatible:
-        mode = "incompatible"
-    elif part.event_rate_selection_required:
+    if part.event_rate_selection_required:
         mode = "choose"
     elif len(options) == 1:
         mode = "resolved"
