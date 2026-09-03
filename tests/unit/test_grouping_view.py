@@ -38,7 +38,8 @@ def _view(facts_by_member: dict[int, list[GroupingRegionFact]],
           partitions: tuple[GroupingPartition, ...],
           problems: tuple[GroupingProblem, ...] = (),
           members: dict[int, GroupMember] | None = None,
-          output: str = "ELT") -> GroupingInspectionView:
+          output: str = "ELT",
+          warnings: tuple[GroupingProblem, ...] = ()) -> GroupingInspectionView:
     ids = tuple(facts_by_member)
     inspection = GroupingInspection(
         analysis_ids=ids, resource_uris=(), inspected_at="now", fingerprint="v1:x",
@@ -49,7 +50,7 @@ def _view(facts_by_member: dict[int, list[GroupingRegionFact]],
             for i, facts in facts_by_member.items()),
         output_loss_table=output, simulate_to_plt=output == "PLT",
         partitions=partitions, simulation_mappings=(), required_caller_inputs=(),
-        warnings=(), blocking_problems=problems)
+        warnings=warnings, blocking_problems=problems)
     if members is None:
         members = {i: _member(i, f"A{i}") for i in ids}
     return GroupingInspectionView(inspection=inspection, members=members,
@@ -119,3 +120,51 @@ def test_problems_carry_the_message_and_the_members_display_names():
     text, = screen.problems
     assert text.text == "Analysis 77 was not found."
     assert text.member_names == ("CRE_P1_T1", "77")
+
+
+TREATY_WARNING = GroupingProblem(
+    code="inconsistent_treaty_terms",
+    message="Treaty number XOL-2026-01 has inconsistent loss-affecting terms.",
+    analysis_ids=(1, 2), treaty_numbers=("XOL-2026-01",),
+    treaty_ids=(88412, 90177),
+    differing_fields=("attachmentPoint", "lobs", "maolAmount"))
+
+
+def test_a_treaty_warning_becomes_a_mismatch_with_friendly_terms():
+    view = _view({1: [_fact(1)], 2: [_fact(2)]},
+                 (_partition([1, 2], [EventRateSchemeOption(101)]),),
+                 warnings=(TREATY_WARNING,))
+
+    screen = build_inspection_screen(view)
+
+    mismatch, = screen.treaty_mismatches
+    assert mismatch.treaty_number == "XOL-2026-01"
+    assert mismatch.differing_terms == (
+        "Attachment Point", "Lines of Business", "MAOL Amount")
+    assert mismatch.member_names == ("A1", "A2")
+    assert mismatch.treaty_ids == (88412, 90177)
+    assert screen.treaty_mismatch_count == 1
+    assert not screen.blocked
+
+
+def test_a_blocked_inspection_still_carries_its_treaty_mismatches():
+    problem = GroupingProblem(code="member_not_found", message="Analysis 2 was not found.",
+                              analysis_ids=(2,))
+    view = _view({1: [_fact(1)], 2: [_fact(2)]},
+                 (_partition([1, 2], [EventRateSchemeOption(101)]),),
+                 problems=(problem,), warnings=(TREATY_WARNING,))
+
+    screen = build_inspection_screen(view)
+
+    assert screen.blocked
+    assert screen.treaty_mismatch_count == 1
+
+
+def test_no_warnings_means_no_treaty_mismatches():
+    view = _view({1: [_fact(1)], 2: [_fact(2)]},
+                 (_partition([1, 2], [EventRateSchemeOption(101)]),))
+
+    screen = build_inspection_screen(view)
+
+    assert screen.treaty_mismatches == ()
+    assert screen.treaty_mismatch_count == 0

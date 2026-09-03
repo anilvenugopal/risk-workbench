@@ -1,8 +1,9 @@
 {# Screen 2 of the group compose dialog (spec 012, contracts/routes.md),
    rendered into #group-inspection by POST …/analyses/group/inspect: a read
    error with Retry (422), or the partition table with the blocking problems
-   above it. The hidden fingerprint, inspected ids, and [data-inspection-ready]
-   marker appear only when nothing blocks. #group-summary and #group-sims are
+   above it and the treaty term mismatches (warnings, never blocking) below.
+   The hidden fingerprint, inspected ids, and [data-inspection-ready] marker
+   appear only when nothing blocks. #group-summary and #group-sims are
    screen 3's server-rendered parts, swapped out of band on every response. #}
 {% if errors %}
 <div class="insp-notice insp-notice--block">
@@ -28,7 +29,10 @@
   <div class="insp-facts">
     <span>Group output <b>{{ screen.output_loss_table }}</b></span>
     <span><b>{{ screen.member_count }}</b> member{{ '' if screen.member_count == 1 else 's' }}</span>
-    {% if not screen.blocked %}<span><b>{{ screen.conflict_count }}</b> scheme mismatch{{ '' if screen.conflict_count == 1 else 'es' }}</span>{% endif %}
+    {% if not screen.blocked %}
+    <span><b>{{ screen.conflict_count }}</b> scheme mismatch{{ '' if screen.conflict_count == 1 else 'es' }}</span>
+    <span><b>{{ screen.treaty_mismatch_count }}</b> treaty mismatch{{ '' if screen.treaty_mismatch_count == 1 else 'es' }}</span>
+    {% endif %}
   </div>
 
   <div>
@@ -74,7 +78,19 @@
 
   <div>
     <div class="exec-section-label">Treaty mismatches</div>
+    {% for m in screen.treaty_mismatches %}
+    <div class="insp-notice insp-notice--warn"{% if not loop.first %} style="margin-top:var(--space-2)"{% endif %}>
+      <div class="insp-notice__title">Treaty Number {{ m.treaty_number }} has different loss-affecting terms in {{ m.member_names|length }} members</div>
+      <p>Differing terms: {{ m.differing_terms|join(', ') }}. Risk Modeler groups these as one treaty, so the grouped result may not be what either member produced alone.</p>
+      <ul>{% for name in m.member_names %}<li>{{ name }}</li>{% endfor %}</ul>
+      {% if m.treaty_ids %}<p style="margin-top:var(--space-2)">Treaty IDs: {{ m.treaty_ids|join(', ') }}</p>{% endif %}
+    </div>
+    {% else %}
     <div class="insp-notice insp-notice--ok">No treaty number appears with different loss-affecting terms across the members.</div>
+    {% endfor %}
+    {% if screen.treaty_mismatches %}
+    <div class="wf-field__hint" style="margin-top:var(--space-1)">Treaty mismatches do not stop the grouping. Compared terms: cedant, treaty type, currency, attachment and limit terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs, loss occurrences.</div>
+    {% endif %}
   </div>
 
   {% if not screen.blocked %}
@@ -89,6 +105,7 @@
   <dl class="sum-list">
     <dt>Group name</dt><dd x-text="groupName"></dd>
     <dt>Output</dt><dd>{{ screen.output_loss_table }}</dd>
+    <dt>Treaties</dt><dd>{% if screen.treaty_mismatches %}<span class="badge badge--warning badge--sm">{{ screen.treaty_mismatch_count }} mismatch{{ '' if screen.treaty_mismatch_count == 1 else 'es' }}</span> <span class="tag-empty">{{ screen.treaty_mismatches|map(attribute='treaty_number')|join(', ') }}</span>{% else %}No mismatches{% endif %}</dd>
   </dl>
   <div class="exec-section-label" style="margin-top:var(--space-3)">Members ({{ screen.member_count }})</div>
   <div class="sum-members">

@@ -1,8 +1,9 @@
 """The group compose dialog's inspection screen (spec 012, contracts/routes.md):
 the package ``GroupingInspection`` as one table row per peril / region /
-model-version partition plus the blocking problems, with the Workbench's
-display names in place of Platform ids. ``grouping_service`` stays at gate +
-plan scope; nothing here is persisted or posted.
+model-version partition plus the blocking problems and the treaty term
+mismatches, with the Workbench's display names in place of Platform ids.
+``grouping_service`` stays at gate + plan scope; nothing here is persisted or
+posted.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from dataclasses import dataclass
 
 from app.services.grouping_service import GroupingInspectionView
 from app.services.irp_gateway import GroupingPartition, GroupingPartitionKey
+from app.services.treaty_service import humanize_key
 
 
 @dataclass(frozen=True)
@@ -42,11 +44,23 @@ class ProblemText:
 
 
 @dataclass(frozen=True)
+class TreatyMismatch:
+    """One ``inconsistent_treaty_terms`` warning: treaties sharing a Treaty
+    Number across the members whose loss-affecting terms differ. Members and
+    treaty ids are two independent lists — the package does not pair them."""
+    treaty_number: str
+    differing_terms: tuple[str, ...]    # display labels, ``Attachment Point``
+    member_names: tuple[str, ...]
+    treaty_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class InspectionScreen:
     output_loss_table: str
     member_count: int
     rows: tuple[PartitionRow, ...]
     problems: tuple[ProblemText, ...]
+    treaty_mismatches: tuple[TreatyMismatch, ...]
 
     @property
     def blocked(self) -> bool:
@@ -55,6 +69,10 @@ class InspectionScreen:
     @property
     def conflict_count(self) -> int:
         return sum(row.mode == "choose" for row in self.rows)
+
+    @property
+    def treaty_mismatch_count(self) -> int:
+        return len(self.treaty_mismatches)
 
 
 def build_inspection_screen(view: GroupingInspectionView) -> InspectionScreen:
@@ -66,6 +84,13 @@ def build_inspection_screen(view: GroupingInspectionView) -> InspectionScreen:
         problems=tuple(
             ProblemText(text=p.message, member_names=_names(view, p.analysis_ids))
             for p in inspection.blocking_problems),
+        treaty_mismatches=tuple(
+            TreatyMismatch(
+                treaty_number=", ".join(p.treaty_numbers),
+                differing_terms=tuple(humanize_key(f) for f in p.differing_fields),
+                member_names=_names(view, p.analysis_ids),
+                treaty_ids=tuple(p.treaty_ids))
+            for p in inspection.warnings if p.code == "inconsistent_treaty_terms"),
     )
 
 
@@ -112,5 +137,6 @@ __all__ = [
     "PartitionRow",
     "ProblemText",
     "SchemeOption",
+    "TreatyMismatch",
     "build_inspection_screen",
 ]

@@ -672,15 +672,17 @@ class FakeIRP:
         conflicting: list[int] | None = None,
         periods: dict[int, int] | None = None,
         blocking: tuple[GroupingProblem, ...] = (),
+        warnings: tuple[GroupingProblem, ...] = (),
     ) -> GroupingInspection:
         """Seed what ``inspect_grouping`` returns. Every member sits in one
         WS · NA · 11.0 partition; ``conflicting`` lists the scheme ids on offer
         and marks the partition as requiring a selection; ``periods`` makes the
         named members PLT (PET ``900+n``) with that many periods; ``blocking``
-        seeds the problems verbatim."""
+        and ``warnings`` seed the problems verbatim."""
         self.grouping_inspection = self._build_inspection(
             list(analysis_ids), output_loss_table=output_loss_table,
-            conflicting=conflicting, periods=periods, blocking=blocking)
+            conflicting=conflicting, periods=periods, blocking=blocking,
+            warnings=warnings)
         return self.grouping_inspection
 
     @staticmethod
@@ -688,6 +690,7 @@ class FakeIRP:
                           conflicting: list[int] | None = None,
                           periods: dict[int, int] | None = None,
                           blocking: tuple[GroupingProblem, ...] = (),
+                          warnings: tuple[GroupingProblem, ...] = (),
                           ) -> GroupingInspection:
         periods = periods or {}
         key = GroupingPartitionKey(peril_code="WS", region_code="NA",
@@ -729,7 +732,7 @@ class FakeIRP:
             members=tuple(members), output_loss_table=output_loss_table,
             simulate_to_plt=(output_loss_table == "PLT"),
             partitions=(partition,), simulation_mappings=(),
-            required_caller_inputs=tuple(required), warnings=(),
+            required_caller_inputs=tuple(required), warnings=tuple(warnings),
             blocking_problems=tuple(blocking))
 
     def _inspection_for(self, ids: list[int]) -> GroupingInspection:

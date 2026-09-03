@@ -143,6 +143,35 @@ def test_inspect_renders_an_elt_group_ready_to_submit(iteration2_db, fake_irp):
     assert f'name="expected_inspection_fingerprint" value="{fingerprint}"' in response.text
     assert response.text.count('name="inspected_analysis_ids"') == 2
     assert "data-inspection-ready" in response.text
+    assert "<b>0</b> treaty mismatches<" in response.text
+    assert "No treaty number appears with different loss-affecting terms" in response.text
+    assert "<dt>Treaties</dt><dd>No mismatches</dd>" in response.text
+
+
+def test_inspect_lists_a_treaty_mismatch_without_blocking(iteration2_db, fake_irp):
+    ctx = _seeded_submission()
+    ids = ctx["irp_ids"]
+    fake_irp.seed_grouping_inspection(ids, warnings=(GroupingProblem(
+        code="inconsistent_treaty_terms",
+        message="Treaty number XOL-2026-01 has inconsistent loss-affecting terms.",
+        analysis_ids=tuple(ids), treaty_numbers=("XOL-2026-01",),
+        treaty_ids=(88412, 90177),
+        differing_fields=("attachmentPoint", "occurrenceLimit")),))
+
+    response = _inspect(_client(), ctx)
+
+    assert response.status_code == 200
+    assert ("Treaty Number XOL-2026-01 has different loss-affecting terms in 2 members"
+            in response.text)
+    assert "Differing terms: Attachment Point, Occurrence Limit." in response.text
+    assert "<li>CRE_P1_T1</li>" in response.text and "<li>CRE_P2_T1</li>" in response.text
+    assert "Treaty IDs: 88412, 90177" in response.text
+    assert "Treaty mismatches do not stop the grouping." in response.text
+    assert "<b>1</b> treaty mismatch<" in response.text
+    assert ('<dt>Treaties</dt><dd><span class="badge badge--warning badge--sm">1 mismatch</span> '
+            '<span class="tag-empty">XOL-2026-01</span></dd>') in response.text
+    assert "data-inspection-ready" in response.text
+    assert 'name="expected_inspection_fingerprint"' in response.text
 
 
 def test_inspect_offers_only_the_members_schemes_for_a_conflict(
