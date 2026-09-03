@@ -14,7 +14,7 @@
 #   process directly via ps, independent of whether its PID file exists.
 #
 # Usage:
-#   APP_DIR=/opt/risk-workbench bash infra/scripts/rhel9/rhel9-worker-health.sh
+#   APP_DIR=/rms bash infra/scripts/rhel9/rhel9-worker-health.sh
 #   PID_DIR=/var/lib/risk-workbench/pids bash ... (default shown)
 #   bash ... --queue upload_edm   # filter to one queue
 
@@ -22,7 +22,7 @@ set -uo pipefail
 # No "-e" — report on every queue even if one lookup fails, same posture as
 # rhel9-stop.sh.
 
-APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /rms}"
 PID_DIR="${PID_DIR:-/var/lib/risk-workbench/pids}"
 FILTER_QUEUE=""
 
