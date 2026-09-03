@@ -104,7 +104,7 @@ Decided 2026-08-25 (plan phase), from the shipped spec-010 worker/queue machiner
 - **Own**: `_finalize_analysis_body` already resolves `irp_id`/`settings_metadata` after FINISHED; on success it enqueues `retrieve_analysis_results`. The extract needs `irp_id` (resolved here) and the metadata payload (engine/currency fields), so chaining after backfill — not directly off the poller's FINISHED handler — is the only ordering that has its inputs ready.
 - **Broker**: `_backfill_rdm_analyses_body` enqueues one retrieval per captured live `(rdm_id, irp_id)` row whose `loss_results IS NULL` — covering first import, manual RDM sync, and re-import of another EDM copy (US2-3: rows already carrying results enqueue nothing).
 - **Dedup**: jobs are keyed `(requestor_type='irp_analysis', requestor_id=<analysis uuid>, rwb_job_type='retrieve_analysis_results')` — a new `irp_analysis` row in `rwb_job_requestor_type_kind`. `enqueue_rwb_job`'s UNIQUE key makes any re-fired trigger a no-op (FR-006), and the worker's own `loss_results IS NOT NULL → skip` guard covers the reclaim/re-run path. Keying on the analysis (not the parent rwb_job id) also gives views a one-join lookup of the retrieval job's `status_code`/`error_detail` for SC-005.
-- **Failure**: standard actor pattern (`max_retries=0`; failure → `failed` + `error_detail`; heartbeat + reconciler recover interruption). `enqueue_rwb_job` never resurrects a terminal row, so a failed retrieval stays failed and visible — exactly O-06/spec-010 P-14: the analysis remains FINISHED, views show results-pending plus the reason. No automatic backoff retry is added (unchanged from 010's deferral).
+- **Failure**: standard actor pattern (`max_retries=0`; failure → `failed` + `error_detail`; heartbeat + reconciler recover interruption). `enqueue_rwb_job` never resurrects a terminal row, so a failed retrieval stays failed and visible — exactly O-06/spec-010 P-14: the analysis remains FINISHED, views show `retrieval failed` plus the reason. No automatic backoff retry is added (unchanged from 010's deferral); the analyst re-runs it with Retry (R9, 2026-09-03).
 
 Rejected: enqueueing retrieval from the poller's `_handle_analysis_terminal` (runs before `irp_id` exists — backfill resolves it); keying dedup on the parent backfill job id (a re-run backfill gets a new id and would double-enqueue, leaving FR-006 to the worker guard alone).
 
@@ -169,3 +169,53 @@ Where the fields come from:
 - Rejected: **read the `execute_analysis_batch` job's `input_data`.** The values are there, keyed by the analysis row's `execution_id` + `execution_item_no`, so it is correct — but a work order is not a display source, and every expanded row would cost a two-hop JSON index lookup into a queue table.
 
 **T-10 — Submitted renders client-side.** The server writes UTC into `<time datetime="…Z">`; a JS sliver formats it with `toLocaleString` to date, time to the second, and AM/PM in the reader's zone (FR-024), and sets the cell's `title` to the full value. The server has no way to know the reader's timezone, and nothing downstream reads the formatted string. The column is 180px so a two-digit hour does not clip.
+
+## R9 — Retry in place for a failed retrieval (FR-007, T-11)
+
+Decided 2026-09-03, after the R3a failure left a real row stuck.
+
+**Observed.** `retrieve_analysis_results` failed on 2026-09-03 for
+`CRE_WS_JP_COM_HD_JPWS_Stochastic_Typhoon-Only` (analysis
+`0DA5A4CF-A67D-4117-98C3-14B3FF931D98`, rwb_job
+`b30471e2-dac1-4b07-abff-b64981a7ebdf`, `error_detail` = `2000.0`). The
+`_curve_points` fix (R3a) stops the next HD analysis from failing, but this
+row stays `failed`: `enqueue_rwb_job` never revives a terminal row (R4), so
+neither a re-fired `finalize_analysis` nor an RDM re-sync re-drives it. The
+only recovery was a manual `UPDATE rwb_job`. That row is left as it is and is
+the verification case in `quickstart.md`.
+
+**Decision.** One analyst-facing Retry on the failed row, calling
+`rwb_job_service.ensure_pending_rwb_job` — the FR-044/FR-045 retry primitive
+six services already use (`edm_service.sync_detail` is the closest model) —
+on the retrieval's existing key `(irp_analysis, <analysis id>,
+retrieve_analysis_results)` with the chain's `input_data`
+`{"analysis_id": …}`, then `dispatch.dispatch`. Reasons:
+
+- Keying on the retrieval's own tuple revives **the** failed row.
+  `analysis_service._mark_failed_retrievals` joins
+  `requestor_type = 'irp_analysis'` and `status_code = 'failed'`, so the reset
+  clears the failed state by itself; no column, no status to keep in sync.
+  Keying on `analyst_request` (the `sync_detail` shape) would insert a second
+  head and leave the first one — and the cell — failed.
+- The worker is already idempotent (`loss_results IS NOT NULL` → skip) and
+  reads only `input_data.analysis_id`, so a revived row needs no worker
+  change.
+- The route must only enqueue and dispatch (constitution Article 5); the
+  reconciler covers a missed dispatch.
+
+**Rejected.**
+
+- *Wait for the job monitoring page (CR-04 T023, `resubmit_rwb_job`).* Still a
+  7-line stub; it is an admin view by job id, while the analyst is looking at
+  the analysis row. Both paths call the same primitive, so building Retry does
+  not pre-empt it.
+- *Automatic backoff retry.* Spec 010 deferred it; the R3a failure was
+  deterministic and would have retried forever.
+- *A `results_state` column or a `retry_requested` flag.* The state is already
+  derived from `loss_results` and the `rwb_job` row (Article 2).
+- *Retry on `/results/analyses` and `/results/comparison`.* Neither page has
+  the `#analyses-csrf` input or an `analyses-changed` listener; each would
+  need its own refresh path for a click the merged table already offers.
+- *A new spec folder.* One route, one service function, one macro edit and
+  one requirement; the R3a fix already amends this spec's contracts and
+  research on the same branch.

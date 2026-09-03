@@ -19,7 +19,7 @@ from sqlalchemy import text
 from app.config import settings as app_settings
 from app.services import analysis_service
 from app.services._common import _uid, _utcnow
-from db import execute, execute_command, get_connection
+from db import execute, execute_command, execute_one, get_connection
 from tests.unit.grouping_rows import (
     link_submission_edm,
     seed_broker_analysis,
@@ -1103,3 +1103,70 @@ def test_comparable_analyses_gone_scope_reads_none(iteration2_db):
         submission_id=fx.submission, edm_id=unrelated_edm) is None
     assert analysis_service.list_comparable_analyses(
         edm_id=str(uuid.uuid4())) is None
+
+
+# ── retry_results_retrieval (spec 011 FR-007, T-11) ──────────────────────────────
+
+
+def _retrieval_job(analysis_id: str) -> dict:
+    return execute_one(
+        "SELECT id, status_code, attempt_count, error_detail FROM rwb_job "
+        "WHERE requestor_type = 'irp_analysis' AND requestor_id = :a "
+        "AND rwb_job_type = 'retrieve_analysis_results'",
+        {"a": analysis_id}, connection="WORKBENCH")
+
+
+def test_retry_revives_the_failed_retrieval_row_in_place(iteration2_db):
+    edm = _edm()
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001")
+    _job(analysis_id=analysis, status="FINISHED")
+    _failed_retrieval(analysis, detail="2000.0")
+    execute_command("UPDATE rwb_job SET attempt_count = 1 WHERE requestor_id = :a",
+                    {"a": analysis}, connection="WORKBENCH")
+    before = _retrieval_job(analysis)
+
+    job_id = analysis_service.retry_results_retrieval(
+        analysis_id=analysis, actor_id=iteration2_db.user_a)
+
+    after = _retrieval_job(analysis)
+    assert job_id == _uid(before["id"]) == _uid(after["id"])
+    assert after["status_code"] == "pending"
+    assert after["attempt_count"] == 2
+    assert after["error_detail"] is None
+    [row] = analysis_service.list_executed_analyses(edm_id=edm)
+    assert row.results_state == "pending"
+    assert row.results_error is None
+    assert row.is_live is True
+
+
+def test_retry_skips_a_retrieval_already_in_flight(iteration2_db):
+    edm = _edm()
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001")
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "status_code) VALUES (:id, 'irp_analysis', :rid, "
+        "'retrieve_analysis_results', 'pending')",
+        {"id": str(uuid.uuid4()), "rid": analysis}, connection="WORKBENCH")
+    before = _retrieval_job(analysis)
+
+    assert analysis_service.retry_results_retrieval(
+        analysis_id=analysis, actor_id=iteration2_db.user_a) is None
+    assert _retrieval_job(analysis) == before
+
+
+def test_retry_rejects_stored_results_and_unknown_ids(iteration2_db):
+    edm = _edm()
+    stored = _executed(edm_id=edm, status_code="ready", irp_id="9001",
+                       loss_results=_extract())
+    with pytest.raises(ValueError, match="already stored"):
+        analysis_service.retry_results_retrieval(
+            analysis_id=stored, actor_id=iteration2_db.user_a)
+    with pytest.raises(LookupError):
+        analysis_service.retry_results_retrieval(
+            analysis_id=str(uuid.uuid4()), actor_id=iteration2_db.user_a)
+    deleted = _executed(edm_id=edm, status_code="ready", irp_id="9002")
+    execute_command("UPDATE irp_analysis SET deleted_at = :now WHERE id = :id",
+                    {"now": _utcnow(), "id": deleted}, connection="WORKBENCH")
+    with pytest.raises(LookupError):
+        analysis_service.retry_results_retrieval(
+            analysis_id=deleted, actor_id=iteration2_db.user_a)

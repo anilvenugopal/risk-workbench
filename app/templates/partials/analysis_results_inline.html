@@ -1,6 +1,7 @@
 {# Engine version is not listed among the metadata fields — the merged
    table's Engine column carries it, and a collapsed value is never restated
    here. #}
+{%- import 'partials/analysis_row_macros.html' as row -%}
 {%- set d = a.display -%}
 {%- set s = a.submitted if a.submitted is defined else None -%}
 <div class="row-meta">
@@ -77,7 +78,8 @@
   <div class="row-results__head"><span class="row-results__title">Condensed results</span></div>
   {% if a.results_state is defined and a.results_state == 'failed' %}
   <p class="row-results__empty">Results retrieval failed.
-    {%- if a.results_error %}<span class="exec-reason">{{ a.results_error }}</span>{% endif %}</p>
+    {%- if a.results_error %}<span class="exec-reason">{{ a.results_error }}</span>{% endif %}
+    {{ row.retry_button(a) }}</p>
   {% elif a.status_code is defined and a.status_code == 'error' %}
   <p class="row-results__empty">The run failed — there are no results.</p>
   {% elif a.status_code is defined and a.status_code != 'ready' %}

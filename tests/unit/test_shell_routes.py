@@ -338,3 +338,65 @@ class TestResultsAnalysesPage:
         resp = client.get("/results/analyses")
         assert resp.status_code == 200
         assert "No analyses to display" in resp.text
+
+
+class TestRetryResultsRetrieval:
+    """POST /results/analyses/{id}/retry (spec 011 contracts/routes.md §5).
+    The service is faked; its coverage lives in test_analysis_service.py."""
+
+    def _post(self, monkeypatch, outcome, *, csrf=None):
+        import json
+
+        from app.auth.csrf import generate_csrf_token
+        from app.services import analysis_service
+
+        calls = []
+
+        def fake_retry(*, analysis_id, actor_id):
+            calls.append((analysis_id, actor_id))
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        monkeypatch.setattr(analysis_service, "retry_results_retrieval",
+                            fake_retry)
+        resp = TestClient(_make_app(_fake_user(id="test-user-id"))).post(
+            f"/results/analyses/{AN_A}/retry",
+            data={"csrf_token": csrf or generate_csrf_token()},
+            headers={"HX-Request": "true"})
+        trigger = (json.loads(resp.headers["HX-Trigger"])
+                   if "HX-Trigger" in resp.headers else None)
+        return resp, trigger, calls
+
+    def test_queued_reads_success_and_refetches(self, monkeypatch):
+        resp, trigger, calls = self._post(monkeypatch, "job-1")
+        assert resp.status_code == 204
+        assert trigger["analyses-changed"] is True
+        assert trigger["rwb:toast"] == {
+            "message": "Results retrieval queued.", "type": "success"}
+        assert calls == [(AN_A, "test-user-id")]
+
+    def test_in_flight_reads_warning_and_still_refetches(self, monkeypatch):
+        resp, trigger, _ = self._post(monkeypatch, None)
+        assert resp.status_code == 204
+        assert trigger["analyses-changed"] is True
+        assert trigger["rwb:toast"] == {
+            "message": "Results retrieval is already running.",
+            "type": "warning"}
+
+    def test_unknown_analysis_is_404(self, monkeypatch):
+        resp, _, _ = self._post(monkeypatch, LookupError(AN_A))
+        assert resp.status_code == 404
+
+    def test_stored_results_is_a_422_banner(self, monkeypatch):
+        resp, _, _ = self._post(
+            monkeypatch, ValueError("Results are already stored."))
+        assert resp.status_code == 422
+        assert 'class="form-banner--error"' in resp.text
+        assert "Results are already stored." in resp.text
+
+    def test_bad_csrf_refreshes_without_calling_the_service(self, monkeypatch):
+        resp, _, calls = self._post(monkeypatch, "job-1", csrf="bad")
+        assert resp.status_code == 204
+        assert resp.headers["HX-Refresh"] == "true"
+        assert calls == []

@@ -96,6 +96,41 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
 6. Select >10 analyses: nothing blocks; the table scrolls horizontally
    (FR-015).
 
+## Retry a failed retrieval (FR-007, added 2026-09-03)
+
+The verification case is real and is left in place on purpose: analysis
+`0DA5A4CF-A67D-4117-98C3-14B3FF931D98`
+(`CRE_WS_JP_COM_HD_JPWS_Stochastic_Typhoon-Only`, HD Japan windstorm) whose
+retrieval failed on 2026-09-03 with `error_detail` = `2000.0` (rwb_job
+`b30471e2-dac1-4b07-abff-b64981a7ebdf`). Do not reset or delete that row by
+hand — the Retry button is what must unstick it.
+
+1. The developer restarts the dramatiq worker so it carries the `_curve_points`
+   fix (research R3a). Until then the retry fails again with the same reason,
+   which is itself a valid check that Retry re-drives the same row: the failed
+   cell comes back with `attempt_count` incremented.
+2. Open the submission that owns the analysis (or its EDM detail) and find the
+   row. The AAL cell reads `retrieval failed`; the Status cell shows the
+   Finished chip, `Results: 2000.0`, and a **Retry** button. Expanding the row
+   shows `Results retrieval failed.` with the same button.
+3. Click Retry (the row must not expand or collapse). Expect the toast
+   `Results retrieval queued.` and, on the section refetch, the AAL cell
+   reading `retrieving…` with the reason gone. Clicking Retry again before the
+   worker finishes gives `Results retrieval is already running.` and the cell
+   stays `retrieving…`.
+4. Within the 3s poll the AAL cell shows a figure (Pre-Cat Net, millions) and
+   the Retry button is gone.
+5. Expand the row: the condensed OEP/AEP table reads numbers at 50, 100, 250,
+   500, 1,000 and 10,000. Select the analysis and **View**: on the dedicated
+   page the 2,000-year row reads an em dash for both OEP and AEP, and every
+   other return period has a number.
+6. In the database, `irp_analysis.loss_results` for the analysis carries, per
+   produced perspective, ten OEP and ten AEP numbers and `"2000": null`;
+   `rwb_job b30471e2…` reads `succeeded`, `attempt_count` 2, `error_detail`
+   NULL — the same row id as before.
+7. Copy table on the section still pastes into Excel with the columns aligned
+   (the button sits inside the Status cell, not in a new column).
+
 Contracts: [contracts/routes.md](contracts/routes.md),
 [contracts/worker-poller.md](contracts/worker-poller.md),
 [contracts/loss-results.md](contracts/loss-results.md). Schema:

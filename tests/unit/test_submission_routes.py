@@ -1591,3 +1591,64 @@ def test_detail_page_includes_the_results_section(client):
     assert 'id="submission-analyses"' in html
     assert ">Results</span>" in html
     assert "Coastal HO" in html
+
+
+def _summary_children(html: str, row_id: str) -> int:
+    """Direct children of the row's <summary> — what tableToTsv slices."""
+    from html.parser import HTMLParser
+
+    class _Count(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.in_row = self.in_summary = False
+            self.depth = self.children = 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "details" and ("id", row_id) in attrs:
+                self.in_row = True
+            elif self.in_row and tag == "summary":
+                self.in_summary = True
+            elif self.in_summary:
+                if self.depth == 0:
+                    self.children += 1
+                if tag != "input":
+                    self.depth += 1
+
+        def handle_startendtag(self, tag, attrs):
+            if self.in_summary and self.depth == 0:
+                self.children += 1
+
+        def handle_endtag(self, tag):
+            if tag == "summary" and self.in_summary:
+                self.in_summary = self.in_row = False
+            elif self.in_summary and tag != "input":
+                self.depth -= 1
+
+    counter = _Count()
+    counter.feed(html)
+    return counter.children
+
+
+def test_results_failed_row_offers_retry_inside_the_status_cell(client):
+    submission_id, edm_id, _ = _seed_results_data(client)
+    [failed] = [r["id"] for r in execute(
+        "SELECT id FROM irp_analysis WHERE edm_id = :e AND rdm_id IS NULL",
+        {"e": edm_id}, connection="WORKBENCH")]
+    [ready] = [r["id"] for r in execute(
+        "SELECT id FROM irp_analysis WHERE edm_id <> :e AND rdm_id IS NULL",
+        {"e": edm_id}, connection="WORKBENCH")]
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "status_code, error_detail) VALUES (:id, 'irp_analysis', :rid, "
+        "'retrieve_analysis_results', 'failed', '2000.0')",
+        {"id": str(uuid.uuid4()), "rid": failed}, connection="WORKBENCH")
+
+    html = client.get(f"/submissions/{submission_id}/analyses").text
+
+    assert f'hx-post="/results/analyses/{failed}/retry"' in html
+    assert f'hx-post="/results/analyses/{ready}/retry"' not in html
+    assert 'hx-include="#analyses-csrf"' in html
+    assert 'id="analyses-csrf"' in html
+    assert "Results: 2000.0" in html
+    assert (_summary_children(html, f"analysis-row-{failed}")
+            == _summary_children(html, f"analysis-row-{ready}"))

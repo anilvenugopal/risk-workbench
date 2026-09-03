@@ -23,7 +23,7 @@ from typing import Any
 from sqlalchemy import text
 
 from app.config import settings
-from app.services import irp_gateway
+from app.services import irp_gateway, rwb_job_service
 from app.services._common import (
     CONDENSED_RETURN_PERIODS,
     STORED_RETURN_PERIODS,
@@ -32,6 +32,7 @@ from app.services._common import (
     _uid,
     _utcnow,
 )
+from app.workers import dispatch
 from db import execute, execute_command, execute_one, get_connection
 
 logger = logging.getLogger(__name__)
@@ -702,6 +703,32 @@ def delete_submission_analyses(*, submission_id: Any, analysis_ids: list[Any],
         list_submission_executed_analyses(submission_id=submission_id),
         analysis_ids, actor_id,
         "A selected analysis no longer belongs to this deal.")
+
+
+def retry_results_retrieval(*, analysis_id: Any, actor_id: Any) -> str | None:
+    """The row's Retry (spec 011 FR-007, T-11): revive the analysis's own
+    ``retrieve_analysis_results`` job in place. The key is the one
+    ``finalize_analysis`` and ``backfill_rdm_analyses`` enqueue under, so the
+    failed row itself goes back to ``pending`` and ``_mark_failed_retrievals``
+    stops matching it. Raises ``LookupError`` for an unknown or deleted analysis
+    and ``ValueError`` when results are already stored; returns ``None`` when
+    the retrieval is already pending or running."""
+    aid = _uid(analysis_id)
+    row = execute_one(
+        "SELECT loss_results FROM irp_analysis "
+        "WHERE id = :id AND deleted_at IS NULL",
+        {"id": aid}, connection="WORKBENCH")
+    if row is None:
+        raise LookupError(aid)
+    if row["loss_results"] is not None:
+        raise ValueError("Results are already stored.")
+    job_id = rwb_job_service.ensure_pending_rwb_job(
+        requestor_type="irp_analysis", requestor_id=aid,
+        rwb_job_type="retrieve_analysis_results",
+        input_data={"analysis_id": aid}, actor_id=actor_id)
+    dispatch.dispatch(rwb_job_id=job_id,
+                      rwb_job_type="retrieve_analysis_results")
+    return job_id
 
 
 @dataclass

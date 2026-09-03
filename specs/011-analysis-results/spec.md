@@ -1,6 +1,6 @@
 # Feature Specification: Analysis Results Sync & Viewing (Iteration 8)
 
-**Branch**: `011-analysis-results` | **Created**: 2026-08-25 | **Revised**: 2026-08-25 (design session 19)
+**Branch**: `011-analysis-results` | **Created**: 2026-08-25 | **Revised**: 2026-09-03 (retry in place, FR-007; built on `012-grouping-execution`)
 
 ## Status
 **Phase:** Ready for implementation — spec, plan and tasks complete; `/speckit-analyze` findings closed 2026-08-26. | **Blocking:** nothing — O-01 closed 2026-08-25 (REST endpoints, live response captures in `research.md#R3`), and irp-integration 0.6.2 closed the T-02 perspective-code dependency 2026-08-26.
@@ -15,6 +15,7 @@ An analyst reads the loss numbers of any finished analysis — own executed or b
 - Capturing what the expanded row needs: the framework value as its own field, the settings each run was submitted with, and — for broker analyses — the Risk Modeler link and the broker's own run date.
 - A dedicated results page reached by multi-select from both the submission page and the EDM detail page, opened in a new browser tab, showing N analyses side by side.
 - Copy table with headers, a ones/thousands/millions units selector on the dedicated page, and user-controlled left-to-right ordering.
+- A Retry control on an analysis row whose results retrieval failed, in the merged table and its expanded row. It re-runs the same retrieval for that analysis in place; nothing is re-run automatically.
 
 ## Out of scope
 - ELT, PLT, and full-EP-curve retention — row-level data exists only for the export iteration; the 8/26 export-requirements session decides that machinery (design note 19 O19-12). ELT-derived metrics (max event loss, record count) are therefore not viewable.
@@ -38,7 +39,7 @@ An analyst reads the loss numbers of any finished analysis — own executed or b
 | O-03 | Stored return periods: 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000 (the expanded display set). Condensed display subset: 50, 100, 250, 500, 1000, 10000. Fixed sets, not user-editable. | Approved | design note 19 D7, 2026-08-25 |
 | O-04 | TCE is out of viewing scope. Only OEP and AEP are stored, although TCE-OEP/TCE-AEP arrive in the same response. | Approved | 2026-08-25 |
 | O-05 | Broker within-RDM result identity: results live on the broker `irp_analysis` row keyed (`rdm_id`, `irp_id`) — the analysis-name-as-key question moves to the export iteration. | Approved | DATA_MODEL §9 |
-| O-06 | Retrieval failure carries spec 010 P-14 unchanged: the retrieval job is marked failed with its reason, interrupted work recovers automatically, views show results-pending, the analysis stays FINISHED. | Approved | spec 010 P-14 |
+| O-06 | Retrieval failure carries spec 010 P-14 unchanged: the retrieval job is marked failed with its reason, interrupted work recovers automatically, the analysis stays FINISHED. Views show `retrieval failed` with the reason and a Retry control; only that control re-runs the retrieval (FR-007) — there is no automatic backoff retry. | Approved | spec 010 P-14; retry added 2026-09-03 (`research.md#R9`) |
 | O-07 | Financial perspectives: GR, RL, WX, QS, GU (closes note 19 O19-4). Default perspective on every results view: Pre-Cat Net (`RL`). | Approved | 2026-08-25; default revised 8/26 (D9) |
 | O-08 | Results-view layout follows the 8/25 design session, built against Cheryl's Excel comparison view. | Approved | design note 19 §2–§6 |
 | O-09 | N-up viewing guideline ~10 analyses, enforced softly — selection is never blocked; past the guideline the table scrolls horizontally (no pagination). | Approved | `research.md#clarifications` (2026-08-26) |
@@ -59,7 +60,8 @@ The analyst runs a suite (spec 010) and waits for an analysis to finish. Without
 1. **Given** an executed analysis that reaches FINISHED, **When** retrieval completes, **Then** its AAL, standard deviation, and OEP/AEP losses at the 11 stored return periods are readable in the expanded analysis row for each perspective the analysis produced.
 2. **Given** a perspective the analysis did not produce, **Then** it is stored as explicitly empty and displayed as absent, and the retrieval is not marked failed.
 3. **Given** a FINISHED analysis whose retrieval has not completed, **Then** its views show results-pending.
-4. **Given** a retrieval that fails, **Then** the retrieval work is marked failed with its reason, the analysis stays FINISHED, and its views keep showing results-pending.
+4. **Given** a retrieval that fails, **Then** the retrieval work is marked failed with its reason, the analysis stays FINISHED, and its views read `retrieval failed` with the reason and offer Retry.
+4a. **Given** a row reading `retrieval failed`, **When** the analyst clicks Retry, **Then** the row reads `retrieving…` and, when the re-run succeeds, the loss numbers appear with no further action; a second click while the re-run is in flight changes nothing and says so.
 5. **Given** results already stored for an analysis, **When** the retrieval trigger fires again, **Then** nothing is duplicated or re-fetched.
 
 ### 2. Broker loss numbers appear on RDM import (P2)
@@ -108,7 +110,7 @@ The analyst multi-selects analyses — from the submission page (which alone can
 - **FR-004**: A perspective the analysis did not produce is recorded as explicitly empty (distinguishing "fetched, nothing there" from "not fetched yet") and displayed as absent.
 - **FR-005**: Return-period display sets are fixed: expanded = all 11 stored points; condensed = 50, 100, 250, 500, 1000, 10000. Editing return periods or interpolation passes through to Risk Modeler.
 - **FR-006**: Re-firing a retrieval trigger is harmless: an analysis with stored results is neither duplicated nor re-fetched.
-- **FR-007**: A failed retrieval is recorded with its reason; the analysis stays FINISHED; interrupted retrieval work is recovered automatically (spec 010 P-14).
+- **FR-007**: A failed retrieval is recorded with its reason; the analysis stays FINISHED; interrupted retrieval work is recovered automatically (spec 010 P-14). The failed row offers Retry, on own and broker rows alike, in the merged table and in the expanded row. Retry re-runs the same retrieval for that one analysis; the row returns to results-pending immediately and to the loss numbers when the re-run succeeds. A Retry while a retrieval is already queued or running does nothing and tells the analyst so. Retry never appears once results are stored, and no role gate applies (analysts already delete analyses from the same table).
 - **FR-008**: Views for an analysis whose results have not arrived show results-pending.
 - **FR-009**: Own and broker analyses are listed in one merged table on the submission Results section and the EDM detail page; own-vs-broker is derived from `rdm_id` (no stored origin column), and broker analyses stay grouped under an expandable row for the RDM that produced them.
 - **FR-010**: The merged table's columns are Portfolio, Template, Peril, Region, Engine, Currency, AAL, Status, Submitted, and Risk Modeler, with an EDM column after Template on the submission page only. Peril and region read as codes (`WS`, `NA`); the analysis type and the full analysis name are in the expanded row, not the table; a broker row's single name spans the Portfolio and Template tracks. No return-period column, and the AAL-only display mode is dropped. AAL reads Pre-Cat Net in millions; the table itself carries no perspective control and no units control (O-12). Currency is captured when the analysis detail is backfilled.

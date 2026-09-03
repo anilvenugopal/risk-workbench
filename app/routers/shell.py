@@ -6,12 +6,15 @@ Nav context is built via get_nav_context() and passed to templates.
 
 from __future__ import annotations
 
+import json
 import uuid
+from html import escape
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse
 
+from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import analysis_service, edm_service, irp_job_service, submission_service
 
@@ -102,6 +105,33 @@ def _entry_crumbs(submission: str, edm: str) -> tuple[list[dict], str | None]:
                              "route": f"/edms/{edm_row.id}"})
         page_name = edm_row.name
     return extra_crumbs, page_name
+
+
+@router.post("/results/analyses/{analysis_id}/retry")
+async def retry_results_retrieval(request: Request, analysis_id: str):
+    """The row's Retry for a failed results retrieval (spec 011 contracts/
+    routes.md §5). Enqueues and dispatches only; the merged section refetches
+    on ``analyses-changed`` and reads the job's new state."""
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        return Response(status_code=204, headers={"HX-Refresh": "true"})
+    try:
+        job_id = analysis_service.retry_results_retrieval(
+            analysis_id=analysis_id, actor_id=request.state.user.id)
+    except LookupError:
+        return Response(status_code=404)
+    except ValueError as exc:
+        return HTMLResponse(
+            f'<div class="form-banner--error">{escape(str(exc))}</div>',
+            status_code=422)
+    toast = ({"message": "Results retrieval queued.", "type": "success"}
+             if job_id is not None else
+             {"message": "Results retrieval is already running.",
+              "type": "warning"})
+    return Response(status_code=204, headers={
+        "HX-Trigger": json.dumps({"analyses-changed": True,
+                                  "rwb:toast": toast}),
+    })
 
 
 @router.get("/results/analyses", response_class=HTMLResponse)

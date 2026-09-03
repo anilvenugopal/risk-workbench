@@ -728,3 +728,54 @@ def test_claim_snapshots_the_plan_item_and_a_resumed_claim_keeps_it(
         "SELECT submitted_settings FROM irp_analysis WHERE id = :id",
         {"id": claimed["id"]}, connection="WORKBENCH")["submitted_settings"]
     assert json.loads(kept)["min_loss_threshold"] == 1.0
+
+
+# ── Retry a failed retrieval (spec 011 FR-007, T-11) ─────────────────────────────
+
+
+def test_retry_revives_the_failed_row_and_the_worker_stores_the_hd_curve(
+        iteration2_db, fake_irp):
+    """The live case: an HD analysis whose first retrieval failed on the missing
+    2,000-year point (research R3a). Retry resets that rwb_job row and the
+    unchanged worker stores the extract with ``null`` at 2,000."""
+    from app.services import analysis_service
+
+    analysis_id = _seed_finished_analysis(
+        irp_id="9001", settings={"engineType": "HD", "engineVersion": "HDv2.1"})
+    hd_periods = [10000.0, 5000.0, 1000.0, 500.0, 250.0, 200.0,
+                  100.0, 50.0, 25.0, 10.0, 5.0, 2.0]
+    ep = ep_elements(analysis_id=9001, perspective_code="GR",
+                     exposure_resource_id=555, base=1.0)
+    for element in ep:
+        element["value"] = {"returnPeriods": hd_periods,
+                            "positionValues": list(hd_periods)}
+    fake_irp.set_analysis_results(
+        analysis_id=9001, perspective_code="GR", ep=ep,
+        stats=stats_rows(analysis_id=9001, perspective_code="GR",
+                         exposure_resource_id=555, pure_premium=38270.59,
+                         total_std_dev=2645726.19))
+    failed_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "status_code, attempt_count, error_detail) VALUES (:id, 'irp_analysis', "
+        ":rid, 'retrieve_analysis_results', 'failed', 1, '2000.0')",
+        {"id": failed_id, "rid": analysis_id}, connection="WORKBENCH")
+
+    job_id = analysis_service.retry_results_retrieval(
+        analysis_id=analysis_id, actor_id=iteration2_db.user_a)
+    assert job_id == failed_id
+    assert analysis_jobs.run_one(rwb_job_id=job_id,
+                                 rwb_job_type="retrieve_analysis_results",
+                                 worker_id="w1") is True
+
+    job = execute_one(
+        "SELECT status_code, attempt_count, error_detail FROM rwb_job "
+        "WHERE id = :id", {"id": job_id}, connection="WORKBENCH")
+    assert job["status_code"] == "succeeded"
+    assert job["attempt_count"] == 2
+    assert job["error_detail"] is None
+    gr = _stored_extract(analysis_id)["perspectives"]["GR"]
+    assert gr["oep"]["2000"] is None and gr["aep"]["2000"] is None
+    assert gr["oep"]["1000"] == 1000.0
+    assert len([v for v in gr["oep"].values() if v is not None]) == 10
+    assert [j["id"] for j in _retrieval_jobs_for(analysis_id)] == [job_id]

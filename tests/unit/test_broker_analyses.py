@@ -397,3 +397,19 @@ def test_broker_row_renders_ready_results_and_failed_reason(monkeypatch):
     assert "Results retrieval failed." in html
     assert "results read failed for WX" in html
     assert "Portfolio" not in html
+
+
+def test_broker_failed_row_offers_retry_and_a_ready_row_does_not(monkeypatch):
+    ready = _broker_row(results_state="ready", results=[
+        analysis_service.PerspectiveResults(
+            code="GR", label="Gross", produced=True, aal=1.0, std_dev=1.0,
+            rows=[])])
+    failed = _broker_row(id="analysis-2", irp_id="88216", name="Broker NT",
+                         results_state="failed", results_error="2000.0")
+
+    html = _render_rows(monkeypatch, [ready, failed])
+
+    # the status cell and the expanded panel each carry the control
+    assert html.count('hx-post="/results/analyses/analysis-2/retry"') == 2
+    assert 'hx-post="/results/analyses/analysis-1/retry"' not in html
+    assert 'hx-include="#analyses-csrf"' in html

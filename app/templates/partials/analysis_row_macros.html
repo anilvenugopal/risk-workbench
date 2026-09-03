@@ -36,11 +36,22 @@
     </span>
 {%- endmacro -%}
 
+{# Re-runs the analysis's own retrieval job (spec 011 FR-007). Rendered
+   inside an existing cell, never as a new <summary> child. #}
+{%- macro retry_button(a) -%}
+<button class="btn-sm" type="button" onclick="event.stopPropagation()"
+        hx-post="/results/analyses/{{ a.id }}/retry" hx-include="#analyses-csrf"
+        hx-swap="none">Retry</button>
+{%- endmacro -%}
+
 {%- macro status_cell(a, chip, label, reason=none) -%}
     <span class="l"{% if label %} title="{{ label }}"{% endif %}>
       <span class="status-chip status-chip--{{ chip }}">{{ label }}</span>
       {% if reason %}<span class="exec-reason">{{ reason }}</span>{% endif %}
-      {% if a.results_state == 'failed' and a.results_error %}<span class="exec-reason">Results: {{ a.results_error }}</span>{% endif %}
+      {% if a.results_state == 'failed' %}
+      {% if a.results_error %}<span class="exec-reason">Results: {{ a.results_error }}</span>{% endif %}
+      {{ retry_button(a) }}
+      {% endif %}
     </span>
 {%- endmacro -%}
 
