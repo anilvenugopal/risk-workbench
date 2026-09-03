@@ -20,6 +20,7 @@ from app.config import settings
 from app.routers import templates
 from app.services import template_service
 from app.services.auth_service import CurrentUser
+from app.templating import TEMPLATE_DIRS
 from app.workers import metadata_jobs
 
 
@@ -55,7 +56,7 @@ class _InjectUser(BaseHTTPMiddleware):
 
 def _client(user: CurrentUser | None = None) -> TestClient:
     app = FastAPI()
-    renderer = Jinja2Templates(directory="app/templates")
+    renderer = Jinja2Templates(directory=TEMPLATE_DIRS)
     renderer.env.globals["app_env"] = settings.app_env
     renderer.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     renderer.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled

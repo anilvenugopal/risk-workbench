@@ -96,6 +96,7 @@ def client(iteration2_db) -> TestClient:
     from app.config import settings
     from app.routers import edms
     from app.services.auth_service import CurrentUser
+    from app.templating import TEMPLATE_DIRS
 
     user = CurrentUser(
         id=iteration2_db.user_a, email="analyst.a@example.com",
@@ -109,7 +110,7 @@ def client(iteration2_db) -> TestClient:
             return await call_next(request)
 
     app = FastAPI()
-    templates = Jinja2Templates(directory="app/templates")
+    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["app_env"] = settings.app_env
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
     templates.env.globals["default_perspective"] = (

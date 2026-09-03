@@ -44,6 +44,7 @@ def client(iteration2_db) -> TestClient:
     from app.routers import submissions
     from app.services import analysis_service
     from app.services.auth_service import CurrentUser
+    from app.templating import TEMPLATE_DIRS
 
     user = CurrentUser(
         id=iteration2_db.user_a, email="analyst.a@example.com",
@@ -57,7 +58,7 @@ def client(iteration2_db) -> TestClient:
             return await call_next(request)
 
     app = FastAPI()
-    templates = Jinja2Templates(directory="app/templates")
+    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["app_env"] = settings.app_env
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled

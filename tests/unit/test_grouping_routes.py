@@ -35,9 +35,10 @@ def _client() -> TestClient:
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
     from app.routers import submissions
+    from app.templating import TEMPLATE_DIRS
 
     app = FastAPI()
-    templates = Jinja2Templates(directory="app/templates")
+    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["app_env"] = settings.app_env
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
     templates.env.globals["default_perspective"] = (

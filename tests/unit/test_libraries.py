@@ -26,6 +26,7 @@ import pytest
 from fastapi.templating import Jinja2Templates
 
 from app.services import edm_service, rdm_service
+from app.templating import TEMPLATE_DIRS
 from db import execute_command
 from tests.unit.test_name_check_routes import _client
 
@@ -166,7 +167,7 @@ def _render_table(*, statuses, filters=None):
     under a worker and stop once every row is terminal."""
     # The app's own env (autoescape on) — that is what turns the poll URL's query
     # separator into `&amp;` (valid HTML, htmx reads it back as `&`).
-    env = Jinja2Templates(directory="app/templates").env
+    env = Jinja2Templates(directory=TEMPLATE_DIRS).env
     filter_values = {"q": "", "status": "", **(filters or {})}
     live = any(s in edm_service.TRANSIENT_STATUSES for s in statuses)
     html = env.get_template("partials/library_table.html").render(
