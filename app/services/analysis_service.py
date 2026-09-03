@@ -205,6 +205,17 @@ class BrokerAnalysisGroup:
     sync_running: bool = False
 
 
+# ExecutedAnalysis.run_state -> the status-chip variant that renders it.
+_CHIP_BY_RUN_STATE = {
+    "submitting": "importing",
+    "running": "importing",
+    "retrying": "importing",
+    "finished": "ready",
+    "submit_failed": "submission-failed",
+    "failed": "error",
+}
+
+
 @dataclass
 class ExecutedAnalysis:
     id: str
@@ -245,33 +256,54 @@ class ExecutedAnalysis:
                     and self.results_state == "pending"))
 
     @property
-    def status_label(self) -> str:
+    def run_state(self) -> str:
+        """Where the run stands, derived from the mirrored ``irp_job.status``:
+
+        ``submitting``     no ``irp_job`` row yet
+        ``running``        Risk Modeler accepted it (PENDING/QUEUED/RUNNING)
+        ``retrying``       a submit attempt failed, attempts remain
+        ``submit_failed``  the submit attempts ran out
+        ``finished``       the run finished in Risk Modeler
+        ``failed``         FAILED or CANCELLED in Risk Modeler
+
+        Read this, not ``status_chip`` — the chip is one rendering of it.
+        Note ``finished`` is not the same as deletable or grouped under Ready:
+        both of those also wait on the backfill (``status_code``)."""
         if self.job_status is None:
-            return "Submitting…"
+            return "submitting"
+        if self.job_status in ("PENDING", "QUEUED", "RUNNING"):
+            return "running"
+        if self.job_status == "SUBMISSION RETRYING":
+            return "retrying"
         if self.job_status == "SUBMISSION FAILED":
+            return "submit_failed"
+        if self.job_status == "FINISHED":
+            return "finished"
+        return "failed"  # FAILED, CANCELLED
+
+    @property
+    def status_label(self) -> str:
+        if self.run_state == "submitting":
+            return "Submitting…"
+        if self.run_state == "submit_failed":
             return (f"Failed to submit · attempt {self.submission_attempt_count}/"
                     f"{settings.irp_submission_max_retries}")
         return self.job_status.capitalize()
 
     @property
     def status_chip(self) -> str:
-        """One of the existing import-status chip variants (submissions.css) —
-        no new CSS, keyed off the derived label rather than a stored status."""
-        if self.job_status in (None, "QUEUED", "RUNNING", "SUBMISSION RETRYING"):
-            return "importing"
-        if self.job_status == "FINISHED":
-            return "ready"
-        if self.job_status == "SUBMISSION FAILED":
-            return "submission-failed"
-        return "error"  # FAILED, CANCELLED
+        """The ``status-chip--*`` modifier for ``run_state``. Analyses reuse the
+        EDM/RDM import chip variants in submissions.css rather than adding a
+        second set of colors, so the class names do not match the states."""
+        return _CHIP_BY_RUN_STATE[self.run_state]
 
     @property
     def group_key(self) -> str:
         """The Analyses grid's group: ``failed`` / ``in_progress`` / ``ready``.
-        Derived, not raw ``status_code`` — a failed-to-submit row is
-        ``status_code='pending'`` but belongs under Failed."""
-        if self.status_code == "error" or self.status_chip in (
-                "error", "submission-failed"):
+        A run out of submit attempts is ``status_code='pending'`` but belongs
+        under Failed; a retrying one still belongs under In progress."""
+        if self.status_code == "error" or self.run_state in (
+                "failed", "submit_failed"):
             return "failed"
         if self.status_code == "ready":
             return "ready"
@@ -279,12 +311,14 @@ class ExecutedAnalysis:
 
     @property
     def is_deletable(self) -> bool:
-        """Terminal rows only. Deliberately NOT ``status_chip == 'ready'``: the
-        chip turns ready at job FINISHED, seconds before the backfill writes
-        ``irp_id`` — deleting in that window would orphan the RM analysis."""
-        return (self.job_status != "SUBMISSION RETRYING"
+        """Terminal rows only. Deliberately NOT ``run_state == 'finished'``: the
+        run finishes seconds before the backfill writes ``irp_id`` and flips
+        ``status_code`` — deleting in that window would orphan the RM
+        analysis. A retrying row is still in flight, whatever ``status_code``
+        says."""
+        return (self.run_state != "retrying"
                 and (self.status_code in ("ready", "error")
-                     or self.status_chip == "submission-failed"))
+                     or self.run_state == "submit_failed"))
 
 
 def _parse_settings(raw: Any) -> dict | None:

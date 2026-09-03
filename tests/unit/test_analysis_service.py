@@ -360,7 +360,7 @@ def test_is_deletable_truth_table(iteration2_db):
     assert rows[seeded["ready"]].is_deletable is True
     assert rows[seeded["submitting"]].is_deletable is False
     assert rows[seeded["running"]].is_deletable is False
-    # chip already reads ready (job FINISHED) but the backfill hasn't written
+    # run_state already reads finished but the backfill hasn't written
     # irp_id yet — deleting now would orphan the RM analysis.
     assert rows[seeded["finished_unbackfilled"]].is_deletable is False
 
