@@ -191,18 +191,12 @@ def _submit_grouping_body(rwb_job_id: Any) -> runtime.JobResult:
         return runtime.JobResult.fail(reason)
 
     recorded = {**submit_kwargs, "group_name": group["name"]}
-    with get_connection("WORKBENCH") as conn, conn.begin():
-        irp_job_service.record_submitted_irp_job(
-            irp_job_type="grouping",
-            requested_from_submission_id=plan["submission_id"],
-            irp_analysis_id=group_id, irp_id=irp_id,
-            payload=request_body, response={"job_id": int(irp_id)},
-            request_params=recorded,
-            actor_id=plan.get("actor_id"), conn=conn)
-        conn.execute(text(
-            "UPDATE irp_analysis SET status_code = 'running', "
-            "updated_at = :now WHERE id = :id"
-        ), {"now": _utcnow(), "id": group_id})
+    irp_job_service.record_submitted_irp_job(
+        irp_job_type="grouping",
+        requested_from_submission_id=plan["submission_id"],
+        irp_analysis_id=group_id, irp_id=irp_id,
+        payload=request_body, response={"job_id": int(irp_id)},
+        request_params=recorded, actor_id=plan.get("actor_id"))
     return runtime.JobResult.ok(irp_id=irp_id, group_name=group["name"])
 
 

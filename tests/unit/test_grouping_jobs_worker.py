@@ -2,7 +2,7 @@
 
 Covers the success path (claim → tenant-wide name check → one gateway submit
 by Platform id → ``irp_job`` recorded with the exact request body → group row
-``running``), claim idempotency on redelivery (PK resume), the duplicate-name
+still ``pending``), claim idempotency on redelivery (PK resume), the duplicate-name
 ``_n`` retry driven by the worker's own pre-check, and the uniform
 ``SUBMISSION FAILED`` recording with the cause in ``failure_reason`` — the
 exception text for a generic failure, the analyst-readable mapping of the
@@ -83,7 +83,7 @@ def test_worker_claims_submits_and_records(iteration2_db, fake_irp):
     assert grouping_jobs.run_pending(worker_id="w1") == 1
 
     group = _group_row(ctx["plan"]["group_analysis_id"])
-    assert group["status_code"] == "running"
+    assert group["status_code"] == "pending"
     assert group["name"] == "CRE_Sub One_Group"
     assert bool(group["is_group"])
     assert group["submission_id"] == ctx["submission_id"]
@@ -147,7 +147,7 @@ def test_duplicate_name_retries_with_the_next_suffix(iteration2_db, fake_irp):
     assert grouping_jobs.run_pending(worker_id="w1") == 1
 
     group = _group_row(ctx["plan"]["group_analysis_id"])
-    assert group["status_code"] == "running"
+    assert group["status_code"] == "pending"
     assert group["name"] == "CRE_Sub One_Group_2"
     assert group["full_name"] == "CRE_Sub One_Group_2"
     assert fake_irp.grouping_name_checks == [

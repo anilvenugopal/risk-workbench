@@ -31,7 +31,7 @@ A group row's shape:
 | `submission_id` | the owning submission |
 | `edm_id`, `rdm_id`, `irp_portfolio_id`, `analysis_template_id`, `execution_id`, `execution_item_no` | NULL |
 | `name` / `full_name` | submitted (≤64) / untruncated group name (T-09) |
-| `status_code` | `pending` at claim → `running` after submit → `ready` after `finalize_analysis`, or `error` + `failure_reason` |
+| `status_code` | `pending` at claim, held through submit and the run (spec 010 T-07: progress is `irp_job.status`) → `ready` after `finalize_analysis`, or `error` + `failure_reason` |
 | `submitted_settings` | the approved compose plan verbatim (members with Platform ids, currency, flags, simulation count, event-rate selections, inspection fingerprint) |
 | `irp_id`, `settings_metadata`, `exposure_resource_id`, `loss_results` | populated by the existing `finalize_analysis` / `retrieve_analysis_results` chain |
 
@@ -65,7 +65,7 @@ several groups — see `irp_analysis_group_member`).
 | `irp_job_type_kind` | none — `grouping` (sort 60) is already seeded and unused | — |
 
 No new status vocabularies: group rows use `irp_analysis_status_kind`
-(`pending/running/ready/error`), the grouping `irp_job` uses the plain-VARCHAR
+(`pending/ready/error`, as spec 010 T-07 left it), the grouping `irp_job` uses the plain-VARCHAR
 external-status mirror (Article 3 carve-out), and the `rwb_job` uses
 `rwb_job_status_kind` unchanged.
 

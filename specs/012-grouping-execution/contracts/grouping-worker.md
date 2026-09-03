@@ -63,12 +63,12 @@ CR-04 `rwb_actor`; queue name `submit_grouping`; `max_retries=0`.
      (`irp_job_type='grouping'`, status `SUBMISSION FAILED`, payload and
      `request_params` = the submit kwargs plus `group_name`) + group row
      `status_code='error'`, `failure_reason`; no automatic retry (T-11).
-4. **Record** — one transaction: `record_submitted_irp_job`
+4. **Record** — `record_submitted_irp_job`
    (`irp_job_type='grouping'`, `irp_analysis_id=group_analysis_id`,
    `requested_from_submission_id`, `irp_id` = the job id, `payload` = the
    exact request body the package POSTed, `response` = `{"job_id": <int>}`,
-   `request_params` = the submit kwargs plus `group_name`) + group row
-   `status_code='running'`.
+   `request_params` = the submit kwargs plus `group_name`). The group row
+   stays `pending`; progress is `irp_job.status` (spec 010 T-07).
 
 ## Gateway (`app/services/irp_gateway.py` — Protocol, `_RealGateway`, module functions, `FakeIRP`)
 

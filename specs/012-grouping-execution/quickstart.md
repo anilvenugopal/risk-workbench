@@ -61,8 +61,9 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    simulation count. Click **Back** twice: screen 1 still has your members
    ticked. Go forward again and click **Group**. The `submit_grouping` job
    appears immediately in the RWB jobs monitor; the group row appears in the
-   grid when the worker claims the job and shows `pending → running`. On
-   completion the row turns `ready`, Engine column reads **Group** (US-1
+   grid when the worker claims the job and its Status cell moves
+   Submitting… → Queued → Running from `irp_job.status`. On completion the
+   row turns `ready`, Engine column reads **Group** (US-1
    acceptance 3–4, US-3 acceptance 2). In `irp_job`,
    `last_submission_payload` is the exact request body.
 4. Pick two finished DLM analyses run under different event-rate schemes and

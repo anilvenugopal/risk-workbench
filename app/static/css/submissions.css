@@ -394,6 +394,8 @@
 .drive-browse__error { color: var(--color-danger); }
 
 /* Group compose dialog, screens 2 and 3 (spec 012). */
+/* Screen 2: notice, facts strip, scheme table, treaty section stacked. */
+.insp-screen { display: flex; flex-direction: column; gap: var(--space-4); }
 .insp-facts { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4);
   align-items: center; font-size: var(--fs-label); color: var(--text-secondary); }
 .insp-facts b { color: var(--text-primary); font-weight: var(--fw-semibold); }
