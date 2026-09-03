@@ -6,11 +6,11 @@
 # script is only relevant on a machine that opted into the Podman/local
 # SQL Server option; its absence is a normal, expected state elsewhere.
 #
-# Usage: APP_DIR=/opt/risk-workbench bash rhel9-start-podman-mssql.sh
+# Usage: APP_DIR=/rms bash rhel9-start-podman-mssql.sh
 
 set -uo pipefail
 
-APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /rms}"
 
 if ! command -v podman > /dev/null 2>&1; then
     echo "podman not installed — nothing to start. (Run"

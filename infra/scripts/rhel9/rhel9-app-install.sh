@@ -14,10 +14,10 @@
 # the rest of the code; this script never installs or calls uv itself.
 #
 # Run this directly on the RHEL9 box, in the app's own directory
-# (e.g. /opt/risk-workbench), AFTER the code has already been synced there.
+# (e.g. /rms), AFTER the code has already been synced there.
 #
 # Usage: PYTHON_BIN=python3.14 ./rhel9-app-install.sh
-#   (run from inside the app directory, e.g. /opt/risk-workbench)
+#   (run from inside the app directory, e.g. /rms)
 
 set -euo pipefail
 

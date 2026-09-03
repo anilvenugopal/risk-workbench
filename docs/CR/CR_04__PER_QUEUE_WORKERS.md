@@ -82,9 +82,9 @@ After=network.target redis.service
 [Service]
 Type=simple
 User=<service-account>            # placeholder — get the real account name from infra
-WorkingDirectory=/opt/risk-workbench
-EnvironmentFile=/opt/risk-workbench/infra/.env
-ExecStart=/opt/risk-workbench/.venv/bin/dramatiq app.workers.entrypoint -Q %i --processes ${RWB_WORKER_PROCESSES} --threads ${RWB_WORKER_THREADS}
+WorkingDirectory=/rms
+EnvironmentFile=/rms/infra/.env
+ExecStart=/rms/.venv/bin/dramatiq app.workers.entrypoint -Q %i --processes ${RWB_WORKER_PROCESSES} --threads ${RWB_WORKER_THREADS}
 TimeoutStopSec=<worker-shutdown-timeout + margin>
 Restart=on-failure
 
