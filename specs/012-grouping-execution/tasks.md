@@ -198,7 +198,8 @@ and the worker do not change.
 - [X] T042 Routes in `app/routers/submissions.py`: GET renders the dialog only; inspect passes `screen=build_inspection_screen(view)`; submit 422 renders `group_submit_errors.html` with `HX-Retarget: #group-submit-errors`
 - [X] T043 Unit tests: `test_grouping_view.py` (row modes, option labels and counts, engine versions, problem member names); `test_grouping_routes.py` assertions for the three screens (Next, facts strip, table cells, hidden ELT count, PLT hint, blocked notice, Retry, 422 retarget)
 - [ ] T044 Click-through on the developer's stack per quickstart.md §3 steps 2–5, then the diff subtraction review
-- [ ] T045 [FR-020] Inspection content: treaty mismatch notices (treaty number, friendly term names for `LOSS_AFFECTING_TREATY_FIELDS`, member names; read with `getattr(problem, "treaty_numbers", ())` until a wheel with the fields is pinned), treaty counts on the facts strip and screen 3, the six plain-language problem texts by code; spec.md FR-020 and non-negotiable 6 (the inspection compares loss-affecting treaty terms per Treaty Number and lists mismatches; they never block); verification grep for `Inspect members` and `group-inspect-indicator`
+- [X] T045 [FR-020] Treaty term mismatches from `inspection.warnings` (rc4 `inconsistent_treaty_terms`): `TreatyMismatch` in `grouping_view.py` (treaty number, differing terms through `treaty_service.humanize_key`, member names, treaty ids — unpaired), the amber notices and the treaty mismatch count on screen 2, the Treaties row in `#group-summary`; `FakeIRP.seed_grouping_inspection(warnings=)`; unit tests; spec.md non-negotiable 6, FR-020, O-09, research.md 2026-09-03 session, contracts/routes.md, plan.md, quickstart.md §3
+- [ ] T046 Plain-language blocking-problem texts by `GroupingProblem.code` in `grouping_view.py` in place of the package `message`; verification grep for `Inspect members` and `group-inspect-indicator`
 
 ---
 

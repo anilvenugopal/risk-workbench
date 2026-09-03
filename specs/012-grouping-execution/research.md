@@ -359,7 +359,7 @@ design note 22, and the live observation
 - Q: How is the migration committed? → A: One commit per logical step on `012-grouping-execution` (spec docs, gateway, compose flow, worker, tests, dependency lock), no push.
 - Q: Members were resolved by name; the package accepts ids only — what identifies a member? → A: The Platform analysis id already stored on `irp_analysis.irp_id` (note 22 O22-16: names duplicate tenant-wide). T-10 rewritten; O-09 rewritten.
 - Q: The package no longer pre-checks duplicate group names — what keeps finalize's name-only resolution valid? → A: The worker pre-checks tenant-wide with `count_analyses_named` and retries with `_n`. T-11 amended.
-- Q: Treaty consistency? → A: Not validated (handover R-12); the dialog discloses the limitation. Non-negotiable 6 and FR-020 added.
+- Q: Treaty consistency? → A: Not validated (handover R-12); the dialog discloses the limitation. Non-negotiable 6 and FR-020 added. *(Superseded by the 2026-09-03 treaty terms session below.)*
 
 ### Session 2026-09-02 (compose flow)
 
@@ -373,4 +373,14 @@ reviewed with the approver.
 - Q: The scheme dropdowns were `required` — kept? → A: Dropped. A hidden required select blocks the browser's submit from screen 3; the Alpine gate and `request_grouping` enforce the choice.
 - Q: How does the submit's 422 render? → A: A `partials/group_submit_errors.html` fragment retargeted at `#group-submit-errors` on screen 3; the dialog is no longer re-rendered, so the inspection and inputs survive.
 - Q: Where do the view rules live? → A: A new `app/services/grouping_view.py` (`build_inspection_screen`) builds rows, options, and problem texts; `grouping_service.py` stays at gate + plan scope. The plan the dialog emits (`request_grouping`, 11 keys) and the worker are unchanged.
+
+### Session 2026-09-03 (treaty terms)
+
+Source: irp-integration `0.8.0rc4` (`.venv/Lib/site-packages/irp_integration/grouping.py`,
+`LOSS_AFFECTING_TREATY_FIELDS` and `_inspect`), reviewed with the approver.
+
+- Q: rc4 compares the loss-affecting terms (`LOSS_AFFECTING_TREATY_FIELDS` plus `lobs` and `lossOccurrences`) of every treaty sharing a Treaty Number across the members and returns each mismatch as a `GroupingProblem` with `code="inconsistent_treaty_terms"` in `GroupingInspection.warnings`; `submit()` raises only on `blocking_problems`. Does the Workbench show them? → A: Yes. Screen 2 lists one amber notice per mismatch (treaty number, differing terms, member names, treaty ids) plus the count on the facts strip; screen 3's summary gains a Treaties row. Mismatches never disable Next. Supersedes the 2026-09-02 "Not validated" answer; non-negotiable 6, FR-020, O-09 rewritten.
+- Q: The problem carries `analysis_ids` and `treaty_ids` as two sorted tuples with no pairing — pair them in the Workbench? → A: No. Members and treaty ids are listed unpaired; the package would have to return the pairing, and the ids are only a lookup aid for Risk Modeler.
+- Q: How are `differing_fields` (raw API names such as `attachmentPoint`) rendered? → A: With the treaty grid's key humanizer in `app/services/treaty_service.py` (`humanize_key`, made public). Two overrides added for initialisms the humanizer gets wrong: `maolAmount` → "MAOL Amount", `percentageRiShare` → "Percentage RI Share"; the EDM treaty grid gets the same labels.
+- Q: Treaties changed after inspection? → A: Already covered: treaties feed the package fingerprint, so the submit fails with `inspection_changed`. No worker change.
 - Q: The click-through showed the group row frozen after submit — why? → A: The worker wrote `status_code='running'`, but `ExecutedAnalysis.is_live` is the single test `status_code == 'pending'` (spec 010 T-07: progress lives on `irp_job.status`, every write leaving `pending` is terminal), so the Results section stopped polling. Widening `is_live` to `running` was rejected as a second status vocabulary; the group row now stays `pending` through submit like every analysis row. data-model.md and contracts/grouping-worker.md corrected.

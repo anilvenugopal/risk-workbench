@@ -84,7 +84,7 @@ Fragment states, all rendered into `#group-inspection`:
   by display name — above the facts strip and the partition table. No hidden
   fields and empty oob divs, so Next stays disabled.
 - **Ready**: the facts strip ("Group output ELT|PLT", member count, scheme
-  mismatch count); the partition table with Peril and Region codes, Model
+  mismatch count, treaty mismatch count); the partition table with Peril and Region codes, Model
   version as `<engine versions> · <model version>`, member display names,
   and the Event-rate scheme cell by row `mode` —
   `choose` (`event_rate_selection_required`) is a
@@ -97,10 +97,20 @@ Fragment states, all rendered into `#group-inspection`:
   `none` shows an em dash. The select carries no `required` attribute — a
   hidden required select would block the browser's submit; the Alpine gate
   and `request_grouping` enforce the choice. Then the Treaty mismatches
-  section, the hidden `expected_inspection_fingerprint`, one hidden
-  `inspected_analysis_ids` per member, and the `[data-inspection-ready]`
-  marker. `#group-summary` holds the group name (`x-text`), the output, and
-  the members with engine and kind. `#group-sims` holds, for a PLT group,
+  section: one `.insp-notice--warn` per `inspection.warnings` entry with
+  `code == "inconsistent_treaty_terms"` — title "Treaty Number <n> has
+  different loss-affecting terms in <k> members", "Differing terms: <display
+  labels>" (`differing_fields` through `treaty_service.humanize_key`), the
+  member display names as a list, and "Treaty IDs: <ids>" when `treaty_ids`
+  is non-empty — followed by the hint that mismatches do not stop the
+  grouping; with no mismatch, the one-line `.insp-notice--ok`. Members and
+  treaty ids are listed unpaired. Then the hidden
+  `expected_inspection_fingerprint`, one hidden `inspected_analysis_ids` per
+  member, and the `[data-inspection-ready]` marker — gated on blocking
+  problems only; warnings never disable Next. `#group-summary` holds the
+  group name (`x-text`), the output, a Treaties row (`badge--warning`
+  "<n> mismatch(es)" plus the treaty numbers, or "No mismatches"), and the
+  members with engine and kind. `#group-sims` holds, for a PLT group,
   `<input type="number" name="num_of_simulations" min="1">` prefilled with
   the suggestion and the "Largest member: <n>" hint; for an ELT group,
   `<input type="hidden" name="num_of_simulations" value="1">` (FR-019).

@@ -37,7 +37,7 @@ An analyst combines finished analyses and groups within a submission into a sing
 3. A group is treated like any other analysis — viewed and retrieved the same way; the results grid discloses a group via the Engine column, not the name.
 4. The member pick-list is scoped to the current submission; members may span EDMs and RDMs within it.
 5. Currency, scheme, and vintage are confirmed by the analyst at each group submit with env-var defaults — never stored configuration.
-6. Treaty terms sharing a Treaty Number are not compared; inconsistent terms can produce unexpected grouped results. The dialog states this.
+6. Loss-affecting treaty terms sharing a Treaty Number are compared at inspection; every mismatch is listed with the treaty number, differing terms, and members, and never blocks the submit.
 
 ## Open product decisions
 
@@ -51,7 +51,7 @@ An analyst combines finished analyses and groups within a submission into a sing
 | O-06 | The analyst picks the scheme per conflicting partition, no default preselected (note 22 O22-1); the simulation count is a compose input, prefilled with the largest member PLT length for a PLT group and 1 for an ELT group | Approved | research.md Clarifications 2026-09-02; CIC walkthrough of the dialog still owed (PRD O11-2 / O15-7) |
 | O-07 | Groups are submitted without the submission tag: the platform grouping job schema has no tag field and no endpoint tags an analysis after creation. Member analyses still carry the tag. Revisit if Moody's adds a tagging endpoint | Approved | research.md T-07 and Clarifications, decided 2026-08-27 |
 | O-08 | Risk Modeler's Create independent groups checkbox is not carried over: CIC never enables it, and the results views already show a group beside its member analyses. The compose settings are the currency block, Propagate detailed output, and the simulation count | Approved | research.md T-08 and Clarifications, decided 2026-08-27 |
-| O-09 | Members are identified by Platform analysis ID (`irp_analysis.irp_id`; names duplicate tenant-wide, note 22 O22-16). Inspection runs before submit and blocks with structured problems; submission re-inspects and fails the job with `inspection_changed` when facts changed. Treaty consistency is not validated; the dialog says so | Approved | research.md T-03, T-10 and Clarifications 2026-09-02 |
+| O-09 | Members are identified by Platform analysis ID (`irp_analysis.irp_id`; names duplicate tenant-wide, note 22 O22-16). Inspection runs before submit and blocks with structured problems; submission re-inspects and fails the job with `inspection_changed` when facts changed. Treaty term mismatches are listed and never block (FR-020) | Approved | research.md T-03, T-10 and Clarifications 2026-09-02, 2026-09-03 |
 
 ---
 
@@ -119,13 +119,13 @@ Analysts are not always in the Workbench. Every individual analysis the Workbenc
 - **FR-017**: Every Workbench-submitted individual analysis carries a submission-level IRP tag whose value is the submission name (O-05), applied at submit time and queryable in the platform and via API. Groups carry no tag — the platform grouping job accepts none (O-07).
 - **FR-018**: Groups can be members of other groups (nested grouping).
 - **FR-019**: The simulation count is a positive integer. For a PLT group the analyst confirms it at compose time as the target group PLT length, prefilled with the largest member PLT length; for an ELT group the dialog shows no count and submits 1 (O-06).
-- **FR-020**: The compose dialog states that treaty terms sharing a Treaty Number are not compared and that inconsistent terms can produce unexpected grouped results.
+- **FR-020**: The inspection screen lists each treaty term mismatch — the Treaty Number, the differing loss-affecting terms by display name, the members carrying it, and the treaty ids — and shows the mismatch count on the facts strip; the settings summary shows the count and the treaty numbers. Mismatches never block the submit.
 
 ## Key Entities
 
 - **Group**: an analysis flagged as a group; created by a grouping, owned by a submission, treated like any other analysis in every view.
 - **Grouping job**: the tracked unit of work that submits the group to the Moody's platform and follows it to a terminal status.
-- **Inspection**: the read-only check of the selected members that classifies the group output (ELT or PLT), lists the partitions whose event-rate schemes conflict, and either blocks with named problems or returns a fingerprint the submit must match.
+- **Inspection**: the read-only check of the selected members that classifies the group output (ELT or PLT), lists the partitions whose event-rate schemes conflict, lists treaty term mismatches, and either blocks with named problems or returns a fingerprint the submit must match.
 - **Submission tag**: the platform-side tag linking every Workbench-submitted individual analysis back to its submission; groups carry none (O-07).
 
 ## Success Criteria

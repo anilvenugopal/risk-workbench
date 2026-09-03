@@ -53,9 +53,14 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    acceptance 1). Untick a row so one member is left: **Next** disables.
 3. Click **Next**. The wait state shows while Risk Modeler is read, then
    screen 2: the facts strip (group output ELT or PLT, member count, scheme
-   mismatch count), one table row per peril · region · model version with the
-   members by name and the scheme each row uses, and the treaty section.
-   **Next** is enabled. Click it: screen 3 shows the name, output, and members
+   mismatch count, treaty mismatch count), one table row per peril · region ·
+   model version with the members by name and the scheme each row uses, and
+   the treaty section. When two members carry a treaty with the same Treaty
+   Number but a differing attachment point, the treaty section shows an amber
+   notice naming the treaty number, "Differing terms: Attachment Point", both
+   members, and the treaty ids, and screen 3's summary shows a Treaties row
+   with the "1 mismatch" badge; identical treaties show the green one-liner and
+   "0 treaty mismatches". **Next** is enabled either way. Click it: screen 3 shows the name, output, and members
    on the left, and currency/scheme/vintage prefilled from the env defaults
    and Propagate detailed output ON on the right; an ELT group shows no
    simulation count. Click **Back** twice: screen 1 still has your members
