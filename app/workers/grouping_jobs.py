@@ -3,8 +3,9 @@
 ``submit_grouping`` executes the approved compose plan verbatim (AGENTS.md
 rule 8): claim the group ``irp_analysis`` row + its membership rows, make sure
 the group name is free tenant-wide, make one ``submit_grouping`` gateway call
-with the plan's Platform ids, settings, event-rate selections, and inspection
-fingerprint (the package re-inspects and raises typed problems — T-03), and
+with the plan's Platform ids, settings, event-rate and simulation-set
+selections, and inspection fingerprint (the package re-inspects and raises typed
+problems — T-03), and
 record the ``irp_job``. Runs in the worker, never the request path (T-02).
 """
 
@@ -161,6 +162,7 @@ def _submit_grouping_body(rwb_job_id: Any) -> runtime.JobResult:
         "propagate_detailed_losses": plan["propagate_detailed_losses"],
         "num_of_simulations": plan["num_of_simulations"],
         "event_rate_selections": plan["event_rate_selections"],
+        "simulation_set_selections": plan["simulation_set_selections"],
         "expected_inspection_fingerprint": plan["expected_inspection_fingerprint"],
     }
     attempt = 0

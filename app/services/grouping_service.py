@@ -181,8 +181,9 @@ def inspect_grouping(*, submission_id: Any,
 _SELECTION_KEY = ("peril_code", "region_code", "model_version")
 
 
-def _parse_selections(raw: list[str]) -> list[dict] | None:
-    """The posted ``event_rate_selection`` option values as plan entries, or
+def _parse_selections(raw: list[str], value_key: str) -> list[dict] | None:
+    """The posted ``event_rate_selection`` or ``simulation_set_selection``
+    option values as plan entries — the partition key plus ``value_key`` — or
     ``None`` when any is malformed or two name the same partition."""
     selections: list[dict] = []
     seen: set[tuple[str, str, str]] = set()
@@ -194,14 +195,14 @@ def _parse_selections(raw: list[str]) -> list[dict] | None:
         if not isinstance(data, dict):
             return None
         key = tuple(data.get(k) for k in _SELECTION_KEY)
-        scheme_id = data.get("event_rate_scheme_id")
+        chosen = data.get(value_key)
         if (not all(isinstance(k, str) and k for k in key)
-                or not isinstance(scheme_id, int) or isinstance(scheme_id, bool)
+                or not isinstance(chosen, int) or isinstance(chosen, bool)
                 or key in seen):
             return None
         seen.add(key)
         selections.append({**dict(zip(_SELECTION_KEY, key, strict=True)),
-                           "event_rate_scheme_id": scheme_id})
+                           value_key: chosen})
     return selections
 
 
@@ -210,17 +211,17 @@ def request_grouping(
     group_name: str, currency_code: str = "", currency_scheme: str = "",
     currency_vintage: str = "", propagate_detailed_output: bool = True,
     num_of_simulations: str, event_rate_selections: list[str],
-    expected_inspection_fingerprint: str, inspected_analysis_ids: list[str],
-    actor_id: Any,
+    simulation_set_selections: list[str], expected_inspection_fingerprint: str,
+    inspected_analysis_ids: list[str], actor_id: Any,
 ) -> str:
     """Validate the posted selection, compose the plan once, persist it on a
     fresh ``submit_grouping`` ``rwb_job`` and dispatch. Raises
     ``ExecutionGateError`` on any validation failure — no partial persistence
     (SC-005). Returns the new ``grouping_request_id``.
 
-    Which partitions require an event-rate selection is not re-derived here
-    (that needs another inspection); the package validates it at submit and
-    the worker records the structured reason."""
+    Which partitions require an event-rate or simulation-set selection is not
+    re-derived here (that needs another inspection); the package validates it
+    at submit and the worker records the structured reason."""
     errors: list[str] = []
     picked = _pick_members(submission_id, member_ids, errors)
     irp_ids = sorted(m.irp_id for m in picked if m.irp_id is not None)
@@ -238,9 +239,13 @@ def request_grouping(
         simulations = 0
     if simulations <= 0:
         errors.append("Enter a simulation count greater than zero.")
-    selections = _parse_selections(event_rate_selections)
+    selections = _parse_selections(event_rate_selections, "event_rate_scheme_id")
     if selections is None:
         errors.append("Choose an event-rate scheme for every conflicting partition.")
+    simulation_sets = _parse_selections(simulation_set_selections, "simulation_set_id")
+    if simulation_sets is None:
+        errors.append("Choose a simulation set for every partition converted "
+                      "from ELT to PLT.")
     group_name = group_name.strip()
     if not group_name:
         errors.append("Enter a group name.")
@@ -267,6 +272,7 @@ def request_grouping(
         "propagate_detailed_losses": bool(propagate_detailed_output),
         "num_of_simulations": simulations,
         "event_rate_selections": selections,
+        "simulation_set_selections": simulation_sets,
         "expected_inspection_fingerprint": expected_inspection_fingerprint.strip(),
         "members": [
             {"analysis_id": m.id, "irp_id": m.irp_id, "name": m.name,

@@ -61,7 +61,7 @@ dev = [
 # Only the group named in [tool.uv] default-groups is installed. Switch the source with
 # `make irp-pypi | make irp-testpypi | make irp-local` (each rewrites default-groups + syncs).
 irp-pypi     = ["irp-integration[databridge]>=0.2,<1"]      # production: latest stable from PyPI
-irp-testpypi = ["irp-integration[databridge]==0.8.0rc6"]       # dev: pinned pre-release build from TestPyPI
+irp-testpypi = ["irp-integration[databridge]==0.8.0rc7"]       # dev: pinned pre-release build from TestPyPI
 irp-local    = ["irp-integration[databridge]"]              # dev: your editable local checkout (path in [tool.uv.sources])
 
 # ── uv: how irp-integration is sourced ────────────────────────────────────────

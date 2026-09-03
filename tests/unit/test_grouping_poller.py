@@ -40,6 +40,7 @@ def _submitted_group(iteration2_db, fake_irp) -> dict:
         member_ids=[a1, a2], group_name="CRE_Sub One_Group",
         currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
         num_of_simulations="1", event_rate_selections=[],
+        simulation_set_selections=[],
         expected_inspection_fingerprint=f"v1:fake-{ids[0]},{ids[1]}",
         inspected_analysis_ids=[str(i) for i in ids],
         actor_id=iteration2_db.user_a)

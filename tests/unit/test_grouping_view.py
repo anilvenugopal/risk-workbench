@@ -14,7 +14,9 @@ from app.services.irp_gateway import (
     GroupingProblem,
     GroupingRegionFact,
     GroupingTreaty,
+    SimulationSetOption,
 )
+from tests.unit.grouping_inspections import JP_WS, NA_EQ, NA_WS, mixed_group_inspection
 
 WS_NA = GroupingPartitionKey("WS", "NA", "11.0")
 
@@ -58,10 +60,12 @@ def _view(facts_by_member: dict[int, list[GroupingRegionFact]],
                                   suggested_num_of_simulations=1)
 
 
-def _partition(ids, options, *, required=False, key=WS_NA):
+def _partition(ids, options, *, required=False, key=WS_NA, simulation_sets=()):
     return GroupingPartition(
         key=key, analysis_ids=tuple(ids), event_rate_scheme_options=tuple(options),
-        observed_pet_ids=(), event_rate_selection_required=required)
+        observed_pet_ids=(), event_rate_selection_required=required,
+        simulation_set_options=tuple(simulation_sets),
+        simulation_set_selection_required=bool(simulation_sets))
 
 
 def test_one_shared_scheme_resolves_the_row():
@@ -106,6 +110,50 @@ def test_a_partition_without_schemes_has_nothing_to_show():
 
     assert row.mode == "none"
     assert row.options == ()
+
+
+def test_a_plt_group_offers_a_simulation_set_per_elt_partition():
+    inspection = mixed_group_inspection(1, 2, 3)
+    view = GroupingInspectionView(
+        inspection=inspection,
+        members={1: _member(1, "HD"), 2: _member(2, "DLM"), 3: _member(3, "Group")},
+        suggested_num_of_simulations=50000)
+
+    screen = build_inspection_screen(view)
+
+    assert screen.simulation_sets_required
+    eq, jp, ws = screen.rows
+    assert (jp.key, jp.mode, jp.simulation_set_required, jp.simulation_set_options) == (
+        JP_WS, "none", False, ())
+    assert (eq.key, eq.mode, eq.simulation_set_required) == (NA_EQ, "resolved", True)
+    assert [(o.simulation_set_id, o.simulation_periods) for o in eq.simulation_set_options] == [
+        (83, 50000), (84, 50000), (85, 100000), (86, 100000), (87, 100000)]
+    assert eq.simulation_set_options[4].label == "North America Earthquake Stochastic"
+    assert eq.simulation_set_options[4].value == {
+        "peril_code": "EQ", "region_code": "NA", "model_version": "17.0",
+        "simulation_set_id": 87}
+    assert (ws.key, ws.mode, ws.simulation_set_required) == (NA_WS, "choose", True)
+    assert [o.simulation_set_id for o in ws.simulation_set_options] == [146, 147]
+    assert [o.event_rate_scheme_id for o in ws.options] == [738, 739]
+
+
+def test_a_simulation_set_without_a_label_is_named_by_id():
+    view = _view({1: [_fact(1)]}, (_partition(
+        [1], [EventRateSchemeOption(101)],
+        simulation_sets=[SimulationSetOption(50, 100000)]),), output="PLT")
+
+    row, = build_inspection_screen(view).rows
+
+    assert row.simulation_set_required
+    assert [(o.label, o.simulation_periods) for o in row.simulation_set_options] == [
+        ("Simulation set 50", 100000)]
+
+
+def test_an_elt_group_needs_no_simulation_set():
+    screen = build_inspection_screen(_view(TWO_MEMBERS, WS_PARTITION))
+
+    assert not screen.simulation_sets_required
+    assert screen.rows[0].simulation_set_options == ()
 
 
 def test_problems_carry_the_message_and_the_members_display_names():

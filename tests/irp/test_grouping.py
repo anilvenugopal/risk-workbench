@@ -66,7 +66,7 @@ def _submit(gateway, *, label: str, ids: list[int], inspection,
     irp_id, request_body = gateway.submit_grouping(
         analysis_ids=ids, group_name=group_name, currency=_CURRENCY,
         propagate_detailed_losses=True, num_of_simulations=num_of_simulations,
-        event_rate_selections=selections,
+        event_rate_selections=selections, simulation_set_selections=[],
         expected_inspection_fingerprint=inspection.fingerprint)
     assert irp_id
     assert request_body["resourceUris"] == [
@@ -120,6 +120,7 @@ def test_stale_fingerprint_is_rejected_before_any_post():
             analysis_ids=ids, group_name=f"RWB stale {int(time.time())}",
             currency=_CURRENCY, propagate_detailed_losses=True,
             num_of_simulations=1, event_rate_selections=[],
+            simulation_set_selections=[],
             expected_inspection_fingerprint="v1:" + "0" * 64)
 
     assert [str(p.code) for p in exc.value.problems] == ["inspection_changed"]

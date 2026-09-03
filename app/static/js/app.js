@@ -893,10 +893,10 @@ document.addEventListener('alpine:init', () => {
       this.groupName = name ? name.value.trim() : '';
       this.canNext1 = this.picked >= 2 && !!this.groupName;
       this.hasInspection = root.querySelector('#group-inspection').children.length > 0;
-      const schemesDone = Array.from(
-        root.querySelectorAll('select[name="event_rate_selection"]'))
+      const choicesDone = Array.from(
+        root.querySelectorAll('select[name="event_rate_selection"], select[name="simulation_set_selection"]'))
         .every((select) => select.value);
-      this.canNext2 = !!root.querySelector('[data-inspection-ready]') && schemesDone;
+      this.canNext2 = !!root.querySelector('[data-inspection-ready]') && choicesDone;
       const currencyDone = ['currency_code', 'currency_scheme', 'currency_vintage']
         .every((f) => {
           const select = root.querySelector(`select[name="${f}"]`);

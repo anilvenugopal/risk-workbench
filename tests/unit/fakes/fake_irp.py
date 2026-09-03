@@ -747,7 +747,8 @@ class FakeIRP:
     def submit_grouping(
         self, *, analysis_ids: list[int], group_name: str, currency: dict,
         propagate_detailed_losses: bool, num_of_simulations: int,
-        event_rate_selections: list[dict], expected_inspection_fingerprint: str,
+        event_rate_selections: list[dict], simulation_set_selections: list[dict],
+        expected_inspection_fingerprint: str,
     ) -> tuple[str, dict]:
         self.grouping_submits.append({
             "analysis_ids": list(analysis_ids),
@@ -756,6 +757,7 @@ class FakeIRP:
             "propagate_detailed_losses": propagate_detailed_losses,
             "num_of_simulations": num_of_simulations,
             "event_rate_selections": [dict(s) for s in event_rate_selections],
+            "simulation_set_selections": [dict(s) for s in simulation_set_selections],
             "expected_inspection_fingerprint": expected_inspection_fingerprint,
         })
         if group_name in self.raise_on_submit_grouping_for:

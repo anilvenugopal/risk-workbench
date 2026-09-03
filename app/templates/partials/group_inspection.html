@@ -38,10 +38,10 @@
   </div>
 
   <div>
-    <div class="exec-section-label">Event-rate schemes</div>
+    <div class="exec-section-label">Event-rate schemes{% if screen.simulation_sets_required %} and simulation sets{% endif %}</div>
     <div class="insp-table-wrap">
       <table class="insp-table">
-        <thead><tr><th class="insp-table__key">Peril</th><th class="insp-table__key">Region</th><th class="insp-table__key">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th></tr></thead>
+        <thead><tr><th class="insp-table__key">Peril</th><th class="insp-table__key">Region</th><th class="insp-table__key">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th>{% if screen.simulation_sets_required %}<th class="insp-table__set">Simulation set</th>{% endif %}</tr></thead>
         <tbody>
           {% for row in screen.rows %}
           <tr>
@@ -71,6 +71,25 @@
               <div class="insp-resolved tag-empty">&mdash;</div>
               {% endif %}
             </td>
+            {% if screen.simulation_sets_required %}
+            <td>
+              {% if row.simulation_set_required %}
+              <div class="insp-choose">
+                <select class="wf-field__input" name="simulation_set_selection" data-partition="{{ row.label }}"
+                        aria-label="Simulation set for {{ row.label }}" title="Choose a simulation set"
+                        @change="$el.title = $el.selectedOptions[0].dataset.label || 'Choose a simulation set'">
+                  <option value="" selected>Choose a simulation set&hellip;</option>
+                  {% for opt in row.simulation_set_options %}
+                  <option value='{{ opt.value|tojson }}' data-label="{{ opt.label }}">{{ opt.label }} ({{ "{:,}".format(opt.simulation_periods) }} periods)</option>
+                  {% endfor %}
+                </select>
+                <span class="wf-field__hint">Choose the simulation set for the ELT-to-PLT conversion.</span>
+              </div>
+              {% else %}
+              <div class="insp-resolved tag-empty">&mdash;</div>
+              {% endif %}
+            </td>
+            {% endif %}
           </tr>
           {% endfor %}
         </tbody>

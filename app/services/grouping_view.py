@@ -16,6 +16,7 @@ from app.services.irp_gateway import (
     GroupingPartition,
     GroupingPartitionKey,
     GroupingTreaty,
+    SimulationSetOption,
 )
 from app.services.treaty_service import display_value, humanize_key
 
@@ -42,6 +43,14 @@ class SchemeOption:
 
 
 @dataclass(frozen=True)
+class SimulationSetChoice:
+    simulation_set_id: int
+    label: str                # the package label, or ``Simulation set <id>`` without one
+    simulation_periods: int
+    value: dict               # the posted ``simulation_set_selection`` JSON
+
+
+@dataclass(frozen=True)
 class PartitionRow:
     key: GroupingPartitionKey
     label: str                          # ``WS / NA / 11.0``
@@ -49,6 +58,8 @@ class PartitionRow:
     member_names: tuple[str, ...]
     mode: str                           # choose | resolved | none
     options: tuple[SchemeOption, ...]
+    simulation_set_required: bool       # an ELT partition of a PLT group
+    simulation_set_options: tuple[SimulationSetChoice, ...]
 
     @property
     def resolved(self) -> SchemeOption | None:
@@ -115,6 +126,10 @@ class InspectionScreen:
     def treaty_mismatch_count(self) -> int:
         return len(self.treaty_mismatches)
 
+    @property
+    def simulation_sets_required(self) -> bool:
+        return any(row.simulation_set_required for row in self.rows)
+
 
 def build_inspection_screen(view: GroupingInspectionView) -> InspectionScreen:
     inspection = view.inspection
@@ -159,15 +174,15 @@ def _row(view: GroupingInspectionView, part: GroupingPartition) -> PartitionRow:
         if fact.analysis_id in members
         and (fact.peril_code, fact.region_code, fact.model_version)
         == (key.peril_code, key.region_code, key.model_version)]
+    partition = {"peril_code": key.peril_code, "region_code": key.region_code,
+                 "model_version": key.model_version}
     options = tuple(
         SchemeOption(
             event_rate_scheme_id=opt.event_rate_scheme_id,
             label=opt.label or f"Scheme {opt.event_rate_scheme_id}",
             member_count=len({f.analysis_id for f in facts
                               if f.event_rate_scheme_id == opt.event_rate_scheme_id}),
-            value={"peril_code": key.peril_code, "region_code": key.region_code,
-                   "model_version": key.model_version,
-                   "event_rate_scheme_id": opt.event_rate_scheme_id})
+            value={**partition, "event_rate_scheme_id": opt.event_rate_scheme_id})
         for opt in part.event_rate_scheme_options)
     if part.event_rate_selection_required:
         mode = "choose"
@@ -181,7 +196,18 @@ def _row(view: GroupingInspectionView, part: GroupingPartition) -> PartitionRow:
         engine_versions=tuple(sorted({f.engine_version for f in facts
                                       if f.engine_version})),
         member_names=_names(view, part.analysis_ids),
-        mode=mode, options=options)
+        mode=mode, options=options,
+        simulation_set_required=part.simulation_set_selection_required,
+        simulation_set_options=tuple(
+            _simulation_set(partition, opt) for opt in part.simulation_set_options))
+
+
+def _simulation_set(partition: dict, opt: SimulationSetOption) -> SimulationSetChoice:
+    return SimulationSetChoice(
+        simulation_set_id=opt.simulation_set_id,
+        label=opt.label or f"Simulation set {opt.simulation_set_id}",
+        simulation_periods=opt.simulation_periods,
+        value={**partition, "simulation_set_id": opt.simulation_set_id})
 
 
 __all__ = [
@@ -189,6 +215,7 @@ __all__ = [
     "PartitionRow",
     "ProblemText",
     "SchemeOption",
+    "SimulationSetChoice",
     "TreatyMismatch",
     "TreatyMismatchRow",
     "build_inspection_screen",

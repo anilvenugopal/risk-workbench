@@ -49,6 +49,7 @@ from irp_integration.grouping import (
     GroupingRegionFact,
     GroupingSimulationMapping,
     GroupingTreaty,
+    SimulationSetOption,
 )
 
 logger = logging.getLogger(__name__)
@@ -383,7 +384,8 @@ class IRPGateway(Protocol):
     def submit_grouping(
         self, *, analysis_ids: list[int], group_name: str, currency: dict,
         propagate_detailed_losses: bool, num_of_simulations: int,
-        event_rate_selections: list[dict], expected_inspection_fingerprint: str,
+        event_rate_selections: list[dict], simulation_set_selections: list[dict],
+        expected_inspection_fingerprint: str,
     ) -> tuple[str, dict]: ...
 
     def get_grouping_job(self, irp_id: str) -> JobStatus: ...
@@ -1022,12 +1024,14 @@ class _RealGateway:
     def submit_grouping(
         self, *, analysis_ids: list[int], group_name: str, currency: dict,
         propagate_detailed_losses: bool, num_of_simulations: int,
-        event_rate_selections: list[dict], expected_inspection_fingerprint: str,
+        event_rate_selections: list[dict], simulation_set_selections: list[dict],
+        expected_inspection_fingerprint: str,
     ) -> tuple[str, dict]:
         from irp_integration.grouping import (  # noqa: PLC0415 — request-side types stay here
             EventRateSelection,
             GroupingCurrency,
             GroupingSettings,
+            SimulationSetSelection,
         )
         settings = GroupingSettings(
             analysis_name=group_name,
@@ -1044,9 +1048,18 @@ class _RealGateway:
                 event_rate_scheme_id=s["event_rate_scheme_id"])
             for s in event_rate_selections
         ]
+        simulation_sets = [
+            SimulationSetSelection(
+                partition=GroupingPartitionKey(
+                    peril_code=s["peril_code"], region_code=s["region_code"],
+                    model_version=s["model_version"]),
+                simulation_set_id=s["simulation_set_id"])
+            for s in simulation_set_selections
+        ]
         submission = self._client().grouping.submit(
             analysis_ids=analysis_ids, settings=settings,
             event_rate_selections=selections,
+            simulation_set_selections=simulation_sets,
             expected_inspection_fingerprint=expected_inspection_fingerprint)
         return str(submission.job_id), submission.request_body
 
@@ -1390,13 +1403,15 @@ def inspect_grouping(*, analysis_ids: list[int]) -> GroupingInspection:
 def submit_grouping(
     *, analysis_ids: list[int], group_name: str, currency: dict,
     propagate_detailed_losses: bool, num_of_simulations: int,
-    event_rate_selections: list[dict], expected_inspection_fingerprint: str,
+    event_rate_selections: list[dict], simulation_set_selections: list[dict],
+    expected_inspection_fingerprint: str,
 ) -> tuple[str, dict]:
     return _active().submit_grouping(
         analysis_ids=analysis_ids, group_name=group_name, currency=currency,
         propagate_detailed_losses=propagate_detailed_losses,
         num_of_simulations=num_of_simulations,
         event_rate_selections=event_rate_selections,
+        simulation_set_selections=simulation_set_selections,
         expected_inspection_fingerprint=expected_inspection_fingerprint)
 
 
@@ -1507,6 +1522,6 @@ __all__ = [
     "GroupingInspection", "GroupingMember", "GroupingRegionFact",
     "GroupingPartition", "GroupingPartitionKey", "EventRateSchemeOption",
     "GroupingProblem", "GroupingProblemCode", "GroupingSimulationMapping",
-    "GroupingTreaty",
+    "GroupingTreaty", "SimulationSetOption",
     "IRPIntegrationError", "IRPGroupingValidationError",
 ]

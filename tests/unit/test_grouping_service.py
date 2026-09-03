@@ -30,6 +30,8 @@ from tests.unit.grouping_rows import (
 _FINGERPRINT = "v1:" + "a" * 64
 _SELECTION = json.dumps({"peril_code": "WS", "region_code": "NA",
                          "model_version": "11.0", "event_rate_scheme_id": 738})
+_SIMULATION_SET = json.dumps({"peril_code": "WS", "region_code": "NA",
+                              "model_version": "11.0", "simulation_set_id": 147})
 
 
 def _submission_with_two_ready(iteration2_db) -> dict:
@@ -63,6 +65,7 @@ def _request(ctx, iteration2_db, member_ids=None, **overrides) -> str:
         "currency_code": "USD", "currency_scheme": "RMS",
         "currency_vintage": "RL25", "propagate_detailed_output": True,
         "num_of_simulations": "1", "event_rate_selections": [],
+        "simulation_set_selections": [],
         "expected_inspection_fingerprint": _FINGERPRINT,
         "inspected_analysis_ids": _inspected(member_ids),
         "actor_id": iteration2_db.user_a,
@@ -243,6 +246,22 @@ def test_gate_rejects_malformed_or_duplicate_selections(iteration2_db, selection
     _no_rwb_job()
 
 
+@pytest.mark.parametrize("selections", [
+    ['{"peril_code": "WS", "simulation_set_id": 147}'],
+    [_SIMULATION_SET, _SIMULATION_SET],
+])
+def test_gate_rejects_malformed_or_duplicate_simulation_set_selections(
+        iteration2_db, selections):
+    ctx = _submission_with_two_ready(iteration2_db)
+
+    with pytest.raises(ExecutionGateError) as exc:
+        _request(ctx, iteration2_db, simulation_set_selections=selections)
+
+    assert exc.value.errors == [
+        "Choose a simulation set for every partition converted from ELT to PLT."]
+    _no_rwb_job()
+
+
 # ── naming (T-09) ────────────────────────────────────────────────────────────────
 
 def test_build_group_name_defaults_from_the_submission(iteration2_db):
@@ -274,7 +293,8 @@ def test_plan_is_persisted_verbatim_on_the_rwb_job(iteration2_db):
     request_id = _request(ctx, iteration2_db,
                           member_ids=[ctx["a1"], broker, nested],
                           num_of_simulations="50000",
-                          event_rate_selections=[_SELECTION])
+                          event_rate_selections=[_SELECTION],
+                          simulation_set_selections=[_SIMULATION_SET])
 
     plan = _plan(request_id)
     assert plan["grouping_request_id"] == request_id
@@ -287,6 +307,9 @@ def test_plan_is_persisted_verbatim_on_the_rwb_job(iteration2_db):
     assert plan["event_rate_selections"] == [
         {"peril_code": "WS", "region_code": "NA", "model_version": "11.0",
          "event_rate_scheme_id": 738}]
+    assert plan["simulation_set_selections"] == [
+        {"peril_code": "WS", "region_code": "NA", "model_version": "11.0",
+         "simulation_set_id": 147}]
     assert plan["expected_inspection_fingerprint"] == _FINGERPRINT
     assert plan["members"] == [
         {"analysis_id": ctx["a1"], "irp_id": _irp(ctx["a1"]),

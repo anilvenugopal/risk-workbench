@@ -462,6 +462,7 @@ async def group_compose_submit(request: Request, submission_id: str):
                 form.get("propagate_detailed_output") is not None),
             num_of_simulations=form.get("num_of_simulations", ""),
             event_rate_selections=form.getlist("event_rate_selection"),
+            simulation_set_selections=form.getlist("simulation_set_selection"),
             expected_inspection_fingerprint=form.get(
                 "expected_inspection_fingerprint", ""),
             inspected_analysis_ids=form.getlist("inspected_analysis_ids"),

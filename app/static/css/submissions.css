@@ -414,6 +414,7 @@
 .insp-table td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .insp-table .insp-table__members { width: 38%; }
 .insp-table .insp-table__scheme { width: 36%; min-width: 280px; }
+.insp-table .insp-table__set { width: 30%; min-width: 260px; }
 .insp-table .wf-field__input { padding: 5px 8px; }
 .insp-members { display: flex; flex-direction: column; gap: 3px; }
 .insp-member { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
