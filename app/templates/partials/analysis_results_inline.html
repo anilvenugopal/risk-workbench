@@ -8,7 +8,7 @@
   <p class="row-src">
     {%- if a.rdm_name is defined and a.rdm_name %}RDM: <b class="row-src__name">{{ a.rdm_name }}</b>
     {%- else %}<b class="row-src__name">{{ a.full_name or a.name or '—' }}</b>{% endif %}
-    &middot; Analysis: <b>{{ a.irp_id or '—' }}</b>
+    &middot; Analysis: <b>{{ a.app_analysis_id or '—' }}</b>
     {%- if a.created_at is defined and a.created_at %}
     &middot; Submitted: <b><time data-utc="{{ a.created_at }}"
       title="{{ a.created_at }}">{{ a.created_at }}</time></b>{% endif %}</p>

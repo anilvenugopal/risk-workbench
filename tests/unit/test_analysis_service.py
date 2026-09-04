@@ -157,10 +157,24 @@ def test_rm_url_needs_irp_app_analysis_id_and_a_configured_rm_ui(iteration2_db, 
     assert rows["A"].rm_url == (
         "https://acme.rms-ppe.com/riskmodeler/datasources/analysis/41867/0")
     assert rows["B"].rm_url is None
+    # the expanded row's Analysis id is the web-UI id, never the API id
+    assert rows["A"].app_analysis_id == "41867"
+    assert rows["B"].app_analysis_id is None
 
     monkeypatch.setattr(app_settings, "risk_modeler_tenant_name", "")
     rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
     assert rows["A"].rm_url is None
+
+
+def test_app_analysis_id_falls_back_to_the_metadata_snapshot(iteration2_db):
+    edm = _edm()
+    _executed(edm_id=edm, name="A", irp_id="9001",
+              settings={"appAnalysisId": 41867})
+
+    [row] = analysis_service.list_executed_analyses(edm_id=edm)
+
+    assert row.irp_app_analysis_id is None
+    assert row.app_analysis_id == "41867"
 
 
 def test_settings_parsed_or_blank_never_error(iteration2_db):

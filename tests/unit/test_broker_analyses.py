@@ -273,8 +273,10 @@ def test_broker_rm_url_and_created_at(iteration2_db, monkeypatch):
     assert by_irp["5521"].rm_url == (
         "https://acme.rms-ppe.com/riskmodeler/datasources/analysis/41867/0")
     assert by_irp["5521"].created_at == "2026-08-20T14:02:11.000Z"
+    assert by_irp["5521"].app_analysis_id == "41867"  # the expanded row's Analysis id
     assert by_irp["5522"].rm_url is None       # no snapshot → no link
     assert by_irp["5522"].created_at is None   # no snapshot → no Submitted value
+    assert by_irp["5522"].app_analysis_id is None
 
 
 # ── row rendering via the contextual lazy route (T024) ──────────────────────────

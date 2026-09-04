@@ -183,6 +183,7 @@ class BrokerAnalysis:
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
     rm_url: str | None = None    # Risk Modeler link-out from the snapshot's
                                  # appAnalysisId, as own rows build theirs (FR-025)
+    app_analysis_id: str | None = None  # the snapshot's appAnalysisId — the id shown
     created_at: Any = None       # RM createDate — the broker's own run date (FR-024)
     results_state: str = "pending"      # pending | failed | ready
     results_error: str | None = None    # failed retrieval's error_detail
@@ -230,6 +231,9 @@ class ExecutedAnalysis:
     inserted_at: Any = None     # submit request time (Submitted column)
     irp_id: str | None = None   # RM analysisId; backfilled after FINISHED
     irp_app_analysis_id: str | None = None  # RM appAnalysisId; web-UI id
+    # The id the expanded row shows: the column, else the metadata snapshot's
+    # appAnalysisId (spec 012 FR-023) — never the API analysisId.
+    app_analysis_id: str | None = None
     rm_url: str | None = None   # Risk Modeler link-out; None without irp_app_analysis_id
     settings: dict | None = None
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
@@ -448,6 +452,7 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
                 is_group=bool(r["is_group"]), settings=settings,
                 display=_to_display(settings),
                 rm_url=_rm_analysis_url((settings or {}).get("appAnalysisId")),
+                app_analysis_id=_text((settings or {}).get("appAnalysisId")),
                 created_at=(settings or {}).get("createDate"),
                 results_state=("ready" if results else "pending"),
                 results=results)
@@ -460,6 +465,7 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
                 existing.settings = settings
                 existing.display = _to_display(settings)
                 existing.rm_url = _rm_analysis_url(settings.get("appAnalysisId"))
+                existing.app_analysis_id = _text(settings.get("appAnalysisId"))
                 existing.created_at = settings.get("createDate")
         if not existing.results:
             results = _perspective_results(r["loss_results"], perspectives)
@@ -567,6 +573,8 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
             inserted_at=r["inserted_at"],
             edm_name=r.get("edm_name"),
             irp_id=irp_id, irp_app_analysis_id=irp_app_analysis_id,
+            app_analysis_id=(irp_app_analysis_id
+                             or _text((parsed or {}).get("appAnalysisId"))),
             rm_url=_rm_analysis_url(irp_app_analysis_id), settings=parsed,
             display=_to_display(parsed),
             irp_job_id=(_uid(r["irp_job_id"]) if r["irp_job_id"] else None),
