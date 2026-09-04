@@ -130,6 +130,21 @@
 /* trailing "clear filters" affordance on any filtered-empty row */
 .clear-filters { color: var(--color-brand); font-size: var(--fs-label); }
 
+/* ── RWB Jobs monitor (CR-04a) ────────────────────────────────────────────── */
+/* rwb_job_status_kind chip colors, plus the synthetic "dead" state (a running
+   row with a missing/stale heartbeat — see rwb_job_service.list_rwb_jobs_for_monitoring). */
+.status-chip--pending { background: var(--c-navy-050); color: var(--c-navy-600); border-color: var(--c-navy-200); }
+.status-chip--running { background: var(--color-info-bg); color: var(--color-info); border-color: var(--color-info-border); }
+.status-chip--dead { background: var(--color-warning-wash); color: var(--color-warning); border-color: var(--color-warning-border); }
+.status-chip--succeeded { background: var(--color-positive-bg); color: var(--color-positive); border-color: var(--color-positive-border); }
+.status-chip--failed { background: var(--color-danger-bg); color: var(--color-danger); border-color: var(--color-danger-border); }
+.status-chip--cancelled { background: var(--surface-recessed); color: var(--text-tertiary); border-color: var(--border-default); }
+.jobs-deal { max-width: 220px; }
+.jobs-deal a { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.err-detail { display: block; margin-top: 2px; font-size: var(--fs-caption); color: var(--color-danger); max-width: 260px; white-space: normal; }
+.run-note { font-size: var(--fs-caption); color: var(--text-tertiary); }
+.jobs-note { border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--fs-label); margin-bottom: var(--space-3); background: var(--color-warning-wash); border: 1px solid var(--color-warning-border); color: var(--color-warning); }
+
 /* ── Analysis metadata ───────────────────────────────────────────────────── */
 .metadata-panel { background: var(--surface-panel); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: var(--space-5); }
 .metadata-meta { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; margin-bottom: var(--space-4); color: var(--text-tertiary); font-size: var(--fs-caption); }

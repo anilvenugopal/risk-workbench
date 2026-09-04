@@ -1,0 +1,105 @@
+{# rwb_job monitor table (CR-04a). Inputs come from app/routers/rwb_jobs.py's
+   _context(): rows (each carrying entity_name, submissions, is_dead),
+   filter_values, sort, descending. This is the swap unit: the filter form and
+   every sortable header target #rwb-jobs-live.
+
+   While any listed row is running (dead or alive), this wrapper polls its own
+   render every 3s and swaps itself — mirrors partials/irp_jobs_table.html —
+   so a dead-vs-reclaimed race or a job finishing shows up without a reload.
+   Once every row is pending/terminal the server stops emitting the trigger. #}
+{% macro sort_th(column, title) %}
+{% set is_sorted = sort == column %}
+{% set next_dir = 'asc' if (is_sorted and descending) else 'desc' %}
+{% set href = '/workflows/rwb-jobs?' ~ (filter_query ~ '&' if filter_query else '') ~ 'sort=' ~ column ~ '&dir=' ~ next_dir %}
+<th aria-sort="{{ 'descending' if (is_sorted and descending) else 'ascending' if is_sorted else 'none' }}">
+  <a class="sort-th{{ ' is-sorted' if is_sorted }}" href="{{ href }}"
+     hx-get="{{ href }}" hx-target="#rwb-jobs-live" hx-swap="outerHTML"
+     hx-push-url="true">{{ title
+    }}{% if is_sorted %}<span class="sort-th__caret">{{ '▼' if descending else '▲' }}</span>{% endif %}</a>
+</th>
+{% endmacro %}
+
+<div id="rwb-jobs-live"
+  {%- if live %}
+  hx-get="/workflows/rwb-jobs/table?{{ filter_query }}" hx-trigger="every 3s"
+  hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+
+  <div class="jobs-note">A running job that's still heartbeating can't be stopped from this page —
+    an operator has to kill its queue's worker process.</div>
+
+  <table class="mk-table">
+    <thead>
+      <tr>
+        {{ sort_th("rwb_job_type", "Job type") }}
+        {{ sort_th("entity_name", "EDM / RDM") }}
+        {{ sort_th("submission", "Submission") }}
+        {{ sort_th("status_code", "Status") }}
+        {{ sort_th("submitted_at", "Submitted at") }}
+        {{ sort_th("elapsed", "Elapsed") }}
+        <th class="col-actions">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.type_label or row.rwb_job_type }}</td>
+        <td>{% if row.entity_name %}<a class="crumb" href="{% if row.link_type == 'edm' %}/edms/{{ row.link_id }}{% else %}/rdms/{{ row.link_id }}{% endif %}">{{ row.entity_name }}</a>{% else %}<span class="na">—</span>{% endif %}</td>
+        <td class="jobs-deal">
+          {% if row.submissions %}
+          <a class="crumb" href="/submissions/{{ row.submissions[0].id }}" target="_blank" rel="noopener">{{ row.submissions[0].name }}</a>
+          {% if row.submissions | length > 1 %}
+          <span class="muted" title="{{ row.submissions[1:] | map(attribute='name') | join(', ') }}">+{{ row.submissions | length - 1 }} more</span>
+          {% endif %}
+          {% else %}
+          <span class="na">—</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="status-chip status-chip--{{ 'dead' if row.is_dead else row.status_code }}">{{ row.status_label }}</span>
+          {% if row.is_dead %}
+          <span class="run-note">worker stopped heartbeating</span>
+          {% endif %}
+          {% if row.status_code == 'failed' and row.error_detail %}
+          <span class="err-detail">{{ row.error_detail }}</span>
+          {% endif %}
+        </td>
+        <td>{% if row.submitted_at %}{{ (row.submitted_at | string)[:16] }}{% else %}<span class="na">—</span>{% endif %}</td>
+        <td>
+          {% if row.elapsed %}
+          {{ 'queued ' ~ row.elapsed if row.status_code == 'pending' else row.elapsed }}
+          {% else %}
+          <span class="na">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% set can_cancel = row.status_code == 'pending' or row.status_code == 'failed' or row.is_dead %}
+          {% if can_cancel %}
+          <form method="post" action="/workflows/rwb-jobs/{{ row.id }}/cancel"
+                hx-post="/workflows/rwb-jobs/{{ row.id }}/cancel"
+                hx-target="#rwb-jobs-live" hx-swap="outerHTML"
+                hx-confirm="Cancel this job? This can't be undone." style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+            <button class="btn-sm btn-sm--danger" type="submit">Cancel</button>
+          </form>
+          {% endif %}
+          {% if row.status_code == 'failed' %}
+          <form method="post" action="/workflows/rwb-jobs/{{ row.id }}/resubmit"
+                hx-post="/workflows/rwb-jobs/{{ row.id }}/resubmit"
+                hx-target="#rwb-jobs-live" hx-swap="outerHTML" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+            <button class="btn-sm" type="submit">Resubmit</button>
+          </form>
+          {% endif %}
+          {% if not can_cancel and row.status_code != 'failed' %}
+          <span class="run-note">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">No jobs match —
+        <a class="clear-filters" href="/workflows/rwb-jobs">reset filters</a>.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

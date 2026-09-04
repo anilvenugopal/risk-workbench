@@ -259,11 +259,6 @@ def workflows_irp_jobs_table(request: Request):
     )
 
 
-@router.get("/workflows/rwb-jobs", response_class=HTMLResponse)
-def workflows_rwb_jobs(request: Request):
-    return _render(request, "pages/workflows_rwb_jobs.html", "workflows.rwb_jobs")
-
-
 @router.get("/workflows/exceptions", response_class=HTMLResponse)
 def workflows_exceptions(request: Request):
     return _render(request, "pages/workflows_exceptions.html", "workflows.exceptions")

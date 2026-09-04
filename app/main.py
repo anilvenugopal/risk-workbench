@@ -86,6 +86,7 @@ from app.routers import (  # noqa: E402
     health,
     portfolios,
     rdms,
+    rwb_jobs,
     shared_drive,
     shell,
     submissions,
@@ -105,6 +106,7 @@ app.include_router(portfolios.router)
 app.include_router(rdms.router)
 app.include_router(treaties.router)
 app.include_router(template_routes.router)
+app.include_router(rwb_jobs.router)
 app.include_router(shell.router)
 
 
