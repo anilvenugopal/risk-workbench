@@ -2,7 +2,7 @@
    the compose dialog in #group-modal when POST …/analyses/group/finish
    inspected and submitted in one step. Stays until Close. #}
 <div class="modal-overlay" x-data @click.self="document.getElementById('group-modal').replaceChildren()">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
+  <div class="modal-card modal-card--wide modal-card--group" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
     <div class="modal-header">
       <span id="group-modal-title" class="modal-title">Group submitted</span>
       <button class="icon-btn" type="button" aria-label="Close" @click="document.getElementById('group-modal').replaceChildren()">×</button>
