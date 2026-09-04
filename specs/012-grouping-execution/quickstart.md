@@ -92,10 +92,13 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    partition with their period counts and none preselected, the HD row names
    the PET its member ran on with that PET's period count and offers no
    choice, and Next stays disabled until each dropdown is chosen; changing a scheme
-   dropdown leaves the simulation-set dropdown as it was (FR-021). Screen 3
-   shows the Simulation periods dropdown — the nine Risk Modeler options with
-   50,000 preselected — and the hint naming the largest member PLT length
-   (US-2 acceptance 2, FR-019). Expand a finished group's row in the grid: its
+   dropdown leaves the simulation-set dropdown as it was (FR-021). Every row,
+   the HD row included, also shows a Simulation periods dropdown — the nine
+   Risk Modeler options with 50,000 preselected. Screen 3 shows the Group
+   simulation periods dropdown under its own header, the same nine options
+   with 50,000 preselected and no member-length hint, and the Inspection
+   summary lists the schemes, simulation sets, and simulation periods you
+   chose (US-2 acceptance 2, FR-019). Expand a finished group's row in the grid: its
    Analysis id is the app analysis id, and its Event rate scheme list stops at
    five lines with the full list on hover (FR-023, FR-024).
 5. Blocked, error, and changed states: inspect a member set the platform
@@ -127,10 +130,15 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    members. The toast shows, the grid's ticks clear, and the group row
    appears as in step 3; the pane stays until Close. In `rwb_job.input_data`
    the currency is the members' code with the env scheme and vintage,
-   `num_of_simulations` is 1, `propagate_detailed_losses` true. Then Finish
-   each stopping set — two DLMs on different schemes, a DLM + HD pair, a USD
-   + CAD pair, a blocked set — and confirm screen 2 opens with "Finish could
-   not submit this group. Review the inspection and continue with Next.", no
+   `num_of_simulations` is 1, `propagate_detailed_losses` true. Finish two
+   finished HD analyses in one currency: the pane shows Output PLT and
+   "Simulation periods 50,000 — group and every partition"; in
+   `rwb_job.input_data` `num_of_simulations` is 50000 and
+   `simulation_periods_selections` holds one entry per partition at 50000.
+   Then Finish each stopping set — two DLMs on different schemes, a DLM + HD
+   pair (its ELT partition needs a simulation set), a USD + CAD pair, a
+   blocked set — and confirm screen 2 opens with "Finish could not submit
+   this group. Review the inspection and continue with Next.", no
    `submit_grouping` job appears, and Next continues to screen 3 as usual.
    A set with a treaty mismatch only still submits, and the pane shows the
    mismatch badge with the treaty number.

@@ -30,9 +30,10 @@ per-queue worker framework this feature extends (T-01).
   inspection with the members' common currency code, else the env default,
   plus a hint naming the members' currencies (FR-004) — Propagate detailed
   output ON (O-08 drops Risk Modeler's Create independent groups checkbox),
-  and for a PLT group the simulation periods `<select>` over
+  and for a PLT group the Group simulation periods `<select>` over
   `grouping_service.SIMULATION_PERIOD_OPTIONS` with 50,000 preselected
-  (FR-019).
+  (FR-019), plus the lists of schemes, simulation sets, and simulation
+  periods chosen on screen 2.
 - Compose is two requests. Screen 1's Next posts
   `POST /submissions/{sid}/analyses/group/inspect`, which runs the local gate
   (≥2 eligible members, each with a Platform analysis id) and calls
@@ -43,7 +44,9 @@ per-queue worker framework this feature extends (T-01).
   `<select>` limited to the members' schemes with none preselected where they
   differ, the shared scheme where they agree; in a PLT group each ELT row also
   carries a simulation-set `<select>` over the platform's sets for the
-  partition, none preselected, independent of the scheme — FR-021), the
+  partition, none preselected, independent of the scheme — FR-021; and every
+  row of a PLT group carries a simulation-periods `<select>` over the fixed
+  list with 50,000 preselected — FR-019), the
   blocking problems above the
   table, one treaty mismatch table per Treaty Number from
   `inspection.warnings` below it (never blocking), and the hidden fingerprint
@@ -65,10 +68,12 @@ per-queue worker framework this feature extends (T-01).
   `group_analysis_id` so the worker's claim is idempotent.
 - Screen 1's Finish posts `POST /submissions/{sid}/analyses/group/finish`,
   which inspects and — when `grouping_service.finish_blockers` is empty (no
-  blocking problem, no scheme or simulation-set choice, ELT output, one known
-  member currency, env scheme and vintage present) — calls `request_grouping`
-  in the same request with the members' currency, the env scheme and vintage,
-  Propagate ON, and simulation periods 1. A stop renders the inspection as
+  blocking problem, no scheme or simulation-set choice, one known member
+  currency, env scheme and vintage present) — calls `request_grouping` in
+  the same request with the members' currency, the env scheme and vintage,
+  Propagate ON, and the simulation periods: 1 for an ELT group, 50,000 for
+  the group and every partition of a PLT group
+  (`default_simulation_periods_selections`). A stop renders the inspection as
   screen 2 with one generic notice; success retargets
   `group_finish_confirmation.html` at `#group-modal` with the submit's
   triggers (FR-025, O-14). Treaty mismatches do not stop Finish.
@@ -79,7 +84,9 @@ per-queue worker framework this feature extends (T-01).
   tenant-wide with `irp_gateway.count_analyses_named` (retrying with the
   `_n` suffix — the package no longer pre-checks names), then makes one
   gateway call: `submit_grouping`, which builds the package settings and
-  selections and calls `client.grouping.submit()` with the plan's
+  selections — the per-partition simulation periods as
+  `SimulationPeriodsSelection`, accepted by irp-integration from the build
+  after `0.8.0rc8` — and calls `client.grouping.submit()` with the plan's
   fingerprint. The package re-inspects and raises
   `IRPGroupingValidationError` (structured problems) when facts changed or a
   block appears; the worker maps the problems to an analyst-readable

@@ -78,7 +78,7 @@ The compose POST enqueues exactly one row:
 | `requestor_type` | `analyst_request` |
 | `requestor_id` | minted `grouping_request_id` (UUID) |
 | `rwb_job_type` | `submit_grouping` |
-| `input_data` | the approved plan — member Platform ids, currency, `propagate_detailed_losses`, `num_of_simulations`, `event_rate_selections`, `simulation_set_selections`, `expected_inspection_fingerprint`; see [contracts/grouping-worker.md](contracts/grouping-worker.md) |
+| `input_data` | the approved plan — member Platform ids, currency, `propagate_detailed_losses`, `num_of_simulations`, `event_rate_selections`, `simulation_set_selections`, `simulation_periods_selections`, `expected_inspection_fingerprint`; see [contracts/grouping-worker.md](contracts/grouping-worker.md) |
 
 `uq_rwb_job_requestor_type` gives resubmit-idempotency per request as on every
 other op.
@@ -96,7 +96,7 @@ as the analysis worker writes it:
 | `irp_id` | job id from the `Location` header |
 | `last_submission_payload` | the exact request body the package POSTed (`resourceUris`, `settings` incl. `numOfSimulations`, `simulateToPLT`, `regionPerilSimulationSet`) |
 | `last_submission_response` | `{"job_id": <int>}` |
-| `request_params` | the submit kwargs (`analysis_ids`, `group_name`, `currency`, `propagate_detailed_losses`, `num_of_simulations`, `event_rate_selections`, `simulation_set_selections`, `expected_inspection_fingerprint`) |
+| `request_params` | the submit kwargs (`analysis_ids`, `group_name`, `currency`, `propagate_detailed_losses`, `num_of_simulations`, `event_rate_selections`, `simulation_set_selections`, `simulation_periods_selections`, `expected_inspection_fingerprint`) |
 | `status` | `QUEUED` → poller-tracked to `FINISHED` / `FAILED` / `CANCELLED`; `SUBMISSION FAILED` on a submit exception (no automatic retry for grouping — T-11) |
 
 No `irp_job_resource` rows: the member URIs are already in

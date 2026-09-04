@@ -56,13 +56,14 @@ three targets, so no stale swap can land. `#group-currency` is never emptied
 
 Screen 2 (Inspection): the wait state while the request runs, then the
 inspect response. **Next** enables on `[data-inspection-ready]` with every
-`select[name=event_rate_selection]` and `select[name=simulation_set_selection]`
-chosen; it records the chosen scheme labels for screen 3's "Schemes chosen"
-list and moves on.
+`select[name=event_rate_selection]`, `select[name=simulation_set_selection]`,
+and `select[name=simulation_periods_selection]` chosen; it records each
+select's partition and chosen label for screen 3's "Schemes chosen",
+"Simulation sets chosen", and "Simulation periods chosen" lists and moves on.
 
-Screen 3 (Settings): the summary (`#group-summary`), simulation periods
+Screen 3 (Settings): the summary (`#group-summary`), group simulation periods
 (`#group-sims`), and currency block (`#group-currency`) rendered by the
-inspect response, the schemes chosen, Propagate detailed output. **Group**
+inspect response, the choices made on screen 2, Propagate detailed output. **Group**
 submits the form (`hx-swap="none"`) and enables when the currency triple is
 chosen and `num_of_simulations` holds a positive integer. Submit errors land
 in `#group-submit-errors` at the top of the screen.
@@ -81,9 +82,7 @@ Behavior — Platform reads only, nothing persisted:
 - Success → `partials/group_inspection.html` at 200 with
   `view: GroupingInspectionView` — `inspection` (the package
   `GroupingInspection`), `members` (Platform id → `GroupMember`, for display
-  names, currencies, and app analysis ids), `largest_member_periods` (the
-  largest PLT member `periods`, `None` without one — the hint),
-  `common_currency` (the one code every member ran in, else `None`),
+  names, currencies, and app analysis ids), `common_currency` (the one code every member ran in, else `None`),
   `member_currencies` (the distinct known codes) and `currency_unknown` —
   and `screen: InspectionScreen` from
   `grouping_view.build_inspection_screen(view)`: one `PartitionRow` per
@@ -133,7 +132,14 @@ Fragment states, all rendered into `#group-inspection`:
   row shows one `.insp-resolved` per distinct `pet_id` on its members' PLT
   region facts, reading `<pet_name> (<periods> periods)` — `PET <id>` when
   the `PETMetadata` lookup named no row, and no period text when the region
-  carried no period count. An ELT group has no column. Then
+  carried no period count. A PLT group's table also has a Simulation periods
+  column: every row carries
+  `<select name="simulation_periods_selection" data-partition="<peril> / <region> / <model version>">`
+  over `grouping_service.SIMULATION_PERIOD_OPTIONS`, `DEFAULT_SIMULATION_PERIODS`
+  (50,000) selected, whose option value is the JSON
+  `{"peril_code","region_code","model_version","simulation_periods"}` and
+  whose `data-label` is the formatted count — HD rows included, independent
+  of the simulation-set select (FR-019). An ELT group has neither column. Then
   the Treaty mismatches
   section: one `.insp-treaty` per `inspection.warnings` entry with
   `code == "inconsistent_treaty_terms"`, each a heading of the Treaty Number,
@@ -160,10 +166,11 @@ Fragment states, all rendered into `#group-inspection`:
   group name (`x-text`), the output, a Treaties row (`badge--warning`
   "<n> mismatch(es)" plus the treaty numbers, or "No mismatches"), and the
   members with engine and kind. `#group-sims` holds, for a PLT group, the
-  "SIMULATION PERIODS" `<select name="num_of_simulations">` over
+  "Group simulation periods" label (an `.exec-section-label`, above the
+  control) over the `<select name="num_of_simulations">` listing
   `grouping_service.SIMULATION_PERIOD_OPTIONS` (3,125 … 800,000) with
-  `DEFAULT_SIMULATION_PERIODS` (50,000) selected and the "Largest member:
-  <n>" hint when a member has a PLT length; for an ELT group,
+  `DEFAULT_SIMULATION_PERIODS` (50,000) selected and the target-length hint;
+  for an ELT group,
   `<input type="hidden" name="num_of_simulations" value="1">` (FR-019).
   `#group-currency` holds the `currency_block` re-rendered with
   `common_currency` (else the env default code) and a `[data-currency-hint]`
@@ -185,7 +192,7 @@ the same request when nothing is left for the analyst to choose.
 - `grouping_service.finish_blockers(view, currency_defaults=…)` is
   non-empty when the inspection has blocking problems, any partition carries
   `event_rate_selection_required` or `simulation_set_selection_required`,
-  `output_loss_table == "PLT"`, `common_currency` is `None`, or the env
+  `common_currency` is `None`, or the env
   scheme or vintage default is empty (unset or not in the cache). Treaty
   warnings are not a reason. → 200, the inspection partial with the full
   `_inspection_context` plus `finish_stopped=True`, which renders one
@@ -194,15 +201,20 @@ the same request when nothing is left for the analyst to choose.
   blocks fill as for the inspect route, so Next works unchanged.
 - Otherwise `grouping_service.request_grouping` with `currency_code =
   common_currency`, the env `scheme` and `vintage`, `propagate_detailed_output
-  = True`, `num_of_simulations = "1"`, no selections, and the fingerprint and
-  analysis ids from this request's inspection. A gate failure → the
-  inspection partial with `errors` at 422.
+  = True`, no scheme or simulation-set selections, and the fingerprint and
+  analysis ids from this request's inspection. An ELT group posts
+  `num_of_simulations = "1"` and no simulation-periods selections; a PLT group
+  posts `str(DEFAULT_SIMULATION_PERIODS)` and
+  `grouping_service.default_simulation_periods_selections(view)` — one
+  `simulation_periods_selection` value per partition at 50,000. A gate
+  failure → the inspection partial with `errors` at 422.
 - Success → 200 with `partials/group_finish_confirmation.html` and the
   headers `HX-Retarget: #group-modal`, `HX-Reswap: innerHTML`, and the same
   `HX-Trigger` as the submit route (`grouping-submitted` + `rwb:toast`). The
   pane replaces the dialog and stays until Close: "Group submitted",
   "Inspection passed.", then Group name (`requested_group_name` — the plan's
-  `group_full_name`, so a collision suffix shows), Output, Event-rate
+  `group_full_name`, so a collision suffix shows), Output, for a PLT group
+  Simulation periods "50,000 — group and every partition", Event-rate
   schemes "No conflicts", Treaties (the summary's badge and treaty numbers,
   or "No mismatches"), Currency "<code> — all members", Propagate detailed
   output "On", and the members with engine and kind.
@@ -214,6 +226,7 @@ Form fields: `csrf_token`, `member_ids` (repeated, ≥2), `group_name`,
 `propagate_detailed_output` (checkbox), `num_of_simulations`,
 `event_rate_selection` (repeated, JSON option values),
 `simulation_set_selection` (repeated, JSON option values),
+`simulation_periods_selection` (repeated, JSON option values),
 `expected_inspection_fingerprint`, `inspected_analysis_ids` (repeated).
 
 Behavior:
@@ -230,7 +243,11 @@ Behavior:
   `event_rate_scheme_id` (int) and no partition repeats ("Choose an
   event-rate scheme for every conflicting partition."); each simulation-set
   selection parses the same way with `simulation_set_id` (int) ("Choose a
-  simulation set for every partition converted from ELT to PLT.");
+  simulation set for every partition converted from ELT to PLT."); each
+  simulation-periods selection parses the same way with `simulation_periods`
+  (int) and every value is one of `SIMULATION_PERIOD_OPTIONS` ("Choose one of
+  the offered simulation period counts for every partition." — whether the
+  group is PLT, and so takes them, is the package's check at submit);
   `group_name`
   non-empty and free among live group names of the submission (the `_n`
   suffix is applied automatically on collision, not an error); currency

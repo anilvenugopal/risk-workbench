@@ -102,6 +102,7 @@ def submit_grouping(
     num_of_simulations: int,                  # > 0
     event_rate_selections: list[dict],        # {peril_code, region_code, model_version, event_rate_scheme_id}
     simulation_set_selections: list[dict],    # {peril_code, region_code, model_version, simulation_set_id}
+    simulation_periods_selections: list[dict],  # {peril_code, region_code, model_version, simulation_periods}
     expected_inspection_fingerprint: str,
 ) -> tuple[str, dict]:                        # (irp job id, exact request body)
 ```
