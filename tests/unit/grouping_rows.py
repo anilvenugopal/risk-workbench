@@ -38,22 +38,33 @@ def link_submission_edm(submission_id: str, edm_id: str) -> None:
 
 def seed_own_analysis(edm_id: str, name: str, status: str = "ready",
                       settings: dict | None = None,
-                      irp_id: str | None = "auto") -> str:
+                      irp_id: str | None = "auto",
+                      irp_app_analysis_id: str | None = None,
+                      currency: str | None = None) -> str:
+    """``currency`` seeds the submit-time snapshot's ``currency.code`` the way
+    the analysis worker stores it."""
     analysis_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO irp_analysis (id, edm_id, irp_id, name, full_name, "
-        "status_code, is_group, settings_metadata, inserted_at) "
-        "VALUES (:id, :edm, :irp, :name, :name, :status, 0, :settings, :now)",
+        "INSERT INTO irp_analysis (id, edm_id, irp_id, irp_app_analysis_id, "
+        "name, full_name, status_code, is_group, settings_metadata, "
+        "submitted_settings, inserted_at) "
+        "VALUES (:id, :edm, :irp, :app, :name, :name, :status, 0, :settings, "
+        ":submitted, :now)",
         {"id": analysis_id, "edm": edm_id, "irp": _irp_id(irp_id),
-         "name": name, "status": status,
+         "app": irp_app_analysis_id, "name": name, "status": status,
          "settings": (json.dumps(settings) if settings else None),
+         "submitted": (json.dumps({"currency": {"code": currency}})
+                       if currency else None),
          "now": "2026-08-27T00:00:00"}, connection="WORKBENCH")
     return analysis_id
 
 
 def seed_broker_analysis(submission_id: str, name: str,
                          irp_id: str = "70001",
-                         rdm_name: str = "RDM One") -> str:
+                         rdm_name: str = "RDM One",
+                         settings: dict | None = None) -> str:
+    """``settings`` seeds the Risk Modeler metadata snapshot (currency as
+    ``currency.currencyCode``, the web-UI id as ``appAnalysisId``)."""
     rdm_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO irp_rdm (id, name, status) VALUES (:id, :name, 'ready')",
@@ -64,27 +75,33 @@ def seed_broker_analysis(submission_id: str, name: str,
     analysis_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO irp_analysis (id, rdm_id, irp_id, name, status_code, "
-        "is_group, inserted_at) "
-        "VALUES (:id, :rdm, :irp, :name, 'ready', 0, :now)",
+        "is_group, settings_metadata, inserted_at) "
+        "VALUES (:id, :rdm, :irp, :name, 'ready', 0, :settings, :now)",
         {"id": analysis_id, "rdm": rdm_id, "irp": irp_id, "name": name,
+         "settings": (json.dumps(settings) if settings else None),
          "now": "2026-08-27T00:00:00"}, connection="WORKBENCH")
     return analysis_id
 
 
 def seed_group(submission_id: str, name: str, status: str = "ready",
                members: list[dict] | None = None,
-               irp_id: str | None = "auto") -> str:
-    """``members`` seeds the approved compose plan the worker stores verbatim in
-    ``submitted_settings`` — plan-shaped entries, as
+               irp_id: str | None = "auto",
+               currency: str | None = None) -> str:
+    """``members`` and ``currency`` seed the approved compose plan the worker
+    stores verbatim in ``submitted_settings`` — plan-shaped entries, as
     ``grouping_service.request_grouping`` writes them."""
     group_id = str(uuid.uuid4())
+    plan: dict = {}
+    if members is not None:
+        plan["members"] = members
+    if currency:
+        plan["currency"] = {"code": currency}
     execute_command(
         "INSERT INTO irp_analysis (id, submission_id, irp_id, name, full_name, "
         "status_code, is_group, submitted_settings, inserted_at) "
         "VALUES (:id, :sub, :irp, :name, :name, :status, 1, :plan, :now)",
         {"id": group_id, "sub": submission_id, "irp": _irp_id(irp_id),
          "name": name, "status": status,
-         "plan": (json.dumps({"members": members})
-                  if members is not None else None),
+         "plan": json.dumps(plan) if plan else None,
          "now": "2026-08-27T00:00:00"}, connection="WORKBENCH")
     return group_id

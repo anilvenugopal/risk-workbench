@@ -459,6 +459,8 @@
 .insp-notice--block .insp-notice__title { color: var(--color-negative); }
 .insp-notice--ok { background: var(--color-positive-bg); border-color: var(--color-positive-border);
   color: var(--color-positive); }
+.insp-notice--warn { background: var(--color-warning-bg); border-color: var(--color-warning-border);
+  color: var(--color-warning); }
 .insp-notice__title { font-weight: var(--fw-semibold); margin-bottom: var(--space-1); }
 .insp-notice p { margin: 0; }
 .insp-notice ul { margin: var(--space-2) 0 0; padding-left: 18px; }

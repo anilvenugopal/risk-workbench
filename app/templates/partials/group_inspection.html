@@ -1,12 +1,16 @@
 {# Screen 2 of the group compose dialog (spec 012, contracts/routes.md),
-   rendered into #group-inspection by POST …/analyses/group/inspect: a read
-   error with Retry (422), or the partition table with the blocking problems
-   above it and one treaty mismatch table per Treaty Number (warnings, never
-   blocking) below.
+   rendered into #group-inspection by POST …/analyses/group/inspect and by
+   …/group/finish when Finish stops (finish_stopped adds the notice on top):
+   a read error with Retry (422), or the partition table with the blocking
+   problems above it and one treaty mismatch table per Treaty Number
+   (warnings, never blocking) below.
    The hidden fingerprint, inspected ids, and [data-inspection-ready] marker
-   appear only when nothing blocks. #group-summary and #group-sims are
-   screen 3's server-rendered parts, swapped out of band on every response. #}
+   appear only when nothing blocks. #group-summary, #group-sims, and
+   #group-currency are screen 3's server-rendered parts, swapped out of band
+   on every inspection (#group-currency keeps the dialog's block on a read
+   error). #}
 {% from "partials/treaty_macros.html" import attr_val %}
+{% from "partials/currency_block.html" import currency_block with context %}
 {% if errors %}
 <div class="insp-notice insp-notice--block">
   <div class="insp-notice__title">The members could not be inspected</div>
@@ -18,6 +22,9 @@
 {% else %}
 {% set inspection = view.inspection %}
 <div class="insp-screen" data-inspection>
+  {% if finish_stopped %}
+  <div class="insp-notice insp-notice--warn">Finish could not submit this group. Review the inspection and continue with Next.</div>
+  {% endif %}
   {% if screen.blocked %}
   <div class="insp-notice insp-notice--block">
     <div class="insp-notice__title">These members cannot be grouped</div>
@@ -117,7 +124,7 @@
             {% for r in m.rows %}
             <tr>
               <td class="insp-table__name">{{ r.analysis_name }}</td>
-              <td class="n">{{ r.analysis_id }}</td>
+              <td class="n">{% if r.app_analysis_id %}{{ r.app_analysis_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</td>
               <td class="n">{% if r.treaty_id %}{{ r.treaty_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</td>
               <td class="n">{{ r.treaty_number }}</td>
               {% for key, _ in screen.treaty_columns %}<td class="n{{ ' insp-diff' if key in m.differing_keys }}">{{ attr_val(r.terms[key]) }}</td>{% endfor %}
@@ -162,13 +169,25 @@
   </div>
   {% endif %}
 </div>
+<div id="group-currency" hx-swap-oob="true">
+  {{ currency_block('group', 'for this group', 'currency_code', 'currency_scheme', 'currency_vintage', currency_code_val, currency_scheme_val, currency_vintage_val, vintage_options) }}
+  <div class="wf-field__hint" data-currency-hint>
+    {%- if view.common_currency %}All members ran in {{ view.common_currency }}.
+    {%- elif view.currency_unknown %}A member's currency is not recorded. Defaulting to {{ currency_code_val }}.
+    {%- else %}Members ran in {{ view.member_currencies|join(' and ') }}. Defaulting to {{ currency_code_val }}.{% endif -%}
+  </div>
+</div>
 <div id="group-sims" hx-swap-oob="true">
   {% if not screen.blocked %}
   {% if screen.output_loss_table == 'PLT' %}
   <div class="wf-field">
-    <label for="group-num-simulations">SIMULATION COUNT</label>
-    <input class="wf-field__input" id="group-num-simulations" type="number" name="num_of_simulations" min="1" step="1" value="{{ view.suggested_num_of_simulations }}">
-    <div class="wf-field__hint">Target group PLT length. Longer member PLTs are truncated, shorter ones repeated. Largest member: {{ "{:,}".format(view.suggested_num_of_simulations) }}.</div>
+    <label for="group-num-simulations">SIMULATION PERIODS</label>
+    <select class="wf-field__input" id="group-num-simulations" name="num_of_simulations">
+      {% for n in simulation_period_options %}
+      <option value="{{ n }}"{% if n == default_simulation_periods %} selected{% endif %}>{{ "{:,}".format(n) }}</option>
+      {% endfor %}
+    </select>
+    <div class="wf-field__hint">Target group PLT length. Longer member PLTs are truncated, shorter ones repeated.{% if view.largest_member_periods %} Largest member: {{ "{:,}".format(view.largest_member_periods) }}.{% endif %}</div>
   </div>
   {% else %}
   <input type="hidden" name="num_of_simulations" value="1">

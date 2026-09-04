@@ -1,10 +1,11 @@
-"""HTTP behavior of the group compose dialog and its inspect step (spec 012,
-contracts/routes.md)."""
+"""HTTP behavior of the group compose dialog, its inspect step, and the Finish
+fast path (spec 012, contracts/routes.md)."""
 
 from __future__ import annotations
 
 import json
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -21,6 +22,7 @@ from tests.unit.analysis_rows import seed_currency, seed_edm
 from tests.unit.grouping_inspections import FINGERPRINT, seed_mixed_group
 from tests.unit.grouping_rows import (
     link_submission_edm,
+    seed_group,
     seed_own_analysis,
     seed_submission,
 )
@@ -59,8 +61,10 @@ def _seeded_submission() -> dict:
     submission_id = seed_submission("Sub One")
     edm_id = seed_edm("EDM One")
     link_submission_edm(submission_id, edm_id)
-    a1 = seed_own_analysis(edm_id, "CRE_P1_T1")
-    a2 = seed_own_analysis(edm_id, "CRE_P2_T1")
+    a1 = seed_own_analysis(edm_id, "CRE_P1_T1", irp_app_analysis_id="41001",
+                           currency="USD")
+    a2 = seed_own_analysis(edm_id, "CRE_P2_T1", irp_app_analysis_id="41002",
+                           currency="USD")
     return {"submission_id": submission_id, "edm_id": edm_id, "a1": a1, "a2": a2,
             "member_ids": [a1, a2], "irp_ids": [_irp(a1), _irp(a2)]}
 
@@ -120,8 +124,13 @@ def test_get_renders_the_dialog_with_prechecked_members(iteration2_db):
     assert response.text.count(" checked") >= 2          # both rows pre-checked
     assert "Propagate detailed output" in response.text
     assert ">Next<" in response.text and "Inspect members" not in response.text
+    assert ">Finish<" in response.text
+    assert f'hx-post="/submissions/{ctx["submission_id"]}/analyses/group/finish"' in response.text
     assert 'data-name="cre_p1_t1"' in response.text          # the search filter's key
+    assert 'data-display="CRE_P1_T1"' in response.text        # the chips panel's label
+    assert "Nothing selected yet" in response.text
     assert 'name="num_of_simulations"' not in response.text  # arrives with the inspection
+    assert 'id="group-currency"' in response.text            # replaced by the inspection
     assert "Create independent groups" not in response.text  # FR-006 / O-08
 
 
@@ -156,7 +165,11 @@ def test_inspect_renders_an_elt_group_ready_to_submit(iteration2_db, fake_irp):
     assert ">Simulation set</th>" not in response.text
     assert '<div class="insp-resolved" title="Scheme 101">Scheme 101</div>' in response.text
     assert '<input type="hidden" name="num_of_simulations" value="1">' in response.text
-    assert "SIMULATION COUNT" not in response.text
+    assert "SIMULATION PERIODS" not in response.text
+    # both members ran in USD: the group currency is prefilled with it
+    assert '<div id="group-currency" hx-swap-oob="true">' in response.text
+    assert '<option value="USD" selected>' in response.text
+    assert "All members ran in USD." in response.text
     fingerprint = f"v1:fake-{ctx['irp_ids'][0]},{ctx['irp_ids'][1]}"
     assert f'name="expected_inspection_fingerprint" value="{fingerprint}"' in response.text
     assert response.text.count('name="inspected_analysis_ids"') == 2
@@ -202,6 +215,10 @@ def test_inspect_tables_a_treaty_mismatch_without_blocking(iteration2_db, fake_i
     # the two differing terms mark their headers, the seven others do not
     assert response.text.count('insp-table__key insp-diff"') == 2
     assert "CRE_P1_T1" in response.text and "CRE_P2_T1" in response.text
+    # the Analysis ID column carries the web-UI ids, not the Platform ids
+    assert '<td class="n">41001</td>' in response.text
+    assert '<td class="n">41002</td>' in response.text
+    assert f'<td class="n">{ids[0]}</td>' not in response.text
     assert '<td class="n">88412</td>' in response.text
     assert '<td class="n insp-diff">5,000,000</td>' in response.text
     assert '<td class="n insp-diff">2,500,000</td>' in response.text
@@ -295,30 +312,76 @@ def test_inspect_offers_a_simulation_set_per_elt_partition_of_a_plt_group(
                       if '"simulation_set_id": 147' in chunk)
     assert "739" not in option_147 and "scheme" not in option_147
     assert html.count('name="event_rate_selection"') == 1  # NA/WS only
-    assert 'name="num_of_simulations" min="1" step="1" value="50000"' in html
+    assert '<option value="50000" selected>50,000</option>' in html
     assert f'name="expected_inspection_fingerprint" value="{FINGERPRINT}"' in html
     assert "data-inspection-ready" in html
 
 
-def test_inspect_renders_a_plt_group_with_the_suggested_length(
+def test_inspect_renders_a_plt_group_with_the_period_dropdown(
         iteration2_db, fake_irp):
     ctx = _seeded_submission()
     ids = ctx["irp_ids"]
     fake_irp.seed_grouping_inspection(
-        ids, output_loss_table="PLT", periods={ids[0]: 10000, ids[1]: 50000})
+        ids, output_loss_table="PLT", periods={ids[0]: 10000, ids[1]: 200000})
 
     response = _inspect(_client(), ctx)
 
     assert "Group output <b>PLT</b>" in response.text
-    assert 'name="num_of_simulations" min="1" step="1" value="50000"' in response.text
+    assert "SIMULATION PERIODS" in response.text
+    assert ('<select class="wf-field__input" id="group-num-simulations" '
+            'name="num_of_simulations">') in response.text
+    # the nine Risk Modeler options, 50,000 preselected whatever the members ran
+    assert response.text.count("<option value=") >= 9 + 1
+    for n in ("3,125", "6,250", "12,500", "25,000", "100,000", "200,000",
+              "400,000", "800,000"):
+        assert f">{n}</option>" in response.text
+    assert '<option value="50000" selected>50,000</option>' in response.text
+    assert '<option value="200000">200,000</option>' in response.text
     assert "Target group PLT length" in response.text
-    assert "Largest member: 50,000." in response.text
+    assert "Largest member: 200,000." in response.text
     # both members are HD: the column names each PET and offers no choice
     assert ">Simulation set</th>" in response.text
     assert 'name="simulation_set_selection"' not in response.text
     assert ('<div class="insp-resolved" title="PET 900 rates">'
             "PET 900 rates (10,000 periods)</div>") in response.text
-    assert "PET 901 rates (50,000 periods)" in response.text
+    assert "PET 901 rates (200,000 periods)" in response.text
+
+
+# ── the group currency prefill (FR-004) ──────────────────────────────────────────
+
+def test_inspect_defaults_the_currency_when_the_members_differ(
+        iteration2_db, fake_irp):
+    ctx = _seeded_submission()
+    cad = seed_own_analysis(ctx["edm_id"], "CRE_P3_T1", currency="CAD")
+
+    response = _inspect(_client(), ctx, member_ids=[ctx["a1"], cad])
+
+    assert response.status_code == 200
+    assert '<option value="USD" selected>' in response.text
+    assert "Members ran in USD and CAD. Defaulting to USD." in response.text
+
+
+def test_inspect_defaults_the_currency_when_a_member_has_none_recorded(
+        iteration2_db, fake_irp):
+    ctx = _seeded_submission()
+    unknown = seed_own_analysis(ctx["edm_id"], "CRE_P3_T1")
+
+    response = _inspect(_client(), ctx, member_ids=[ctx["a1"], unknown])
+
+    assert response.status_code == 200
+    assert '<option value="USD" selected>' in response.text
+    assert "A member's currency is not recorded. Defaulting to USD." in response.text
+
+
+def test_inspect_read_failure_leaves_the_currency_block_alone(
+        iteration2_db, fake_irp):
+    ctx = _seeded_submission()
+    fake_irp.grouping_inspect_error = "analysis 80002 not found"
+
+    response = _inspect(_client(), ctx)
+
+    assert response.status_code == 422
+    assert 'id="group-currency"' not in response.text
 
 
 def test_inspect_blocked_names_the_problem_and_offers_no_submit(
@@ -427,6 +490,192 @@ def test_post_success_returns_204_with_the_triggers(iteration2_db):
     assert plan["event_rate_selections"] == [json.loads(selection)]
     assert plan["expected_inspection_fingerprint"] == "v1:" + "a" * 64
     assert [m["irp_id"] for m in plan["members"]] == ctx["irp_ids"]
+
+
+# ── the Finish fast path (FR-025) ────────────────────────────────────────────────
+
+@pytest.fixture
+def env_vintage(monkeypatch):
+    """The env vintage default the Finish submit relies on (seed_currency's RL25)."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "default_analysis_currency_vintage", "RL25")
+
+
+def _finish(client, ctx, member_ids=None, group_name="CRE_Sub One_Group"):
+    return client.post(
+        f"/submissions/{ctx['submission_id']}/analyses/group/finish",
+        data={"csrf_token": _csrf(client),
+              "member_ids": member_ids or ctx["member_ids"],
+              "group_name": group_name},
+        headers={"HX-Request": "true"})
+
+
+def _no_grouping_job() -> None:
+    assert execute("SELECT 1 FROM rwb_job WHERE rwb_job_type = 'submit_grouping'",
+                   {}, connection="WORKBENCH") == []
+
+
+def test_finish_inspects_and_submits_a_clean_group_in_the_members_currency(
+        iteration2_db, fake_irp, env_vintage):
+    ctx = _seeded_submission()
+
+    response = _finish(_client(), ctx)
+
+    assert response.status_code == 200
+    assert response.headers["HX-Retarget"] == "#group-modal"
+    assert response.headers["HX-Reswap"] == "innerHTML"
+    trigger = json.loads(response.headers["HX-Trigger"])
+    assert trigger["rwb:toast"]["type"] == "success"
+    assert fake_irp.grouping_inspects == [ctx["irp_ids"]]
+    # the confirmation pane replaces the dialog
+    assert "Group submitted" in response.text
+    assert "Inspection passed." in response.text
+    assert "<dt>Group name</dt><dd>CRE_Sub One_Group</dd>" in response.text
+    assert "<dt>Output</dt><dd>ELT</dd>" in response.text
+    assert "<dt>Event-rate schemes</dt><dd>No conflicts</dd>" in response.text
+    assert "<dt>Treaties</dt><dd>No mismatches</dd>" in response.text
+    assert "<dt>Currency</dt><dd>USD &mdash; all members</dd>" in response.text
+    assert "Members (2)" in response.text
+    assert "CRE_P1_T1" in response.text and "CRE_P2_T1" in response.text
+    assert ">Close<" in response.text and "GROUP NAME" not in response.text
+    # the plan: the members' currency, env scheme and vintage, ELT, Propagate ON
+    plan = json.loads(execute(
+        "SELECT input_data FROM rwb_job WHERE requestor_id = :r",
+        {"r": trigger["grouping-submitted"]["grouping_request_id"]},
+        connection="WORKBENCH")[0]["input_data"])
+    assert plan["currency"] == {"code": "USD", "scheme": "RMS", "vintage": "RL25",
+                               "asOfDate": "2025-05-28"}
+    assert plan["num_of_simulations"] == 1
+    assert plan["propagate_detailed_losses"] is True
+    assert plan["event_rate_selections"] == []
+    assert plan["simulation_set_selections"] == []
+    assert plan["expected_inspection_fingerprint"] == (
+        f"v1:fake-{ctx['irp_ids'][0]},{ctx['irp_ids'][1]}")
+    assert [m["irp_id"] for m in plan["members"]] == ctx["irp_ids"]
+
+
+def test_finish_confirmation_names_the_suffixed_group_and_the_treaty_mismatch(
+        iteration2_db, fake_irp, env_vintage):
+    ctx = _seeded_submission()
+    ids = ctx["irp_ids"]
+    seed_group(ctx["submission_id"], "CRE_Sub One_Group")
+    fake_irp.seed_grouping_inspection(ids, warnings=(GroupingProblem(
+        code="inconsistent_treaty_terms",
+        message="Treaty number XOL-2026-01 has inconsistent loss-affecting terms.",
+        analysis_ids=tuple(ids), treaty_numbers=("XOL-2026-01",),
+        treaty_ids=(88412, 90177), differing_fields=("attachmentPoint",),
+        treaties=(_treaty(ids[0], 88412),
+                  _treaty(ids[1], 90177, attachmentPoint=2_500_000))),))
+
+    response = _finish(_client(), ctx)
+
+    assert response.status_code == 200
+    assert response.headers["HX-Retarget"] == "#group-modal"
+    assert "<dt>Group name</dt><dd>CRE_Sub One_Group_2</dd>" in response.text
+    assert ('<dt>Treaties</dt><dd><span class="badge badge--warning badge--sm">1 mismatch</span> '
+            '<span class="tag-empty">XOL-2026-01</span></dd>') in response.text
+
+
+def _assert_finish_stopped(response, fake_irp, ctx) -> None:
+    assert response.status_code == 200
+    assert "HX-Retarget" not in response.headers
+    assert "HX-Trigger" not in response.headers
+    assert ("Finish could not submit this group. Review the inspection and "
+            "continue with Next.") in response.text
+    assert "Group submitted" not in response.text
+    assert fake_irp.grouping_inspects == [ctx["irp_ids"]]
+    _no_grouping_job()
+
+
+def test_finish_stops_on_a_scheme_conflict_and_renders_the_inspection(
+        iteration2_db, fake_irp, env_vintage):
+    ctx = _seeded_submission()
+    fake_irp.seed_grouping_inspection(ctx["irp_ids"], conflicting=[101, 205])
+
+    response = _finish(_client(), ctx)
+
+    _assert_finish_stopped(response, fake_irp, ctx)
+    # screen 2 is complete: the analyst chooses and continues with Next
+    assert response.text.count('name="event_rate_selection"') == 1
+    assert "data-inspection-ready" in response.text
+    assert '<div id="group-currency" hx-swap-oob="true">' in response.text
+    assert "All members ran in USD." in response.text
+
+
+def test_finish_stops_on_plt_output(iteration2_db, fake_irp, env_vintage):
+    ctx = _seeded_submission()
+    ids = ctx["irp_ids"]
+    fake_irp.seed_grouping_inspection(
+        ids, output_loss_table="PLT", periods={ids[0]: 10000, ids[1]: 200000})
+
+    response = _finish(_client(), ctx)
+
+    _assert_finish_stopped(response, fake_irp, ctx)
+    assert "Group output <b>PLT</b>" in response.text
+    assert '<option value="50000" selected>50,000</option>' in response.text
+
+
+def test_finish_stops_when_the_members_currencies_differ(
+        iteration2_db, fake_irp, env_vintage):
+    ctx = _seeded_submission()
+    cad = seed_own_analysis(ctx["edm_id"], "CRE_P3_T1", currency="CAD")
+    ctx["member_ids"] = [ctx["a1"], cad]
+    ctx["irp_ids"] = [_irp(ctx["a1"]), _irp(cad)]
+
+    response = _finish(_client(), ctx)
+
+    _assert_finish_stopped(response, fake_irp, ctx)
+    assert "Members ran in USD and CAD. Defaulting to USD." in response.text
+
+
+def test_finish_stops_when_the_members_cannot_be_grouped(
+        iteration2_db, fake_irp, env_vintage):
+    ctx = _seeded_submission()
+    ids = ctx["irp_ids"]
+    fake_irp.seed_grouping_inspection(ids, blocking=(GroupingProblem(
+        code="simulation_set_mapping_missing",
+        message="No simulation set is available for peril WS, region NA, and model version 11.0.",
+        analysis_ids=tuple(ids),
+        partition=GroupingPartitionKey("WS", "NA", "11.0")),))
+
+    response = _finish(_client(), ctx)
+
+    _assert_finish_stopped(response, fake_irp, ctx)
+    assert "These members cannot be grouped" in response.text
+    assert "data-inspection-ready" not in response.text
+
+
+def test_finish_stops_without_an_env_vintage_default(iteration2_db, fake_irp):
+    ctx = _seeded_submission()
+
+    response = _finish(_client(), ctx)
+
+    _assert_finish_stopped(response, fake_irp, ctx)
+
+
+def test_finish_gate_failure_renders_the_error_at_422(iteration2_db, fake_irp,
+                                                      env_vintage):
+    ctx = _seeded_submission()
+
+    response = _finish(_client(), ctx, member_ids=[ctx["a1"]])
+
+    assert response.status_code == 422
+    assert "Pick at least two analyses to group." in response.text
+    assert ">Retry<" in response.text
+    assert fake_irp.grouping_inspects == []
+    _no_grouping_job()
+
+
+def test_finish_platform_failure_renders_the_cause_at_422(
+        iteration2_db, fake_irp, env_vintage):
+    ctx = _seeded_submission()
+    fake_irp.grouping_inspect_error = "analysis 80002 not found"
+
+    response = _finish(_client(), ctx)
+
+    assert response.status_code == 422
+    assert "Inspection failed: analysis 80002 not found" in response.text
+    _no_grouping_job()
 
 
 def test_post_carries_the_simulation_set_choices_and_the_fingerprint(

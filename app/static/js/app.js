@@ -848,7 +848,14 @@ document.addEventListener('alpine:init', () => {
     canNext2: false,
     canSubmit: false,
     schemesChosen: [],
+    sel: [],  // the ticked members, derived from the checkboxes (chips panel)
     init() { this.recompute(); },
+    unpick(id) {
+      const box = this.$root.querySelector(`input[name="member_ids"][value="${id}"]`);
+      if (!box) return;
+      box.checked = false;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+    },
     filter(q) {
       const needle = q.trim().toLowerCase();
       this.$root.querySelectorAll('.entity-candidate[data-name]').forEach((row) => {
@@ -861,9 +868,15 @@ document.addEventListener('alpine:init', () => {
       this.step = 2;
       htmx.trigger(this.$refs.inspect, 'inspect');
     },
+    finish() {
+      this.clearInspection();
+      this.step = 2;
+      htmx.trigger(this.$refs.finish, 'finish');
+    },
     back() {
       if (this.step === 2) {
         htmx.trigger(this.$refs.inspect, 'htmx:abort');
+        htmx.trigger(this.$refs.finish, 'htmx:abort');
         this.clearInspection();
       }
       this.$root.querySelector('#group-submit-errors').replaceChildren();
@@ -888,7 +901,9 @@ document.addEventListener('alpine:init', () => {
     },
     recompute() {
       const root = this.$root;
-      this.picked = root.querySelectorAll('input[name="member_ids"]:checked').length;
+      this.sel = Array.from(root.querySelectorAll('input[name="member_ids"]:checked'))
+        .map((box) => ({ id: box.value, name: box.dataset.display }));
+      this.picked = this.sel.length;
       const name = root.querySelector('input[name="group_name"]');
       this.groupName = name ? name.value.trim() : '';
       this.canNext1 = this.picked >= 2 && !!this.groupName;
@@ -902,7 +917,7 @@ document.addEventListener('alpine:init', () => {
           const select = root.querySelector(`select[name="${f}"]`);
           return select && select.value;
         });
-      const sims = root.querySelector('input[name="num_of_simulations"]');
+      const sims = root.querySelector('[name="num_of_simulations"]');
       const simsOk = !!sims && /^\d+$/.test(sims.value) && Number(sims.value) > 0;
       this.canSubmit = this.canNext1 && this.canNext2 && currencyDone && simsOk;
     },

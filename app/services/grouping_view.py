@@ -87,9 +87,13 @@ class ProblemText:
 class TreatyMismatchRow:
     """One treaty as applied to one member. ``terms`` carries the
     ``TREATY_COLUMNS`` values display-shaped (``CATA`` spelled out, dates
-    truncated); ``treaty_id`` is ``None`` when Risk Modeler returned no id."""
+    truncated); ``treaty_id`` is ``None`` when Risk Modeler returned no id.
+    ``app_analysis_id`` is the id the table shows (RM's web-UI id, FR-020),
+    ``None`` when the Workbench holds none; ``analysis_id`` stays the Platform
+    id that keys the member."""
     analysis_name: str
     analysis_id: int
+    app_analysis_id: str | None
     treaty_id: int | None
     treaty_number: str
     terms: dict[str, Any]
@@ -168,6 +172,7 @@ def _treaty_row(view: GroupingInspectionView,
     return TreatyMismatchRow(
         analysis_name=member.display_name if member else str(treaty.analysis_id),
         analysis_id=treaty.analysis_id,
+        app_analysis_id=member.app_analysis_id if member else None,
         treaty_id=treaty.treaty_id,
         treaty_number=treaty.treaty_number,
         terms={key: display_value(treaty.terms.get(key), key=key)

@@ -40,7 +40,8 @@ def _submission_with_two_ready(iteration2_db) -> dict:
     edm_id = seed_edm("EDM One")
     link_submission_edm(submission_id, edm_id)
     a1 = seed_own_analysis(edm_id, "CRE_P1_T1",
-                           settings={"engineType": "DLM"})
+                           settings={"engineType": "DLM"},
+                           irp_app_analysis_id="41001")
     a2 = seed_own_analysis(edm_id, "CRE_P2_T1")
     return {"submission_id": submission_id, "edm_id": edm_id,
             "a1": a1, "a2": a2}
@@ -103,6 +104,7 @@ def test_eligible_members_mix_own_broker_and_group(iteration2_db):
     own = next(m for m in members if m.id == ctx["a1"])
     assert own.irp_id == _irp(ctx["a1"])
     assert own.engine == "DLM"
+    assert own.app_analysis_id == "41001"  # the column, not the Platform id
     broker = next(m for m in members if m.kind == "broker")
     assert broker.irp_id == 70001
     group = next(m for m in members if m.kind == "group")
@@ -216,15 +218,24 @@ def test_gate_rejects_a_missing_fingerprint(iteration2_db):
     _no_rwb_job()
 
 
-@pytest.mark.parametrize("value", ["0", "-5", "x", ""])
-def test_gate_rejects_a_non_positive_simulation_count(iteration2_db, value):
+@pytest.mark.parametrize("value", ["0", "-5", "x", "", "10000", "50001"])
+def test_gate_rejects_a_simulation_count_off_the_option_list(iteration2_db, value):
     ctx = _submission_with_two_ready(iteration2_db)
 
     with pytest.raises(ExecutionGateError) as exc:
         _request(ctx, iteration2_db, num_of_simulations=value)
 
-    assert exc.value.errors == ["Enter a simulation count greater than zero."]
+    assert exc.value.errors == ["Choose one of the offered simulation period counts."]
     _no_rwb_job()
+
+
+@pytest.mark.parametrize("value", ["1", "3125", "50000", " 800000 "])
+def test_gate_accepts_one_and_every_offered_period_count(iteration2_db, value):
+    ctx = _submission_with_two_ready(iteration2_db)
+
+    request_id = _request(ctx, iteration2_db, num_of_simulations=value)
+
+    assert _plan(request_id)["num_of_simulations"] == int(value)
 
 
 @pytest.mark.parametrize("selections", [
@@ -343,7 +354,9 @@ def test_inspect_grouping_reads_by_platform_id_and_writes_nothing(
     ids = [_irp(ctx["a1"]), _irp(ctx["a2"])]
     assert fake_irp.grouping_inspects == [ids]
     assert view.inspection.output_loss_table == "ELT"
-    assert view.suggested_num_of_simulations == 1
+    assert view.largest_member_periods is None
+    assert view.common_currency is None  # no submit-time snapshot on either row
+    assert view.currency_unknown
     assert set(view.members) == set(ids)
     assert view.members[ids[0]].display_name == "CRE_P1_T1"
     _no_rwb_job()
@@ -352,7 +365,7 @@ def test_inspect_grouping_reads_by_platform_id_and_writes_nothing(
     assert rows[0]["n"] == 2
 
 
-def test_inspect_grouping_suggests_the_largest_member_plt_length(
+def test_inspect_grouping_reports_the_largest_member_plt_length(
         iteration2_db, fake_irp):
     ctx = _submission_with_two_ready(iteration2_db)
     ids = [_irp(ctx["a1"]), _irp(ctx["a2"])]
@@ -362,7 +375,176 @@ def test_inspect_grouping_suggests_the_largest_member_plt_length(
     view = svc.inspect_grouping(submission_id=ctx["submission_id"],
                                 member_ids=[ctx["a1"], ctx["a2"]])
 
-    assert view.suggested_num_of_simulations == 50000
+    assert view.largest_member_periods == 50000
+
+
+# ── the members' common currency (FR-004) ────────────────────────────────────────
+
+def _currency_view(ctx, member_ids):
+    return svc.inspect_grouping(submission_id=ctx["submission_id"],
+                                member_ids=member_ids)
+
+
+def test_members_sharing_a_currency_code_give_the_group_its_prefill(
+        iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    cad1 = seed_own_analysis(ctx["edm_id"], "CRE_P3_T1", currency="CAD")
+    cad2 = seed_own_analysis(ctx["edm_id"], "CRE_P4_T1", currency="CAD")
+
+    view = _currency_view(ctx, [cad1, cad2])
+
+    assert view.common_currency == "CAD"
+    assert view.member_currencies == ("CAD",)
+    assert not view.currency_unknown
+
+
+def test_differing_currency_codes_leave_the_prefill_to_the_default(
+        iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    usd = seed_own_analysis(ctx["edm_id"], "CRE_P3_T1", currency="USD")
+    cad = seed_own_analysis(ctx["edm_id"], "CRE_P4_T1", currency="CAD")
+
+    view = _currency_view(ctx, [usd, cad])
+
+    assert view.common_currency is None
+    assert view.member_currencies == ("USD", "CAD")
+    assert not view.currency_unknown
+
+
+def test_a_member_without_a_recorded_currency_blocks_the_prefill(
+        iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    usd = seed_own_analysis(ctx["edm_id"], "CRE_P3_T1", currency="USD")
+
+    view = _currency_view(ctx, [usd, ctx["a2"]])
+
+    assert view.common_currency is None
+    assert view.member_currencies == ("USD",)
+    assert view.currency_unknown
+
+
+def test_broker_and_group_members_carry_their_own_currency_source(
+        iteration2_db, fake_irp):
+    """Broker rows read the Risk Modeler metadata's currency, groups their
+    approved plan's currency block — the FR-005 run-currency rule."""
+    ctx = _submission_with_two_ready(iteration2_db)
+    broker = seed_broker_analysis(
+        ctx["submission_id"], "Broker EU Wind",
+        settings={"currency": {"currencyCode": "CAD"}, "appAnalysisId": 51001})
+    group = seed_group(ctx["submission_id"], "CRE_Sub One_Group",
+                       currency="CAD")
+
+    view = _currency_view(ctx, [broker, group])
+
+    assert view.common_currency == "CAD"
+    assert view.members[70001].app_analysis_id == "51001"
+
+
+# ── the Finish fast path (FR-025) ────────────────────────────────────────────────
+
+_DEFAULTS = {"code": "USD", "scheme": "RMS", "vintage": "RL25"}
+
+
+def _usd_pair(ctx) -> list[str]:
+    return [seed_own_analysis(ctx["edm_id"], "CRE_P3_T1", currency="USD"),
+            seed_own_analysis(ctx["edm_id"], "CRE_P4_T1", currency="USD")]
+
+
+def test_finish_has_no_blocker_for_a_clean_elt_group_in_one_currency(
+        iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+
+    view = _currency_view(ctx, _usd_pair(ctx))
+
+    assert svc.finish_blockers(view, currency_defaults=_DEFAULTS) == []
+
+
+def test_finish_ignores_a_treaty_mismatch(iteration2_db, fake_irp):
+    from app.services.irp_gateway import GroupingProblem
+    ctx = _submission_with_two_ready(iteration2_db)
+    members = _usd_pair(ctx)
+    ids = [_irp(m) for m in members]
+    fake_irp.seed_grouping_inspection(ids, warnings=(GroupingProblem(
+        code="inconsistent_treaty_terms", message="Treaty XOL-1 differs.",
+        analysis_ids=tuple(ids), treaty_numbers=("XOL-1",),
+        differing_fields=("attachmentPoint",)),))
+
+    view = _currency_view(ctx, members)
+
+    assert svc.finish_blockers(view, currency_defaults=_DEFAULTS) == []
+
+
+def test_finish_stops_on_a_scheme_conflict(iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    members = _usd_pair(ctx)
+    fake_irp.seed_grouping_inspection([_irp(m) for m in members],
+                                      conflicting=[101, 205])
+
+    view = _currency_view(ctx, members)
+
+    assert svc.finish_blockers(view, currency_defaults=_DEFAULTS) == [
+        "A partition needs an event-rate scheme choice."]
+
+
+def test_finish_stops_on_plt_output(iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    members = _usd_pair(ctx)
+    ids = [_irp(m) for m in members]
+    fake_irp.seed_grouping_inspection(
+        ids, output_loss_table="PLT", periods={ids[0]: 10000, ids[1]: 50000})
+
+    view = _currency_view(ctx, members)
+
+    assert svc.finish_blockers(view, currency_defaults=_DEFAULTS) == [
+        "The group output is PLT."]
+
+
+def test_finish_stops_on_a_blocking_problem(iteration2_db, fake_irp):
+    from app.services.irp_gateway import GroupingPartitionKey, GroupingProblem
+    ctx = _submission_with_two_ready(iteration2_db)
+    members = _usd_pair(ctx)
+    ids = [_irp(m) for m in members]
+    fake_irp.seed_grouping_inspection(ids, blocking=(GroupingProblem(
+        code="simulation_set_mapping_missing", message="No simulation set.",
+        analysis_ids=tuple(ids),
+        partition=GroupingPartitionKey("WS", "NA", "11.0")),))
+
+    view = _currency_view(ctx, members)
+
+    assert svc.finish_blockers(view, currency_defaults=_DEFAULTS) == [
+        "The members cannot be grouped."]
+
+
+def test_finish_stops_on_mixed_or_unknown_currencies(iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    usd = seed_own_analysis(ctx["edm_id"], "CRE_P3_T1", currency="USD")
+    cad = seed_own_analysis(ctx["edm_id"], "CRE_P4_T1", currency="CAD")
+    reason = ["The members did not all run in one known currency."]
+
+    assert svc.finish_blockers(_currency_view(ctx, [usd, cad]),
+                               currency_defaults=_DEFAULTS) == reason
+    assert svc.finish_blockers(_currency_view(ctx, [usd, ctx["a2"]]),
+                               currency_defaults=_DEFAULTS) == reason
+
+
+def test_finish_stops_without_a_complete_env_currency_default(
+        iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    view = _currency_view(ctx, _usd_pair(ctx))
+
+    assert svc.finish_blockers(
+        view, currency_defaults={**_DEFAULTS, "vintage": ""}) == [
+        "The default currency scheme or vintage is not set."]
+
+
+def test_requested_group_name_reads_the_suffixed_name_off_the_plan(
+        iteration2_db):
+    ctx = _submission_with_two_ready(iteration2_db)
+    seed_group(ctx["submission_id"], "CRE_Sub One_Group")
+
+    request_id = _request(ctx, iteration2_db)
+
+    assert svc.requested_group_name(request_id) == "CRE_Sub One_Group_2"
 
 
 def test_inspect_grouping_gate_failure_never_reaches_the_platform(

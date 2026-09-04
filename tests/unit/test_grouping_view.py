@@ -24,7 +24,8 @@ WS_NA = GroupingPartitionKey("WS", "NA", "11.0")
 
 def _member(irp_id: int, name: str) -> GroupMember:
     return GroupMember(id=f"id-{irp_id}", irp_id=irp_id, name=name,
-                       display_name=name, kind="own", engine="DLM")
+                       display_name=name, kind="own", engine="DLM",
+                       app_analysis_id=str(40000 + irp_id))
 
 
 def _fact(analysis_id: int, key=WS_NA, *, scheme: int | None = 101,
@@ -59,8 +60,7 @@ def _view(facts_by_member: dict[int, list[GroupingRegionFact]],
         warnings=warnings, blocking_problems=problems)
     if members is None:
         members = {i: _member(i, f"A{i}") for i in ids}
-    return GroupingInspectionView(inspection=inspection, members=members,
-                                  suggested_num_of_simulations=1)
+    return GroupingInspectionView(inspection=inspection, members=members)
 
 
 def _partition(ids, options, *, required=False, key=WS_NA, simulation_sets=()):
@@ -120,7 +120,7 @@ def test_a_plt_group_offers_a_simulation_set_per_elt_partition():
     view = GroupingInspectionView(
         inspection=inspection,
         members={1: _member(1, "HD"), 2: _member(2, "DLM"), 3: _member(3, "Group")},
-        suggested_num_of_simulations=50000)
+        largest_member_periods=50000)
 
     screen = build_inspection_screen(view)
 
@@ -245,6 +245,8 @@ def test_a_treaty_warning_becomes_one_row_per_compared_treaty():
         "A1", 1, 88412)
     assert (second.analysis_name, second.analysis_id, second.treaty_id) == (
         "A2", 2, 90177)
+    # the table shows the members' web-UI ids, never the Platform ids
+    assert [row.app_analysis_id for row in mismatch.rows] == ["40001", "40002"]
     assert first.terms["attachmentPoint"] == 5_000_000
     assert second.terms["attachmentPoint"] == 2_500_000
     assert screen.treaty_mismatch_count == 1
@@ -321,6 +323,7 @@ def test_a_treaty_on_an_unknown_analysis_falls_back_to_its_id():
     _, mismatch = _mismatch(TREATY_WARNING, members={1: _member(1, "CRE_P1_T1")})
 
     assert [row.analysis_name for row in mismatch.rows] == ["CRE_P1_T1", "2"]
+    assert [row.app_analysis_id for row in mismatch.rows] == ["40001", None]
 
 
 def test_a_blocked_inspection_still_carries_its_treaty_mismatches():

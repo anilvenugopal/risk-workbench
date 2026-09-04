@@ -3,8 +3,11 @@
    x-show panes on `step`: Members, Inspection, Settings. Hidden panes still
    serialize, so the final POST carries every screen. Screen 1's Next posts
    the members to the inspect route (custom `inspect` trigger) into
-   #group-inspection; that response also fills #group-summary and #group-sims
-   out of band. The submit's 422 lands in #group-submit-errors. #}
+   #group-inspection; that response also fills #group-summary, #group-sims,
+   and #group-currency out of band. Screen 1's Finish posts the same fields
+   to the finish route (custom `finish` trigger): a stop renders as screen 2,
+   a success retargets the confirmation pane at #group-modal. The submit's
+   422 lands in #group-submit-errors. #}
 {% from "partials/currency_block.html" import currency_block with context %}
 <div class="modal-overlay" @click.self="document.getElementById('group-modal').replaceChildren()">
   <div class="modal-card modal-card--wide modal-card--group" role="dialog" aria-modal="true" aria-labelledby="group-modal-title"
@@ -42,21 +45,35 @@
           </div>
           <div>
             <div class="exec-section-label">Members</div>
-            <div class="entity-candidate-search">
-              <input class="wf-field__input" type="search" placeholder="Search analyses by name"
-                     aria-label="Search analyses by name" @input="filter($event.target.value)">
+            <div class="bo-custom__cols">
+              <div class="bo-custom__opts">
+                <div class="entity-candidate-search">
+                  <input class="wf-field__input" type="search" placeholder="Search analyses by name"
+                         aria-label="Search analyses by name" @input="filter($event.target.value)">
+                </div>
+                <div class="entity-candidate-list">
+                  {% for m in members %}
+                  <label class="entity-candidate" data-name="{{ m.display_name|lower }}">
+                    <input type="checkbox" name="member_ids" value="{{ m.id }}" data-display="{{ m.display_name }}"{% if m.id in preselected %} checked{% endif %}>
+                    <span title="{{ m.display_name }}">{{ m.display_name }}</span>
+                    {% if m.engine %}<span class="exec-summary">{{ m.engine }}</span>{% endif %}
+                    <span class="badge badge--neutral badge--sm">{{ m.kind_label|lower }}</span>
+                  </label>
+                  {% endfor %}
+                </div>
+                <div class="wf-field__hint" style="margin-top:var(--space-1)"><span x-text="picked"></span> of {{ members|length }} selected</div>
+              </div>
+              <div class="bo-picked" aria-label="Selected analyses">
+                <div class="bo-picked__empty" x-show="!sel.length">Nothing selected yet</div>
+                <div class="bo-picked__chips" x-show="sel.length" x-cloak>
+                  <template x-for="s in sel" :key="s.id">
+                    <button class="bo-picked__chip" type="button" :title="'Remove ' + s.name" @click="unpick(s.id)">
+                      <span x-text="s.name"></span><span class="bo-picked__x">×</span>
+                    </button>
+                  </template>
+                </div>
+              </div>
             </div>
-            <div class="entity-candidate-list">
-              {% for m in members %}
-              <label class="entity-candidate" data-name="{{ m.display_name|lower }}">
-                <input type="checkbox" name="member_ids" value="{{ m.id }}"{% if m.id in preselected %} checked{% endif %}>
-                <span title="{{ m.display_name }}">{{ m.display_name }}</span>
-                {% if m.engine %}<span class="exec-summary">{{ m.engine }}</span>{% endif %}
-                <span class="badge badge--neutral badge--sm">{{ m.kind_label|lower }}</span>
-              </label>
-              {% endfor %}
-            </div>
-            <div class="wf-field__hint" style="margin-top:var(--space-1)"><span x-text="picked"></span> of {{ members|length }} selected</div>
           </div>
         </div>
 
@@ -82,7 +99,9 @@
               </template>
             </div>
             <div class="sum-settings">
-              {{ currency_block('group', 'for this group', 'currency_code', 'currency_scheme', 'currency_vintage', currency_code_val, currency_scheme_val, currency_vintage_val, vintage_options) }}
+              <div id="group-currency">
+                {{ currency_block('group', 'for this group', 'currency_code', 'currency_scheme', 'currency_vintage', currency_code_val, currency_scheme_val, currency_vintage_val, vintage_options) }}
+              </div>
               <label class="check-row">
                 <input type="checkbox" name="propagate_detailed_output" checked>
                 <span>Propagate detailed output</span>
@@ -100,6 +119,11 @@
                 hx-post="{{ inspect_url }}" hx-trigger="inspect" hx-include="closest form"
                 hx-target="#group-inspection" hx-swap="innerHTML" hx-indicator="#group-inspect-wait"
                 @click="inspect()">Next</button>
+        <button class="modal-btn modal-btn--primary" type="button" x-show="step === 1" x-ref="finish" :disabled="!canNext1"
+                title="Inspect and submit at once when nothing is left to choose"
+                hx-post="{{ finish_url }}" hx-trigger="finish" hx-include="closest form"
+                hx-target="#group-inspection" hx-swap="innerHTML" hx-indicator="#group-inspect-wait"
+                @click="finish()">Finish</button>
         <button class="modal-btn modal-btn--primary" type="button" x-show="step === 2 && hasInspection" :disabled="!canNext2" @click="toSettings()">Next</button>
         <button class="modal-btn modal-btn--primary" type="submit" x-show="step === 3" :disabled="!canSubmit">Group</button>
       </div>

@@ -389,12 +389,12 @@ def group_compose_modal(request: Request, submission_id: str):
     members = grouping_service.list_eligible_members(submission.id)
     ctx: dict = {"submission": submission,
                  "action_url": f"/submissions/{submission.id}/analyses/group",
-                 "inspect_url": f"/submissions/{submission.id}/analyses/group/inspect"}
+                 "inspect_url": f"/submissions/{submission.id}/analyses/group/inspect",
+                 "finish_url": f"/submissions/{submission.id}/analyses/group/finish"}
     if len(members) < 2:
         ctx["blocking"] = ("This submission needs at least two finished "
                            "analyses before they can be grouped.")
         return _partial(request, "partials/group_compose_modal.html", ctx)
-    defaults = analysis_execution_service.currency_defaults()
     ctx.update({
         "blocking": None,
         "members": members,
@@ -402,24 +402,34 @@ def group_compose_modal(request: Request, submission_id: str):
                         request.query_params.getlist("analysis_ids")},
         "group_name": grouping_service.build_group_name(submission.id,
                                                         submission.name),
-        "currency_code_val": defaults["code"],
+        **_group_currency_context(),
+    })
+    return _partial(request, "partials/group_compose_modal.html", ctx)
+
+
+def _group_currency_context(code: str | None = None) -> dict:
+    """The ``currency_block`` context for the group dialog: the env defaults,
+    with ``code`` (the members' common currency) replacing the default code
+    (FR-004)."""
+    defaults = analysis_execution_service.currency_defaults()
+    return {
+        "currency_code_val": code or defaults["code"],
         "currency_scheme_val": defaults["scheme"],
         "currency_vintage_val": defaults["vintage"],
         "vintage_options": analysis_execution_service.vintage_options(
             defaults["scheme"]),
         "currency_options": analysis_execution_service.currency_options(),
         "scheme_options": analysis_execution_service.currency_scheme_options(),
-    })
-    return _partial(request, "partials/group_compose_modal.html", ctx)
+    }
 
 
 @router.post("/submissions/{submission_id}/analyses/group/inspect",
              response_class=HTMLResponse)
 async def group_compose_inspect(request: Request, submission_id: str):
     """Screen 2 of the dialog: Platform reads only, rendered into
-    ``#group-inspection`` plus the out-of-band ``#group-summary`` and
-    ``#group-sims`` (contracts/routes.md). Gate and read failures render the
-    same fragment with the error list at 422."""
+    ``#group-inspection`` plus the out-of-band ``#group-summary``,
+    ``#group-sims``, and ``#group-currency`` (contracts/routes.md). Gate and
+    read failures render the same fragment with the error list at 422."""
     form = await request.form()
     if not validate_csrf_token(form.get("csrf_token")):
         if _is_htmx(request):
@@ -436,8 +446,73 @@ async def group_compose_inspect(request: Request, submission_id: str):
         return _partial(request, "partials/group_inspection.html",
                         {"errors": exc.errors}, status_code=422)
     return _partial(request, "partials/group_inspection.html",
-                    {"view": view, "screen": build_inspection_screen(view),
-                     "errors": []})
+                    _inspection_context(view))
+
+
+def _inspection_context(view) -> dict:
+    return {"view": view, "screen": build_inspection_screen(view), "errors": [],
+            "simulation_period_options": grouping_service.SIMULATION_PERIOD_OPTIONS,
+            "default_simulation_periods": grouping_service.DEFAULT_SIMULATION_PERIODS,
+            **_group_currency_context(view.common_currency)}
+
+
+def _grouping_submitted_trigger(grouping_request_id: str) -> str:
+    return json.dumps({
+        "grouping-submitted": {"grouping_request_id": grouping_request_id},
+        "rwb:toast": {"message": "Grouping submitted.", "type": "success"},
+    })
+
+
+@router.post("/submissions/{submission_id}/analyses/group/finish",
+             response_class=HTMLResponse)
+async def group_compose_finish(request: Request, submission_id: str):
+    """Screen 1's Finish (FR-025): inspect, and when nothing is left for the
+    analyst to choose, submit the ELT group at once in the members' currency
+    with the env scheme and vintage and Propagate ON. Otherwise the inspection
+    renders as screen 2 with the stop notice, and the analyst continues with
+    Next. Success replaces the dialog with the confirmation pane."""
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if _is_htmx(request):
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    member_ids = form.getlist("member_ids")
+    try:
+        view = grouping_service.inspect_grouping(
+            submission_id=submission.id, member_ids=member_ids)
+    except ExecutionGateError as exc:
+        return _partial(request, "partials/group_inspection.html",
+                        {"errors": exc.errors}, status_code=422)
+    defaults = analysis_execution_service.currency_defaults()
+    if grouping_service.finish_blockers(view, currency_defaults=defaults):
+        return _partial(request, "partials/group_inspection.html",
+                        {**_inspection_context(view), "finish_stopped": True})
+    try:
+        grouping_request_id = grouping_service.request_grouping(
+            submission_id=submission.id, submission_name=submission.name,
+            member_ids=member_ids, group_name=form.get("group_name", ""),
+            currency_code=view.common_currency,
+            currency_scheme=defaults["scheme"],
+            currency_vintage=defaults["vintage"],
+            propagate_detailed_output=True, num_of_simulations="1",
+            event_rate_selections=[], simulation_set_selections=[],
+            expected_inspection_fingerprint=view.inspection.fingerprint,
+            inspected_analysis_ids=[str(i) for i in view.inspection.analysis_ids],
+            actor_id=request.state.user.id)
+    except ExecutionGateError as exc:
+        return _partial(request, "partials/group_inspection.html",
+                        {"errors": exc.errors}, status_code=422)
+    response = _partial(request, "partials/group_finish_confirmation.html", {
+        "view": view, "screen": build_inspection_screen(view),
+        "group_name": grouping_service.requested_group_name(grouping_request_id),
+    })
+    response.headers["HX-Retarget"] = "#group-modal"
+    response.headers["HX-Reswap"] = "innerHTML"
+    response.headers["HX-Trigger"] = _grouping_submitted_trigger(grouping_request_id)
+    return response
 
 
 @router.post("/submissions/{submission_id}/analyses/group")
@@ -478,11 +553,7 @@ async def group_compose_submit(request: Request, submission_id: str):
             response.headers["HX-Reswap"] = "innerHTML"
         return response
     return Response(status_code=204, headers={
-        "HX-Trigger": json.dumps({
-            "grouping-submitted": {"grouping_request_id": grouping_request_id},
-            "rwb:toast": {"message": "Grouping submitted.", "type": "success"},
-        }),
-    })
+        "HX-Trigger": _grouping_submitted_trigger(grouping_request_id)})
 
 
 @router.post("/submissions/{submission_id}/analyses/delete")

@@ -1,0 +1,36 @@
+{# The Finish confirmation (spec 012 FR-025, contracts/routes.md): replaces
+   the compose dialog in #group-modal when POST …/analyses/group/finish
+   inspected and submitted in one step. Stays until Close. #}
+<div class="modal-overlay" x-data @click.self="document.getElementById('group-modal').replaceChildren()">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
+    <div class="modal-header">
+      <span id="group-modal-title" class="modal-title">Group submitted</span>
+      <button class="icon-btn" type="button" aria-label="Close" @click="document.getElementById('group-modal').replaceChildren()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="insp-notice insp-notice--ok">Inspection passed. The grouping job is queued; the group row appears in the grid when the worker claims it.</div>
+      <dl class="sum-list" style="margin-top:var(--space-3)">
+        <dt>Group name</dt><dd>{{ group_name }}</dd>
+        <dt>Output</dt><dd>{{ screen.output_loss_table }}</dd>
+        <dt>Event-rate schemes</dt><dd>No conflicts</dd>
+        <dt>Treaties</dt><dd>{% if screen.treaty_mismatches %}<span class="badge badge--warning badge--sm">{{ screen.treaty_mismatch_count }} mismatch{{ '' if screen.treaty_mismatch_count == 1 else 'es' }}</span> <span class="tag-empty">{{ screen.treaty_mismatches|map(attribute='treaty_number')|join(', ') }}</span>{% else %}No mismatches{% endif %}</dd>
+        <dt>Currency</dt><dd>{{ view.common_currency }} &mdash; all members</dd>
+        <dt>Propagate detailed output</dt><dd>On</dd>
+      </dl>
+      <div class="exec-section-label" style="margin-top:var(--space-3)">Members ({{ screen.member_count }})</div>
+      <div class="sum-members">
+        {% for id in view.inspection.analysis_ids %}
+        {% set member = view.members.get(id) %}
+        <div>
+          <span title="{{ member.display_name if member else id }}">{{ member.display_name if member else id }}</span>
+          {% if member and member.engine %}<span class="exec-summary">{{ member.engine }}</span>{% endif %}
+          {% if member %}<span class="badge badge--neutral badge--sm">{{ member.kind_label|lower }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn modal-btn--primary" type="button" @click="document.getElementById('group-modal').replaceChildren()">Close</button>
+    </div>
+  </div>
+</div>

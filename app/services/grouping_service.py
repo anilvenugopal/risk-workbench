@@ -30,6 +30,12 @@ from db import execute
 
 KIND_LABELS = {"own": "Own", "broker": "Broker", "group": "Group"}
 
+# Risk Modeler's group simulation periods dropdown (FR-019); an ELT group
+# submits 1 without a choice.
+SIMULATION_PERIOD_OPTIONS = (
+    3125, 6250, 12500, 25000, 50000, 100000, 200000, 400000, 800000)
+DEFAULT_SIMULATION_PERIODS = 50000
+
 
 @dataclass(frozen=True)
 class GroupMember:
@@ -40,6 +46,10 @@ class GroupMember:
     display_name: str | None  # full_name where one exists
     kind: str                 # own | broker | group
     engine: str | None        # pick-list disclosure column
+    # Run currency code: own rows and groups from submitted_settings, broker
+    # rows from the Risk Modeler metadata (the FR-005 rule); None when unknown.
+    currency: str | None = None
+    app_analysis_id: str | None = None  # RM appAnalysisId — the web UI's id
 
     @property
     def kind_label(self) -> str:
@@ -49,16 +59,29 @@ class GroupMember:
 @dataclass(frozen=True)
 class GroupingInspectionView:
     """The inspect fragment's context: the package inspection, the picked
-    members keyed by Platform id (display names), and the simulation-count
-    prefill — the largest member PLT length for a PLT group, 1 for an ELT
-    group (FR-019)."""
+    members keyed by Platform id, the largest member PLT length (the
+    simulation-periods hint, FR-019), and the currency the members share —
+    the group currency prefill, None when the codes differ or one is unknown
+    (FR-004)."""
     inspection: irp_gateway.GroupingInspection
     members: dict[int, GroupMember]
-    suggested_num_of_simulations: int
+    largest_member_periods: int | None = None
+    common_currency: str | None = None
+
+    @property
+    def member_currencies(self) -> tuple[str, ...]:
+        """Distinct known member currency codes, in member order."""
+        return tuple(dict.fromkeys(
+            m.currency for m in self.members.values() if m.currency))
+
+    @property
+    def currency_unknown(self) -> bool:
+        return any(m.currency is None for m in self.members.values())
 
 
 _ELIGIBLE_SELECT = """
     SELECT a.id, a.name, a.full_name, a.is_group, a.settings_metadata,
+           a.submitted_settings, a.irp_app_analysis_id,
            a.rdm_id, a.irp_id, a.inserted_at
     FROM irp_analysis a
     JOIN submission_edm se ON se.edm_id = a.edm_id
@@ -67,6 +90,7 @@ _ELIGIBLE_SELECT = """
       AND a.status_code = 'ready' AND a.deleted_at IS NULL
     UNION ALL
     SELECT a.id, a.name, a.full_name, a.is_group, a.settings_metadata,
+           a.submitted_settings, a.irp_app_analysis_id,
            a.rdm_id, a.irp_id, a.inserted_at
     FROM irp_analysis a
     JOIN submission_rdm sr ON sr.rdm_id = a.rdm_id
@@ -74,6 +98,7 @@ _ELIGIBLE_SELECT = """
     WHERE sr.submission_id = :sid AND a.deleted_at IS NULL
     UNION ALL
     SELECT a.id, a.name, a.full_name, a.is_group, a.settings_metadata,
+           a.submitted_settings, a.irp_app_analysis_id,
            a.rdm_id, a.irp_id, a.inserted_at
     FROM irp_analysis a
     WHERE a.submission_id = :sid AND a.is_group = 1
@@ -88,8 +113,9 @@ def list_eligible_members(submission_id: Any) -> list[GroupMember]:
     finished run), and finished groups (nesting, FR-018). Running/failed rows
     never appear. Broker handles are deduped by RM ``analysisId`` — the same
     analysis captured under two of the submission's RDMs is one member."""
-    from app.services.analysis_service import (
-        _to_display,  # noqa: PLC0415 — display only; avoids a cycle
+    from app.services.analysis_service import (  # noqa: PLC0415 — display only; avoids a cycle
+        _submitted_view,
+        _to_display,
     )
 
     rows = execute(_ELIGIBLE_SELECT, {"sid": str(submission_id)},
@@ -106,14 +132,21 @@ def list_eligible_members(submission_id: Any) -> list[GroupMember]:
             kind = "group" if is_group else "broker"
         else:
             kind = "group" if is_group else "own"
-        display = _to_display(_parse_json_dict(r["settings_metadata"],
-                                               "settings_metadata"))
+        settings = _parse_json_dict(r["settings_metadata"], "settings_metadata")
+        display = _to_display(settings)
+        currency = (display.currency if r["rdm_id"] is not None
+                    else _submitted_view(r["submitted_settings"]).currency)
+        app_analysis_id = (r["irp_app_analysis_id"]
+                           or (settings or {}).get("appAnalysisId"))
         members.append(GroupMember(
             id=_uid(r["id"]),
             irp_id=(int(r["irp_id"]) if r["irp_id"] is not None else None),
             name=r["name"],
             display_name=r["full_name"] or r["name"], kind=kind,
-            engine=("Group" if is_group else display.engine)))
+            engine=("Group" if is_group else display.engine),
+            currency=currency,
+            app_analysis_id=(str(app_analysis_id) if app_analysis_id is not None
+                             else None)))
     return members
 
 
@@ -171,11 +204,37 @@ def inspect_grouping(*, submission_id: Any,
         raise ExecutionGateError([f"Inspection failed: {exc}"]) from exc
     periods = [r.periods for m in inspection.members for r in m.regions
                if r.framework == "PLT" and r.periods]
-    suggested = (max(periods)
-                 if inspection.output_loss_table == "PLT" and periods else 1)
+    currencies = {m.currency for m in picked}
     return GroupingInspectionView(
         inspection=inspection, members={m.irp_id: m for m in picked},
-        suggested_num_of_simulations=suggested)
+        largest_member_periods=max(periods) if periods else None,
+        common_currency=(currencies.pop()
+                         if len(currencies) == 1 and None not in currencies
+                         else None))
+
+
+def finish_blockers(view: GroupingInspectionView, *,
+                    currency_defaults: dict) -> list[str]:
+    """Why Finish — inspect and submit in one step with every setting
+    defaulted (FR-025) — must stop at the inspection instead. Empty when the
+    group can be submitted as an ELT group in the members' currency and the
+    env scheme and vintage (``currency_defaults``, cache-checked) with no
+    choice left to the analyst. Treaty mismatches never stop it (FR-020)."""
+    inspection = view.inspection
+    reasons: list[str] = []
+    if not (currency_defaults["scheme"] and currency_defaults["vintage"]):
+        reasons.append("The default currency scheme or vintage is not set.")
+    if inspection.blocking_problems:
+        reasons.append("The members cannot be grouped.")
+    if any(p.event_rate_selection_required for p in inspection.partitions):
+        reasons.append("A partition needs an event-rate scheme choice.")
+    if any(p.simulation_set_selection_required for p in inspection.partitions):
+        reasons.append("A partition needs a simulation set choice.")
+    if inspection.output_loss_table == "PLT":
+        reasons.append("The group output is PLT.")
+    if view.common_currency is None:
+        reasons.append("The members did not all run in one known currency.")
+    return reasons
 
 
 _SELECTION_KEY = ("peril_code", "region_code", "model_version")
@@ -221,7 +280,10 @@ def request_grouping(
 
     Which partitions require an event-rate or simulation-set selection is not
     re-derived here (that needs another inspection); the package validates it
-    at submit and the worker records the structured reason."""
+    at submit and the worker records the structured reason. The same goes for
+    the simulation count: ``1`` (the ELT group's hidden value) or one of
+    ``SIMULATION_PERIOD_OPTIONS`` passes; whether the group is ELT or PLT is
+    the package's check."""
     errors: list[str] = []
     picked = _pick_members(submission_id, member_ids, errors)
     irp_ids = sorted(m.irp_id for m in picked if m.irp_id is not None)
@@ -237,8 +299,8 @@ def request_grouping(
         simulations = int(num_of_simulations.strip())
     except ValueError:
         simulations = 0
-    if simulations <= 0:
-        errors.append("Enter a simulation count greater than zero.")
+    if simulations != 1 and simulations not in SIMULATION_PERIOD_OPTIONS:
+        errors.append("Choose one of the offered simulation period counts.")
     selections = _parse_selections(event_rate_selections, "event_rate_scheme_id")
     if selections is None:
         errors.append("Choose an event-rate scheme for every conflicting partition.")
@@ -287,6 +349,16 @@ def request_grouping(
     return grouping_request_id
 
 
+def requested_group_name(grouping_request_id: str) -> str:
+    """The full group name the plan carries — the posted name with any ``_n``
+    collision suffix applied — for the Finish confirmation (FR-025)."""
+    row = execute(
+        "SELECT input_data FROM rwb_job WHERE requestor_type = 'analyst_request' "
+        "AND requestor_id = :id AND rwb_job_type = 'submit_grouping'",
+        {"id": grouping_request_id}, connection="WORKBENCH")
+    return json.loads(row[0]["input_data"])["group_full_name"]
+
+
 def grouping_request_is_live(grouping_request_id: Any | None) -> bool:
     """Whether the named ``submit_grouping`` head is still pending/running —
     keeps the merged grid's 3s poll alive between the compose POST and the
@@ -304,11 +376,15 @@ def grouping_request_is_live(grouping_request_id: Any | None) -> bool:
 
 
 __all__ = [
+    "DEFAULT_SIMULATION_PERIODS",
+    "SIMULATION_PERIOD_OPTIONS",
     "GroupMember",
     "GroupingInspectionView",
     "build_group_name",
+    "finish_blockers",
     "grouping_request_is_live",
     "inspect_grouping",
     "list_eligible_members",
     "request_grouping",
+    "requested_group_name",
 ]
