@@ -27,7 +27,8 @@ uv run pytest tests/unit
 
 Covers: compose gate, inspection view and screen rows (`test_grouping_view.py`),
 group naming and collision suffix, plan composition, compose routes (dialog,
-inspect fragment states and oob parts, submit 422 retarget),
+inspect fragment states and oob parts, submit 422 retarget, the Finish
+route's submit, stop, and error responses and `finish_blockers`),
 worker submit paths against `FakeIRP` (success with the exact request body /
 duplicate-name pre-check retry / generic and structured submission failures),
 poller grouping routing, group read models.
@@ -48,9 +49,11 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    the **Group** button enables. Tick a running or failed row instead — it is
    absent from the compose pick-list (US-1 acceptance 2).
 2. Click Group. Screen 1 shows the whole pick-list with your rows pre-checked,
-   "N of M selected", and the name prefilled `CRE_<submission>_Group`; typing
-   in the search box filters the list by name without a request (US-1
-   acceptance 1). Untick a row so one member is left: **Next** disables.
+   "N of M selected", the ticked members as chips in the panel beside the
+   list, and the name prefilled `CRE_<submission>_Group`; typing in the
+   search box filters the list by name without a request (US-1 acceptance
+   1). Tick another row: its chip appears; click a chip's ×: its row unticks
+   (FR-022). Untick rows so one member is left: **Next** disables.
 3. Click **Next**. The wait state shows while Risk Modeler is read, then
    screen 2: the facts strip (group output ELT or PLT, member count, scheme
    mismatch count, treaty mismatch count), one table row per peril · region ·
@@ -62,10 +65,16 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    off the marked column and confirm they are the values Risk Modeler shows
    for those analyses, not the EDM definition. Screen 3's summary shows a
    Treaties row with the "1 mismatch" badge; identical treaties show the green
-   one-liner and "0 treaty mismatches". **Next** is enabled either way. Click it: screen 3 shows the name, output, and members
-   on the left, and currency/scheme/vintage prefilled from the env defaults
-   and Propagate detailed output ON on the right; an ELT group shows no
-   simulation count. Click **Back** twice: screen 1 still has your members
+   one-liner and "0 treaty mismatches". The treaty table's Analysis ID
+   column shows each member's Risk Modeler app analysis id (the id in Risk
+   Modeler's own analysis grid), never the Platform id (FR-020). **Next** is
+   enabled either way. Click it: screen 3 shows the name, output, and members
+   on the left, and on the right the currency prefilled with the members'
+   currency ("All members ran in USD.") — pick a CAD and a USD member
+   instead and it reads "Members ran in CAD and USD. Defaulting to USD." with
+   USD selected (FR-004) — scheme and vintage from the env defaults, and
+   Propagate detailed output ON; an ELT group shows no simulation periods.
+   Click **Back** twice: screen 1 still has your members
    ticked. Go forward again and click **Group**. The `submit_grouping` job
    appears immediately in the RWB jobs monitor; the group row appears in the
    grid when the worker claims the job and its Status cell moves
@@ -84,8 +93,11 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    the PET its member ran on with that PET's period count and offers no
    choice, and Next stays disabled until each dropdown is chosen; changing a scheme
    dropdown leaves the simulation-set dropdown as it was (FR-021). Screen 3
-   shows the simulation count prefilled with the largest member PLT length
-   (US-2 acceptance 2).
+   shows the Simulation periods dropdown — the nine Risk Modeler options with
+   50,000 preselected — and the hint naming the largest member PLT length
+   (US-2 acceptance 2, FR-019). Expand a finished group's row in the grid: its
+   Analysis id is the app analysis id, and its Event rate scheme list stops at
+   five lines with the full list on hover (FR-023, FR-024).
 5. Blocked, error, and changed states: inspect a member set the platform
    cannot group (for example a DLM + HD pair whose ELT partition has no
    simulation set in the platform's reference data) — screen 2 opens with
@@ -107,6 +119,21 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
 8. In Risk Modeler, filter analyses by the submission-name tag — every
    Workbench-submitted analysis of the submission appears (US-4 acceptance 1;
    the group itself carries no tag — spec O-07).
+9. Finish (FR-025, US-1 acceptance 6). Tick two finished DLM analyses that
+   ran in one currency under one event-rate scheme and click Group, then
+   **Finish** on the Members screen. The wait state shows, then the dialog is
+   replaced by the "Group submitted" pane: Inspection passed, the group name,
+   Output ELT, schemes "No conflicts", Treaties, "USD — all members", and the
+   members. The toast shows, the grid's ticks clear, and the group row
+   appears as in step 3; the pane stays until Close. In `rwb_job.input_data`
+   the currency is the members' code with the env scheme and vintage,
+   `num_of_simulations` is 1, `propagate_detailed_losses` true. Then Finish
+   each stopping set — two DLMs on different schemes, a DLM + HD pair, a USD
+   + CAD pair, a blocked set — and confirm screen 2 opens with "Finish could
+   not submit this group. Review the inspection and continue with Next.", no
+   `submit_grouping` job appears, and Next continues to screen 3 as usual.
+   A set with a treaty mismatch only still submits, and the pane shows the
+   mismatch badge with the treaty number.
 
 ## 4. IRP sandbox tier — T-11 and SC-002 verification
 

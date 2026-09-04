@@ -206,6 +206,24 @@ and the worker do not change.
 
 ---
 
+## Phase 10: design note 26 follow-ups (2026-09-03 CIC session)
+
+**Purpose**: The six compose-dialog changes CIC asked for on 2026-09-03
+(design note 26 D7, D8–D10, D12, D13–D15, D18), decided with the approver on
+2026-09-04 (spec O-10…O-14, research.md Session 2026-09-04). Two passes with a
+click-through after each.
+
+- [X] T050 [FR-022] [O-13] Selected-member chips on the Members screen: `data-display` on each `member_ids` checkbox, the `.bo-picked` panel beside the list in `group_compose_modal.html`, `sel` derived in `groupComposeModal.recompute()` and `unpick(id)` in `app.js`; route test asserts the chip label attribute and the empty state
+- [X] T051 [FR-004] [O-10] Group currency prefilled from the members: `GroupMember.currency` / `app_analysis_id` and the widened `_ELIGIBLE_SELECT` in `grouping_service.py`; `GroupingInspectionView.common_currency`, `member_currencies`, `currency_unknown`; the `#group-currency` oob block and hint in `group_inspection.html`; `_group_currency_context` / `_inspection_context` in `app/routers/submissions.py`; service tests (same / differing / unknown / broker + group sources) and route tests (selected option and hint per case, 422 leaves the block alone)
+- [X] T052 [FR-020] [FR-023] [O-12] App analysis id: `ExecutedAnalysis.app_analysis_id` and `BrokerAnalysis.app_analysis_id` (column, else snapshot `appAnalysisId`) in `analysis_service.py`; `analysis_results_inline.html` shows it; `TreatyMismatchRow.app_analysis_id` in `grouping_view.py` and the treaty table cell (em dash without one); unit tests in `test_analysis_service.py`, `test_broker_analyses.py`, `test_grouping_view.py`, `test_grouping_routes.py`
+- [X] T053 [FR-024] Five-line clamp on the expanded row's `settings-grid` value cells (not the wide Members list) in `details.css`; the existing `title` carries the full list
+- [X] T054 [FR-019] [O-11] Simulation periods dropdown: `SIMULATION_PERIOD_OPTIONS` / `DEFAULT_SIMULATION_PERIODS` in `grouping_service.py`, `largest_member_periods` replacing `suggested_num_of_simulations`, the gate accepting `1` or a listed option; the `<select>` in `group_inspection.html` `#group-sims`; the `[name="num_of_simulations"]` selector in `app.js`; service and route tests
+- [ ] T055 Pass 1 click-through on the developer's stack per quickstart.md §3 steps 2–4 (chips, currency prefill per case, dropdown at 50,000, app analysis id in the expanded row and the treaty table, the clamped scheme list)
+- [X] T056 [FR-025] [O-14] Pass 2 — the Finish fast path: `grouping_service.finish_blockers` and `requested_group_name`, `POST …/analyses/group/finish` in `app/routers/submissions.py`, the `finish_stopped` notice in `group_inspection.html`, `partials/group_finish_confirmation.html`, the Finish button in `group_compose_modal.html` and `finish()` in `app.js`, `.insp-notice--warn`; route and service tests; spec.md FR-025 + O-14 + US-1 acceptance 6, contracts/routes.md finish section, plan.md, quickstart.md §3 step 9, research.md, FUNCTIONAL_REQUIREMENTS.md §6
+- [ ] T057 Pass 2 click-through per quickstart.md §3 step 9, then the diff subtraction review for both passes
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

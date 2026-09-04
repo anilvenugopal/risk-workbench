@@ -17,15 +17,24 @@ Context:
 
 - `members`: every eligible member of the submission — own analyses with
   `status_code='ready'`, broker analyses, finished groups — each with
-  `id, irp_id, display_name, kind (own|broker|group), engine`. Ineligible
-  rows (running/failed) are not listed (FR-003, US-1 acceptance 2).
+  `id, irp_id, display_name, kind (own|broker|group), engine, currency,
+  app_analysis_id`. `currency` is the run currency code — own rows and groups
+  from `submitted_settings.currency.code`, broker rows from the metadata
+  snapshot's currency (the FR-005 rule), `None` when unrecorded;
+  `app_analysis_id` is `irp_app_analysis_id`, else the snapshot's
+  `appAnalysisId`, else `None`. Ineligible rows (running/failed) are not
+  listed (FR-003, US-1 acceptance 2).
 - `group_name`: prefilled `CRE_<submission name>_Group` (T-09), editable.
 - `inspect_url`: the inspect route below, posted by screen 1's **Next**
   button (`hx-trigger="inspect"`, fired by the Alpine `inspect()` method;
   target `#group-inspection`, indicator `#group-inspect-wait`).
-- Currency block on screen 3: the `currency_block` macro from
-  `execute_analysis_modal.html` with `currency_defaults()` prefill and the
-  existing `/edms/execute/vintage-options` cascade (FR-004).
+- `finish_url`: the finish route below, posted by screen 1's **Finish**
+  button (`hx-trigger="finish"`, fired by the Alpine `finish()` method; same
+  target and indicator; enabled with Next, FR-025).
+- Currency block on screen 3, inside `#group-currency`: the `currency_block`
+  macro from `currency_block.html` with `currency_defaults()` prefill and the
+  existing `/edms/execute/vintage-options` cascade (FR-004). Every inspection
+  re-renders it out of band with the members' currency (below).
 - Propagate detailed output: checkbox on screen 3, checked (FR-005). Risk
   Modeler's Create independent groups checkbox is not carried over (FR-006,
   O-08).
@@ -34,11 +43,16 @@ Context:
 
 Screen 1 (Members): the group name, a client-side name search over the
 pick-list (`data-name` on each row), the pick-list with the grid's rows
-pre-checked, and "N of M selected". **Next** enables at ≥2 checked members
+pre-checked (each checkbox carries `data-display`, the chip label), "N of M
+selected", and beside the list the chips panel (`.bo-picked`): "Nothing
+selected yet" or one `.bo-picked__chip` button per checked member, derived
+from the checkboxes on every `recompute()`, whose click unticks the row and
+fires `change` (FR-022). **Next** enables at ≥2 checked members
 and a non-empty name; it empties `#group-inspection`, `#group-summary` and
 `#group-sims`, moves to screen 2, and fires the inspect request. **Back**
 from screen 2 aborts an in-flight inspect (`htmx:abort`) and empties the same
-three targets, so no stale swap can land.
+three targets, so no stale swap can land. `#group-currency` is never emptied
+— it keeps the last rendered block until the next inspection replaces it.
 
 Screen 2 (Inspection): the wait state while the request runs, then the
 inspect response. **Next** enables on `[data-inspection-ready]` with every
@@ -46,12 +60,12 @@ inspect response. **Next** enables on `[data-inspection-ready]` with every
 chosen; it records the chosen scheme labels for screen 3's "Schemes chosen"
 list and moves on.
 
-Screen 3 (Settings): the summary (`#group-summary`) and simulation count
-(`#group-sims`) rendered by the inspect response, the schemes chosen, the
-currency block, Propagate detailed output. **Group** submits the form
-(`hx-swap="none"`) and enables when the currency triple is chosen and
-`num_of_simulations` is a positive integer. Submit errors land in
-`#group-submit-errors` at the top of the screen.
+Screen 3 (Settings): the summary (`#group-summary`), simulation periods
+(`#group-sims`), and currency block (`#group-currency`) rendered by the
+inspect response, the schemes chosen, Propagate detailed output. **Group**
+submits the form (`hx-swap="none"`) and enables when the currency triple is
+chosen and `num_of_simulations` holds a positive integer. Submit errors land
+in `#group-submit-errors` at the top of the screen.
 
 ## `POST /submissions/{submission_id}/analyses/group/inspect`
 
@@ -67,14 +81,23 @@ Behavior — Platform reads only, nothing persisted:
 - Success → `partials/group_inspection.html` at 200 with
   `view: GroupingInspectionView` — `inspection` (the package
   `GroupingInspection`), `members` (Platform id → `GroupMember`, for display
-  names), `suggested_num_of_simulations` (largest PLT member `periods` for a
-  PLT group, else 1) — and `screen: InspectionScreen` from
+  names, currencies, and app analysis ids), `largest_member_periods` (the
+  largest PLT member `periods`, `None` without one — the hint),
+  `common_currency` (the one code every member ran in, else `None`),
+  `member_currencies` (the distinct known codes) and `currency_unknown` —
+  and `screen: InspectionScreen` from
   `grouping_view.build_inspection_screen(view)`: one `PartitionRow` per
   partition (key, the members' distinct engine versions, member display
   names, `mode`, `SchemeOption`s) and one `ProblemText` per blocking problem.
+  The context also carries `simulation_period_options`,
+  `default_simulation_periods`, and the `currency_block` context
+  (`currency_code_val` = `common_currency` or the env default code, the env
+  scheme and vintage, the option lists).
 
-Every response, the 422 included, also carries `#group-summary` and
-`#group-sims` as `hx-swap-oob` divs, so each inspection resets screen 3.
+Every 200 response also carries `#group-summary`, `#group-sims`, and
+`#group-currency` as `hx-swap-oob` divs, so each inspection resets screen 3;
+the 422 carries the first two (emptied) and leaves `#group-currency` as it
+was.
 
 Fragment states, all rendered into `#group-inspection`:
 
@@ -118,8 +141,10 @@ Fragment states, all rendered into `#group-inspection`:
   analysis can carry two treaties sharing a number), and "Differs on <display
   labels>" (`differing_fields` through `treaty_service.humanize_key`), over an
   `.insp-table--treaty` in Risk Modeler's column order: Analysis (the
-  Workbench display name, or the id when the member is unknown), Analysis ID,
-  Treaty ID (em dash when the package reports none), Treaty Number, then one
+  Workbench display name, or the Platform id when the member is unknown),
+  Analysis ID (the member's `app_analysis_id`, em dash when the Workbench
+  holds none — never the Platform id, FR-020), Treaty ID (em dash when the
+  package reports none), Treaty Number, then one
   column per `grouping_view.TREATY_COLUMNS` entry — treatyType, effectiveDate,
   expirationDate, attachmentPoint, occurrenceLimit, riskLimit ("Per Risk
   Limit"), currency — one row per `GroupingProblem.treaties` entry. Values are
@@ -134,10 +159,53 @@ Fragment states, all rendered into `#group-inspection`:
   problems only; warnings never disable Next. `#group-summary` holds the
   group name (`x-text`), the output, a Treaties row (`badge--warning`
   "<n> mismatch(es)" plus the treaty numbers, or "No mismatches"), and the
-  members with engine and kind. `#group-sims` holds, for a PLT group,
-  `<input type="number" name="num_of_simulations" min="1">` prefilled with
-  the suggestion and the "Largest member: <n>" hint; for an ELT group,
+  members with engine and kind. `#group-sims` holds, for a PLT group, the
+  "SIMULATION PERIODS" `<select name="num_of_simulations">` over
+  `grouping_service.SIMULATION_PERIOD_OPTIONS` (3,125 … 800,000) with
+  `DEFAULT_SIMULATION_PERIODS` (50,000) selected and the "Largest member:
+  <n>" hint when a member has a PLT length; for an ELT group,
   `<input type="hidden" name="num_of_simulations" value="1">` (FR-019).
+  `#group-currency` holds the `currency_block` re-rendered with
+  `common_currency` (else the env default code) and a `[data-currency-hint]`
+  line: "All members ran in <code>.", "A member's currency is not recorded.
+  Defaulting to <default>.", or "Members ran in <codes joined by ' and '>.
+  Defaulting to <default>." (FR-004).
+
+## `POST /submissions/{submission_id}/analyses/group/finish`
+
+Form fields: `csrf_token`, `member_ids` (repeated), `group_name` (the whole
+form is included; the other fields are ignored).
+
+Behavior — the Finish fast path (FR-025, spec O-14): inspect, then submit in
+the same request when nothing is left for the analyst to choose.
+
+- The inspect gate and the Platform read run exactly as for the inspect
+  route; failures → `partials/group_inspection.html` with `errors` at 422
+  (the Retry button re-inspects).
+- `grouping_service.finish_blockers(view, currency_defaults=…)` is
+  non-empty when the inspection has blocking problems, any partition carries
+  `event_rate_selection_required` or `simulation_set_selection_required`,
+  `output_loss_table == "PLT"`, `common_currency` is `None`, or the env
+  scheme or vintage default is empty (unset or not in the cache). Treaty
+  warnings are not a reason. → 200, the inspection partial with the full
+  `_inspection_context` plus `finish_stopped=True`, which renders one
+  `.insp-notice--warn` above the facts strip: "Finish could not submit this
+  group. Review the inspection and continue with Next." The oob screen-3
+  blocks fill as for the inspect route, so Next works unchanged.
+- Otherwise `grouping_service.request_grouping` with `currency_code =
+  common_currency`, the env `scheme` and `vintage`, `propagate_detailed_output
+  = True`, `num_of_simulations = "1"`, no selections, and the fingerprint and
+  analysis ids from this request's inspection. A gate failure → the
+  inspection partial with `errors` at 422.
+- Success → 200 with `partials/group_finish_confirmation.html` and the
+  headers `HX-Retarget: #group-modal`, `HX-Reswap: innerHTML`, and the same
+  `HX-Trigger` as the submit route (`grouping-submitted` + `rwb:toast`). The
+  pane replaces the dialog and stays until Close: "Group submitted",
+  "Inspection passed.", then Group name (`requested_group_name` — the plan's
+  `group_full_name`, so a collision suffix shows), Output, Event-rate
+  schemes "No conflicts", Treaties (the summary's badge and treaty numbers,
+  or "No mismatches"), Currency "<code> — all members", Propagate detailed
+  output "On", and the members with engine and kind.
 
 ## `POST /submissions/{submission_id}/analyses/group`
 
@@ -154,8 +222,10 @@ Behavior:
   deleted, belongs to this submission, is finished, and has a Platform
   analysis id; at least two members; the picked ids equal the inspected ids
   ("Members changed since inspection. Inspect again."); fingerprint present
-  ("Inspect the members before grouping."); `num_of_simulations` an integer
-  > 0 ("Enter a simulation count greater than zero."); each selection parses
+  ("Inspect the members before grouping."); `num_of_simulations` `1` or one
+  of `SIMULATION_PERIOD_OPTIONS` ("Choose one of the offered simulation
+  period counts." — whether the group is ELT or PLT is the package's check
+  at submit); each selection parses
   with `peril_code`, `region_code`, `model_version` (strings) and
   `event_rate_scheme_id` (int) and no partition repeats ("Choose an
   event-rate scheme for every conflicting partition."); each simulation-set

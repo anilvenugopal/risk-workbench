@@ -21,12 +21,18 @@ per-queue worker framework this feature extends (T-01).
   rows. It opens the compose dialog: one form, three screens in a 1080px
   shell. Screen 1 (Members) is the submission-scoped pick-list (finished own
   analyses, broker analyses, finished groups — ticked rows pre-checked) with
-  a client-side name search and the prefilled editable group name
+  a client-side name search, a chips panel of the ticked members beside the
+  list (the breakout modal's `.bo-picked` markup and Alpine pattern; a chip's
+  × unticks its row — FR-022) and the prefilled editable group name
   (`CRE_<submission name>_Group`, T-09). Screen 2 (Inspection) is the
   inspect response. Screen 3 (Settings) is the summary, the reused
-  currency/scheme/vintage `currency_block` macro with env-var defaults,
-  Propagate detailed output ON (O-08 drops Risk Modeler's Create independent
-  groups checkbox), and the simulation count for a PLT group.
+  currency/scheme/vintage `currency_block` macro — re-rendered by every
+  inspection with the members' common currency code, else the env default,
+  plus a hint naming the members' currencies (FR-004) — Propagate detailed
+  output ON (O-08 drops Risk Modeler's Create independent groups checkbox),
+  and for a PLT group the simulation periods `<select>` over
+  `grouping_service.SIMULATION_PERIOD_OPTIONS` with 50,000 preselected
+  (FR-019).
 - Compose is two requests. Screen 1's Next posts
   `POST /submissions/{sid}/analyses/group/inspect`, which runs the local gate
   (≥2 eligible members, each with a Platform analysis id) and calls
@@ -42,16 +48,30 @@ per-queue worker framework this feature extends (T-01).
   table, one treaty mismatch table per Treaty Number from
   `inspection.warnings` below it (never blocking), and the hidden fingerprint
   and inspected ids when nothing blocks.
-  The same response fills screen 3's summary and simulation count out of
-  band. `POST /submissions/{sid}/analyses/group` re-runs the gate in
+  The same response fills screen 3's summary, simulation periods, and
+  currency block out of band; `GroupMember` carries each member's run
+  currency (own and group rows from `submitted_settings.currency.code`,
+  broker rows from the metadata snapshot — the FR-005 run-currency rule) and
+  its app analysis id, which the treaty table shows in place of the Platform
+  id (FR-020). `POST /submissions/{sid}/analyses/group` re-runs the gate in
   `app/services/grouping_service.py` (members unchanged since inspection,
-  fingerprint present, positive simulation count, well-formed selections —
+  fingerprint present, simulation periods `1` or one of the fixed options,
+  well-formed selections —
   `ExecutionGateError` pattern, 422 into screen 3's error slot), then
   persists the approved
   plan verbatim as one `rwb_job` (`rwb_job_type = submit_grouping`,
   requestor `analyst_request`) and dispatches. The plan carries the Platform
   analysis ids, settings, selections, fingerprint, and a minted
   `group_analysis_id` so the worker's claim is idempotent.
+- Screen 1's Finish posts `POST /submissions/{sid}/analyses/group/finish`,
+  which inspects and — when `grouping_service.finish_blockers` is empty (no
+  blocking problem, no scheme or simulation-set choice, ELT output, one known
+  member currency, env scheme and vintage present) — calls `request_grouping`
+  in the same request with the members' currency, the env scheme and vintage,
+  Propagate ON, and simulation periods 1. A stop renders the inspection as
+  screen 2 with one generic notice; success retargets
+  `group_finish_confirmation.html` at `#group-modal` with the submit's
+  triggers (FR-025, O-14). Treaty mismatches do not stop Finish.
 - The `submit_grouping` actor (`app/workers/grouping_jobs.py`, own CR-04
   queue) claims the group `irp_analysis` row (`is_group=1`,
   `submission_id` set, `edm_id`/`rdm_id` NULL — T-04) plus its
@@ -86,7 +106,7 @@ per-queue worker framework this feature extends (T-01).
 |---|---|
 | Database | `irp_analysis.submission_id` (FK, nullable) + origin CHECK third leg + filtered unique `(submission_id, name)`; new `irp_analysis_group_member` table; `submit_grouping` seeded in `rwb_job_type_kind` (migration, `seed_db.py`, `iteration1_mirror.py`) |
 | Worker | New `app/workers/grouping_jobs.py` (`submit_grouping` actor, own queue; tenant-wide name pre-check; structured failure reasons); `finalize_analysis` gains the group branch (name-only resolution); poller `_GETTERS`/`_TERMINAL_HANDLERS` gain `grouping` |
-| UI | Group button + three-screen compose dialog (`group_compose_modal.html`: members, inspection, settings; reuses `currency_block`), its `group_inspection.html` screen built by `grouping_view.py`, and the `group_submit_errors.html` 422 fragment; group rows in the submission merged grid and results page; Engine column renders "Group" |
+| UI | Group button + three-screen compose dialog (`group_compose_modal.html`: members with the chips panel, inspection, settings; reuses `currency_block`, re-rendered per inspection with the members' currency), its `group_inspection.html` screen built by `grouping_view.py`, the `group_submit_errors.html` 422 fragment, and the `group_finish_confirmation.html` pane the Finish route retargets at `#group-modal`; group rows in the submission merged grid and results page; Engine column renders "Group"; the expanded analysis row shows the app analysis id (`analysis_service.ExecutedAnalysis.app_analysis_id` / `BrokerAnalysis.app_analysis_id`) and clamps a group's scheme list to five lines (`details.css`) |
 | Library | irp-integration pinned to `0.8.0rc8` (TestPyPI); `irp_gateway` grouping methods replaced by `inspect_grouping` / `submit_grouping` / `get_grouping_job` / `count_analyses_named` over `client.grouping` (+ `FakeIRP`) |
 
 ## High-risk technical decisions
