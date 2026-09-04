@@ -121,6 +121,8 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .attr-grid dt, .settings-grid dt { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
 /* long values wrap rather than truncate — event rate scheme names run past any column width */
 .attr-grid dd, .settings-grid dd { margin: 2px 0 0; font-size: var(--fs-label); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* a group's scheme list (one per member region/peril) stops at five lines; the title carries the rest */
+.settings-grid > div:not(.settings-grid__wide) > dd { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
 .attr-grid dd.blank, .settings-grid dd.blank { color: var(--text-disabled); font-weight: var(--fw-regular); }
 /* the group row's Members list spans the grid — a 64-char analysis name does not
    fit one 170px column */
