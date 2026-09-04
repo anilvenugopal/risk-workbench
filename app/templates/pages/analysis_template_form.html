@@ -82,7 +82,7 @@
         <label>MODEL PROFILE <span class="wf-field__req">*</span></label>
         <div class="ta" x-data="selectSearch()" @click.outside="close()">
           <select class="wf-field__input" name="analysis_profile_name" id="tpl-profile" required
-                  x-ref="select" x-show="false"
+                  x-ref="select"
                   hx-get="/templates/analysis-templates/scheme-options"
                   hx-trigger="change" hx-target="#tpl-scheme" hx-swap="innerHTML"
                   hx-vals='js:{"profile": document.getElementById("tpl-profile").value}'>
@@ -106,7 +106,7 @@
         <label>EVENT RATE SCHEME</label>
         <div class="ta" x-data="selectSearch({ clearable: true })" @click.outside="close()">
           <select class="wf-field__input" name="event_rate_scheme_name" id="tpl-scheme"
-                  x-ref="select" x-show="false" @htmx:after-swap="sync()">
+                  x-ref="select" @htmx:after-swap="sync()">
             {% with options = event_rate_scheme_options %}{% include "partials/scheme_options.html" %}{% endwith %}
           </select>
           {{ forms.typeahead_controls(required=false) }}
@@ -118,7 +118,7 @@
         <label>OUTPUT PROFILE <span class="wf-field__req">*</span></label>
         <div class="ta" x-data="selectSearch()" @click.outside="close()">
           <select class="wf-field__input" name="output_profile_name" required
-                  x-ref="select" x-show="false">
+                  x-ref="select">
             <option value=""{% if not (output_profile_options | selectattr('selected') | list) %} selected{% endif %}>Choose an output profile…</option>
             {% for option in output_profile_options %}
             <option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>

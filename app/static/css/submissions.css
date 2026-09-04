@@ -141,6 +141,11 @@
    browser's ~20-char default instead of filling the field like the rest of
    the form's inputs and the native <select> this one replaces. */
 .ta > input.wf-field__input { width: 100%; }
+/* selectSearch() adds .ta--ready on mount, and CSS — not x-show — hides the
+   native <select> it replaces: htmx's attribute settling restores a swapped-in
+   element's own `style`, which drops Alpine's inline display:none, and the
+   group dialog swaps #group-currency out of band on every inspection. */
+.ta--ready > select.wf-field__input { display: none; }
 .ta__menu {
   position: absolute; z-index: 20; top: calc(100% + 3px); left: 0; right: 0;
   background: var(--surface-panel); border: 1px solid var(--border-strong);

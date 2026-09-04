@@ -380,12 +380,13 @@ document.addEventListener('alpine:init', () => {
   // Searchable enhancement over a plain <select> (analysis template create/edit —
   // model profile, event rate scheme, output profile). The <select> stays the
   // source of truth (native `required`, and the profile field still drives its
-  // hx-get cascade off it) but is hidden once Alpine mounts; a text input filters
-  // its live options client-side, matching the "links to" typeahead's
-  // degrade-without-JS story but with an already-known, already-rendered option
-  // list instead of a server round trip. `sync()` also re-runs after htmx swaps
-  // a fresh option list into the cascade target (event rate scheme), since
-  // replacing <option> children doesn't fire a native change event.
+  // hx-get cascade off it) but is hidden by .ta--ready once Alpine mounts; a
+  // text input filters its live options client-side, matching the "links to"
+  // typeahead's degrade-without-JS story but with an already-known,
+  // already-rendered option list instead of a server round trip. `sync()` also
+  // re-runs after htmx swaps a fresh option list into the cascade target
+  // (event rate scheme), since replacing <option> children doesn't fire a
+  // native change event.
   Alpine.data('selectSearch', (options = {}) => ({
     isOpen: false,
     activeIndex: -1,
@@ -395,6 +396,7 @@ document.addEventListener('alpine:init', () => {
     // emptying the input and leaving restores the committed label via close().
     clearable: options.clearable === true,
     init() {
+      this.$el.classList.add('ta--ready');
       this.sync();
     },
     get select() {

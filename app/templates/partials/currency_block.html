@@ -10,7 +10,7 @@
     <div class="wf-field">
       <label>ANALYSIS CURRENCY</label>
       <div class="ta" x-data="selectSearch()" @click.outside="close()">
-        <select class="wf-field__input" name="{{ code_name }}" id="curr-code-{{ scope_id }}" x-ref="select" x-show="false">
+        <select class="wf-field__input" name="{{ code_name }}" id="curr-code-{{ scope_id }}" x-ref="select">
           <option value=""{% if not code_val %} selected{% endif %}>Choose a currency…</option>
           {% for c in currency_options %}
           <option value="{{ c.code }}"{% if c.code == code_val %} selected{% endif %}>{{ c.code }} — {{ c.name }}</option>
@@ -22,7 +22,7 @@
     <div class="wf-field">
       <label>CURRENCY SCHEME</label>
       <div class="ta" x-data="selectSearch()" @click.outside="close()">
-        <select class="wf-field__input" name="{{ scheme_name }}" id="curr-scheme-{{ scope_id }}" x-ref="select" x-show="false"
+        <select class="wf-field__input" name="{{ scheme_name }}" id="curr-scheme-{{ scope_id }}" x-ref="select"
                 hx-get="/edms/execute/vintage-options" hx-trigger="change"
                 hx-target="#curr-vintage-{{ scope_id }}" hx-swap="innerHTML"
                 hx-vals='js:{"scheme": document.getElementById("curr-scheme-{{ scope_id }}").value}'>
@@ -37,7 +37,7 @@
     <div class="wf-field">
       <label>SCHEME VINTAGE</label>
       <div class="ta" x-data="selectSearch()" @click.outside="close()">
-        <select class="wf-field__input{% if not vintage_val %} wf-field__input--empty{% endif %}" name="{{ vintage_name }}" id="curr-vintage-{{ scope_id }}" x-ref="select" x-show="false" @htmx:after-swap="sync(); recompute()">
+        <select class="wf-field__input{% if not vintage_val %} wf-field__input--empty{% endif %}" name="{{ vintage_name }}" id="curr-vintage-{{ scope_id }}" x-ref="select" @htmx:after-swap="sync(); recompute()">
           <option value=""{% if not vintage_val %} selected{% endif %}>Choose a vintage…</option>
           {% for v in vintage_options %}
           <option value="{{ v.vintage }}"{% if v.vintage == vintage_val %} selected{% endif %}>{{ v.vintage }} (effective {{ v.effective_date }})</option>
