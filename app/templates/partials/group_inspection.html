@@ -40,8 +40,8 @@
   <div>
     <div class="exec-section-label">Event-rate schemes{% if screen.simulation_sets_shown %} and simulation sets{% endif %}</div>
     <div class="insp-table-wrap">
-      <table class="insp-table">
-        <thead><tr><th class="insp-table__key">Peril</th><th class="insp-table__key">Region</th><th class="insp-table__key">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th>{% if screen.simulation_sets_shown %}<th class="insp-table__set">Simulation set</th>{% endif %}</tr></thead>
+      <table class="insp-table insp-table--partition{% if screen.simulation_sets_shown %} insp-table--sets{% endif %}">
+        <thead><tr><th class="insp-table__key insp-table__peril">Peril</th><th class="insp-table__key insp-table__region">Region</th><th class="insp-table__key insp-table__version">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th>{% if screen.simulation_sets_shown %}<th class="insp-table__set">Simulation set</th>{% endif %}</tr></thead>
         <tbody>
           {% for row in screen.rows %}
           <tr>

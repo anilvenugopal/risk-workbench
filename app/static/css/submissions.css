@@ -412,10 +412,24 @@
   vertical-align: top; }
 .insp-table tr:last-child td { border-bottom: 0; }
 .insp-table td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.insp-table .insp-table__members { width: 38%; }
-.insp-table .insp-table__scheme { width: 36%; min-width: 280px; }
-.insp-table .insp-table__set { width: 30%; min-width: 260px; }
-.insp-table .wf-field__input { padding: 5px 8px; }
+.insp-table .insp-table__members { width: 34%; }
+.insp-table .insp-table__scheme { width: 32%; }
+.insp-table .wf-field__input { padding: 5px 8px; min-width: 0; width: 100%; }
+/* Under automatic layout a <select> is as wide as its longest option, so the
+   simulation-set column took a third of the table and squeezed the members
+   column to a few characters. Fixed layout sizes the columns from the header. */
+.insp-table--partition { table-layout: fixed; }
+.insp-table--partition .insp-table__peril { width: 9%; }
+.insp-table--partition .insp-table__region { width: 9%; }
+.insp-table--partition .insp-table__version { width: 16%; }
+.insp-table--partition td.n { white-space: normal; }
+.insp-table--sets { min-width: 960px; }
+.insp-table--sets .insp-table__peril { width: 8%; }
+.insp-table--sets .insp-table__region { width: 8%; }
+.insp-table--sets .insp-table__version { width: 14%; }
+.insp-table--sets .insp-table__members { width: 26%; }
+.insp-table--sets .insp-table__scheme { width: 22%; }
+.insp-table--sets .insp-table__set { width: 22%; }
 .insp-members { display: flex; flex-direction: column; gap: 3px; }
 .insp-member { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
 .insp-member__name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); }
