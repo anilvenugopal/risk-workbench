@@ -385,6 +385,7 @@ class IRPGateway(Protocol):
         self, *, analysis_ids: list[int], group_name: str, currency: dict,
         propagate_detailed_losses: bool, num_of_simulations: int,
         event_rate_selections: list[dict], simulation_set_selections: list[dict],
+        simulation_periods_selections: list[dict],
         expected_inspection_fingerprint: str,
     ) -> tuple[str, dict]: ...
 
@@ -1025,12 +1026,14 @@ class _RealGateway:
         self, *, analysis_ids: list[int], group_name: str, currency: dict,
         propagate_detailed_losses: bool, num_of_simulations: int,
         event_rate_selections: list[dict], simulation_set_selections: list[dict],
+        simulation_periods_selections: list[dict],
         expected_inspection_fingerprint: str,
     ) -> tuple[str, dict]:
         from irp_integration.grouping import (  # noqa: PLC0415 — request-side types stay here
             EventRateSelection,
             GroupingCurrency,
             GroupingSettings,
+            SimulationPeriodsSelection,
             SimulationSetSelection,
         )
         settings = GroupingSettings(
@@ -1056,10 +1059,19 @@ class _RealGateway:
                 simulation_set_id=s["simulation_set_id"])
             for s in simulation_set_selections
         ]
+        simulation_periods = [
+            SimulationPeriodsSelection(
+                partition=GroupingPartitionKey(
+                    peril_code=s["peril_code"], region_code=s["region_code"],
+                    model_version=s["model_version"]),
+                simulation_periods=s["simulation_periods"])
+            for s in simulation_periods_selections
+        ]
         submission = self._client().grouping.submit(
             analysis_ids=analysis_ids, settings=settings,
             event_rate_selections=selections,
             simulation_set_selections=simulation_sets,
+            simulation_periods_selections=simulation_periods,
             expected_inspection_fingerprint=expected_inspection_fingerprint)
         return str(submission.job_id), submission.request_body
 
@@ -1404,6 +1416,7 @@ def submit_grouping(
     *, analysis_ids: list[int], group_name: str, currency: dict,
     propagate_detailed_losses: bool, num_of_simulations: int,
     event_rate_selections: list[dict], simulation_set_selections: list[dict],
+    simulation_periods_selections: list[dict],
     expected_inspection_fingerprint: str,
 ) -> tuple[str, dict]:
     return _active().submit_grouping(
@@ -1412,6 +1425,7 @@ def submit_grouping(
         num_of_simulations=num_of_simulations,
         event_rate_selections=event_rate_selections,
         simulation_set_selections=simulation_set_selections,
+        simulation_periods_selections=simulation_periods_selections,
         expected_inspection_fingerprint=expected_inspection_fingerprint)
 
 

@@ -165,7 +165,8 @@ def test_inspect_renders_an_elt_group_ready_to_submit(iteration2_db, fake_irp):
     assert ">Simulation set</th>" not in response.text
     assert '<div class="insp-resolved" title="Scheme 101">Scheme 101</div>' in response.text
     assert '<input type="hidden" name="num_of_simulations" value="1">' in response.text
-    assert "SIMULATION PERIODS" not in response.text
+    assert "Group simulation periods" not in response.text
+    assert 'name="simulation_periods_selection"' not in response.text
     # both members ran in USD: the group currency is prefilled with it
     assert '<div id="group-currency" hx-swap-oob="true">' in response.text
     assert '<option value="USD" selected>' in response.text
@@ -295,11 +296,23 @@ def test_inspect_offers_a_simulation_set_per_elt_partition_of_a_plt_group(
     assert html.count('name="simulation_set_selection"') == 2
     assert 'aria-label="Simulation set for EQ / NA / 17.0"' in html
     assert 'aria-label="Simulation set for WS / NA / 11.0"' in html
-    # the HD partition keeps PET 15: its row names the PET and has no dropdown
+    # the HD partition keeps PET 15: its row names the PET and has no set
+    # dropdown, but chooses its simulation periods like every other row
     jp_row = next(r for r in html.split("<tr>") if "<td>WS</td><td>JP</td>" in r)
-    assert "<select" not in jp_row
+    assert 'name="simulation_set_selection"' not in jp_row
+    assert 'aria-label="Simulation periods for WS / JP / 2.1"' in jp_row
     assert ("RMS V2.0 Stochastic Event Rates - Typhoon Events Only "
             "(50,000 periods)") in jp_row
+    assert ">Simulation periods</th>" in html
+    assert html.count('name="simulation_periods_selection"') == 3
+    periods_values = [json.loads(v) for v in _option_values(html)
+                      if '"simulation_periods"' in v]
+    assert len(periods_values) == 3 * 9
+    assert {"peril_code": "WS", "region_code": "JP", "model_version": "2.1",
+            "simulation_periods": 50000} in periods_values
+    jp_default = next(chunk for chunk in html.split("<option ")
+                      if '"simulation_periods": 50000' in chunk and '"JP"' in chunk)
+    assert 'data-label="50,000" selected>50,000</option>' in jp_default
     eq_values = [json.loads(v) for v in _option_values(html)
                  if '"simulation_set_id"' in v and '"EQ"' in v]
     assert [v["simulation_set_id"] for v in eq_values] == [83, 84, 85, 86, 87]
@@ -327,7 +340,8 @@ def test_inspect_renders_a_plt_group_with_the_period_dropdown(
     response = _inspect(_client(), ctx)
 
     assert "Group output <b>PLT</b>" in response.text
-    assert "SIMULATION PERIODS" in response.text
+    assert ('<label class="exec-section-label" for="group-num-simulations" '
+            'style="display:block">Group simulation periods</label>') in response.text
     assert ('<select class="wf-field__input" id="group-num-simulations" '
             'name="num_of_simulations">') in response.text
     # the nine Risk Modeler options, 50,000 preselected whatever the members ran
@@ -338,10 +352,12 @@ def test_inspect_renders_a_plt_group_with_the_period_dropdown(
     assert '<option value="50000" selected>50,000</option>' in response.text
     assert '<option value="200000">200,000</option>' in response.text
     assert "Target group PLT length" in response.text
-    assert "Largest member: 200,000." in response.text
-    # both members are HD: the column names each PET and offers no choice
+    assert "Largest member" not in response.text
+    # both members are HD: the column names each PET and offers no choice;
+    # the one partition still chooses its simulation periods
     assert ">Simulation set</th>" in response.text
     assert 'name="simulation_set_selection"' not in response.text
+    assert response.text.count('name="simulation_periods_selection"') == 1
     assert ('<div class="insp-resolved" title="PET 900 rates">'
             "PET 900 rates (10,000 periods)</div>") in response.text
     assert "PET 901 rates (200,000 periods)" in response.text
@@ -549,6 +565,8 @@ def test_finish_inspects_and_submits_a_clean_group_in_the_members_currency(
     assert plan["propagate_detailed_losses"] is True
     assert plan["event_rate_selections"] == []
     assert plan["simulation_set_selections"] == []
+    assert plan["simulation_periods_selections"] == []
+    assert "<dt>Simulation periods</dt>" not in response.text
     assert plan["expected_inspection_fingerprint"] == (
         f"v1:fake-{ctx['irp_ids'][0]},{ctx['irp_ids'][1]}")
     assert [m["irp_id"] for m in plan["members"]] == ctx["irp_ids"]
@@ -602,7 +620,8 @@ def test_finish_stops_on_a_scheme_conflict_and_renders_the_inspection(
     assert "All members ran in USD." in response.text
 
 
-def test_finish_stops_on_plt_output(iteration2_db, fake_irp, env_vintage):
+def test_finish_submits_an_hd_group_with_the_default_periods(
+        iteration2_db, fake_irp, env_vintage):
     ctx = _seeded_submission()
     ids = ctx["irp_ids"]
     fake_irp.seed_grouping_inspection(
@@ -610,9 +629,34 @@ def test_finish_stops_on_plt_output(iteration2_db, fake_irp, env_vintage):
 
     response = _finish(_client(), ctx)
 
+    assert response.status_code == 200
+    assert response.headers["HX-Retarget"] == "#group-modal"
+    assert "Group submitted" in response.text
+    assert "<dt>Output</dt><dd>PLT</dd>" in response.text
+    assert ("<dt>Simulation periods</dt><dd>50,000 &mdash; group and every "
+            "partition</dd>") in response.text
+    trigger = json.loads(response.headers["HX-Trigger"])
+    plan = json.loads(execute(
+        "SELECT input_data FROM rwb_job WHERE requestor_id = :r",
+        {"r": trigger["grouping-submitted"]["grouping_request_id"]},
+        connection="WORKBENCH")[0]["input_data"])
+    assert plan["num_of_simulations"] == 50000
+    assert plan["simulation_set_selections"] == []
+    assert plan["simulation_periods_selections"] == [
+        {"peril_code": "WS", "region_code": "NA", "model_version": "11.0",
+         "simulation_periods": 50000}]
+
+
+def test_finish_stops_on_a_pending_simulation_set_choice(
+        iteration2_db, fake_irp, env_vintage):
+    ctx = _mixed_group(fake_irp)
+
+    response = _finish(_client(), ctx)
+
     _assert_finish_stopped(response, fake_irp, ctx)
     assert "Group output <b>PLT</b>" in response.text
-    assert '<option value="50000" selected>50,000</option>' in response.text
+    assert response.text.count('name="simulation_set_selection"') == 2
+    assert response.text.count('name="simulation_periods_selection"') == 3
 
 
 def test_finish_stops_when_the_members_currencies_differ(
@@ -688,13 +732,19 @@ def test_post_carries_the_simulation_set_choices_and_the_fingerprint(
                          "model_version": "11.0", "simulation_set_id": 147})
     eq_set = json.dumps({"peril_code": "EQ", "region_code": "NA",
                          "model_version": "17.0", "simulation_set_id": 87})
+    periods = [json.dumps({"peril_code": p, "region_code": r, "model_version": v,
+                           "simulation_periods": n})
+               for p, r, v, n in (("EQ", "NA", "17.0", 100000),
+                                  ("WS", "JP", "2.1", 50000),
+                                  ("WS", "NA", "11.0", 25000))]
 
     response = client.post(
         f"/submissions/{ctx['submission_id']}/analyses/group",
         data=_submit_form(client, ctx, num_of_simulations="50000",
                           expected_inspection_fingerprint=FINGERPRINT,
                           event_rate_selection=[scheme],
-                          simulation_set_selection=[ws_set, eq_set]),
+                          simulation_set_selection=[ws_set, eq_set],
+                          simulation_periods_selection=periods),
         headers={"HX-Request": "true"})
 
     assert response.status_code == 204
@@ -705,8 +755,26 @@ def test_post_carries_the_simulation_set_choices_and_the_fingerprint(
         {"r": request_id}, connection="WORKBENCH")[0]["input_data"])
     assert plan["event_rate_selections"] == [json.loads(scheme)]
     assert plan["simulation_set_selections"] == [json.loads(ws_set), json.loads(eq_set)]
+    assert plan["simulation_periods_selections"] == [json.loads(p) for p in periods]
     assert plan["expected_inspection_fingerprint"] == FINGERPRINT
     assert plan["num_of_simulations"] == 50000
+
+
+def test_post_rejects_an_unlisted_simulation_periods_value_at_422(iteration2_db):
+    ctx = _seeded_submission()
+    client = _client()
+    chosen = json.dumps({"peril_code": "WS", "region_code": "NA",
+                         "model_version": "11.0", "simulation_periods": 10000})
+
+    response = client.post(
+        f"/submissions/{ctx['submission_id']}/analyses/group",
+        data=_submit_form(client, ctx, simulation_periods_selection=[chosen]),
+        headers={"HX-Request": "true"})
+
+    assert response.status_code == 422
+    assert response.headers["HX-Retarget"] == "#group-submit-errors"
+    assert ("Choose one of the offered simulation period counts for every partition."
+            in response.text)
 
 
 def test_post_rejects_duplicate_simulation_set_selections_at_422(iteration2_db):

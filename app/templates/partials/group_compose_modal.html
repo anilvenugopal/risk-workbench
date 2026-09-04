@@ -88,12 +88,16 @@
             <div>
               <div class="exec-section-label">What will be grouped</div>
               <div id="group-summary"></div>
-              <template x-if="schemesChosen.length">
+              <template x-if="schemesChosen.length || setsChosen.length || periodsChosen.length">
                 <div>
                   <div class="exec-section-label" style="margin-top:var(--space-3)">Inspection</div>
                   <dl class="sum-list">
-                    <dt>Schemes chosen</dt>
-                    <dd><template x-for="s in schemesChosen"><span class="sum-scheme"><small x-text="s.partition"></small><span x-text="s.label" :title="s.label"></span></span></template></dd>
+                    <dt x-show="schemesChosen.length">Schemes chosen</dt>
+                    <dd x-show="schemesChosen.length"><template x-for="s in schemesChosen"><span class="sum-scheme"><small x-text="s.partition"></small><span x-text="s.label" :title="s.label"></span></span></template></dd>
+                    <dt x-show="setsChosen.length">Simulation sets chosen</dt>
+                    <dd x-show="setsChosen.length"><template x-for="s in setsChosen"><span class="sum-scheme"><small x-text="s.partition"></small><span x-text="s.label" :title="s.label"></span></span></template></dd>
+                    <dt x-show="periodsChosen.length">Simulation periods chosen</dt>
+                    <dd x-show="periodsChosen.length"><template x-for="s in periodsChosen"><span class="sum-scheme"><small x-text="s.partition"></small><span x-text="s.label" :title="s.label"></span></span></template></dd>
                   </dl>
                 </div>
               </template>

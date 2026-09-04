@@ -428,13 +428,14 @@
 .insp-table--partition .insp-table__region { width: 9%; }
 .insp-table--partition .insp-table__version { width: 16%; }
 .insp-table--partition td.n { white-space: normal; }
-.insp-table--sets { min-width: 960px; }
-.insp-table--sets .insp-table__peril { width: 8%; }
-.insp-table--sets .insp-table__region { width: 8%; }
-.insp-table--sets .insp-table__version { width: 14%; }
-.insp-table--sets .insp-table__members { width: 26%; }
-.insp-table--sets .insp-table__scheme { width: 22%; }
-.insp-table--sets .insp-table__set { width: 22%; }
+.insp-table--sets { min-width: 1040px; }
+.insp-table--sets .insp-table__peril { width: 7%; }
+.insp-table--sets .insp-table__region { width: 7%; }
+.insp-table--sets .insp-table__version { width: 12%; }
+.insp-table--sets .insp-table__members { width: 22%; }
+.insp-table--sets .insp-table__scheme { width: 20%; }
+.insp-table--sets .insp-table__set { width: 20%; }
+.insp-table--sets .insp-table__periods { width: 12%; }
 .insp-members { display: flex; flex-direction: column; gap: 3px; }
 .insp-member { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
 .insp-member__name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); }

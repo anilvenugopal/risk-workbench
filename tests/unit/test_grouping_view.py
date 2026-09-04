@@ -119,8 +119,7 @@ def test_a_plt_group_offers_a_simulation_set_per_elt_partition():
     inspection = mixed_group_inspection(1, 2, 3)
     view = GroupingInspectionView(
         inspection=inspection,
-        members={1: _member(1, "HD"), 2: _member(2, "DLM"), 3: _member(3, "Group")},
-        largest_member_periods=50000)
+        members={1: _member(1, "HD"), 2: _member(2, "DLM"), 3: _member(3, "Group")})
 
     screen = build_inspection_screen(view)
 

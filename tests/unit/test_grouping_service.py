@@ -19,6 +19,7 @@ from app.services import grouping_service as svc
 from app.services.analysis_execution_service import ExecutionGateError
 from db import execute, execute_command, execute_one
 from tests.unit.analysis_rows import seed_currency, seed_edm
+from tests.unit.grouping_inspections import seed_mixed_group
 from tests.unit.grouping_rows import (
     link_submission_edm,
     seed_broker_analysis,
@@ -32,6 +33,8 @@ _SELECTION = json.dumps({"peril_code": "WS", "region_code": "NA",
                          "model_version": "11.0", "event_rate_scheme_id": 738})
 _SIMULATION_SET = json.dumps({"peril_code": "WS", "region_code": "NA",
                               "model_version": "11.0", "simulation_set_id": 147})
+_SIMULATION_PERIODS = json.dumps({"peril_code": "WS", "region_code": "NA",
+                                  "model_version": "11.0", "simulation_periods": 50000})
 
 
 def _submission_with_two_ready(iteration2_db) -> dict:
@@ -66,7 +69,7 @@ def _request(ctx, iteration2_db, member_ids=None, **overrides) -> str:
         "currency_code": "USD", "currency_scheme": "RMS",
         "currency_vintage": "RL25", "propagate_detailed_output": True,
         "num_of_simulations": "1", "event_rate_selections": [],
-        "simulation_set_selections": [],
+        "simulation_set_selections": [], "simulation_periods_selections": [],
         "expected_inspection_fingerprint": _FINGERPRINT,
         "inspected_analysis_ids": _inspected(member_ids),
         "actor_id": iteration2_db.user_a,
@@ -273,6 +276,24 @@ def test_gate_rejects_malformed_or_duplicate_simulation_set_selections(
     _no_rwb_job()
 
 
+@pytest.mark.parametrize("selections", [
+    ['{"peril_code": "WS", "simulation_periods": 50000}'],
+    [json.dumps({"peril_code": "WS", "region_code": "NA",
+                 "model_version": "11.0", "simulation_periods": 10000})],
+    [_SIMULATION_PERIODS, _SIMULATION_PERIODS],
+])
+def test_gate_rejects_malformed_unlisted_or_duplicate_simulation_periods(
+        iteration2_db, selections):
+    ctx = _submission_with_two_ready(iteration2_db)
+
+    with pytest.raises(ExecutionGateError) as exc:
+        _request(ctx, iteration2_db, simulation_periods_selections=selections)
+
+    assert exc.value.errors == [
+        "Choose one of the offered simulation period counts for every partition."]
+    _no_rwb_job()
+
+
 # ── naming (T-09) ────────────────────────────────────────────────────────────────
 
 def test_build_group_name_defaults_from_the_submission(iteration2_db):
@@ -305,7 +326,8 @@ def test_plan_is_persisted_verbatim_on_the_rwb_job(iteration2_db):
                           member_ids=[ctx["a1"], broker, nested],
                           num_of_simulations="50000",
                           event_rate_selections=[_SELECTION],
-                          simulation_set_selections=[_SIMULATION_SET])
+                          simulation_set_selections=[_SIMULATION_SET],
+                          simulation_periods_selections=[_SIMULATION_PERIODS])
 
     plan = _plan(request_id)
     assert plan["grouping_request_id"] == request_id
@@ -321,6 +343,9 @@ def test_plan_is_persisted_verbatim_on_the_rwb_job(iteration2_db):
     assert plan["simulation_set_selections"] == [
         {"peril_code": "WS", "region_code": "NA", "model_version": "11.0",
          "simulation_set_id": 147}]
+    assert plan["simulation_periods_selections"] == [
+        {"peril_code": "WS", "region_code": "NA", "model_version": "11.0",
+         "simulation_periods": 50000}]
     assert plan["expected_inspection_fingerprint"] == _FINGERPRINT
     assert plan["members"] == [
         {"analysis_id": ctx["a1"], "irp_id": _irp(ctx["a1"]),
@@ -354,7 +379,6 @@ def test_inspect_grouping_reads_by_platform_id_and_writes_nothing(
     ids = [_irp(ctx["a1"]), _irp(ctx["a2"])]
     assert fake_irp.grouping_inspects == [ids]
     assert view.inspection.output_loss_table == "ELT"
-    assert view.largest_member_periods is None
     assert view.common_currency is None  # no submit-time snapshot on either row
     assert view.currency_unknown
     assert set(view.members) == set(ids)
@@ -363,19 +387,6 @@ def test_inspect_grouping_reads_by_platform_id_and_writes_nothing(
     rows = execute("SELECT COUNT(*) AS n FROM irp_analysis", {},
                    connection="WORKBENCH")
     assert rows[0]["n"] == 2
-
-
-def test_inspect_grouping_reports_the_largest_member_plt_length(
-        iteration2_db, fake_irp):
-    ctx = _submission_with_two_ready(iteration2_db)
-    ids = [_irp(ctx["a1"]), _irp(ctx["a2"])]
-    fake_irp.seed_grouping_inspection(
-        ids, output_loss_table="PLT", periods={ids[0]: 10000, ids[1]: 50000})
-
-    view = svc.inspect_grouping(submission_id=ctx["submission_id"],
-                                member_ids=[ctx["a1"], ctx["a2"]])
-
-    assert view.largest_member_periods == 50000
 
 
 # ── the members' common currency (FR-004) ────────────────────────────────────────
@@ -486,7 +497,7 @@ def test_finish_stops_on_a_scheme_conflict(iteration2_db, fake_irp):
         "A partition needs an event-rate scheme choice."]
 
 
-def test_finish_stops_on_plt_output(iteration2_db, fake_irp):
+def test_finish_does_not_stop_on_plt_output_alone(iteration2_db, fake_irp):
     ctx = _submission_with_two_ready(iteration2_db)
     members = _usd_pair(ctx)
     ids = [_irp(m) for m in members]
@@ -495,8 +506,23 @@ def test_finish_stops_on_plt_output(iteration2_db, fake_irp):
 
     view = _currency_view(ctx, members)
 
-    assert svc.finish_blockers(view, currency_defaults=_DEFAULTS) == [
-        "The group output is PLT."]
+    assert svc.finish_blockers(view, currency_defaults=_DEFAULTS) == []
+    assert svc.default_simulation_periods_selections(view) == [json.dumps(
+        {"peril_code": "WS", "region_code": "NA", "model_version": "11.0",
+         "simulation_periods": 50000})]
+
+
+def test_finish_stops_on_a_pending_simulation_set_choice(iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    mixed = seed_mixed_group(fake_irp, ctx["submission_id"], ctx["edm_id"])
+
+    view = _currency_view(ctx, mixed["member_ids"])
+
+    reasons = svc.finish_blockers(view, currency_defaults=_DEFAULTS)
+    assert "A partition needs a simulation set choice." in reasons
+    assert "The group output is PLT." not in reasons
+    assert [json.loads(s)["peril_code"] for s in
+            svc.default_simulation_periods_selections(view)] == ["EQ", "WS", "WS"]
 
 
 def test_finish_stops_on_a_blocking_problem(iteration2_db, fake_irp):

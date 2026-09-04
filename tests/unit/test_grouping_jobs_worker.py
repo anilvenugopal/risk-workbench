@@ -54,7 +54,7 @@ def _composed_grouping(iteration2_db, group_name: str = "CRE_Sub One_Group",
         propagate_detailed_output=True,
         num_of_simulations="50000",
         event_rate_selections=[json.dumps(_SELECTION)],
-        simulation_set_selections=[],
+        simulation_set_selections=[], simulation_periods_selections=[],
         expected_inspection_fingerprint=(
             fingerprint or f"v1:fake-{ids[0]},{ids[1]}"),
         inspected_analysis_ids=[str(i) for i in ids],
@@ -106,6 +106,7 @@ def test_worker_claims_submits_and_records(iteration2_db, fake_irp):
     assert submit["num_of_simulations"] == 50000
     assert submit["event_rate_selections"] == [_SELECTION]
     assert submit["simulation_set_selections"] == []
+    assert submit["simulation_periods_selections"] == []
     assert submit["expected_inspection_fingerprint"] == (
         ctx["plan"]["expected_inspection_fingerprint"])
 
@@ -231,6 +232,8 @@ def test_worker_submits_the_simulation_sets_beside_the_scheme_and_fingerprint(
               "simulation_set_id": 147}
     eq_set = {"peril_code": "EQ", "region_code": "NA", "model_version": "17.0",
               "simulation_set_id": 87}
+    jp_periods = {"peril_code": "WS", "region_code": "JP", "model_version": "2.1",
+                  "simulation_periods": 100000}
     svc.request_grouping(
         submission_id=submission_id, submission_name="Sub One",
         member_ids=ctx["member_ids"], group_name="CRE_Sub One_Group",
@@ -238,6 +241,7 @@ def test_worker_submits_the_simulation_sets_beside_the_scheme_and_fingerprint(
         propagate_detailed_output=True, num_of_simulations="50000",
         event_rate_selections=[json.dumps(ws_scheme)],
         simulation_set_selections=[json.dumps(ws_set), json.dumps(eq_set)],
+        simulation_periods_selections=[json.dumps(jp_periods)],
         expected_inspection_fingerprint=FINGERPRINT,
         inspected_analysis_ids=[str(i) for i in ctx["irp_ids"]],
         actor_id=iteration2_db.user_a)
@@ -248,6 +252,7 @@ def test_worker_submits_the_simulation_sets_beside_the_scheme_and_fingerprint(
     assert submit["analysis_ids"] == ctx["irp_ids"]
     assert submit["event_rate_selections"] == [ws_scheme]
     assert submit["simulation_set_selections"] == [ws_set, eq_set]
+    assert submit["simulation_periods_selections"] == [jp_periods]
     assert submit["expected_inspection_fingerprint"] == FINGERPRINT
     group = execute_one("SELECT id, status_code FROM irp_analysis WHERE is_group = 1 "
                         "AND name = 'CRE_Sub One_Group'", {}, connection="WORKBENCH")

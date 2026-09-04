@@ -163,6 +163,7 @@ def _submit_grouping_body(rwb_job_id: Any) -> runtime.JobResult:
         "num_of_simulations": plan["num_of_simulations"],
         "event_rate_selections": plan["event_rate_selections"],
         "simulation_set_selections": plan["simulation_set_selections"],
+        "simulation_periods_selections": plan["simulation_periods_selections"],
         "expected_inspection_fingerprint": plan["expected_inspection_fingerprint"],
     }
     attempt = 0

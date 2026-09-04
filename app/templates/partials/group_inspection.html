@@ -45,10 +45,10 @@
   </div>
 
   <div>
-    <div class="exec-section-label">Event-rate schemes{% if screen.simulation_sets_shown %} and simulation sets{% endif %}</div>
+    <div class="exec-section-label">Event-rate schemes{% if screen.simulation_sets_shown %}, simulation sets and periods{% endif %}</div>
     <div class="insp-table-wrap">
       <table class="insp-table insp-table--partition{% if screen.simulation_sets_shown %} insp-table--sets{% endif %}">
-        <thead><tr><th class="insp-table__key insp-table__peril">Peril</th><th class="insp-table__key insp-table__region">Region</th><th class="insp-table__key insp-table__version">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th>{% if screen.simulation_sets_shown %}<th class="insp-table__set">Simulation set</th>{% endif %}</tr></thead>
+        <thead><tr><th class="insp-table__key insp-table__peril">Peril</th><th class="insp-table__key insp-table__region">Region</th><th class="insp-table__key insp-table__version">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th>{% if screen.simulation_sets_shown %}<th class="insp-table__set">Simulation set</th><th class="insp-table__periods">Simulation periods</th>{% endif %}</tr></thead>
         <tbody>
           {% for row in screen.rows %}
           <tr>
@@ -99,6 +99,16 @@
               {% else %}
               <div class="insp-resolved tag-empty">&mdash;</div>
               {% endif %}
+            </td>
+            <td>
+              <div class="insp-choose">
+                <select class="wf-field__input" name="simulation_periods_selection" data-partition="{{ row.label }}"
+                        aria-label="Simulation periods for {{ row.label }}">
+                  {% for n in simulation_period_options %}
+                  <option value='{{ {"peril_code": row.key.peril_code, "region_code": row.key.region_code, "model_version": row.key.model_version, "simulation_periods": n}|tojson }}' data-label="{{ "{:,}".format(n) }}"{% if n == default_simulation_periods %} selected{% endif %}>{{ "{:,}".format(n) }}</option>
+                  {% endfor %}
+                </select>
+              </div>
             </td>
             {% endif %}
           </tr>
@@ -180,14 +190,14 @@
 <div id="group-sims" hx-swap-oob="true">
   {% if not screen.blocked %}
   {% if screen.output_loss_table == 'PLT' %}
-  <div class="wf-field">
-    <label for="group-num-simulations">SIMULATION PERIODS</label>
+  <div>
+    <label class="exec-section-label" for="group-num-simulations" style="display:block">Group simulation periods</label>
     <select class="wf-field__input" id="group-num-simulations" name="num_of_simulations">
       {% for n in simulation_period_options %}
       <option value="{{ n }}"{% if n == default_simulation_periods %} selected{% endif %}>{{ "{:,}".format(n) }}</option>
       {% endfor %}
     </select>
-    <div class="wf-field__hint">Target group PLT length. Longer member PLTs are truncated, shorter ones repeated.{% if view.largest_member_periods %} Largest member: {{ "{:,}".format(view.largest_member_periods) }}.{% endif %}</div>
+    <div class="wf-field__hint" style="margin-top:var(--space-1)">Target group PLT length. Longer member PLTs are truncated, shorter ones repeated.</div>
   </div>
   {% else %}
   <input type="hidden" name="num_of_simulations" value="1">

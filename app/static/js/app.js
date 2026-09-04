@@ -850,6 +850,8 @@ document.addEventListener('alpine:init', () => {
     canNext2: false,
     canSubmit: false,
     schemesChosen: [],
+    setsChosen: [],
+    periodsChosen: [],
     sel: [],  // the ticked members, derived from the checkboxes (chips panel)
     init() { this.recompute(); },
     unpick(id) {
@@ -884,13 +886,17 @@ document.addEventListener('alpine:init', () => {
       this.$root.querySelector('#group-submit-errors').replaceChildren();
       this.step -= 1;
     },
-    toSettings() {
-      this.schemesChosen = Array.from(
-        this.$root.querySelectorAll('select[name="event_rate_selection"]'))
+    chosen(name) {
+      return Array.from(this.$root.querySelectorAll(`select[name="${name}"]`))
         .map((select) => ({
           partition: select.dataset.partition,
           label: select.selectedOptions[0].dataset.label,
         }));
+    },
+    toSettings() {
+      this.schemesChosen = this.chosen('event_rate_selection');
+      this.setsChosen = this.chosen('simulation_set_selection');
+      this.periodsChosen = this.chosen('simulation_periods_selection');
       this.step = 3;
       this.recompute();
     },
@@ -899,6 +905,8 @@ document.addEventListener('alpine:init', () => {
         this.$root.querySelector(id).replaceChildren();
       });
       this.schemesChosen = [];
+      this.setsChosen = [];
+      this.periodsChosen = [];
       this.recompute();
     },
     recompute() {
@@ -911,7 +919,7 @@ document.addEventListener('alpine:init', () => {
       this.canNext1 = this.picked >= 2 && !!this.groupName;
       this.hasInspection = root.querySelector('#group-inspection').children.length > 0;
       const choicesDone = Array.from(
-        root.querySelectorAll('select[name="event_rate_selection"], select[name="simulation_set_selection"]'))
+        root.querySelectorAll('select[name="event_rate_selection"], select[name="simulation_set_selection"], select[name="simulation_periods_selection"]'))
         .every((select) => select.value);
       this.canNext2 = !!root.querySelector('[data-inspection-ready]') && choicesDone;
       const currencyDone = ['currency_code', 'currency_scheme', 'currency_vintage']

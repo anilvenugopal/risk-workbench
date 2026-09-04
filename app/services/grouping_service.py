@@ -30,8 +30,8 @@ from db import execute
 
 KIND_LABELS = {"own": "Own", "broker": "Broker", "group": "Group"}
 
-# Risk Modeler's group simulation periods dropdown (FR-019); an ELT group
-# submits 1 without a choice.
+# Risk Modeler's group simulation periods dropdown (FR-019), also offered per
+# partition of a PLT group; an ELT group submits 1 without a choice.
 SIMULATION_PERIOD_OPTIONS = (
     3125, 6250, 12500, 25000, 50000, 100000, 200000, 400000, 800000)
 DEFAULT_SIMULATION_PERIODS = 50000
@@ -59,13 +59,11 @@ class GroupMember:
 @dataclass(frozen=True)
 class GroupingInspectionView:
     """The inspect fragment's context: the package inspection, the picked
-    members keyed by Platform id, the largest member PLT length (the
-    simulation-periods hint, FR-019), and the currency the members share —
-    the group currency prefill, None when the codes differ or one is unknown
+    members keyed by Platform id, and the currency the members share — the
+    group currency prefill, None when the codes differ or one is unknown
     (FR-004)."""
     inspection: irp_gateway.GroupingInspection
     members: dict[int, GroupMember]
-    largest_member_periods: int | None = None
     common_currency: str | None = None
 
     @property
@@ -202,12 +200,9 @@ def inspect_grouping(*, submission_id: Any,
             analysis_ids=[m.irp_id for m in picked])
     except irp_gateway.IRPIntegrationError as exc:
         raise ExecutionGateError([f"Inspection failed: {exc}"]) from exc
-    periods = [r.periods for m in inspection.members for r in m.regions
-               if r.framework == "PLT" and r.periods]
     currencies = {m.currency for m in picked}
     return GroupingInspectionView(
         inspection=inspection, members={m.irp_id: m for m in picked},
-        largest_member_periods=max(periods) if periods else None,
         common_currency=(currencies.pop()
                          if len(currencies) == 1 and None not in currencies
                          else None))
@@ -217,9 +212,10 @@ def finish_blockers(view: GroupingInspectionView, *,
                     currency_defaults: dict) -> list[str]:
     """Why Finish — inspect and submit in one step with every setting
     defaulted (FR-025) — must stop at the inspection instead. Empty when the
-    group can be submitted as an ELT group in the members' currency and the
-    env scheme and vintage (``currency_defaults``, cache-checked) with no
-    choice left to the analyst. Treaty mismatches never stop it (FR-020)."""
+    group can be submitted in the members' currency and the env scheme and
+    vintage (``currency_defaults``, cache-checked) with no choice left to the
+    analyst; a PLT group then takes ``DEFAULT_SIMULATION_PERIODS`` for the
+    group and every partition. Treaty mismatches never stop it (FR-020)."""
     inspection = view.inspection
     reasons: list[str] = []
     if not (currency_defaults["scheme"] and currency_defaults["vintage"]):
@@ -230,20 +226,30 @@ def finish_blockers(view: GroupingInspectionView, *,
         reasons.append("A partition needs an event-rate scheme choice.")
     if any(p.simulation_set_selection_required for p in inspection.partitions):
         reasons.append("A partition needs a simulation set choice.")
-    if inspection.output_loss_table == "PLT":
-        reasons.append("The group output is PLT.")
     if view.common_currency is None:
         reasons.append("The members did not all run in one known currency.")
     return reasons
+
+
+def default_simulation_periods_selections(view: GroupingInspectionView) -> list[str]:
+    """Finish's per-partition simulation periods for a PLT group: the posted
+    ``simulation_periods_selection`` value of every partition at
+    ``DEFAULT_SIMULATION_PERIODS`` (FR-025)."""
+    return [json.dumps({"peril_code": p.key.peril_code,
+                        "region_code": p.key.region_code,
+                        "model_version": p.key.model_version,
+                        "simulation_periods": DEFAULT_SIMULATION_PERIODS})
+            for p in view.inspection.partitions]
 
 
 _SELECTION_KEY = ("peril_code", "region_code", "model_version")
 
 
 def _parse_selections(raw: list[str], value_key: str) -> list[dict] | None:
-    """The posted ``event_rate_selection`` or ``simulation_set_selection``
-    option values as plan entries — the partition key plus ``value_key`` — or
-    ``None`` when any is malformed or two name the same partition."""
+    """The posted ``event_rate_selection``, ``simulation_set_selection``, or
+    ``simulation_periods_selection`` option values as plan entries — the
+    partition key plus ``value_key`` — or ``None`` when any is malformed or
+    two name the same partition."""
     selections: list[dict] = []
     seen: set[tuple[str, str, str]] = set()
     for value in raw:
@@ -270,18 +276,20 @@ def request_grouping(
     group_name: str, currency_code: str = "", currency_scheme: str = "",
     currency_vintage: str = "", propagate_detailed_output: bool = True,
     num_of_simulations: str, event_rate_selections: list[str],
-    simulation_set_selections: list[str], expected_inspection_fingerprint: str,
-    inspected_analysis_ids: list[str], actor_id: Any,
+    simulation_set_selections: list[str], simulation_periods_selections: list[str],
+    expected_inspection_fingerprint: str, inspected_analysis_ids: list[str],
+    actor_id: Any,
 ) -> str:
     """Validate the posted selection, compose the plan once, persist it on a
     fresh ``submit_grouping`` ``rwb_job`` and dispatch. Raises
     ``ExecutionGateError`` on any validation failure — no partial persistence
     (SC-005). Returns the new ``grouping_request_id``.
 
-    Which partitions require an event-rate or simulation-set selection is not
-    re-derived here (that needs another inspection); the package validates it
-    at submit and the worker records the structured reason. The same goes for
-    the simulation count: ``1`` (the ELT group's hidden value) or one of
+    Which partitions require an event-rate or simulation-set selection, and
+    whether the group is PLT and so takes per-partition simulation periods, is
+    not re-derived here (that needs another inspection); the package validates
+    it at submit and the worker records the structured reason. The same goes
+    for the simulation count: ``1`` (the ELT group's hidden value) or one of
     ``SIMULATION_PERIOD_OPTIONS`` passes; whether the group is ELT or PLT is
     the package's check."""
     errors: list[str] = []
@@ -308,6 +316,13 @@ def request_grouping(
     if simulation_sets is None:
         errors.append("Choose a simulation set for every partition converted "
                       "from ELT to PLT.")
+    simulation_periods = _parse_selections(simulation_periods_selections,
+                                           "simulation_periods")
+    if simulation_periods is None or any(
+            s["simulation_periods"] not in SIMULATION_PERIOD_OPTIONS
+            for s in simulation_periods):
+        errors.append("Choose one of the offered simulation period counts for "
+                      "every partition.")
     group_name = group_name.strip()
     if not group_name:
         errors.append("Enter a group name.")
@@ -335,6 +350,7 @@ def request_grouping(
         "num_of_simulations": simulations,
         "event_rate_selections": selections,
         "simulation_set_selections": simulation_sets,
+        "simulation_periods_selections": simulation_periods,
         "expected_inspection_fingerprint": expected_inspection_fingerprint.strip(),
         "members": [
             {"analysis_id": m.id, "irp_id": m.irp_id, "name": m.name,

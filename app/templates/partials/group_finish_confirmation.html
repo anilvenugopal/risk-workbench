@@ -12,6 +12,7 @@
       <dl class="sum-list" style="margin-top:var(--space-3)">
         <dt>Group name</dt><dd>{{ group_name }}</dd>
         <dt>Output</dt><dd>{{ screen.output_loss_table }}</dd>
+        {% if screen.output_loss_table == 'PLT' %}<dt>Simulation periods</dt><dd>{{ "{:,}".format(default_simulation_periods) }} &mdash; group and every partition</dd>{% endif %}
         <dt>Event-rate schemes</dt><dd>No conflicts</dd>
         <dt>Treaties</dt><dd>{% if screen.treaty_mismatches %}<span class="badge badge--warning badge--sm">{{ screen.treaty_mismatch_count }} mismatch{{ '' if screen.treaty_mismatch_count == 1 else 'es' }}</span> <span class="tag-empty">{{ screen.treaty_mismatches|map(attribute='treaty_number')|join(', ') }}</span>{% else %}No mismatches{% endif %}</dd>
         <dt>Currency</dt><dd>{{ view.common_currency }} &mdash; all members</dd>

@@ -467,10 +467,12 @@ def _grouping_submitted_trigger(grouping_request_id: str) -> str:
              response_class=HTMLResponse)
 async def group_compose_finish(request: Request, submission_id: str):
     """Screen 1's Finish (FR-025): inspect, and when nothing is left for the
-    analyst to choose, submit the ELT group at once in the members' currency
-    with the env scheme and vintage and Propagate ON. Otherwise the inspection
-    renders as screen 2 with the stop notice, and the analyst continues with
-    Next. Success replaces the dialog with the confirmation pane."""
+    analyst to choose, submit the group at once in the members' currency with
+    the env scheme and vintage, Propagate ON, and — for a PLT group — the
+    default simulation periods for the group and every partition. Otherwise
+    the inspection renders as screen 2 with the stop notice, and the analyst
+    continues with Next. Success replaces the dialog with the confirmation
+    pane."""
     form = await request.form()
     if not validate_csrf_token(form.get("csrf_token")):
         if _is_htmx(request):
@@ -490,6 +492,7 @@ async def group_compose_finish(request: Request, submission_id: str):
     if grouping_service.finish_blockers(view, currency_defaults=defaults):
         return _partial(request, "partials/group_inspection.html",
                         {**_inspection_context(view), "finish_stopped": True})
+    plt = view.inspection.output_loss_table == "PLT"
     try:
         grouping_request_id = grouping_service.request_grouping(
             submission_id=submission.id, submission_name=submission.name,
@@ -497,8 +500,13 @@ async def group_compose_finish(request: Request, submission_id: str):
             currency_code=view.common_currency,
             currency_scheme=defaults["scheme"],
             currency_vintage=defaults["vintage"],
-            propagate_detailed_output=True, num_of_simulations="1",
+            propagate_detailed_output=True,
+            num_of_simulations=(str(grouping_service.DEFAULT_SIMULATION_PERIODS)
+                                if plt else "1"),
             event_rate_selections=[], simulation_set_selections=[],
+            simulation_periods_selections=(
+                grouping_service.default_simulation_periods_selections(view)
+                if plt else []),
             expected_inspection_fingerprint=view.inspection.fingerprint,
             inspected_analysis_ids=[str(i) for i in view.inspection.analysis_ids],
             actor_id=request.state.user.id)
@@ -508,6 +516,7 @@ async def group_compose_finish(request: Request, submission_id: str):
     response = _partial(request, "partials/group_finish_confirmation.html", {
         "view": view, "screen": build_inspection_screen(view),
         "group_name": grouping_service.requested_group_name(grouping_request_id),
+        "default_simulation_periods": grouping_service.DEFAULT_SIMULATION_PERIODS,
     })
     response.headers["HX-Retarget"] = "#group-modal"
     response.headers["HX-Reswap"] = "innerHTML"
@@ -538,6 +547,7 @@ async def group_compose_submit(request: Request, submission_id: str):
             num_of_simulations=form.get("num_of_simulations", ""),
             event_rate_selections=form.getlist("event_rate_selection"),
             simulation_set_selections=form.getlist("simulation_set_selection"),
+            simulation_periods_selections=form.getlist("simulation_periods_selection"),
             expected_inspection_fingerprint=form.get(
                 "expected_inspection_fingerprint", ""),
             inspected_analysis_ids=form.getlist("inspected_analysis_ids"),
