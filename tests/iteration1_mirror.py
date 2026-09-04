@@ -304,7 +304,9 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("run_breakout_country", "Portfolio breakout by country", 105),
                      ("run_breakout_peril", "Portfolio breakout by peril", 107),
                      ("run_breakout_custom", "Portfolio breakout by custom group", 110),  # T-12
-                     ("sync_irp_metadata", "Sync IRP metadata", 120)]  # spec 009
+                     ("sync_irp_metadata", "Sync IRP metadata", 120),  # spec 009
+                     ("dummy_wait", "Dummy: wait (dev/test only)", 900),
+                     ("dummy_fail", "Dummy: fail (dev/test only)", 910)]
 RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("analyst_request", "Analyst Request", 20),
                                ("rwb_job", "RWB Job", 30),
@@ -318,7 +320,8 @@ RWB_JOB_CONTEXT_TYPE_SEED = [("edm", "EDM", 10), ("rdm", "RDM", 20),
                              ("breakout_group", "Breakout Group", 50),
                              ("execution", "Execution", 60)]  # CR-04c
 RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
-                       ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
+                       ("succeeded", "Succeeded", 30), ("failed", "Failed", 40),
+                       ("cancelled", "Cancelled", 50)]
 IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("ready", "Ready", 30),
                             ("error", "Error", 40)]
 BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-model §2
