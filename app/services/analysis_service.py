@@ -399,22 +399,30 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
 
 # The grid columns the header can sort on (note 27 D6). Peril, Region, Engine and
 # Currency are read off settings_metadata in Python, not columns, so the order is
-# applied to the built rows. "submitted" is the query's own order and carries no
-# key: inserted_at is TEXT on the SQLite mirror and DATETIME2 on SQL Server, so
-# comparing it in Python would compare different types on the two tiers.
+# applied to the built rows. "submitted" is the query's own order and has no
+# key here: inserted_at is TEXT on the SQLite mirror and DATETIME2 on SQL
+# Server, so comparing it in Python would compare different types on the two
+# tiers.
 SORT_KEYS = {
     "peril": lambda a: a.display.peril,
     "region": lambda a: a.display.region,
     "engine": lambda a: "Group" if a.is_group else a.display.engine,
     "currency": lambda a: a.display.currency,
-    "submitted": None,
 }
 
 
+def sort_from_query(params) -> tuple[str, bool]:
+    """The grid's ``?sort=``/``?dir=`` pair as ``(sort, descending)``, for both
+    the submission and EDM Analyses sections."""
+    sort = (params.get("sort") or "").strip()
+    return sort, (params.get("dir") or "desc") != "asc"
+
+
 def sort_analyses(rows: list, sort: str, descending: bool) -> list:
-    """The built rows in header order. An unknown ``sort`` reads as the default.
-    Blank and missing values land last in both directions — an em-dash row
-    belongs at the bottom whichever way the caret points."""
+    """The built rows in header order. A ``sort`` outside ``SORT_KEYS`` — the
+    default ``submitted`` included — keeps the query order. Blank and missing
+    values land last in both directions — an em-dash row belongs at the bottom
+    whichever way the caret points."""
     key = SORT_KEYS.get(sort)
     if key is None:
         return list(rows) if descending else list(reversed(rows))
