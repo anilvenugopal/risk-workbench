@@ -397,6 +397,34 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
     )
 
 
+# The grid columns the header can sort on (note 27 D6). Peril, Region, Engine and
+# Currency are read off settings_metadata in Python, not columns, so the order is
+# applied to the built rows. "submitted" is the query's own order and carries no
+# key: inserted_at is TEXT on the SQLite mirror and DATETIME2 on SQL Server, so
+# comparing it in Python would compare different types on the two tiers.
+SORT_KEYS = {
+    "peril": lambda a: a.display.peril,
+    "region": lambda a: a.display.region,
+    "engine": lambda a: "Group" if a.is_group else a.display.engine,
+    "currency": lambda a: a.display.currency,
+    "submitted": None,
+}
+
+
+def sort_analyses(rows: list, sort: str, descending: bool) -> list:
+    """The built rows in header order. An unknown ``sort`` reads as the default.
+    Blank and missing values land last in both directions — an em-dash row
+    belongs at the bottom whichever way the caret points."""
+    key = SORT_KEYS.get(sort)
+    if key is None:
+        return list(rows) if descending else list(reversed(rows))
+    present, missing = [], []
+    for row in rows:
+        (present if (key(row) or "").strip() else missing).append(row)
+    present.sort(key=lambda a: key(a).strip().casefold(), reverse=descending)
+    return present + missing
+
+
 # One row per (RDM×EDM) handle.
 _HANDLE_SELECT = """
     SELECT a.id, a.rdm_id, a.irp_id, a.name, a.is_group, a.settings_metadata,
@@ -534,7 +562,7 @@ _EXECUTED_SELECT = f"""
     LEFT JOIN app_user u ON u.id = a.inserted_by
     {_LATEST_JOB_JOIN}
     WHERE a.edm_id = :edm_id AND a.execution_id IS NOT NULL AND a.deleted_at IS NULL
-    ORDER BY a.inserted_at DESC
+    ORDER BY a.inserted_at DESC, a.id DESC
 """
 
 
@@ -593,7 +621,7 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
 
 
 _SUBMISSION_EXECUTED_SELECT = f"""
-    SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
+    SELECT a.id AS id, a.name, a.full_name, a.status_code, a.failure_reason,
            a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
            a.loss_results, a.submitted_settings, a.is_group,
            p.name AS portfolio_name, t.name AS template_name,
@@ -610,7 +638,7 @@ _SUBMISSION_EXECUTED_SELECT = f"""
     WHERE se.submission_id = :submission_id AND a.rdm_id IS NULL
       AND e.deleted_at IS NULL AND a.deleted_at IS NULL
     UNION ALL
-    SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
+    SELECT a.id AS id, a.name, a.full_name, a.status_code, a.failure_reason,
            a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
            a.loss_results, a.submitted_settings, a.is_group,
            NULL AS portfolio_name, NULL AS template_name,
@@ -622,7 +650,12 @@ _SUBMISSION_EXECUTED_SELECT = f"""
     {_LATEST_JOB_JOIN}
     WHERE a.submission_id = :submission_id AND a.is_group = 1
       AND a.deleted_at IS NULL
-    ORDER BY inserted_at DESC
+    -- ``id`` follows the timestamp so rows sharing one come back in the same
+    -- order every poll, and reversing the list for ascending Submitted is a
+    -- defined order. A compound ORDER BY resolves against the output names
+    -- only, and bare ``id`` is ambiguous across the joined tables, hence the
+    -- explicit ``AS id`` on both branches.
+    ORDER BY inserted_at DESC, id DESC
 """
 
 

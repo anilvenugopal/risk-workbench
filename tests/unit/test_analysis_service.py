@@ -1184,3 +1184,46 @@ def test_retry_rejects_stored_results_and_unknown_ids(iteration2_db):
     with pytest.raises(LookupError):
         analysis_service.retry_results_retrieval(
             analysis_id=deleted, actor_id=iteration2_db.user_a)
+
+
+# ── sort_analyses: the merged grid's click-to-sort order (note 27 D6) ─────────
+
+
+def _sortable(peril=None, region=None, currency=None, engine_type=None,
+              is_group=False):
+    return analysis_service.ExecutedAnalysis(
+        id=str(uuid.uuid4()), name="A", full_name="A", portfolio_name=None,
+        status_code="ready", failure_reason=None, is_group=is_group,
+        display=analysis_service.AnalysisSettings(
+            peril=peril, region=region, currency=currency,
+            engine_type=engine_type))
+
+
+def test_sort_analyses_puts_blank_and_missing_values_last_both_ways():
+    rows = [_sortable(peril="wind"), _sortable(peril=None),
+            _sortable(peril="Earthquake"), _sortable(peril="   ")]
+
+    ascending = analysis_service.sort_analyses(rows, "peril", False)
+    descending = analysis_service.sort_analyses(rows, "peril", True)
+
+    assert [a.display.peril for a in ascending] == ["Earthquake", "wind",
+                                                    None, "   "]
+    assert [a.display.peril for a in descending] == ["wind", "Earthquake",
+                                                     None, "   "]
+
+
+def test_sort_analyses_reads_group_under_group_on_the_engine_key():
+    rows = [_sortable(engine_type="DLM"), _sortable(is_group=True),
+            _sortable(engine_type="HD")]
+
+    ascending = analysis_service.sort_analyses(rows, "engine", False)
+
+    assert [a.is_group for a in ascending] == [False, True, False]
+
+
+def test_sort_analyses_default_and_unknown_keys_keep_the_query_order():
+    rows = [_sortable(peril="B"), _sortable(peril="A")]
+
+    assert analysis_service.sort_analyses(rows, "", True) == rows
+    assert analysis_service.sort_analyses(rows, "nonsense", True) == rows
+    assert analysis_service.sort_analyses(rows, "submitted", False) == rows[::-1]
