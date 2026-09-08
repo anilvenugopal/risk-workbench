@@ -386,30 +386,24 @@ document.addEventListener('alpine:init', () => {
   // model profile, event rate scheme, output profile). The <select> stays the
   // source of truth (native `required`, and the profile field still drives its
   // hx-get cascade off it) but is hidden once Alpine mounts; a text input filters
-  // its live options client-side, matching the "links to" typeahead's
+  // its options client-side, matching the "links to" typeahead's
   // degrade-without-JS story but with an already-known, already-rendered option
-  // list instead of a server round trip. `sync()` also re-runs after htmx swaps
-  // a fresh option list into the cascade target (event rate scheme), since
-  // replacing <option> children doesn't fire a native change event.
+  // list instead of a server round trip.
   Alpine.data('selectSearch', () => ({
     isOpen: false,
     activeIndex: -1,
     query: '',
+    options: [],
     init() {
       this.sync();
     },
     get select() {
       return this.$refs.select;
     },
-    get allOptions() {
-      return Array.from(this.select.options)
-        .filter((o) => o.value !== '')
-        .map((o) => ({ value: o.value, label: o.textContent.trim() }));
-    },
     get filteredOptions() {
       const term = this.query.trim().toLowerCase();
-      if (!term) return this.allOptions;
-      return this.allOptions.filter((o) => o.label.toLowerCase().includes(term));
+      if (!term) return this.options;
+      return this.options.filter((o) => o.label.toLowerCase().includes(term));
     },
     get placeholder() {
       const blank = this.select.querySelector('option[value=""]');
@@ -419,6 +413,12 @@ document.addEventListener('alpine:init', () => {
       this.activeIndex = this.filteredOptions.length === 1 ? 0 : -1;
     },
     sync() {
+      // The menu renders from this copy, not from select.options: htmx swaps a
+      // fresh option list into the cascade targets (event rate scheme, scheme
+      // vintage), and Alpine cannot see a change inside a live DOM collection.
+      this.options = Array.from(this.select.options)
+        .filter((o) => o.value !== '')
+        .map((o) => ({ value: o.value, label: o.textContent.trim() }));
       const current = this.select.selectedOptions[0];
       this.query = current && current.value ? current.textContent.trim() : '';
       this.isOpen = false;
