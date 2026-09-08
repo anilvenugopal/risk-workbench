@@ -11,7 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.grouping_service import GroupingInspectionView
+from app.services.grouping_service import (
+    GroupingInspectionView,
+    fixed_simulation_periods,
+    partition_facts,
+)
 from app.services.irp_gateway import (
     GroupingPartition,
     GroupingPartitionKey,
@@ -71,6 +75,9 @@ class PartitionRow:
     simulation_set_required: bool       # an ELT partition of a PLT group
     simulation_set_options: tuple[SimulationSetChoice, ...]
     observed_pets: tuple[ObservedPet, ...]  # a PLT partition's fixed PETs
+    # The PET period count the row is bound to, shown read-only in place of the
+    # simulation periods dropdown; None where the analyst still chooses.
+    fixed_simulation_periods: int | None
 
     @property
     def resolved(self) -> SchemeOption | None:
@@ -186,12 +193,7 @@ def _names(view: GroupingInspectionView, ids) -> tuple[str, ...]:
 
 def _row(view: GroupingInspectionView, part: GroupingPartition) -> PartitionRow:
     key = part.key
-    members = set(part.analysis_ids)
-    facts = [
-        fact for member in view.inspection.members for fact in member.regions
-        if fact.analysis_id in members
-        and (fact.peril_code, fact.region_code, fact.model_version)
-        == (key.peril_code, key.region_code, key.model_version)]
+    facts = partition_facts(view.inspection, part)
     partition = {"peril_code": key.peril_code, "region_code": key.region_code,
                  "model_version": key.model_version}
     options = tuple(
@@ -218,7 +220,8 @@ def _row(view: GroupingInspectionView, part: GroupingPartition) -> PartitionRow:
         simulation_set_required=part.simulation_set_selection_required,
         simulation_set_options=tuple(
             _simulation_set(partition, opt) for opt in part.simulation_set_options),
-        observed_pets=_observed_pets(facts))
+        observed_pets=_observed_pets(facts),
+        fixed_simulation_periods=fixed_simulation_periods(view.inspection, part))
 
 
 def _observed_pets(facts: list[GroupingRegionFact]) -> tuple[ObservedPet, ...]:

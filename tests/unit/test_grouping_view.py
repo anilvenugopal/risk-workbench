@@ -175,6 +175,27 @@ def test_an_hd_group_shows_the_pet_its_members_ran_on():
         (900, "NA Hurricane rates", 10000)]
 
 
+def test_a_pet_bound_partition_carries_its_period_count():
+    """Risk Modeler does not let the analyst change an HD partition's
+    simulation periods, so the row states the PET's own count (note 27 D20)."""
+    view = _view({1: [_fact(1, scheme=None)]}, (_partition([1], []),), output="PLT")
+
+    row, = build_inspection_screen(view).rows
+
+    assert row.fixed_simulation_periods == 10000
+
+
+def test_a_partition_converting_an_elt_member_keeps_the_periods_choice():
+    view = _view({1: [_fact(1)]},
+                 (_partition([1], [], simulation_sets=(
+                     SimulationSetOption(83, 50000, 161, "NA EQ Historical"),)),),
+                 output="PLT")
+
+    row, = build_inspection_screen(view).rows
+
+    assert row.fixed_simulation_periods is None
+
+
 def test_a_pet_without_a_name_is_named_by_id():
     view = _view({1: [_fact(1, scheme=None, pet_name=None)]},
                  (_partition([1], []),), output="PLT")

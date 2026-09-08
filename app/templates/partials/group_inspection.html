@@ -101,14 +101,18 @@
               {% endif %}
             </td>
             <td>
+              {% if row.fixed_simulation_periods %}
+              <div class="insp-resolved">{{ "{:,}".format(row.fixed_simulation_periods) }}</div>
+              {% else %}
               <div class="insp-choose">
                 <select class="wf-field__input" name="simulation_periods_selection" data-partition="{{ row.label }}"
                         aria-label="Simulation periods for {{ row.label }}">
                   {% for n in simulation_period_options %}
-                  <option value='{{ {"peril_code": row.key.peril_code, "region_code": row.key.region_code, "model_version": row.key.model_version, "simulation_periods": n}|tojson }}' data-label="{{ "{:,}".format(n) }}"{% if n == default_simulation_periods %} selected{% endif %}>{{ "{:,}".format(n) }}</option>
+                  <option value='{{ {"peril_code": row.key.peril_code, "region_code": row.key.region_code, "model_version": row.key.model_version, "simulation_periods": n}|tojson }}' data-label="{{ "{:,}".format(n) }}"{% if n == default_partition_simulation_periods %} selected{% endif %}>{{ "{:,}".format(n) }}</option>
                   {% endfor %}
                 </select>
               </div>
+              {% endif %}
             </td>
             {% endif %}
           </tr>
@@ -194,7 +198,7 @@
     <label class="exec-section-label" for="group-num-simulations" style="display:block">Group simulation periods</label>
     <select class="wf-field__input" id="group-num-simulations" name="num_of_simulations">
       {% for n in simulation_period_options %}
-      <option value="{{ n }}"{% if n == default_simulation_periods %} selected{% endif %}>{{ "{:,}".format(n) }}</option>
+      <option value="{{ n }}"{% if n == default_group_simulation_periods %} selected{% endif %}>{{ "{:,}".format(n) }}</option>
       {% endfor %}
     </select>
     <div class="wf-field__hint" style="margin-top:var(--space-1)">Target group PLT length. Longer member PLTs are truncated, shorter ones repeated.</div>

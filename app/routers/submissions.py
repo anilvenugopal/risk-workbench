@@ -452,7 +452,10 @@ async def group_compose_inspect(request: Request, submission_id: str):
 def _inspection_context(view) -> dict:
     return {"view": view, "screen": build_inspection_screen(view), "errors": [],
             "simulation_period_options": grouping_service.SIMULATION_PERIOD_OPTIONS,
-            "default_simulation_periods": grouping_service.DEFAULT_SIMULATION_PERIODS,
+            "default_group_simulation_periods":
+                grouping_service.DEFAULT_GROUP_SIMULATION_PERIODS,
+            "default_partition_simulation_periods":
+                grouping_service.DEFAULT_PARTITION_SIMULATION_PERIODS,
             **_group_currency_context(view.common_currency)}
 
 
@@ -469,10 +472,9 @@ async def group_compose_finish(request: Request, submission_id: str):
     """Screen 1's Finish (FR-025): inspect, and when nothing is left for the
     analyst to choose, submit the group at once in the members' currency with
     the env scheme and vintage, Propagate ON, and — for a PLT group — the
-    default simulation periods for the group and every partition. Otherwise
-    the inspection renders as screen 2 with the stop notice, and the analyst
-    continues with Next. Success ends exactly as the Group submit does: 204,
-    the toast, and the group row."""
+    default simulation periods. Otherwise the inspection renders as screen 2
+    with the stop notice, and the analyst continues with Next. Success ends
+    exactly as the Group submit does: 204, the toast, and the group row."""
     form = await request.form()
     if not validate_csrf_token(form.get("csrf_token")):
         if _is_htmx(request):
@@ -501,8 +503,9 @@ async def group_compose_finish(request: Request, submission_id: str):
             currency_scheme=defaults["scheme"],
             currency_vintage=defaults["vintage"],
             propagate_detailed_output=True,
-            num_of_simulations=(str(grouping_service.DEFAULT_SIMULATION_PERIODS)
-                                if plt else "1"),
+            num_of_simulations=(
+                str(grouping_service.DEFAULT_GROUP_SIMULATION_PERIODS)
+                if plt else "1"),
             event_rate_selections=[], simulation_set_selections=[],
             simulation_periods_selections=(
                 grouping_service.default_simulation_periods_selections(view)

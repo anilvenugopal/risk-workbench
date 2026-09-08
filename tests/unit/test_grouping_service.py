@@ -12,6 +12,7 @@ inspection view (Platform ids, no writes), and the plan carried verbatim into
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -502,14 +503,28 @@ def test_finish_does_not_stop_on_plt_output_alone(iteration2_db, fake_irp):
     members = _usd_pair(ctx)
     ids = [_irp(m) for m in members]
     fake_irp.seed_grouping_inspection(
-        ids, output_loss_table="PLT", periods={ids[0]: 10000, ids[1]: 50000})
+        ids, output_loss_table="PLT", periods={ids[0]: 100000, ids[1]: 100000})
 
     view = _currency_view(ctx, members)
 
     assert svc.finish_blockers(view, currency_defaults=_DEFAULTS) == []
+    # bound to the members' own PET count, so the submit says nothing about it
+    assert svc.default_simulation_periods_selections(view) == []
+
+
+def test_finish_posts_the_partition_default_when_the_pets_disagree(
+        iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    members = _usd_pair(ctx)
+    ids = [_irp(m) for m in members]
+    fake_irp.seed_grouping_inspection(
+        ids, output_loss_table="PLT", periods={ids[0]: 10000, ids[1]: 50000})
+
+    view = _currency_view(ctx, members)
+
     assert svc.default_simulation_periods_selections(view) == [json.dumps(
         {"peril_code": "WS", "region_code": "NA", "model_version": "11.0",
-         "simulation_periods": 50000})]
+         "simulation_periods": 100000})]
 
 
 def test_finish_stops_on_a_pending_simulation_set_choice(iteration2_db, fake_irp):
@@ -521,8 +536,9 @@ def test_finish_stops_on_a_pending_simulation_set_choice(iteration2_db, fake_irp
     reasons = svc.finish_blockers(view, currency_defaults=_DEFAULTS)
     assert "A partition needs a simulation set choice." in reasons
     assert "The group output is PLT." not in reasons
+    # the HD partition keeps its PET's periods; the two ELT ones are chosen
     assert [json.loads(s)["peril_code"] for s in
-            svc.default_simulation_periods_selections(view)] == ["EQ", "WS", "WS"]
+            svc.default_simulation_periods_selections(view)] == ["EQ", "WS"]
 
 
 def test_finish_stops_on_a_blocking_problem(iteration2_db, fake_irp):
@@ -561,6 +577,52 @@ def test_finish_stops_without_a_complete_env_currency_default(
     assert svc.finish_blockers(
         view, currency_defaults={**_DEFAULTS, "vintage": ""}) == [
         "The default currency scheme or vintage is not set."]
+
+
+def test_fixed_simulation_periods_reads_the_pet_count_of_a_bound_partition(
+        iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    ids = [_irp(m) for m in _usd_pair(ctx)]
+    inspection = fake_irp.seed_grouping_inspection(
+        ids, output_loss_table="PLT", periods={ids[0]: 100000, ids[1]: 100000})
+
+    assert svc.fixed_simulation_periods(
+        inspection, inspection.partitions[0]) == 100000
+
+
+def test_fixed_simulation_periods_is_none_when_the_pets_disagree(
+        iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    ids = [_irp(m) for m in _usd_pair(ctx)]
+    inspection = fake_irp.seed_grouping_inspection(
+        ids, output_loss_table="PLT", periods={ids[0]: 100000, ids[1]: 50000})
+
+    assert svc.fixed_simulation_periods(
+        inspection, inspection.partitions[0]) is None
+
+
+def test_fixed_simulation_periods_is_none_without_a_pet(
+        iteration2_db, fake_irp):
+    ctx = _submission_with_two_ready(iteration2_db)
+    ids = [_irp(m) for m in _usd_pair(ctx)]
+    inspection = fake_irp.seed_grouping_inspection(ids, output_loss_table="PLT")
+
+    assert svc.fixed_simulation_periods(
+        inspection, inspection.partitions[0]) is None
+
+
+def test_fixed_simulation_periods_is_none_where_a_simulation_set_is_chosen(
+        iteration2_db, fake_irp):
+    """A partition converting an ELT member sets its own length, even where a
+    PLT member of the same partition already runs on a PET."""
+    ctx = _submission_with_two_ready(iteration2_db)
+    ids = [_irp(m) for m in _usd_pair(ctx)]
+    inspection = fake_irp.seed_grouping_inspection(
+        ids, output_loss_table="PLT", periods={ids[0]: 100000})
+    partition = replace(inspection.partitions[0],
+                        simulation_set_selection_required=True)
+
+    assert svc.fixed_simulation_periods(inspection, partition) is None
 
 
 def test_inspect_grouping_gate_failure_never_reaches_the_platform(

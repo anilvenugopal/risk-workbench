@@ -296,23 +296,24 @@ def test_inspect_offers_a_simulation_set_per_elt_partition_of_a_plt_group(
     assert html.count('name="simulation_set_selection"') == 2
     assert 'aria-label="Simulation set for EQ / NA / 17.0"' in html
     assert 'aria-label="Simulation set for WS / NA / 11.0"' in html
-    # the HD partition keeps PET 15: its row names the PET and has no set
-    # dropdown, but chooses its simulation periods like every other row
+    # the HD partition keeps PET 15: its row names the PET, offers no set, and
+    # states the PET's own period count instead of a dropdown (note 27 D20)
     jp_row = next(r for r in html.split("<tr>") if "<td>WS</td><td>JP</td>" in r)
     assert 'name="simulation_set_selection"' not in jp_row
-    assert 'aria-label="Simulation periods for WS / JP / 2.1"' in jp_row
+    assert 'name="simulation_periods_selection"' not in jp_row
+    assert '<div class="insp-resolved">50,000</div>' in jp_row
     assert ("RMS V2.0 Stochastic Event Rates - Typhoon Events Only "
             "(50,000 periods)") in jp_row
     assert ">Simulation periods</th>" in html
-    assert html.count('name="simulation_periods_selection"') == 3
+    assert html.count('name="simulation_periods_selection"') == 2
     periods_values = [json.loads(v) for v in _option_values(html)
                       if '"simulation_periods"' in v]
-    assert len(periods_values) == 3 * 9
+    assert len(periods_values) == 2 * 9
     assert {"peril_code": "WS", "region_code": "JP", "model_version": "2.1",
-            "simulation_periods": 50000} in periods_values
-    jp_default = next(chunk for chunk in html.split("<option ")
-                      if '"simulation_periods": 50000' in chunk and '"JP"' in chunk)
-    assert 'data-label="50,000" selected>50,000</option>' in jp_default
+            "simulation_periods": 50000} not in periods_values
+    eq_default = next(chunk for chunk in html.split("<option ")
+                      if '"simulation_periods": 100000' in chunk and '"EQ"' in chunk)
+    assert 'data-label="100,000" selected>100,000</option>' in eq_default
     eq_values = [json.loads(v) for v in _option_values(html)
                  if '"simulation_set_id"' in v and '"EQ"' in v]
     assert [v["simulation_set_id"] for v in eq_values] == [83, 84, 85, 86, 87]
@@ -612,7 +613,28 @@ def test_finish_stops_on_a_scheme_conflict_and_renders_the_inspection(
     assert "All members ran in USD." in response.text
 
 
-def test_finish_submits_an_hd_group_with_the_default_periods(
+def test_finish_leaves_a_pet_bound_partitions_periods_to_risk_modeler(
+        iteration2_db, fake_irp, env_vintage):
+    ctx = _seeded_submission()
+    ids = ctx["irp_ids"]
+    fake_irp.seed_grouping_inspection(
+        ids, output_loss_table="PLT", periods={ids[0]: 200000, ids[1]: 200000})
+
+    response = _finish(_client(), ctx)
+
+    assert response.status_code == 204
+    trigger = json.loads(response.headers["HX-Trigger"])
+    plan = json.loads(execute(
+        "SELECT input_data FROM rwb_job WHERE requestor_id = :r",
+        {"r": trigger["grouping-submitted"]["grouping_request_id"]},
+        connection="WORKBENCH")[0]["input_data"])
+    assert plan["num_of_simulations"] == 50000
+    assert plan["simulation_set_selections"] == []
+    # no entry, so the submit keeps the members' own 200,000 (note 27 D20)
+    assert plan["simulation_periods_selections"] == []
+
+
+def test_finish_submits_the_partition_default_when_the_pets_disagree(
         iteration2_db, fake_irp, env_vintage):
     ctx = _seeded_submission()
     ids = ctx["irp_ids"]
@@ -628,10 +650,9 @@ def test_finish_submits_an_hd_group_with_the_default_periods(
         {"r": trigger["grouping-submitted"]["grouping_request_id"]},
         connection="WORKBENCH")[0]["input_data"])
     assert plan["num_of_simulations"] == 50000
-    assert plan["simulation_set_selections"] == []
     assert plan["simulation_periods_selections"] == [
         {"peril_code": "WS", "region_code": "NA", "model_version": "11.0",
-         "simulation_periods": 50000}]
+         "simulation_periods": 100000}]
 
 
 def test_finish_stops_on_a_pending_simulation_set_choice(
@@ -643,7 +664,7 @@ def test_finish_stops_on_a_pending_simulation_set_choice(
     _assert_finish_stopped(response, fake_irp, ctx)
     assert "Group output <b>PLT</b>" in response.text
     assert response.text.count('name="simulation_set_selection"') == 2
-    assert response.text.count('name="simulation_periods_selection"') == 3
+    assert response.text.count('name="simulation_periods_selection"') == 2
 
 
 def test_finish_stops_when_the_members_currencies_differ(

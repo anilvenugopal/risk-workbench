@@ -34,7 +34,11 @@ KIND_LABELS = {"own": "Own", "broker": "Broker", "group": "Group"}
 # partition of a PLT group; an ELT group submits 1 without a choice.
 SIMULATION_PERIOD_OPTIONS = (
     3125, 6250, 12500, 25000, 50000, 100000, 200000, 400000, 800000)
-DEFAULT_SIMULATION_PERIODS = 50000
+# The group's target PLT length, mirroring Risk Modeler's own default.
+DEFAULT_GROUP_SIMULATION_PERIODS = 50000
+# The ELT-to-PLT conversion length of one partition (note 27 D19) — CIC's
+# members mostly carry 100,000 periods, so the two defaults differ on purpose.
+DEFAULT_PARTITION_SIMULATION_PERIODS = 100000
 
 
 @dataclass(frozen=True)
@@ -214,8 +218,9 @@ def finish_blockers(view: GroupingInspectionView, *,
     defaulted (FR-025) — must stop at the inspection instead. Empty when the
     group can be submitted in the members' currency and the env scheme and
     vintage (``currency_defaults``, cache-checked) with no choice left to the
-    analyst; a PLT group then takes ``DEFAULT_SIMULATION_PERIODS`` for the
-    group and every partition. Treaty mismatches never stop it (FR-020)."""
+    analyst; a PLT group then takes ``DEFAULT_GROUP_SIMULATION_PERIODS`` for
+    the group and ``default_simulation_periods_selections`` per partition.
+    Treaty mismatches never stop it (FR-020)."""
     inspection = view.inspection
     reasons: list[str] = []
     if not (currency_defaults["scheme"] and currency_defaults["vintage"]):
@@ -231,15 +236,49 @@ def finish_blockers(view: GroupingInspectionView, *,
     return reasons
 
 
+def partition_facts(inspection: irp_gateway.GroupingInspection,
+                    part: irp_gateway.GroupingPartition,
+                    ) -> list[irp_gateway.GroupingRegionFact]:
+    """The region facts of the partition's own members."""
+    members = set(part.analysis_ids)
+    key = part.key
+    return [fact for member in inspection.members for fact in member.regions
+            if fact.analysis_id in members
+            and (fact.peril_code, fact.region_code, fact.model_version)
+            == (key.peril_code, key.region_code, key.model_version)]
+
+
+def fixed_simulation_periods(inspection: irp_gateway.GroupingInspection,
+                             part: irp_gateway.GroupingPartition) -> int | None:
+    """The count of the PET the partition's PLT members ran on, which Risk
+    Modeler shows read-only (note 27 D20). ``None`` where the analyst still
+    has a say — a partition converting an ELT member to PLT sets its own
+    length through the simulation set — or where the PETs disagree or report
+    no count, since a wrong read-only number is worse than a dropdown.
+
+    A partition submitted with no selection keeps that same count, so a bound
+    row posts nothing rather than the number returned here."""
+    if part.simulation_set_selection_required:
+        return None
+    periods = {fact.periods for fact in partition_facts(inspection, part)
+               if fact.framework == "PLT" and fact.pet_id is not None}
+    if len(periods) != 1:
+        return None
+    return periods.pop()
+
+
 def default_simulation_periods_selections(view: GroupingInspectionView) -> list[str]:
-    """Finish's per-partition simulation periods for a PLT group: the posted
-    ``simulation_periods_selection`` value of every partition at
-    ``DEFAULT_SIMULATION_PERIODS`` (FR-025)."""
+    """Finish's per-partition simulation periods for a PLT group: one posted
+    ``simulation_periods_selection`` value at
+    ``DEFAULT_PARTITION_SIMULATION_PERIODS`` for each partition the analyst
+    would have been offered a dropdown for. A partition bound to its PET's
+    count is left out, so the submit keeps that count (FR-025)."""
     return [json.dumps({"peril_code": p.key.peril_code,
                         "region_code": p.key.region_code,
                         "model_version": p.key.model_version,
-                        "simulation_periods": DEFAULT_SIMULATION_PERIODS})
-            for p in view.inspection.partitions]
+                        "simulation_periods": DEFAULT_PARTITION_SIMULATION_PERIODS})
+            for p in view.inspection.partitions
+            if fixed_simulation_periods(view.inspection, p) is None]
 
 
 _SELECTION_KEY = ("peril_code", "region_code", "model_version")
@@ -382,14 +421,17 @@ def grouping_request_is_live(grouping_request_id: Any | None) -> bool:
 
 
 __all__ = [
-    "DEFAULT_SIMULATION_PERIODS",
+    "DEFAULT_GROUP_SIMULATION_PERIODS",
+    "DEFAULT_PARTITION_SIMULATION_PERIODS",
     "SIMULATION_PERIOD_OPTIONS",
     "GroupMember",
     "GroupingInspectionView",
     "build_group_name",
     "finish_blockers",
+    "fixed_simulation_periods",
     "grouping_request_is_live",
     "inspect_grouping",
     "list_eligible_members",
+    "partition_facts",
     "request_grouping",
 ]
