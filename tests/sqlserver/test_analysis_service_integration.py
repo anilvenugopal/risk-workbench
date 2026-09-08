@@ -72,6 +72,7 @@ def test_delete_by_submission_frees_the_name_of_an_analysis_and_a_group(
     SQLite models neither the UNION's type coercion nor the filtered index the
     same way, so the unit tier cannot prove this."""
     edm_id = str(uuid.uuid4())
+    analyst_id = str(uuid.uuid4())
     submission_id = str(uuid.uuid4())
     analysis_id = str(uuid.uuid4())
     group_id = str(uuid.uuid4())
@@ -83,9 +84,18 @@ def test_delete_by_submission_frees_the_name_of_an_analysis_and_a_group(
                 "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, 'ready')"
             ), {"id": edm_id, "name": f"Delete scope {edm_id}"})
             conn.execute(text(
-                "INSERT INTO submission (id, name, cedant_name, status_code) "
-                "VALUES (:id, :name, 'Cedant', 'active')"
-            ), {"id": submission_id, "name": f"Delete deal {submission_id}"})
+                "INSERT INTO app_user (id, email, display_name, "
+                "must_change_password, is_active) "
+                "VALUES (:id, :email, 'Delete Test', 0, 1)"
+            ), {"id": analyst_id, "email": f"del_{analyst_id[:8]}@example.com"})
+            conn.execute(text(
+                "INSERT INTO submission (id, assigned_analyst_id, name, "
+                "cedant_name, treaty_type_code, inception_date, status_code) "
+                "VALUES (:id, :analyst, :name, 'Cedant', 'cat_xol', :inception, "
+                "'ACTIVE')"
+            ), {"id": submission_id, "analyst": analyst_id,
+                "name": f"Delete deal {submission_id}",
+                "inception": datetime.now(timezone.utc).date()})
             conn.execute(text(
                 "INSERT INTO submission_edm (submission_id, edm_id) "
                 "VALUES (:s, :e)"), {"s": submission_id, "e": edm_id})
@@ -140,5 +150,7 @@ def test_delete_by_submission_frees_the_name_of_an_analysis_and_a_group(
                 {"s": submission_id})
             conn.execute(text("DELETE FROM submission WHERE id = :s"),
                          {"s": submission_id})
+            conn.execute(text("DELETE FROM app_user WHERE id = :u"),
+                         {"u": analyst_id})
             conn.execute(text("DELETE FROM irp_edm WHERE id = :id"),
                          {"id": edm_id})
