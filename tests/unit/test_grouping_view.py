@@ -220,6 +220,21 @@ def test_problems_carry_the_message_and_the_members_display_names():
     assert text.member_names == ("CRE_P1_T1", "77")
 
 
+def test_problems_name_the_partition_and_pet_ids_they_involve():
+    problem = GroupingProblem(
+        code="differing_pet_ids_unsupported",
+        message="Members use different PETs in one partition.",
+        analysis_ids=(1, 2), partition=WS_NA, pet_ids=(900, 901))
+    view = _view({1: [_fact(1)], 2: [_fact(2)]},
+                 (_partition([1, 2], [EventRateSchemeOption(101)]),),
+                 problems=(problem,))
+
+    text, = build_inspection_screen(view).problems
+
+    assert text.text == ("Members use different PETs in one partition. "
+                         "(partition WS · NA · 11.0) (PET IDs 900, 901)")
+
+
 def _treaty(analysis_id: int, treaty_id: int | None, *,
             number: str = "XOL-2026-01", **overrides) -> GroupingTreaty:
     """One compared treaty, keyed and normalized the way the package hands it

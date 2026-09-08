@@ -19,6 +19,7 @@ from sqlalchemy import text
 
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import _utcnow
+from app.services.grouping_view import describe_problem
 from app.workers import broker, runtime
 from app.workers.analysis_jobs import free_name_attempts
 from app.workers.queues import rwb_actor
@@ -108,16 +109,7 @@ def _grouping_failure_reason(problems) -> str:
     """An analyst-readable reason from the package's structured problems."""
     if any(str(p.code) == "inspection_changed" for p in problems):
         return INSPECTION_CHANGED_REASON
-    parts = []
-    for p in problems:
-        reason = p.message
-        if p.partition is not None:
-            reason += (f" (partition {p.partition.peril_code} · "
-                       f"{p.partition.region_code} · {p.partition.model_version})")
-        if p.pet_ids:
-            reason += f" (PET IDs {', '.join(str(i) for i in p.pet_ids)})"
-        parts.append(reason)
-    return "; ".join(parts)
+    return "; ".join(describe_problem(p) for p in problems)
 
 
 def _submit_grouping_body(rwb_job_id: Any) -> runtime.JobResult:

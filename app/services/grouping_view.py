@@ -19,6 +19,7 @@ from app.services.grouping_service import (
 from app.services.irp_gateway import (
     GroupingPartition,
     GroupingPartitionKey,
+    GroupingProblem,
     GroupingRegionFact,
     GroupingTreaty,
 )
@@ -154,6 +155,19 @@ class InspectionScreen:
         return self.output_loss_table == "PLT"
 
 
+def describe_problem(problem: GroupingProblem) -> str:
+    """The package message plus the partition and PET ids the problem names —
+    the same text in the inspection dialog and a failed job's reason (SC-005)."""
+    text = problem.message
+    if problem.partition is not None:
+        text += (f" (partition {problem.partition.peril_code} · "
+                 f"{problem.partition.region_code} · "
+                 f"{problem.partition.model_version})")
+    if problem.pet_ids:
+        text += f" (PET IDs {', '.join(str(i) for i in problem.pet_ids)})"
+    return text
+
+
 def build_inspection_screen(view: GroupingInspectionView) -> InspectionScreen:
     inspection = view.inspection
     return InspectionScreen(
@@ -161,7 +175,8 @@ def build_inspection_screen(view: GroupingInspectionView) -> InspectionScreen:
         member_count=len(inspection.analysis_ids),
         rows=tuple(_row(view, part) for part in inspection.partitions),
         problems=tuple(
-            ProblemText(text=p.message, member_names=_names(view, p.analysis_ids))
+            ProblemText(text=describe_problem(p),
+                        member_names=_names(view, p.analysis_ids))
             for p in inspection.blocking_problems),
         treaty_mismatches=tuple(
             TreatyMismatch(
@@ -240,6 +255,7 @@ def _observed_pets(facts: list[GroupingRegionFact]) -> tuple[ObservedPet, ...]:
 
 
 __all__ = [
+    "describe_problem",
     "InspectionScreen",
     "ObservedPet",
     "PartitionRow",

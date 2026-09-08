@@ -4,6 +4,7 @@ fast path (spec 012, contracts/routes.md)."""
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 from fastapi import FastAPI, Request
@@ -330,10 +331,9 @@ def test_inspect_offers_a_simulation_set_per_elt_partition_of_a_plt_group(
     assert html.count('name="event_rate_selection"') == 1  # NA/WS only
     # both long lists are text-filterable through the shared selectSearch()
     for name in ("event_rate_selection", "simulation_set_selection"):
-        before = html.split(f'name="{name}"')[0]
-        assert before.endswith(
-            '<div class="ta" x-data="selectSearch()" @click.outside="close()">\n'
-            '                  <select class="wf-field__input" ')
+        assert re.search(
+            r'<div class="ta" x-data="selectSearch\(\)" @click\.outside="close\(\)">\s*'
+            rf'<select class="wf-field__input" name="{name}"', html)
     # nine fixed values need no filter, so that column stays a plain select
     assert html.split('name="simulation_periods_selection"')[0].endswith(
         '<div class="insp-choose">\n'

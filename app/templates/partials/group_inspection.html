@@ -39,10 +39,8 @@
   <div class="insp-facts">
     <span>Group output <b>{{ screen.output_loss_table }}</b></span>
     <span><b>{{ screen.member_count }}</b> member{{ '' if screen.member_count == 1 else 's' }}</span>
-    {% if not screen.blocked %}
     <span><b>{{ screen.conflict_count }}</b> scheme mismatch{{ '' if screen.conflict_count == 1 else 'es' }}</span>
     <span><b>{{ screen.treaty_mismatch_count }}</b> treaty mismatch{{ '' if screen.treaty_mismatch_count == 1 else 'es' }}</span>
-    {% endif %}
   </div>
 
   <div>
@@ -63,18 +61,16 @@
             <td>
               {% if row.mode == 'choose' %}
               <div class="insp-choose">
-                <div class="ta" x-data="selectSearch()" @click.outside="close()">
-                  <select class="wf-field__input" name="event_rate_selection" data-partition="{{ row.label }}"
-                          x-ref="select"
-                          aria-label="Event-rate scheme for {{ row.label }}" title="Choose a scheme"
-                          @change="$el.title = $el.selectedOptions[0].dataset.label || 'Choose a scheme'">
+                {% call forms.typeahead_select('event_rate_selection', {
+                     'data-partition': row.label,
+                     'aria-label': 'Event-rate scheme for ' ~ row.label,
+                     'title': 'Choose a scheme',
+                     '@change': "$el.title = $el.selectedOptions[0].dataset.label || 'Choose a scheme'"}) %}
                     <option value="" selected>Choose a scheme&hellip;</option>
                     {% for opt in row.options %}
                     <option value='{{ opt.value|tojson }}' data-label="{{ opt.label }}">{{ opt.label }} ({{ opt.member_count }} member{{ '' if opt.member_count == 1 else 's' }})</option>
                     {% endfor %}
-                  </select>
-                  {{ forms.typeahead_controls(required=false) }}
-                </div>
+                {% endcall %}
                 <span class="wf-field__hint">Members use different schemes. Choose one.</span>
               </div>
               {% elif row.mode == 'resolved' %}
@@ -87,18 +83,16 @@
             <td>
               {% if row.simulation_set_required %}
               <div class="insp-choose">
-                <div class="ta" x-data="selectSearch()" @click.outside="close()">
-                  <select class="wf-field__input" name="simulation_set_selection" data-partition="{{ row.label }}"
-                          x-ref="select"
-                          aria-label="Simulation set for {{ row.label }}" title="Choose a simulation set"
-                          @change="$el.title = $el.selectedOptions[0].dataset.label || 'Choose a simulation set'">
+                {% call forms.typeahead_select('simulation_set_selection', {
+                     'data-partition': row.label,
+                     'aria-label': 'Simulation set for ' ~ row.label,
+                     'title': 'Choose a simulation set',
+                     '@change': "$el.title = $el.selectedOptions[0].dataset.label || 'Choose a simulation set'"}) %}
                     <option value="" selected>Choose a simulation set&hellip;</option>
                     {% for opt in row.simulation_set_options %}
                     <option value='{{ opt.value|tojson }}' data-label="{{ opt.label }}">{{ opt.label }} ({{ "{:,}".format(opt.simulation_periods) }} periods)</option>
                     {% endfor %}
-                  </select>
-                  {{ forms.typeahead_controls(required=false) }}
-                </div>
+                {% endcall %}
                 <span class="wf-field__hint">Choose the simulation set for the ELT-to-PLT conversion.</span>
               </div>
               {% elif row.observed_pets %}
