@@ -5,7 +5,7 @@
 # Run as a user with sudo (setup phase only — the app itself never needs
 # standing sudo once this script finishes).
 #
-# Usage: DEPLOY_USER=dev-user APP_DIR=/opt/risk-workbench ./rhel9-setup.sh
+# Usage: DEPLOY_USER=cinreadm APP_DIR=/rms ./rhel9-setup.sh
 
 # "set" changes how THIS script behaves — like flipping safety switches
 # before driving, not a real-world plumbing/water thing.
@@ -24,7 +24,7 @@ set -euo pipefail
 # the script demands its two required inputs instead of guessing or using a
 # possibly-wrong default.
 DEPLOY_USER="${DEPLOY_USER:?set DEPLOY_USER to the account the app will run as}"
-APP_DIR="${APP_DIR:?set APP_DIR to the application directory, e.g. /opt/risk-workbench}"
+APP_DIR="${APP_DIR:?set APP_DIR to the application directory, e.g. /rms}"
 # ${VAR:-default} is the softer version: use "default" only if VAR wasn't
 # provided, but don't error out — this one's optional.
 PYTHON_PKG="${PYTHON_PKG:-python3.14}"
@@ -213,10 +213,10 @@ echo "=== 7. Valkey data directory ==="
 # /var/lib is the standard Linux location for a service's own persistent
 # data (same category as where a real database keeps its files) — NOT a
 # personal user's home directory. Using a home directory (e.g.
-# /home/dev-user/valkey-data, used during early manual testing) ties
+# /home/cinreadm/valkey-data, used during early manual testing) ties
 # Valkey's data to one specific person's account, which is exactly the
 # problem this project moved away from when it stopped running everything
-# as dev-user. Same pattern as section 5's application directory: only
+# as cinreadm. Same pattern as section 5's application directory: only
 # create it if missing, then hand ownership to the deployment account so
 # Valkey can write to it without needing sudo at runtime.
 VALKEY_DATA_DIR=/var/lib/risk-workbench/valkey

@@ -6,12 +6,12 @@
 # pipeline (over SSH), as a pre-flight check before pulling code or
 # installing dependencies.
 #
-# Usage: APP_DIR=/opt/risk-workbench DEPLOY_USER=dev-user \
+# Usage: APP_DIR=/rms DEPLOY_USER=cinreadm \
 #        PYTHON_PKG=python3.14 ./rhel9-check-prereqs.sh
 
 set -euo pipefail
 
-APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /rms}"
 DEPLOY_USER="${DEPLOY_USER:?set DEPLOY_USER, the account the app runs as}"
 PYTHON_PKG="${PYTHON_PKG:-python3.14}"
 

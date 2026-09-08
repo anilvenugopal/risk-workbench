@@ -436,7 +436,10 @@ def request_grouping(*, submission_id: Any, submission_name: str,
     }
     job_id = rwb_job_service.enqueue_rwb_job(
         requestor_type="analyst_request", requestor_id=grouping_request_id,
-        rwb_job_type="submit_grouping", input_data=plan, actor_id=actor_id)
+        rwb_job_type="submit_grouping",
+        link_type="submission", link_id=submission_id,
+        context_type="irp_analysis", context_id=plan["group_analysis_id"],
+        input_data=plan, actor_id=actor_id)
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="submit_grouping")
     return grouping_request_id
 

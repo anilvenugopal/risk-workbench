@@ -11,7 +11,7 @@
 # are never at risk and never need special-casing here.
 #
 # Usage:
-#   APP_DIR=/opt/risk-workbench \
+#   APP_DIR=/rms \
 #   REPO_URL=https://github.com/anilvenugopal/risk-workbench.git \
 #   BRANCH=main \
 #   ./rhel9-pull-code.sh [--stash | --force]
@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /rms}"
 REPO_URL="${REPO_URL:-https://github.com/anilvenugopal/risk-workbench.git}"
 BRANCH="${BRANCH:-main}"
 MODE="${1:-}"

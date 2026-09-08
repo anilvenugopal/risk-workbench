@@ -305,7 +305,10 @@ def request_execution(
     execution_id = plan["execution_id"]
     job_id = rwb_job_service.enqueue_rwb_job(
         requestor_type="analyst_request", requestor_id=execution_id,
-        rwb_job_type="execute_analysis_batch", input_data=plan, actor_id=actor_id)
+        rwb_job_type="execute_analysis_batch",
+        link_type="edm", link_id=edm.id,
+        context_type="execution", context_id=execution_id,
+        input_data=plan, actor_id=actor_id)
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="execute_analysis_batch")
     return execution_id
 

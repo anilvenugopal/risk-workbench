@@ -7,7 +7,7 @@ Prerequisite: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) completed — git,
 Python 3.14, ODBC Driver 18, Redis/Valkey, nginx, gcc/g++/make, rsync all
 installed.
 
-Placeholders below (`dev-user`, `/opt/risk-workbench`) stand in for whatever
+Placeholders below (`cinreadm`, `/rms`) stand in for whatever
 account and path infra actually assigns — substitute the real values when
 deploying for real.
 
@@ -28,7 +28,7 @@ Requested from infra once per server, not repeated per deployment:
 3. Grant the deployment account permission to reload (not start/stop/edit)
    that one unit, without full root — e.g. a narrowly scoped `sudoers` entry:
    ```
-   dev-user ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+   cinreadm ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
    ```
    or the equivalent via Polkit. This is the only privileged action the
    deployment ever performs, and it's scoped to exactly one command.
@@ -43,20 +43,20 @@ ad hoc process the deployment account owns and manages itself.
 ## 1. Verify prerequisites
 
 ```bash
-APP_DIR=/opt/risk-workbench DEPLOY_USER=dev-user PYTHON_PKG=python3.14 \
+APP_DIR=/rms DEPLOY_USER=cinreadm PYTHON_PKG=python3.14 \
     bash infra/scripts/rhel9/rhel9-check-prereqs.sh
 ```
 
 [infra/scripts/rhel9/rhel9-check-prereqs.sh](../../infra/scripts/rhel9/rhel9-check-prereqs.sh)
 confirms [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md)'s one-time setup
-(packages, `/opt/risk-workbench` created and owned correctly, nginx
+(packages, `/rms` created and owned correctly, nginx
 running with the reload permission granted) actually happened — read-only,
 safe to run from the server or a pipeline, before touching any code.
 
 ## 2. Get the code
 
 ```bash
-APP_DIR=/opt/risk-workbench BRANCH=<branch-or-tag-to-deploy> \
+APP_DIR=/rms BRANCH=<branch-or-tag-to-deploy> \
     bash infra/scripts/rhel9/rhel9-pull-code.sh
 ```
 
@@ -139,7 +139,7 @@ created and owned correctly by
 [rhel9-setup.sh](../../infra/scripts/rhel9/rhel9-setup.sh) section 7 — `/var/lib` is
 the standard Linux location for a service's own persistent data, not a
 personal user's home directory (early manual testing used
-`/home/dev-user/valkey-data`; corrected here since a home directory ties
+`/home/cinreadm/valkey-data`; corrected here since a home directory ties
 the data to one specific account, and `/var/lib` itself is root-owned the
 same way `/opt` is — confirmed directly with `ls -ld /var/lib` — so the
 one-time `mkdir`+`chown` needs `sudo`, same pattern as the app directory).
@@ -172,7 +172,7 @@ done, the deployment account never runs nginx itself; it only writes the
 config file and triggers the pre-authorized reload:
 
 ```bash
-APP_ROOT=/opt/risk-workbench envsubst '$APP_ROOT' \
+APP_ROOT=/rms envsubst '$APP_ROOT' \
     < deploy/nginx/nginx.conf > /etc/nginx/conf.d/risk-workbench.conf
 sudo systemctl reload nginx
 ```
@@ -211,8 +211,8 @@ the nginx reload from step 7 collapse into one script, meant to run from a
 dev machine or CI/CD runner — never on RHEL9 itself:
 
 ```bash
-DEPLOY_HOST=dev-user@<rhel9-ip> \
-DEPLOY_DIR=/opt/risk-workbench \
+DEPLOY_HOST=cinreadm@<rhel9-ip> \
+DEPLOY_DIR=/rms \
 SSH_KEY=~/.ssh/risk-workbench-deploy \
 bash infra/scripts/rhel9/rhel9-ssh-deploy.sh
 ```

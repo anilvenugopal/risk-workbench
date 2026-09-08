@@ -74,12 +74,14 @@ def test_time_limit_kill_marks_the_row_failed_before_reraising(iteration2_db):
     re-dispatched into the same kill, forever (spec 005 R1 revision: large
     breakout fan-outs made the actor time limit reachable)."""
     jid = str(uuid.uuid4())
+    fake_portfolio_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
         "status_code, attempt_count, inserted_at, updated_at) "
-        "VALUES (:i, 'analyst_request', :r, 'run_breakout_lob', 'pending', 0, "
-        ":now, :now)",
-        {"i": jid, "r": str(uuid.uuid4()), "now": datetime.utcnow()},
+        "VALUES (:i, 'analyst_request', :r, 'not_applicable', NULL, "
+        "'portfolio', :r, 'run_breakout_lob', 'pending', 0, :now, :now)",
+        {"i": jid, "r": fake_portfolio_id, "now": datetime.utcnow()},
         connection="WORKBENCH")
 
     def body():

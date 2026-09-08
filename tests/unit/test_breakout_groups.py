@@ -465,12 +465,14 @@ def test_group_worker_unusable_group_fails_with_nothing(
     edm_id = mk_edm()
     pid = mk_portfolio(edm_id, summary=GROUP_SUMMARY)
     jid = str(uuid.uuid4())
+    group_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
         "status_code, input_data, attempt_count, inserted_at, updated_at) "
-        "VALUES (:i, 'breakout_group', :r, 'run_breakout_custom', 'pending', "
-        ":d, 0, :now, :now)",
-        {"i": jid, "r": str(uuid.uuid4()),
+        "VALUES (:i, 'breakout_group', :r, 'edm', :edm, 'breakout_group', :r, "
+        "'run_breakout_custom', 'pending', :d, 0, :now, :now)",
+        {"i": jid, "r": group_id, "edm": edm_id,
          "d": json.dumps({"edm_id": edm_id, "portfolio_id": pid,
                           "dimension": "custom", "group": {"id": "x"}}),
          "now": datetime.utcnow()}, connection="WORKBENCH")

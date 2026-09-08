@@ -108,9 +108,11 @@ def mk_breakout_job(portfolio_id: str, *, dimension: str = "lob",
     jid = str(uuid.uuid4())
     now = now or datetime.utcnow()
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "context_type, context_id, rwb_job_type, "
         "status_code, input_data, output_data, error_detail, attempt_count, "
-        "inserted_at, updated_at) VALUES (:i, 'analyst_request', :r, :t, :s, "
+        "inserted_at, updated_at) VALUES (:i, 'analyst_request', :r, "
+        "'not_applicable', 'portfolio', :r, :t, :s, "
         ":in, :out, :err, 0, :now, :upd)",
         {"i": jid, "r": portfolio_id, "t": f"run_breakout_{dimension}",
          "s": status,
@@ -136,10 +138,13 @@ def mk_backfill_job(edm_id: str, *, status: str = "pending",
             connection="WORKBENCH")
         requestor_id, requestor_type = irp_job_id, "irp_job"
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
         "status_code, attempt_count, inserted_at, updated_at) "
-        "VALUES (:i, :rt, :r, 'backfill_edm_detail', :s, 0, :now, :now)",
+        "VALUES (:i, :rt, :r, 'edm', :edm, 'edm', :edm, "
+        "'backfill_edm_detail', :s, 0, :now, :now)",
         {"i": str(uuid.uuid4()), "rt": requestor_type, "r": requestor_id,
+         "edm": edm_id,
          "s": status, "now": datetime.utcnow()}, connection="WORKBENCH")
 
 

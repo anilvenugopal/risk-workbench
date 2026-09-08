@@ -798,16 +798,26 @@ def retry_results_retrieval(*, analysis_id: Any, actor_id: Any) -> str | None:
     the retrieval is already pending or running."""
     aid = _uid(analysis_id)
     row = execute_one(
-        "SELECT loss_results FROM irp_analysis "
+        "SELECT loss_results, edm_id, rdm_id, submission_id FROM irp_analysis "
         "WHERE id = :id AND deleted_at IS NULL",
         {"id": aid}, connection="WORKBENCH")
     if row is None:
         raise LookupError(aid)
     if row["loss_results"] is not None:
         raise ValueError("Results are already stored.")
+    # Same three origin legs as ck_irp_analysis_origin: own run, broker
+    # capture, or group (CR-04c §6, spec 012 T-04).
+    if row["edm_id"] is not None:
+        link_type, link_id = "edm", row["edm_id"]
+    elif row["rdm_id"] is not None:
+        link_type, link_id = "rdm", row["rdm_id"]
+    else:
+        link_type, link_id = "submission", row["submission_id"]
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="irp_analysis", requestor_id=aid,
         rwb_job_type="retrieve_analysis_results",
+        link_type=link_type, link_id=link_id,
+        context_type="irp_analysis", context_id=aid,
         input_data={"analysis_id": aid}, actor_id=actor_id)
     dispatch.dispatch(rwb_job_id=job_id,
                       rwb_job_type="retrieve_analysis_results")

@@ -1038,6 +1038,7 @@ def upgrade() -> None:
         "INSERT INTO rwb_job_link_type_kind (code, label, sort_order) VALUES "
         "('edm', 'EDM', 10), "
         "('rdm', 'RDM', 20), "
+        "('submission', 'Submission', 30), "
         "('not_applicable', 'Not applicable', 900)"
     ))
     op.execute(sa.text(

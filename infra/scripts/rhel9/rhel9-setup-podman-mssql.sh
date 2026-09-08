@@ -22,12 +22,12 @@
 # section for the same conflict pattern). Stop one before starting the
 # other — see infra/scripts/check-port.sh to diagnose which is holding it.
 #
-# Usage: APP_DIR=/opt/risk-workbench DEPLOY_USER=dev-user \
+# Usage: APP_DIR=/rms DEPLOY_USER=cinreadm \
 #        bash rhel9-setup-podman-mssql.sh
 
 set -euo pipefail
 
-APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /rms}"
 DEPLOY_USER="${DEPLOY_USER:?set DEPLOY_USER, the account running Podman}"
 
 echo "=== 1. Podman ==="
@@ -42,7 +42,7 @@ fi
 # range of extra user/group IDs reserved for it — "subuid"/"subgid" — so
 # containers can remap their own internal users without needing real root.
 # useradd normally assigns these automatically for new accounts, but
-# dev-user may predate this or have been created differently.
+# cinreadm may predate this or have been created differently.
 if ! grep -q "^$DEPLOY_USER:" /etc/subuid 2>/dev/null; then
     sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$DEPLOY_USER"
     echo "  Assigned subuid/subgid ranges to $DEPLOY_USER."
@@ -63,10 +63,10 @@ echo ""
 echo "=== 2. Data directory ==="
 # /var/lib is the standard Linux location for a service's own persistent
 # data — not a personal user's home directory. Same reasoning and same
-# pattern as Valkey's data directory above: not tied to dev-user
-# specifically, survives dev-user being replaced by a real service account
+# pattern as Valkey's data directory above: not tied to cinreadm
+# specifically, survives cinreadm being replaced by a real service account
 # later. A Podman named volume would default to
-# ~/.local/share/containers/storage/volumes/ under dev-user's home instead
+# ~/.local/share/containers/storage/volumes/ under cinreadm's home instead
 # — rejected for the same reason the Valkey home-directory default was
 # rejected earlier in this project.
 MSSQL_DATA_DIR=/var/lib/risk-workbench/mssql
@@ -80,11 +80,11 @@ fi
 
 # SQL Server's container runs internally as UID 10001, GID 0 (fixed by the
 # image, same on every machine). Rootless Podman maps that internal UID to
-# a host UID from dev-user's own subuid range, not to dev-user's real UID
-# — a plain dev-user-owned directory is invisible to it for writing.
+# a host UID from cinreadm's own subuid range, not to cinreadm's real UID
+# — a plain cinreadm-owned directory is invisible to it for writing.
 # "podman unshare" runs the following command using that same mapping, so
 # "chown 10001:0" here resolves to the correct real host UID for whatever
-# dev-user's actual subuid range is on this machine — it adapts
+# cinreadm's actual subuid range is on this machine — it adapts
 # automatically, the 10001:0 numbers themselves never need to change.
 podman unshare chown -R 10001:0 "$MSSQL_DATA_DIR"
 echo "  Set ownership of $MSSQL_DATA_DIR for the container's internal user."

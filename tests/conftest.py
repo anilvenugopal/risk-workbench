@@ -36,6 +36,8 @@ from tests.iteration1_mirror import (
     ITERATION2_SCHEMA,
     ITERATION3_SCHEMA,
     ITERATION4_SCHEMA,
+    RWB_JOB_CONTEXT_TYPE_SEED,
+    RWB_JOB_LINK_TYPE_SEED,
     RWB_JOB_REQUESTOR_TYPE_SEED,
     RWB_JOB_STATUS_SEED,
     RWB_JOB_TYPE_SEED,
@@ -216,6 +218,8 @@ def iteration2_db() -> SimpleNamespace:
         _seed(conn, "irp_job_resource_type_kind", IRP_JOB_RESOURCE_TYPE_SEED)
         _seed(conn, "rwb_job_type_kind", RWB_JOB_TYPE_SEED)
         _seed(conn, "rwb_job_requestor_type_kind", RWB_JOB_REQUESTOR_TYPE_SEED)
+        _seed(conn, "rwb_job_link_type_kind", RWB_JOB_LINK_TYPE_SEED)
+        _seed(conn, "rwb_job_context_type_kind", RWB_JOB_CONTEXT_TYPE_SEED)
         _seed(conn, "rwb_job_status_kind", RWB_JOB_STATUS_SEED)
         _seed(conn, "irp_analysis_status_kind", IRP_ANALYSIS_STATUS_SEED)
         _seed(conn, "breakout_dimension_kind", BREAKOUT_DIMENSION_SEED)

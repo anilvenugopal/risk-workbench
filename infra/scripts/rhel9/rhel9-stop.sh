@@ -18,7 +18,7 @@ set -uo pipefail
 # script should attempt to stop every service and report on all of them,
 # not halt after the first one that has a problem.
 
-APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /rms}"
 PID_DIR="${PID_DIR:-/var/lib/risk-workbench/pids}"
 
 # Needed so `.venv/bin/python -m app.workers.queues` (per-queue stop loop

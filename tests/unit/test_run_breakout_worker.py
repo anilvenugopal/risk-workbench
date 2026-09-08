@@ -44,10 +44,13 @@ def _mk_job(edm_id: str, portfolio_id: str, actor_id, plan: list[dict] | object,
                   "dimension": dimension, "actor_id": str(actor_id),
                   "plan": plan}
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
-        "status_code, input_data, attempt_count, inserted_at, updated_at) "
-        "VALUES (:i, 'analyst_request', :r, :t, 'pending', :d, 0, :now, :now)",
-        {"i": jid, "r": portfolio_id, "t": f"run_breakout_{dimension}",
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, status_code, "
+        "input_data, attempt_count, inserted_at, updated_at) "
+        "VALUES (:i, 'analyst_request', :r, 'edm', :edm_id, 'portfolio', "
+        ":portfolio_id, :t, 'pending', :d, 0, :now, :now)",
+        {"i": jid, "r": portfolio_id, "edm_id": edm_id, "portfolio_id": portfolio_id,
+         "t": f"run_breakout_{dimension}",
          "d": json.dumps(input_data), "now": datetime.utcnow()},
         connection="WORKBENCH")
     return jid

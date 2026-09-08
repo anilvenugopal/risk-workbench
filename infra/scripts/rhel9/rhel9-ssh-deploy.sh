@@ -19,15 +19,15 @@
 # installs it on RHEL9 for exactly this reason.
 #
 # Usage:
-#   DEPLOY_HOST=dev-user@172.19.253.47 \
-#   DEPLOY_DIR=/opt/risk-workbench \
+#   DEPLOY_HOST=cinreadm@172.19.253.47 \
+#   DEPLOY_DIR=/rms \
 #   SSH_KEY=~/.ssh/risk-workbench-deploy \
 #   ./rhel9-ssh-deploy.sh
 
 set -euo pipefail
 
-DEPLOY_HOST="${DEPLOY_HOST:?set DEPLOY_HOST, e.g. dev-user@172.19.253.47}"
-DEPLOY_DIR="${DEPLOY_DIR:?set DEPLOY_DIR, e.g. /opt/risk-workbench}"
+DEPLOY_HOST="${DEPLOY_HOST:?set DEPLOY_HOST, e.g. cinreadm@172.19.253.47}"
+DEPLOY_DIR="${DEPLOY_DIR:?set DEPLOY_DIR, e.g. /rms}"
 SSH_KEY="${SSH_KEY:?set SSH_KEY, e.g. ~/.ssh/risk-workbench-deploy}"
 PYTHON_PKG="${PYTHON_PKG:-python3.14}"
 
@@ -141,9 +141,9 @@ ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" \
 echo ""
 echo "=== 3. Install dependencies and run migrations (remote) ==="
 # SSH opens the remote shell in the login account's home directory
-# (/home/dev-user), NOT in $DEPLOY_DIR — confirmed the hard way: without
+# (/home/cinreadm), NOT in $DEPLOY_DIR — confirmed the hard way: without
 # this "cd", rhel9-app-install.sh's own precondition check correctly
-# refused to run, reporting 'app' not found in /home/dev-user, since its
+# refused to run, reporting 'app' not found in /home/cinreadm, since its
 # checks use paths relative to wherever it's invoked FROM, not relative to
 # where the script file itself lives. Every earlier manual test worked
 # because we always cd'd into the app directory by hand first — this

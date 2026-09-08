@@ -10,7 +10,7 @@
 # Dramatiq/Redis, since rwb_job is the queue of record (app/workers/dispatch.py).
 #
 # Usage:
-#   APP_DIR=/opt/risk-workbench bash infra/scripts/rhel9/rhel9-drain-check.sh
+#   APP_DIR=/rms bash infra/scripts/rhel9/rhel9-drain-check.sh
 #   DRAIN_TIMEOUT_SECS=600 DRAIN_POLL_INTERVAL_SECS=10 bash ...
 
 set -uo pipefail
@@ -19,7 +19,7 @@ set -uo pipefail
 # Python subprocess's transient connection error instead of letting the next
 # poll retry it.
 
-APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /rms}"
 DRAIN_TIMEOUT_SECS="${DRAIN_TIMEOUT_SECS:-300}"
 DRAIN_POLL_INTERVAL_SECS="${DRAIN_POLL_INTERVAL_SECS:-5}"
 

@@ -208,7 +208,9 @@ class TestQueueBehavior:
         rid = str(uuid.uuid4())
         cleanup_rwb.append(rid)
         job_id = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
-                                 rwb_job_type="upload_edm")
+                                 rwb_job_type="upload_edm",
+                                 link_type="not_applicable", link_id=None,
+                                 context_type=None, context_id=None)
         assert job_id is not None
         assert claim_rwb_job(rwb_job_id=job_id, worker_id="w1") is True
         assert claim_rwb_job(rwb_job_id=job_id, worker_id="w2") is False
@@ -217,9 +219,13 @@ class TestQueueBehavior:
         rid = str(uuid.uuid4())
         cleanup_rwb.append(rid)
         first = enqueue_rwb_job(requestor_type="irp_job", requestor_id=rid,
-                                rwb_job_type="upload_rdm")
+                                rwb_job_type="upload_rdm",
+                                link_type="not_applicable", link_id=None,
+                                context_type=None, context_id=None)
         dup = enqueue_rwb_job(requestor_type="irp_job", requestor_id=rid,
-                              rwb_job_type="upload_rdm")
+                              rwb_job_type="upload_rdm",
+                              link_type="not_applicable", link_id=None,
+                              context_type=None, context_id=None)
         assert first is not None
         assert dup is None
         n = execute_scalar(

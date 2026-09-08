@@ -175,20 +175,20 @@ development work from here on; keep `cloud-user` only as a fallback admin
 account.
 
 ```bash
-sudo useradd -m -s /bin/bash dev-user
-sudo passwd dev-user
-sudo usermod -aG wheel dev-user
+sudo useradd -m -s /bin/bash cinreadm
+sudo passwd cinreadm
+sudo usermod -aG wheel cinreadm
 ```
 
-- `useradd -m -s /bin/bash dev-user` — creates the account with a home
-  directory and bash as the login shell. Replace `dev-user` with whatever
+- `useradd -m -s /bin/bash cinreadm` — creates the account with a home
+  directory and bash as the login shell. Replace `cinreadm` with whatever
   username you want.
-- `passwd dev-user` — sets a login password. A freshly created account has no
+- `passwd cinreadm` — sets a login password. A freshly created account has no
   password and cannot log in until this runs.
-- `usermod -aG wheel dev-user` — adds the account to `wheel`, the RHEL/Fedora
+- `usermod -aG wheel cinreadm` — adds the account to `wheel`, the RHEL/Fedora
   group that grants `sudo` (the RHEL equivalent of Ubuntu's `sudo` group).
 
-`useradd` also assigns `dev-user` a subuid/subgid range (visible in `/etc/subuid`/`/etc/subgid`) —
+`useradd` also assigns `cinreadm` a subuid/subgid range (visible in `/etc/subuid`/`/etc/subgid`) —
 the ID range rootless Podman needs. RHEL9's `/etc/login.defs` sets
 `SUB_UID_COUNT`/`SUB_GID_COUNT` to auto-assign this to every new account.
 See [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md#optional-podman--local-sql-server) for where this matters.
@@ -196,14 +196,14 @@ See [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md#optional-podman--local-sql-ser
 Verify:
 
 ```powershell
-wsl -d RHEL9 -u dev-user
+wsl -d RHEL9 -u cinreadm
 ```
 
 ```bash
 sudo whoami
 ```
 
-This time it should prompt for **dev-user's** password (not passwordless) and
+This time it should prompt for **cinreadm's** password (not passwordless) and
 then print `root`.
 
 ---
@@ -213,7 +213,7 @@ then print `root`.
 - A real RHEL9.8 WSL2 distro named `RHEL9`, separate from your existing
   Ubuntu distro.
 - Registered with Red Hat via your free Developer Subscription.
-- A personal, password-protected, sudo-capable account (`dev-user`) for all
+- A personal, password-protected, sudo-capable account (`cinreadm`) for all
   further work — matching the no-standing-sudo reality of the production
   server.
 

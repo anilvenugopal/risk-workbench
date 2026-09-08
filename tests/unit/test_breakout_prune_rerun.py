@@ -41,11 +41,12 @@ def _mk_job(edm_id: str, portfolio_id: str, actor_id) -> str:
     plan = [{"value": v, "label": None, "name": f"usfl_commercial - {v}",
              "number": f"P1-S-{v}", "accounts": 1} for v in ("FL", "GA")]
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
         "status_code, input_data, attempt_count, inserted_at, updated_at) "
-        "VALUES (:i, 'analyst_request', :r, 'run_breakout_state', 'pending', "
-        ":d, 0, :now, :now)",
-        {"i": jid, "r": portfolio_id,
+        "VALUES (:i, 'analyst_request', :r, 'edm', :edm, 'portfolio', :r, "
+        "'run_breakout_state', 'pending', :d, 0, :now, :now)",
+        {"i": jid, "r": portfolio_id, "edm": edm_id,
          "d": json.dumps({"edm_id": edm_id, "portfolio_id": portfolio_id,
                           "dimension": "state", "actor_id": str(actor_id),
                           "plan": plan}),

@@ -171,6 +171,8 @@ def launch(*, edm_id: Any, portfolio_ids: list[Any], actor_id: Any) -> list[str]
             requestor_type="analyst_request",
             requestor_id=pid,
             rwb_job_type="run_geohaz",
+            link_type="edm", link_id=eid,
+            context_type="portfolio", context_id=pid,
             input_data={
                 "irp_portfolio_id": pid,
                 "irp_edm_id": eid,
