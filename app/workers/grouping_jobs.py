@@ -20,17 +20,13 @@ from sqlalchemy import text
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import _utcnow
 from app.workers import broker, runtime
-from app.workers.analysis_jobs import name_attempt
+from app.workers.analysis_jobs import free_name_attempts
 from app.workers.queues import rwb_actor
 from db import execute_command, execute_one, get_connection, is_unique_violation
 
 logger = logging.getLogger(__name__)
 
 _ = broker.redis_broker
-
-# Bound on total name attempts (claim collisions + duplicate-name retries) —
-# past this many suffixes something other than a collision is wrong.
-MAX_NAME_ATTEMPTS = 25
 
 INSPECTION_CHANGED_REASON = (
     "The member analyses or reference data changed after inspection. "
@@ -48,20 +44,9 @@ def _claim_group(plan: dict) -> dict:
         {"id": group_id}, connection="WORKBENCH")
     claimed = existing
     if claimed is None:
-        attempt = 0
-        while True:
-            if attempt >= MAX_NAME_ATTEMPTS:
-                raise RuntimeError(
-                    f"no free group name after {MAX_NAME_ATTEMPTS} attempts")
-            full_name, name = name_attempt(plan["group_full_name"], attempt)
-            taken = execute_one(
-                "SELECT 1 FROM irp_analysis WHERE submission_id = :sid "
-                "AND name = :n AND deleted_at IS NULL",
-                {"sid": plan["submission_id"], "n": name},
-                connection="WORKBENCH")
-            if taken is not None:
-                attempt += 1
-                continue
+        for _, full_name, name in free_name_attempts(
+                plan["group_full_name"], scope_column="submission_id",
+                scope_value=plan["submission_id"]):
             now = _utcnow()
             try:
                 with get_connection("WORKBENCH") as conn, conn.begin():
@@ -79,7 +64,6 @@ def _claim_group(plan: dict) -> dict:
                         "now": now, "by": plan.get("actor_id")})
             except Exception as exc:  # noqa: BLE001 — a UNIQUE race means the next suffix
                 if is_unique_violation(exc):
-                    attempt += 1
                     continue
                 raise
             claimed = {"id": group_id, "name": name, "full_name": full_name}
@@ -102,21 +86,11 @@ def _claim_group(plan: dict) -> dict:
 
 def _rename_group(plan: dict, group: dict, attempt: int) -> tuple[dict, int]:
     """The duplicate-name retry: move the group row to the next locally-free
-    ``_n`` name (bounded by ``MAX_NAME_ATTEMPTS``) and return it."""
-    while True:
-        attempt += 1
-        if attempt >= MAX_NAME_ATTEMPTS:
-            raise RuntimeError(
-                f"no free group name after {MAX_NAME_ATTEMPTS} attempts")
-        full_name, name = name_attempt(plan["group_full_name"], attempt)
-        if name == group["name"]:
-            continue
-        taken = execute_one(
-            "SELECT 1 FROM irp_analysis WHERE submission_id = :sid "
-            "AND name = :n AND deleted_at IS NULL",
-            {"sid": plan["submission_id"], "n": name}, connection="WORKBENCH")
-        if taken is not None:
-            continue
+    ``_n`` name after ``attempt`` and return it with the attempt taken. The
+    row's own current name reads as taken, so it is never offered again."""
+    for taken, full_name, name in free_name_attempts(
+            plan["group_full_name"], scope_column="submission_id",
+            scope_value=plan["submission_id"], start=attempt + 1):
         try:
             execute_command(
                 "UPDATE irp_analysis SET name = :n, full_name = :f, "
@@ -127,7 +101,7 @@ def _rename_group(plan: dict, group: dict, attempt: int) -> tuple[dict, int]:
             if is_unique_violation(exc):
                 continue
             raise
-        return {**group, "name": name, "full_name": full_name}, attempt
+        return {**group, "name": name, "full_name": full_name}, taken
 
 
 def _grouping_failure_reason(problems) -> str:
@@ -157,6 +131,7 @@ def _submit_grouping_body(rwb_job_id: Any) -> runtime.JobResult:
 
     group = _claim_group(plan)
     submit_kwargs = {
+        "group_name": group["name"],
         "analysis_ids": [m["irp_id"] for m in plan["members"]],
         "currency": plan["currency"],
         "propagate_detailed_losses": plan["propagate_detailed_losses"],
@@ -172,20 +147,19 @@ def _submit_grouping_body(rwb_job_id: Any) -> runtime.JobResult:
         # finalize_analysis resolves the group by name only (T-11).
         while irp_gateway.count_analyses_named(group["name"]) > 0:
             group, attempt = _rename_group(plan, group, attempt)
-        irp_id, request_body = irp_gateway.submit_grouping(
-            group_name=group["name"], **submit_kwargs)
+            submit_kwargs["group_name"] = group["name"]
+        irp_id, request_body = irp_gateway.submit_grouping(**submit_kwargs)
     except Exception as exc:  # noqa: BLE001 — every submit failure is recorded, none retried
         if isinstance(exc, irp_gateway.IRPGroupingValidationError):
             reason = _grouping_failure_reason(exc.problems)
         else:
             reason = str(exc)
         logger.warning("grouping submit failed for %s: %s", group["name"], reason)
-        recorded = {**submit_kwargs, "group_name": group["name"]}
         irp_job_service.record_submission_failure(
             irp_job_type="grouping",
             requested_from_submission_id=plan["submission_id"],
-            irp_analysis_id=group_id, payload=recorded,
-            request_params=recorded, actor_id=plan.get("actor_id"))
+            irp_analysis_id=group_id, payload=submit_kwargs,
+            request_params=submit_kwargs, actor_id=plan.get("actor_id"))
         execute_command(
             "UPDATE irp_analysis SET status_code = 'error', "
             "failure_reason = :r, updated_at = :now WHERE id = :id",
@@ -193,13 +167,12 @@ def _submit_grouping_body(rwb_job_id: Any) -> runtime.JobResult:
             connection="WORKBENCH")
         return runtime.JobResult.fail(reason)
 
-    recorded = {**submit_kwargs, "group_name": group["name"]}
     irp_job_service.record_submitted_irp_job(
         irp_job_type="grouping",
         requested_from_submission_id=plan["submission_id"],
         irp_analysis_id=group_id, irp_id=irp_id,
         payload=request_body, response={"job_id": int(irp_id)},
-        request_params=recorded, actor_id=plan.get("actor_id"))
+        request_params=submit_kwargs, actor_id=plan.get("actor_id"))
     return runtime.JobResult.ok(irp_id=irp_id, group_name=group["name"])
 
 

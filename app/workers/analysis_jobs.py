@@ -48,6 +48,33 @@ def name_attempt(full_name: str, attempt: int) -> tuple[str, str]:
             full_name[:NAME_MAX_LEN - len(suffix)] + suffix)
 
 
+# Bound on total name attempts (claim collisions + duplicate-name retries) —
+# past this many suffixes something other than a collision is wrong.
+MAX_NAME_ATTEMPTS = 25
+
+_NAME_SCOPES = ("edm_id", "submission_id")
+
+
+def free_name_attempts(full_name: str, *, scope_column: str, scope_value: Any,
+                       start: int = 0):
+    """Yield ``(attempt, full_name, name)`` for each collision suffix from
+    ``start`` whose name is not LIVE in the scope — an EDM's analyses or a
+    submission's groups. The probe races with other workers, so a caller that
+    then inserts or renames takes the next value on a unique violation.
+    ``RuntimeError`` past ``MAX_NAME_ATTEMPTS``."""
+    if scope_column not in _NAME_SCOPES:
+        raise ValueError(scope_column)
+    for attempt in range(start, MAX_NAME_ATTEMPTS):
+        full, name = name_attempt(full_name, attempt)
+        taken = execute_one(
+            f"SELECT 1 FROM irp_analysis WHERE {scope_column} = :scope "
+            "AND name = :n AND deleted_at IS NULL",
+            {"scope": str(scope_value), "n": name}, connection="WORKBENCH")
+        if taken is None:
+            yield attempt, full, name
+    raise RuntimeError(f"no free name after {MAX_NAME_ATTEMPTS} attempts")
+
+
 def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
                     execution_id: str, actor_id: str | None) -> dict:
     """Resume-or-claim the ``irp_analysis`` row for one work unit
@@ -63,16 +90,8 @@ def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
         return existing
 
     full = build_full_name(portfolio["name"], item["template_name"])
-    attempt = 0
-    while True:
-        full_name, name = name_attempt(full, attempt)
-        taken = execute_one(
-            "SELECT 1 FROM irp_analysis "
-            "WHERE edm_id = :e AND name = :n AND deleted_at IS NULL",
-            {"e": edm_id, "n": name}, connection="WORKBENCH")
-        if taken is not None:
-            attempt += 1
-            continue
+    for _, full_name, name in free_name_attempts(
+            full, scope_column="edm_id", scope_value=edm_id):
         analysis_id = str(uuid.uuid4())
         now = _utcnow()
         try:
@@ -96,7 +115,6 @@ def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
                     "now": now, "by": actor_id})
         except Exception as exc:  # noqa: BLE001 — a UNIQUE race means try the next suffix
             if is_unique_violation(exc):
-                attempt += 1
                 continue
             raise
         return {"id": analysis_id, "name": name, "full_name": full_name}

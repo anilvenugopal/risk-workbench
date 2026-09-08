@@ -25,7 +25,7 @@ from app.services.analysis_execution_service import (
     _validate_currency,
 )
 from app.workers import dispatch
-from app.workers.analysis_jobs import name_attempt
+from app.workers.analysis_jobs import free_name_attempts
 from db import execute
 
 # Risk Modeler's group simulation periods dropdown (FR-019), also offered per
@@ -153,16 +153,9 @@ def list_eligible_members(submission_id: Any) -> list[GroupMember]:
 def _free_group_name(submission_id: Any, full_name: str) -> tuple[str, str]:
     """The first ``(full_name, submitted_name)`` attempt whose submitted name is
     free among the submission's live group names (T-09)."""
-    attempt = 0
-    while True:
-        full, name = name_attempt(full_name, attempt)
-        taken = execute(
-            "SELECT 1 FROM irp_analysis WHERE submission_id = :sid "
-            "AND name = :n AND deleted_at IS NULL",
-            {"sid": str(submission_id), "n": name}, connection="WORKBENCH")
-        if not taken:
-            return full, name
-        attempt += 1
+    _, full, name = next(free_name_attempts(
+        full_name, scope_column="submission_id", scope_value=submission_id))
+    return full, name
 
 
 def build_group_name(submission_id: Any, submission_name: str) -> str:
