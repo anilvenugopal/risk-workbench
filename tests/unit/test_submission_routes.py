@@ -1505,9 +1505,12 @@ def test_results_fragment_lists_own_rows_across_edms_and_rdm_groups(client):
     # the RDM group row lazy-loads from the submission-scoped fragment route
     assert "Acme Broker RDM" in html
     assert f'hx-get="/submissions/{submission_id}/rdms/{rdm_id}/analyses"' in html
-    # own rows and groups delete from here (spec 012 contracts/routes.md)
+    # own rows and groups delete from here, and this is the only grid that
+    # composes one (spec 012 contracts/routes.md)
     assert "Delete</button>" in html
     assert f'hx-post="/submissions/{submission_id}/analyses/delete"' in html
+    assert "data-group-analyses" in html
+    assert f'hx-get="/submissions/{submission_id}/analyses/group"' in html
     # copy sliver hooks and the Submitted <time data-utc> UTC emit (FR-018/FR-024)
     assert "data-copy-table" in html
     assert 'data-value="Coastal HO"' in html

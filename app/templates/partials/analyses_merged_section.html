@@ -104,7 +104,12 @@
             hx-confirm="Delete the selected analyses? They are also deleted in Risk Modeler. This cannot be undone.">
       Delete</button>
     {% endif %}
-    {% if source_submission is defined and source_submission %}
+    {# Group only on the submission's Results grid: a group row carries
+       submission_id and no edm_id (ck_irp_analysis_origin), so the EDM-scoped
+       section — the one with an ``edm`` in context — could never show the row
+       it just composed. #}
+    {% if source_submission is defined and source_submission
+          and not (edm is defined and edm) %}
     <button class="btn-sm" type="button" onclick="event.stopPropagation()"
             :disabled="count < 2" data-group-analyses
             hx-get="/submissions/{{ source_submission.id }}/analyses/group"

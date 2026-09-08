@@ -383,6 +383,9 @@ def test_contextual_merged_section_holds_both_origins(client, iteration2_db):
     assert (f'hx-get="/submissions/{submission_id}/edms/{edm_id}'
             f'/rdms/{rdm_id}/analyses"') in html
     assert "Broker analyses" not in html  # the separate section is gone (FR-009)
+    # no Group here: a group row carries submission_id and no edm_id, so it
+    # lands in the submission's Results grid, never this one
+    assert "data-group-analyses" not in html
 
 
 def test_contextual_rdm_lazy_rows_use_the_merged_columns(client, iteration2_db):

@@ -31,7 +31,6 @@ from app.services import (
     analysis_service,
     edm_service,
     geohaz_service,
-    grouping_service,
     portfolio_service,
     template_service,
     treaty_service,
@@ -641,8 +640,6 @@ def _analyses_section_partial(request: Request, edm_id: str,
             "This EDM is no longer related to the submission." if submission_id
             else "This EDM no longer exists.")
     execution_id = (request.query_params.get("execution_id") or "").strip() or None
-    grouping_request_id = (request.query_params.get("grouping_request_id")
-                           or "").strip() or None
     base = f"/edms/{edm_id}/analyses" if submission_id is None else (
         f"/submissions/{submission_id}/edms/{edm_id}/analyses")
     sort, descending = analysis_service.sort_from_query(request.query_params)
@@ -655,11 +652,8 @@ def _analyses_section_partial(request: Request, edm_id: str,
                      "sort_desc": descending,
                      "status_filter": _analyses_status_filter(request),
                      "execution_id": execution_id,
-                     "grouping_request_id": grouping_request_id or "",
-                     "execution_live": (
-                         analysis_service.execution_batch_is_live(execution_id)
-                         or grouping_service.grouping_request_is_live(
-                             grouping_request_id)),
+                     "execution_live": analysis_service.execution_batch_is_live(
+                         execution_id),
                      "analyses_table_url": base})
 
 
