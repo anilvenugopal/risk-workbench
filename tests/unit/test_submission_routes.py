@@ -1565,6 +1565,8 @@ def test_results_fragment_status_filter_rides_the_poll_url(client):
             in html)
     assert "No analyses match this status filter." in html
     assert "Acme Broker RDM" in html  # broker groups are unaffected by it
+    # the default order stays out of the poll URL (note 27 D6)
+    assert "sort=" not in html.split("hx-target=\"this\"")[0]
 
 
 def test_submission_rdm_lazy_rows_read_merged_columns(client):
@@ -1592,6 +1594,9 @@ def test_detail_page_includes_the_results_section(client):
     assert 'id="submission-analyses"' in html
     assert ">Results</span>" in html
     assert "Coastal HO" in html
+    # the sort state reaches the section from the full-page context too, not
+    # only from the fragment route (note 27 D6)
+    assert 'class="sort-th"' in html
 
 
 def _summary_children(html: str, row_id: str) -> int:

@@ -265,6 +265,36 @@ def _failed_retrieval(analysis_id: str, detail="RM returned 500 on EP curve"):
         connection="WORKBENCH")
 
 
+def test_merged_section_sort_orders_the_rows_and_carries_the_status_filter(client):
+    edm_id = _seed_edm()
+    for peril in ("WS", "EQ", "FL"):
+        _seed_executed(edm_id=edm_id, name=f"{peril} run",
+                       settings={"perilCode": peril})
+
+    html = client.get(
+        f"/edms/{edm_id}/analyses?status=ready&sort=peril&dir=asc").text
+
+    assert (html.index(">EQ<") < html.index(">FL<") < html.index(">WS<"))
+    # the applied filter rides the sort link, which asks for desc on the next click
+    assert (f'hx-get="/edms/{edm_id}/analyses?status=ready&amp;sort=peril'
+            '&amp;dir=desc"' in html)
+    # the chosen order rides the poll URL and the status select
+    assert (f'hx-get="/edms/{edm_id}/analyses?status=ready&amp;sort=peril'
+            '&amp;dir=asc"' in html)
+
+
+def test_the_headers_are_clickable_from_the_page_and_body_routes_too(client):
+    """Both render the section from a context that carries no sort state — the
+    href is built in the template so they get working links anyway."""
+    edm_id = _seed_edm()
+    _seed_executed(edm_id=edm_id, name="A", settings={"perilCode": "WS"})
+
+    for url in (f"/edms/{edm_id}", f"/edms/{edm_id}/body"):
+        html = client.get(url).text
+        assert 'class="sort-th"' in html, url
+        assert f'/edms/{edm_id}/analyses?sort=peril&amp;dir=asc' in html, url
+
+
 def test_merged_section_columns_and_the_four_aal_states(client):
     edm_id = _seed_edm()
     _seed_executed(edm_id=edm_id, name="With results", loss_results=_extract(),
@@ -279,11 +309,13 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     html = client.get(f"/edms/{edm_id}/analyses").text
 
     # one column set (FR-010) — no EDM column on the EDM page
-    for header in (">Portfolio</span>", ">Template</span>", ">Peril</span>",
-                   ">Region</span>", ">Engine</span>", ">Currency</span>",
+    for header in (">Portfolio</span>", ">Template</span>",
                    ">AAL &middot; Pre-Cat Net</span>", ">Status</span>",
-                   ">Submitted</span>", ">Risk Modeler</span>"):
+                   ">Risk Modeler</span>"):
         assert header in html
+    # the five click-to-sort headers (note 27 D6) name themselves in data-value
+    for label in ("Peril", "Region", "Engine", "Currency", "Submitted"):
+        assert f'<span class="l" data-value="{label}">' in html
     assert ">EDM</span>" not in html
     assert ">Type</span>" not in html            # analysis type moved to the expansion
     # the split name (D4) and the abbreviated peril/region (D2)

@@ -614,6 +614,13 @@ def _analyses_status_filter(request: Request) -> str:
     return status if status in _ANALYSES_STATUS_FILTERS else ""
 
 
+def _analyses_sort(request: Request) -> tuple[str, bool]:
+    """The Analyses grid's ``?sort=``/``?dir=`` pair (note 27 D6). An unknown key
+    reads as the default in ``analysis_service.sort_analyses``."""
+    sort = (request.query_params.get("sort") or "").strip()
+    return sort, (request.query_params.get("dir") or "desc") != "asc"
+
+
 def _analyses_gone_notice(message: str) -> HTMLResponse:
     """The Analyses section with nothing left to poll. Not
     ``analyses_merged_section.html``: that template always emits the ``hx-get``
@@ -645,9 +652,14 @@ def _analyses_section_partial(request: Request, edm_id: str,
                            or "").strip() or None
     base = f"/edms/{edm_id}/analyses" if submission_id is None else (
         f"/submissions/{submission_id}/edms/{edm_id}/analyses")
+    sort, descending = _analyses_sort(request)
     return _partial(request, "partials/analyses_merged_section.html",
                     {"edm": section, "groups": section.rdms,
                      "source_submission": section.submission,
+                     "analyses": analysis_service.sort_analyses(
+                         section.executed_analyses, sort, descending),
+                     "sort": sort,
+                     "sort_desc": descending,
                      "status_filter": _analyses_status_filter(request),
                      "execution_id": execution_id,
                      "grouping_request_id": grouping_request_id or "",

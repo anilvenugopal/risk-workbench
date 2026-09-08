@@ -1301,7 +1301,7 @@ function tableToTsv(dtable) {
   const rows = [];
   const head = dtable.querySelector('.dtable__head');
   if (head) {
-    rows.push([...head.children].slice(1).map((c) => c.textContent.trim()));
+    rows.push([...head.children].slice(1).map(cellValue));
   }
   dtable.querySelectorAll('.drow > summary').forEach((summary) => {
     rows.push([...summary.children].slice(1).map(cellValue));

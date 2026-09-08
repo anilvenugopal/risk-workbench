@@ -304,6 +304,13 @@ def _results_status_filter(request: Request) -> str:
     return status if status in _ANALYSES_STATUS_FILTERS else ""
 
 
+def _analyses_sort(request: Request) -> tuple[str, bool]:
+    """The Analyses grid's ``?sort=``/``?dir=`` pair (note 27 D6). An unknown key
+    reads as the default in ``analysis_service.sort_analyses``."""
+    sort = (request.query_params.get("sort") or "").strip()
+    return sort, (request.query_params.get("dir") or "desc") != "asc"
+
+
 def _results_groups(submission_id: str) -> list:
     """The submission's RDM group rows with their capture liveness, so the
     Results section keeps polling while an RDM's analyses are still landing."""
@@ -318,9 +325,13 @@ def _results_section_context(request: Request, submission_id: str,
                              submission) -> dict:
     grouping_request_id = (request.query_params.get("grouping_request_id")
                            or "").strip() or None
+    sort, descending = _analyses_sort(request)
     return {
-        "analyses": analysis_service.list_submission_executed_analyses(
-            submission_id=submission_id),
+        "analyses": analysis_service.sort_analyses(
+            analysis_service.list_submission_executed_analyses(
+                submission_id=submission_id), sort, descending),
+        "sort": sort,
+        "sort_desc": descending,
         "groups": _results_groups(submission_id),
         "source_submission": submission,
         "show_edm": True,
