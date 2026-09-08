@@ -326,6 +326,16 @@ def test_inspect_offers_a_simulation_set_per_elt_partition_of_a_plt_group(
                       if '"simulation_set_id": 147' in chunk)
     assert "739" not in option_147 and "scheme" not in option_147
     assert html.count('name="event_rate_selection"') == 1  # NA/WS only
+    # both long lists are text-filterable through the shared selectSearch()
+    for name in ("event_rate_selection", "simulation_set_selection"):
+        before = html.split(f'name="{name}"')[0]
+        assert before.endswith(
+            '<div class="ta" x-data="selectSearch()" @click.outside="close()">\n'
+            '                  <select class="wf-field__input" ')
+    # nine fixed values need no filter, so that column stays a plain select
+    assert html.split('name="simulation_periods_selection"')[0].endswith(
+        '<div class="insp-choose">\n'
+        '                <select class="wf-field__input" ')
     assert '<option value="50000" selected>50,000</option>' in html
     assert f'name="expected_inspection_fingerprint" value="{FINGERPRINT}"' in html
     assert "data-inspection-ready" in html

@@ -405,8 +405,11 @@
   align-items: center; font-size: var(--fs-label); color: var(--text-secondary); }
 .insp-facts b { color: var(--text-primary); font-weight: var(--fw-semibold); }
 /* Partition table: one row per peril / region / model-version partition. */
-.insp-table-wrap { border: 1px solid var(--border-default); border-radius: var(--radius-md);
-  overflow-x: auto; }
+/* No overflow of its own: a scroll container clips on both axes, which would
+   cut off the scheme and simulation-set typeahead menus dropping out of a row.
+   The wide table scrolls sideways in .modal-body instead — the same box the
+   currency block's typeahead already opens in on screen 3. */
+.insp-table-wrap { border: 1px solid var(--border-default); border-radius: var(--radius-md); }
 .insp-table { width: 100%; border-collapse: collapse; font-size: var(--fs-label); min-width: 860px; }
 .insp-table .insp-table__key { white-space: nowrap; }
 .insp-table th { background: var(--surface-recessed); font-size: var(--fs-eyebrow);
