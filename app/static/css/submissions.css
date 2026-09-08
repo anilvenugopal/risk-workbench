@@ -121,6 +121,10 @@
 .wf-field__msg { grid-column: 2; font-size: var(--fs-caption); margin-top: 3px; }
 .wf-field__error { color: var(--color-danger); }
 .wf-field__hint { color: var(--text-tertiary); }
+/* A hint the analyst has to act on rather than read past — the same amber the
+   inspection's own prompts use, so one colour means "decide this" throughout
+   the group dialog. */
+.wf-field__hint--warn { color: var(--color-warning); }
 .wf-field__input--error { border-color: var(--color-danger);
   background: var(--color-danger-bg); }
 

@@ -194,7 +194,9 @@
 </div>
 <div id="group-currency" hx-swap-oob="true">
   {{ currency_block('group', 'for this group', 'currency_code', 'currency_scheme', 'currency_vintage', currency_code_val, currency_scheme_val, currency_vintage_val, vintage_options) }}
-  <div class="wf-field__hint" data-currency-hint>
+  {# Amber where the members did not agree: with a currency prefilled there is
+     nothing else on screen to show why Finish stopped here (note 27 D11). #}
+  <div class="wf-field__hint{% if not view.common_currency %} wf-field__hint--warn{% endif %}" data-currency-hint>
     {%- if view.common_currency %}All members ran in {{ view.common_currency }}.
     {%- elif view.currency_unknown %}A member's currency is not recorded. Defaulting to {{ currency_code_val }}.
     {%- else %}Members ran in {{ view.member_currencies|join(' and ') }}. Defaulting to {{ currency_code_val }}.{% endif -%}

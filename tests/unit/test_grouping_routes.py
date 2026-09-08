@@ -170,7 +170,9 @@ def test_inspect_renders_an_elt_group_ready_to_submit(iteration2_db, fake_irp):
     # both members ran in USD: the group currency is prefilled with it
     assert '<div id="group-currency" hx-swap-oob="true">' in response.text
     assert '<option value="USD" selected>' in response.text
-    assert "All members ran in USD." in response.text
+    # grey where the members agree: there is nothing for the analyst to decide
+    assert ('<div class="wf-field__hint" data-currency-hint>'
+            "All members ran in USD.") in response.text
     fingerprint = f"v1:fake-{ctx['irp_ids'][0]},{ctx['irp_ids'][1]}"
     assert f'name="expected_inspection_fingerprint" value="{fingerprint}"' in response.text
     assert response.text.count('name="inspected_analysis_ids"') == 2
@@ -385,7 +387,8 @@ def test_inspect_defaults_the_currency_when_the_members_differ(
 
     assert response.status_code == 200
     assert '<option value="USD" selected>' in response.text
-    assert "Members ran in USD and CAD. Defaulting to USD." in response.text
+    assert ('<div class="wf-field__hint wf-field__hint--warn" data-currency-hint>'
+            "Members ran in USD and CAD. Defaulting to USD.") in response.text
 
 
 def test_inspect_defaults_the_currency_when_a_member_has_none_recorded(
@@ -397,7 +400,8 @@ def test_inspect_defaults_the_currency_when_a_member_has_none_recorded(
 
     assert response.status_code == 200
     assert '<option value="USD" selected>' in response.text
-    assert "A member's currency is not recorded. Defaulting to USD." in response.text
+    assert ('<div class="wf-field__hint wf-field__hint--warn" data-currency-hint>'
+            "A member's currency is not recorded. Defaulting to USD.") in response.text
 
 
 def test_inspect_read_failure_leaves_the_currency_block_alone(
