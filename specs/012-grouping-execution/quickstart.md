@@ -92,9 +92,13 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    partition with their period counts and none preselected, the HD row names
    the PET its member ran on with that PET's period count and offers no
    choice, and Next stays disabled until each dropdown is chosen; changing a scheme
-   dropdown leaves the simulation-set dropdown as it was (FR-021). Every row,
-   the HD row included, also shows a Simulation periods dropdown — the nine
-   Risk Modeler options with 50,000 preselected. Screen 3 shows the Group
+   dropdown leaves the simulation-set dropdown as it was (FR-021). The scheme
+   and simulation-set dropdowns are searchable: type part of a name and the
+   list narrows, pick a row and the choice sticks; open one on the bottom row
+   and the menu is not clipped by the table. Every ELT row also shows a
+   Simulation periods dropdown — the nine Risk Modeler options with 100,000
+   preselected — while the HD row states its PET's own period count as plain
+   text, with no dropdown, as Risk Modeler does (FR-019). Screen 3 shows the Group
    simulation periods dropdown under its own header, the same nine options
    with 50,000 preselected and no member-length hint, and the Inspection
    summary lists the schemes, simulation sets, and simulation periods you
@@ -124,24 +128,24 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    the group itself carries no tag — spec O-07).
 9. Finish (FR-025, US-1 acceptance 6). Tick two finished DLM analyses that
    ran in one currency under one event-rate scheme and click Group, then
-   **Finish** on the Members screen. The wait state shows, then the dialog is
-   replaced by the "Group submitted" pane: Inspection passed, the group name,
-   Output ELT, schemes "No conflicts", Treaties, "USD — all members", and the
-   members. The toast shows, the grid's ticks clear, and the group row
-   appears as in step 3; the pane stays until Close. In `rwb_job.input_data`
+   **Finish** on the Members screen. The wait state shows, then the dialog
+   closes — there is no confirmation pane. The toast shows, the grid's ticks
+   clear, and the group row appears as in step 3 and moves through its
+   statuses: that is the confirmation. In `rwb_job.input_data`
    the currency is the members' code with the env scheme and vintage,
    `num_of_simulations` is 1, `propagate_detailed_losses` true. Finish two
-   finished HD analyses in one currency: the pane shows Output PLT and
-   "Simulation periods 50,000 — group and every partition"; in
-   `rwb_job.input_data` `num_of_simulations` is 50000 and
-   `simulation_periods_selections` holds one entry per partition at 50000.
+   finished HD analyses in one currency: `num_of_simulations` is 50000 and
+   `simulation_periods_selections` is empty, because each partition keeps its
+   members' own PET period count.
    Then Finish each stopping set — two DLMs on different schemes, a DLM + HD
    pair (its ELT partition needs a simulation set), a USD + CAD pair, a
    blocked set — and confirm screen 2 opens with "Finish could not submit
    this group. Review the inspection and continue with Next.", no
    `submit_grouping` job appears, and Next continues to screen 3 as usual.
-   A set with a treaty mismatch only still submits, and the pane shows the
-   mismatch badge with the treaty number.
+   On the USD + CAD stop, the currency hint on screen 3 reads "Members ran in
+   USD and CAD. Defaulting to USD." in amber, not grey — the only thing on
+   that screen saying why Finish stopped; with two members in one currency it
+   stays grey. A set with a treaty mismatch only still submits.
 
 ## 4. IRP sandbox tier — T-11 and SC-002 verification
 

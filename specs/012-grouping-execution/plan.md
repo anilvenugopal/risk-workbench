@@ -72,11 +72,12 @@ per-queue worker framework this feature extends (T-01).
   currency, env scheme and vintage present) — calls `request_grouping` in
   the same request with the members' currency, the env scheme and vintage,
   Propagate ON, and the simulation periods: 1 for an ELT group, 50,000 for
-  the group and every partition of a PLT group
-  (`default_simulation_periods_selections`). A stop renders the inspection as
-  screen 2 with one generic notice; success retargets
-  `group_finish_confirmation.html` at `#group-modal` with the submit's
-  triggers (FR-025, O-14). Treaty mismatches do not stop Finish.
+  the group of a PLT group plus `default_simulation_periods_selections` for
+  the partitions that are not bound to their PET's count. A stop renders the
+  inspection as screen 2 with one generic notice; success answers 204 with the
+  submit's triggers and the Finish button clears the dialog, so the toast and
+  the group row are the confirmation (FR-025, O-14). Treaty mismatches do not
+  stop Finish.
 - The `submit_grouping` actor (`app/workers/grouping_jobs.py`, own CR-04
   queue) claims the group `irp_analysis` row (`is_group=1`,
   `submission_id` set, `edm_id`/`rdm_id` NULL — T-04) plus its
@@ -113,7 +114,7 @@ per-queue worker framework this feature extends (T-01).
 |---|---|
 | Database | `irp_analysis.submission_id` (FK, nullable) + origin CHECK third leg + filtered unique `(submission_id, name)`; new `irp_analysis_group_member` table; `submit_grouping` seeded in `rwb_job_type_kind` (migration, `seed_db.py`, `iteration1_mirror.py`) |
 | Worker | New `app/workers/grouping_jobs.py` (`submit_grouping` actor, own queue; tenant-wide name pre-check; structured failure reasons); `finalize_analysis` gains the group branch (name-only resolution); poller `_GETTERS`/`_TERMINAL_HANDLERS` gain `grouping` |
-| UI | Group button + three-screen compose dialog (`group_compose_modal.html`: members with the chips panel, inspection, settings; reuses `currency_block`, re-rendered per inspection with the members' currency), its `group_inspection.html` screen built by `grouping_view.py`, the `group_submit_errors.html` 422 fragment, and the `group_finish_confirmation.html` pane the Finish route retargets at `#group-modal`; group rows in the submission merged grid and results page; Engine column renders "Group"; the expanded analysis row shows the app analysis id (`analysis_service.ExecutedAnalysis.app_analysis_id` / `BrokerAnalysis.app_analysis_id`) and clamps a group's scheme list to five lines (`details.css`) |
+| UI | Group button + three-screen compose dialog (`group_compose_modal.html`: members with the chips panel, inspection, settings; reuses `currency_block`, re-rendered per inspection with the members' currency), its `group_inspection.html` screen built by `grouping_view.py`, and the `group_submit_errors.html` 422 fragment; group rows in the submission merged grid and results page; Engine column renders "Group"; the expanded analysis row shows the app analysis id (`analysis_service.ExecutedAnalysis.app_analysis_id` / `BrokerAnalysis.app_analysis_id`) and clamps a group's scheme list to five lines (`details.css`) |
 | Library | irp-integration pinned to `0.8.0rc8` (TestPyPI); `irp_gateway` grouping methods replaced by `inspect_grouping` / `submit_grouping` / `get_grouping_job` / `count_analyses_named` over `client.grouping` (+ `FakeIRP`) |
 
 ## High-risk technical decisions

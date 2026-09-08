@@ -117,7 +117,12 @@ Fragment states, all rendered into `#group-inspection`:
   `{"peril_code","region_code","model_version","event_rate_scheme_id"}`, text
   `<label> (<n> members)` and `data-label` the label (`opt.label`, or
   `Scheme <id>` without one); `resolved` (one option) shows that label;
-  `none` shows an em dash. The select carries no `required` attribute — a
+  `none` shows an em dash. This select and the simulation-set one below sit
+  inside a `.ta` container with `x-data="selectSearch()"` and
+  `forms.typeahead_controls(required=false)`, the shared searchable-select
+  enhancement the currency block already uses: the analyst filters the options
+  by typing and the native select stays the posted value.
+  The select carries no `required` attribute — a
   hidden required select would block the browser's submit; the Alpine gate
   and `request_grouping` enforce the choice. When the group output is PLT the
   table gains a Simulation set column. A row carrying
@@ -133,13 +138,18 @@ Fragment states, all rendered into `#group-inspection`:
   region facts, reading `<pet_name> (<periods> periods)` — `PET <id>` when
   the `PETMetadata` lookup named no row, and no period text when the region
   carried no period count. A PLT group's table also has a Simulation periods
-  column: every row carries
+  column. A row whose `fixed_simulation_periods` is set — no simulation-set
+  choice needed and its PLT members all on one PET of a known length — shows
+  that count as a plain `.insp-resolved` with no input at all, so the submit
+  posts nothing for the partition and Risk Modeler keeps the PET's own count
+  (FR-019). Every other row carries
   `<select name="simulation_periods_selection" data-partition="<peril> / <region> / <model version>">`
-  over `grouping_service.SIMULATION_PERIOD_OPTIONS`, `DEFAULT_SIMULATION_PERIODS`
-  (50,000) selected, whose option value is the JSON
+  over `grouping_service.SIMULATION_PERIOD_OPTIONS`,
+  `DEFAULT_PARTITION_SIMULATION_PERIODS` (100,000) selected, whose option value
+  is the JSON
   `{"peril_code","region_code","model_version","simulation_periods"}` and
-  whose `data-label` is the formatted count — HD rows included, independent
-  of the simulation-set select (FR-019). An ELT group has neither column. Then
+  whose `data-label` is the formatted count. This column is a plain select:
+  nine fixed values need no filter. An ELT group has neither column. Then
   the Treaty mismatches
   section: one `.insp-treaty` per `inspection.warnings` entry with
   `code == "inconsistent_treaty_terms"`, each a heading of the Treaty Number,
@@ -169,14 +179,16 @@ Fragment states, all rendered into `#group-inspection`:
   "Group simulation periods" label (an `.exec-section-label`, above the
   control) over the `<select name="num_of_simulations">` listing
   `grouping_service.SIMULATION_PERIOD_OPTIONS` (3,125 … 800,000) with
-  `DEFAULT_SIMULATION_PERIODS` (50,000) selected and the target-length hint;
+  `DEFAULT_GROUP_SIMULATION_PERIODS` (50,000) selected and the target-length hint;
   for an ELT group,
   `<input type="hidden" name="num_of_simulations" value="1">` (FR-019).
   `#group-currency` holds the `currency_block` re-rendered with
   `common_currency` (else the env default code) and a `[data-currency-hint]`
   line: "All members ran in <code>.", "A member's currency is not recorded.
   Defaulting to <default>.", or "Members ran in <codes joined by ' and '>.
-  Defaulting to <default>." (FR-004).
+  Defaulting to <default>." (FR-004). The line carries
+  `wf-field__hint--warn` in the two defaulting cases, where a prefilled
+  currency leaves nothing else on screen to show why Finish stopped.
 
 ## `POST /submissions/{submission_id}/analyses/group/finish`
 
@@ -204,20 +216,17 @@ the same request when nothing is left for the analyst to choose.
   = True`, no scheme or simulation-set selections, and the fingerprint and
   analysis ids from this request's inspection. An ELT group posts
   `num_of_simulations = "1"` and no simulation-periods selections; a PLT group
-  posts `str(DEFAULT_SIMULATION_PERIODS)` and
+  posts `str(DEFAULT_GROUP_SIMULATION_PERIODS)` and
   `grouping_service.default_simulation_periods_selections(view)` — one
-  `simulation_periods_selection` value per partition at 50,000. A gate
+  `simulation_periods_selection` value at
+  `DEFAULT_PARTITION_SIMULATION_PERIODS` for each partition that is not bound
+  to its PET's count, and nothing for the ones that are. A gate
   failure → the inspection partial with `errors` at 422.
-- Success → 200 with `partials/group_finish_confirmation.html` and the
-  headers `HX-Retarget: #group-modal`, `HX-Reswap: innerHTML`, and the same
-  `HX-Trigger` as the submit route (`grouping-submitted` + `rwb:toast`). The
-  pane replaces the dialog and stays until Close: "Group submitted",
-  "Inspection passed.", then Group name (`requested_group_name` — the plan's
-  `group_full_name`, so a collision suffix shows), Output, for a PLT group
-  Simulation periods "50,000 — group and every partition", Event-rate
-  schemes "No conflicts", Treaties (the summary's badge and treaty numbers,
-  or "No mismatches"), Currency "<code> — all members", Propagate detailed
-  output "On", and the members with engine and kind.
+- Success → **204** with the same `HX-Trigger` as the submit route
+  (`grouping-submitted` + `rwb:toast`), and no other header. There is no
+  confirmation pane: the Finish button's own `@htmx:after-request` clears
+  `#group-modal` on a 204, and the toast plus the group row arriving in the
+  grid with live status are the confirmation (note 27 D8).
 
 ## `POST /submissions/{submission_id}/analyses/group`
 

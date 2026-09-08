@@ -19,7 +19,10 @@
   "simulation_set_selections": [
     {"peril_code": "WS", "region_code": "NA", "model_version": "11.0", "simulation_set_id": 147}
   ],
-  "expected_inspection_fingerprint": "v4:<sha256>",
+  "simulation_periods_selections": [
+    {"peril_code": "WS", "region_code": "NA", "model_version": "11.0", "simulation_periods": 100000}
+  ],
+  "expected_inspection_fingerprint": "v5:<sha256>",
   "members": [
     {"analysis_id": "<uuid>", "irp_id": 5630592, "name": "<submitted ≤64 name>", "display_name": "<untruncated name>", "kind": "own"},
     {"analysis_id": "<uuid>", "irp_id": 5630601, "name": "<name>",               "display_name": "<untruncated name>", "kind": "broker"},
@@ -32,10 +35,13 @@
 int). `event_rate_selections` holds one entry per partition the inspection
 marked `event_rate_selection_required`; `simulation_set_selections` one per
 partition marked `simulation_set_selection_required` (the ELT partitions of a
-PLT group); `expected_inspection_fingerprint` is
+PLT group); `simulation_periods_selections` one per partition of a PLT group
+that offered the analyst a choice — a partition bound to its PET's own period
+count has no entry, and Risk Modeler then keeps that count (FR-019);
+`expected_inspection_fingerprint` is
 the `GroupingInspection.fingerprint` the analyst inspected. The worker
 executes this verbatim (AGENTS.md rule 8) — it never re-derives the member
-set, name, currency, simulation count, selections, or fingerprint.
+set, name, currency, simulation counts, selections, or fingerprint.
 
 ## `submit_grouping` worker body (`app/workers/grouping_jobs.py`)
 
@@ -113,7 +119,9 @@ num_of_simulations)` (description and windows omitted), and one
 `EventRateSelection(GroupingPartitionKey(peril_code, region_code,
 model_version), event_rate_scheme_id)` per event-rate selection and one
 `SimulationSetSelection(GroupingPartitionKey(...), simulation_set_id)` per
-simulation-set selection, then calls
+simulation-set selection and one
+`SimulationPeriodsSelection(GroupingPartitionKey(...), simulation_periods)`
+per simulation-periods selection, then calls
 `client.grouping.submit(...)`. Returns `(str(submission.job_id),
 submission.request_body)`. `IRPGroupingValidationError` and `IRPAPIError`
 propagate to the worker.
