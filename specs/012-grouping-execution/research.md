@@ -298,19 +298,28 @@ auto-retry, and the analyst recomposes from the dialog.
 **Engine column value "Group"** (note 20 D8 — the Engine column is how a group
 is disclosed; the name never is). The EDM detail grid is unchanged — a group
 has no EDM. The Group button appears in the merged grid's summary bar on the
-submission page and the submission-contextual EDM page (both know the
-submission); it opens one compose dialog whose member pick-list lists every
-eligible member of the submission — finished own analyses, broker analyses,
-and finished groups — with the grid's ticked rows pre-checked. `/results/analyses`
+submission page only; it opens one compose dialog whose member pick-list lists
+every eligible member of the submission — finished own analyses, broker
+analyses, and finished groups — with the grid's ticked rows pre-checked.
+`/results/analyses`
 needs no ordering change: `ids` order is column order and the existing
 neighbour-swap arrows already operate on whatever ids arrive (FR-016); group
 ids flow through `list_results_columns`, which selects by id with no EDM
 filter.
 
-**Rationale**: O-03 (both entry points, identical grids, submission-scoped
-pick-list) and note 19 D14 (groups exist only at submission level — Ben's own
-constraint). Pre-checking ticked rows but showing the full pick-list resolves
-the EDM-page case where eligible members live in other EDMs.
+**Rationale**: O-03 and note 19 D14 (groups exist only at submission level —
+Ben's own constraint). Pre-checking ticked rows but showing the full pick-list
+lets the analyst reach members that live in other EDMs.
+
+**EDM entry point dropped (2026-09-08)**: O-03 originally offered Group on the
+submission-contextual EDM page too, on the reasoning that the grid knows the
+submission and the pick-list is submission-scoped either way. Observed after
+composing from there: the group never appears. `_EXECUTED_SELECT` filters
+`a.edm_id = :edm_id AND a.execution_id IS NOT NULL`, and a group row has
+neither, so the EDM grid polled for 3s intervals on a `grouping_request_id`
+whose row could only ever land on the submission page. Group now renders only
+where its result does; the EDM page's `grouping_request_id` plumbing and
+`#group-modal` mount are gone with it.
 
 ## Assumptions carried without a decision ID
 

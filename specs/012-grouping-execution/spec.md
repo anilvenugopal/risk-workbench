@@ -46,7 +46,7 @@ Product decisions O-01 to O-14 (all Approved; O-02 Deferred) are tabled below th
 |---|---|---|---|
 | O-01 | Group names follow the `CRE_` analysis-naming conventions (underscore delimiter, `_n` collision suffix), auto-generated from the deal, prefilled in the compose dialog and editable before submit | Approved | PRD §16.4; decided 2026-08-27 |
 | O-02 | Exactly what detail "propagate detailed output" retains (state-level, per-treaty) | Deferred | PRD O11-1 — the setting is passed through; definition owed at the CIC walkthrough, which gates the US2 checkpoint (tasks.md) |
-| O-03 | Compose starts from the merged analyses grid on both the submission page and the EDM detail page (the grids are identical; the pick-list is submission-scoped either way) | Approved | note 17 §4, note 20 D1; decided 2026-08-27 |
+| O-03 | Compose starts from the merged analyses grid on the submission page only — the EDM detail grid never shows a group row, so it cannot show the one it composed | Approved | note 17 §4, note 20 D1; decided 2026-08-27, EDM entry point dropped 2026-09-08 (research.md T-12) |
 | O-04 | This spec owns group rows in the existing results views only; the ordering rework (drag-and-drop) and the O20-10 presentation defects stay with the results-view work | Approved | note 19 D15, note 20 O20-10; decided 2026-08-27 |
 | O-05 | The submission-level IRP tag value is the bare submission name — 011's current behavior kept for now; a structured `submission:<name>` prefix may be revisited | Approved | research.md T-06 and Clarifications, decided 2026-08-27 |
 | O-06 | The analyst picks the scheme per conflicting partition, no default preselected (note 22 O22-1); the simulation periods are a compose input for a PLT group (O-11), 1 for an ELT group | Approved | research.md Clarifications 2026-09-02; CIC walkthrough of the dialog still owed (PRD O11-2 / O15-7) |
@@ -105,7 +105,7 @@ Analysts are not always in the Workbench. Every individual analysis the Workbenc
 
 ## Requirements
 
-- **FR-001**: The analyst can select two or more finished analyses or groups within a submission and compose a grouping from them, starting from the merged analyses grid on either the submission page or the EDM detail page (O-03).
+- **FR-001**: The analyst can select two or more finished analyses or groups within a submission and compose a grouping from them, starting from the merged analyses grid on the submission page (O-03).
 - **FR-002**: The member pick-list is scoped to the current submission; members may span EDMs and RDMs within the submission.
 - **FR-003**: Only finished members are selectable; a grouping submitted with unmet prerequisites is blocked and the blocked state is visible to the analyst.
 - **FR-004**: Currency, currency scheme, and vintage are chosen at group-submit time with the same picker as analysis submission. After inspection the currency is prefilled with the code every member ran in — own analyses and groups from their submit-time settings, broker analyses from their Risk Modeler metadata — and with the env default when the codes differ or a member's currency is unknown; a hint states which. Scheme and vintage are prefilled from the env defaults (O-10).

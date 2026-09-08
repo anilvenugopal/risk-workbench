@@ -295,9 +295,9 @@ one of its members is deleted (data-model §2).
 ## Merged grid changes (`analyses_merged_section.html`)
 
 - Summary bar gains **Group** (`data-group-analyses`), enabled when ≥2 rows
-  are ticked; opens the GET route above with the ticked ids. Rendered only
-  when the section has submission context (submission page and
-  submission-contextual EDM page — T-12).
+  are ticked; opens the GET route above with the ticked ids. Rendered only on
+  the submission page's Results grid — the section with submission context and
+  no `edm` in context (T-12).
 - Group rows render via `executed_analysis_row.html` with: the group name
   spanning the Portfolio and Template tracks (a group has neither; a hidden
   second cell keeps the TSV column count), EDM cell empty, **Engine cell
