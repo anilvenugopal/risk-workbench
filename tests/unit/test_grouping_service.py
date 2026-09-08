@@ -563,16 +563,6 @@ def test_finish_stops_without_a_complete_env_currency_default(
         "The default currency scheme or vintage is not set."]
 
 
-def test_requested_group_name_reads_the_suffixed_name_off_the_plan(
-        iteration2_db):
-    ctx = _submission_with_two_ready(iteration2_db)
-    seed_group(ctx["submission_id"], "CRE_Sub One_Group")
-
-    request_id = _request(ctx, iteration2_db)
-
-    assert svc.requested_group_name(request_id) == "CRE_Sub One_Group_2"
-
-
 def test_inspect_grouping_gate_failure_never_reaches_the_platform(
         iteration2_db, fake_irp):
     ctx = _submission_with_two_ready(iteration2_db)

@@ -537,23 +537,15 @@ def test_finish_inspects_and_submits_a_clean_group_in_the_members_currency(
 
     response = _finish(_client(), ctx)
 
-    assert response.status_code == 200
-    assert response.headers["HX-Retarget"] == "#group-modal"
-    assert response.headers["HX-Reswap"] == "innerHTML"
+    # Finish ends exactly as the Group submit does: nothing to swap, the toast
+    # and the group row are the confirmation (note 27 D8)
+    assert response.status_code == 204
+    assert "HX-Retarget" not in response.headers
+    assert response.text == ""
     trigger = json.loads(response.headers["HX-Trigger"])
-    assert trigger["rwb:toast"]["type"] == "success"
+    assert trigger["rwb:toast"] == {"message": "Grouping submitted.",
+                                    "type": "success"}
     assert fake_irp.grouping_inspects == [ctx["irp_ids"]]
-    # the confirmation pane replaces the dialog
-    assert "Group submitted" in response.text
-    assert "Inspection passed." in response.text
-    assert "<dt>Group name</dt><dd>CRE_Sub One_Group</dd>" in response.text
-    assert "<dt>Output</dt><dd>ELT</dd>" in response.text
-    assert "<dt>Event-rate schemes</dt><dd>No conflicts</dd>" in response.text
-    assert "<dt>Treaties</dt><dd>No mismatches</dd>" in response.text
-    assert "<dt>Currency</dt><dd>USD &mdash; all members</dd>" in response.text
-    assert "Members (2)" in response.text
-    assert "CRE_P1_T1" in response.text and "CRE_P2_T1" in response.text
-    assert ">Close<" in response.text and "GROUP NAME" not in response.text
     # the plan: the members' currency, env scheme and vintage, ELT, Propagate ON
     plan = json.loads(execute(
         "SELECT input_data FROM rwb_job WHERE requestor_id = :r",
@@ -566,13 +558,12 @@ def test_finish_inspects_and_submits_a_clean_group_in_the_members_currency(
     assert plan["event_rate_selections"] == []
     assert plan["simulation_set_selections"] == []
     assert plan["simulation_periods_selections"] == []
-    assert "<dt>Simulation periods</dt>" not in response.text
     assert plan["expected_inspection_fingerprint"] == (
         f"v1:fake-{ctx['irp_ids'][0]},{ctx['irp_ids'][1]}")
     assert [m["irp_id"] for m in plan["members"]] == ctx["irp_ids"]
 
 
-def test_finish_confirmation_names_the_suffixed_group_and_the_treaty_mismatch(
+def test_finish_submits_the_suffixed_name_over_a_treaty_mismatch(
         iteration2_db, fake_irp, env_vintage):
     ctx = _seeded_submission()
     ids = ctx["irp_ids"]
@@ -587,11 +578,13 @@ def test_finish_confirmation_names_the_suffixed_group_and_the_treaty_mismatch(
 
     response = _finish(_client(), ctx)
 
-    assert response.status_code == 200
-    assert response.headers["HX-Retarget"] == "#group-modal"
-    assert "<dt>Group name</dt><dd>CRE_Sub One_Group_2</dd>" in response.text
-    assert ('<dt>Treaties</dt><dd><span class="badge badge--warning badge--sm">1 mismatch</span> '
-            '<span class="tag-empty">XOL-2026-01</span></dd>') in response.text
+    assert response.status_code == 204
+    trigger = json.loads(response.headers["HX-Trigger"])
+    plan = json.loads(execute(
+        "SELECT input_data FROM rwb_job WHERE requestor_id = :r",
+        {"r": trigger["grouping-submitted"]["grouping_request_id"]},
+        connection="WORKBENCH")[0]["input_data"])
+    assert plan["group_full_name"] == "CRE_Sub One_Group_2"
 
 
 def _assert_finish_stopped(response, fake_irp, ctx) -> None:
@@ -600,7 +593,6 @@ def _assert_finish_stopped(response, fake_irp, ctx) -> None:
     assert "HX-Trigger" not in response.headers
     assert ("Finish could not submit this group. Review the inspection and "
             "continue with Next.") in response.text
-    assert "Group submitted" not in response.text
     assert fake_irp.grouping_inspects == [ctx["irp_ids"]]
     _no_grouping_job()
 
@@ -629,12 +621,7 @@ def test_finish_submits_an_hd_group_with_the_default_periods(
 
     response = _finish(_client(), ctx)
 
-    assert response.status_code == 200
-    assert response.headers["HX-Retarget"] == "#group-modal"
-    assert "Group submitted" in response.text
-    assert "<dt>Output</dt><dd>PLT</dd>" in response.text
-    assert ("<dt>Simulation periods</dt><dd>50,000 &mdash; group and every "
-            "partition</dd>") in response.text
+    assert response.status_code == 204
     trigger = json.loads(response.headers["HX-Trigger"])
     plan = json.loads(execute(
         "SELECT input_data FROM rwb_job WHERE requestor_id = :r",

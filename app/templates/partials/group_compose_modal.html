@@ -6,8 +6,8 @@
    #group-inspection; that response also fills #group-summary, #group-sims,
    and #group-currency out of band. Screen 1's Finish posts the same fields
    to the finish route (custom `finish` trigger): a stop renders as screen 2,
-   a success retargets the confirmation pane at #group-modal. The submit's
-   422 lands in #group-submit-errors. #}
+   a success answers 204 and the button closes the dialog, as the submit does.
+   The submit's 422 lands in #group-submit-errors. #}
 {% from "partials/currency_block.html" import currency_block with context %}
 <div class="modal-overlay" @click.self="document.getElementById('group-modal').replaceChildren()">
   <div class="modal-card modal-card--wide modal-card--group" role="dialog" aria-modal="true" aria-labelledby="group-modal-title"
@@ -127,6 +127,7 @@
                 title="Inspect and submit at once when nothing is left to choose"
                 hx-post="{{ finish_url }}" hx-trigger="finish" hx-include="closest form"
                 hx-target="#group-inspection" hx-swap="innerHTML" hx-indicator="#group-inspect-wait"
+                @htmx:after-request="if ($event.detail.elt === $el && $event.detail.xhr.status === 204) document.getElementById('group-modal').replaceChildren()"
                 @click="finish()">Finish</button>
         <button class="modal-btn modal-btn--primary" type="button" x-show="step === 2 && hasInspection" :disabled="!canNext2" @click="toSettings()">Next</button>
         <button class="modal-btn modal-btn--primary" type="submit" x-show="step === 3" :disabled="!canSubmit">Group</button>

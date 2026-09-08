@@ -365,16 +365,6 @@ def request_grouping(
     return grouping_request_id
 
 
-def requested_group_name(grouping_request_id: str) -> str:
-    """The full group name the plan carries — the posted name with any ``_n``
-    collision suffix applied — for the Finish confirmation (FR-025)."""
-    row = execute(
-        "SELECT input_data FROM rwb_job WHERE requestor_type = 'analyst_request' "
-        "AND requestor_id = :id AND rwb_job_type = 'submit_grouping'",
-        {"id": grouping_request_id}, connection="WORKBENCH")
-    return json.loads(row[0]["input_data"])["group_full_name"]
-
-
 def grouping_request_is_live(grouping_request_id: Any | None) -> bool:
     """Whether the named ``submit_grouping`` head is still pending/running —
     keeps the merged grid's 3s poll alive between the compose POST and the
@@ -402,5 +392,4 @@ __all__ = [
     "inspect_grouping",
     "list_eligible_members",
     "request_grouping",
-    "requested_group_name",
 ]

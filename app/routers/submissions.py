@@ -471,8 +471,8 @@ async def group_compose_finish(request: Request, submission_id: str):
     the env scheme and vintage, Propagate ON, and — for a PLT group — the
     default simulation periods for the group and every partition. Otherwise
     the inspection renders as screen 2 with the stop notice, and the analyst
-    continues with Next. Success replaces the dialog with the confirmation
-    pane."""
+    continues with Next. Success ends exactly as the Group submit does: 204,
+    the toast, and the group row."""
     form = await request.form()
     if not validate_csrf_token(form.get("csrf_token")):
         if _is_htmx(request):
@@ -513,15 +513,8 @@ async def group_compose_finish(request: Request, submission_id: str):
     except ExecutionGateError as exc:
         return _partial(request, "partials/group_inspection.html",
                         {"errors": exc.errors}, status_code=422)
-    response = _partial(request, "partials/group_finish_confirmation.html", {
-        "view": view, "screen": build_inspection_screen(view),
-        "group_name": grouping_service.requested_group_name(grouping_request_id),
-        "default_simulation_periods": grouping_service.DEFAULT_SIMULATION_PERIODS,
-    })
-    response.headers["HX-Retarget"] = "#group-modal"
-    response.headers["HX-Reswap"] = "innerHTML"
-    response.headers["HX-Trigger"] = _grouping_submitted_trigger(grouping_request_id)
-    return response
+    return Response(status_code=204, headers={
+        "HX-Trigger": _grouping_submitted_trigger(grouping_request_id)})
 
 
 @router.post("/submissions/{submission_id}/analyses/group")
