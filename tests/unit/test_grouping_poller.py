@@ -37,12 +37,14 @@ def _submitted_group(iteration2_db, fake_irp) -> dict:
            for a in (a1, a2)]
     svc.request_grouping(
         submission_id=submission_id, submission_name="Sub One",
-        member_ids=[a1, a2], group_name="CRE_Sub One_Group",
-        currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
-        num_of_simulations="1", event_rate_selections=[],
-        simulation_set_selections=[], simulation_periods_selections=[],
-        expected_inspection_fingerprint=f"v1:fake-{ids[0]},{ids[1]}",
-        inspected_analysis_ids=[str(i) for i in ids],
+        req=svc.GroupingRequest(
+            member_ids=[a1, a2], group_name="CRE_Sub One_Group",
+            currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
+            propagate_detailed_output=True,
+            num_of_simulations="1", event_rate_selections=[],
+            simulation_set_selections=[], simulation_periods_selections=[],
+            expected_inspection_fingerprint=f"v1:fake-{ids[0]},{ids[1]}",
+            inspected_analysis_ids=[str(i) for i in ids]),
         actor_id=iteration2_db.user_a)
     grouping_jobs.run_pending(worker_id="w1")
     group = execute_one(

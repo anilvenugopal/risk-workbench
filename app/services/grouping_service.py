@@ -28,8 +28,6 @@ from app.workers import dispatch
 from app.workers.analysis_jobs import name_attempt
 from db import execute
 
-KIND_LABELS = {"own": "Own", "broker": "Broker", "group": "Group"}
-
 # Risk Modeler's group simulation periods dropdown (FR-019), also offered per
 # partition of a PLT group; an ELT group submits 1 without a choice.
 SIMULATION_PERIOD_OPTIONS = (
@@ -55,20 +53,13 @@ class GroupMember:
     currency: str | None = None
     app_analysis_id: str | None = None  # RM appAnalysisId — the web UI's id
 
-    @property
-    def kind_label(self) -> str:
-        return KIND_LABELS[self.kind]
-
 
 @dataclass(frozen=True)
 class GroupingInspectionView:
-    """The inspect fragment's context: the package inspection, the picked
-    members keyed by Platform id, and the currency the members share — the
-    group currency prefill, None when the codes differ or one is unknown
-    (FR-004)."""
+    """The inspect fragment's context: the package inspection and the picked
+    members keyed by Platform id."""
     inspection: irp_gateway.GroupingInspection
     members: dict[int, GroupMember]
-    common_currency: str | None = None
 
     @property
     def member_currencies(self) -> tuple[str, ...]:
@@ -79,6 +70,13 @@ class GroupingInspectionView:
     @property
     def currency_unknown(self) -> bool:
         return any(m.currency is None for m in self.members.values())
+
+    @property
+    def common_currency(self) -> str | None:
+        """The currency every member ran in — the group currency prefill;
+        None when the codes differ or one is unknown (FR-004)."""
+        codes = self.member_currencies
+        return codes[0] if len(codes) == 1 and not self.currency_unknown else None
 
 
 _ELIGIBLE_SELECT = """
@@ -204,12 +202,8 @@ def inspect_grouping(*, submission_id: Any,
             analysis_ids=[m.irp_id for m in picked])
     except irp_gateway.IRPIntegrationError as exc:
         raise ExecutionGateError([f"Inspection failed: {exc}"]) from exc
-    currencies = {m.currency for m in picked}
     return GroupingInspectionView(
-        inspection=inspection, members={m.irp_id: m for m in picked},
-        common_currency=(currencies.pop()
-                         if len(currencies) == 1 and None not in currencies
-                         else None))
+        inspection=inspection, members={m.irp_id: m for m in picked})
 
 
 def finish_blockers(view: GroupingInspectionView, *,
@@ -281,6 +275,52 @@ def default_simulation_periods_selections(view: GroupingInspectionView) -> list[
             if fixed_simulation_periods(view.inspection, p) is None]
 
 
+@dataclass(frozen=True)
+class GroupingRequest:
+    """The compose form as posted (contracts/routes.md — POST .../group).
+    Finish builds one from the inspection and the env defaults instead."""
+    member_ids: list[str]
+    group_name: str
+    currency_code: str
+    currency_scheme: str
+    currency_vintage: str
+    propagate_detailed_output: bool
+    num_of_simulations: str
+    event_rate_selections: list[str]
+    simulation_set_selections: list[str]
+    simulation_periods_selections: list[str]
+    expected_inspection_fingerprint: str
+    inspected_analysis_ids: list[str]
+
+    @classmethod
+    def from_form(cls, form) -> GroupingRequest:
+        return cls(
+            member_ids=form.getlist("member_ids"),
+            group_name=form.get("group_name", ""),
+            currency_code=form.get("currency_code", ""),
+            currency_scheme=form.get("currency_scheme", ""),
+            currency_vintage=form.get("currency_vintage", ""),
+            propagate_detailed_output=form.get("propagate_detailed_output") is not None,
+            num_of_simulations=form.get("num_of_simulations", ""),
+            event_rate_selections=form.getlist("event_rate_selection"),
+            simulation_set_selections=form.getlist("simulation_set_selection"),
+            simulation_periods_selections=form.getlist("simulation_periods_selection"),
+            expected_inspection_fingerprint=form.get(
+                "expected_inspection_fingerprint", ""),
+            inspected_analysis_ids=form.getlist("inspected_analysis_ids"))
+
+
+@dataclass(frozen=True)
+class _ValidGrouping:
+    picked: list[GroupMember]
+    group_name: str
+    currency: dict
+    simulations: int
+    event_rate_selections: list[dict]
+    simulation_set_selections: list[dict]
+    simulation_periods_selections: list[dict]
+
+
 _SELECTION_KEY = ("peril_code", "region_code", "model_version")
 
 
@@ -310,19 +350,9 @@ def _parse_selections(raw: list[str], value_key: str) -> list[dict] | None:
     return selections
 
 
-def request_grouping(
-    *, submission_id: Any, submission_name: str, member_ids: list[str],
-    group_name: str, currency_code: str = "", currency_scheme: str = "",
-    currency_vintage: str = "", propagate_detailed_output: bool = True,
-    num_of_simulations: str, event_rate_selections: list[str],
-    simulation_set_selections: list[str], simulation_periods_selections: list[str],
-    expected_inspection_fingerprint: str, inspected_analysis_ids: list[str],
-    actor_id: Any,
-) -> str:
-    """Validate the posted selection, compose the plan once, persist it on a
-    fresh ``submit_grouping`` ``rwb_job`` and dispatch. Raises
-    ``ExecutionGateError`` on any validation failure — no partial persistence
-    (SC-005). Returns the new ``grouping_request_id``.
+def _validate(submission_id: Any, req: GroupingRequest) -> _ValidGrouping:
+    """The posted selection checked against stored state, every failure
+    collected into one ``ExecutionGateError``.
 
     Which partitions require an event-rate or simulation-set selection, and
     whether the group is PLT and so takes per-partition simulation periods, is
@@ -332,50 +362,64 @@ def request_grouping(
     ``SIMULATION_PERIOD_OPTIONS`` passes; whether the group is ELT or PLT is
     the package's check."""
     errors: list[str] = []
-    picked = _pick_members(submission_id, member_ids, errors)
+    picked = _pick_members(submission_id, req.member_ids, errors)
     irp_ids = sorted(m.irp_id for m in picked if m.irp_id is not None)
     try:
-        inspected = sorted(int(i) for i in inspected_analysis_ids)
+        inspected = sorted(int(i) for i in req.inspected_analysis_ids)
     except ValueError:
         inspected = []
     if irp_ids != inspected:
         errors.append("Members changed since inspection. Inspect again.")
-    if not expected_inspection_fingerprint.strip():
+    if not req.expected_inspection_fingerprint.strip():
         errors.append("Inspect the members before grouping.")
     try:
-        simulations = int(num_of_simulations.strip())
+        simulations = int(req.num_of_simulations.strip())
     except ValueError:
         simulations = 0
     if simulations != 1 and simulations not in SIMULATION_PERIOD_OPTIONS:
         errors.append("Choose one of the offered simulation period counts.")
-    selections = _parse_selections(event_rate_selections, "event_rate_scheme_id")
+    selections = _parse_selections(req.event_rate_selections, "event_rate_scheme_id")
     if selections is None:
         errors.append("Choose an event-rate scheme for every conflicting partition.")
-    simulation_sets = _parse_selections(simulation_set_selections, "simulation_set_id")
+    simulation_sets = _parse_selections(req.simulation_set_selections,
+                                        "simulation_set_id")
     if simulation_sets is None:
         errors.append("Choose a simulation set for every partition converted "
                       "from ELT to PLT.")
-    simulation_periods = _parse_selections(simulation_periods_selections,
+    simulation_periods = _parse_selections(req.simulation_periods_selections,
                                            "simulation_periods")
     if simulation_periods is None or any(
             s["simulation_periods"] not in SIMULATION_PERIOD_OPTIONS
             for s in simulation_periods):
         errors.append("Choose one of the offered simulation period counts for "
                       "every partition.")
-    group_name = group_name.strip()
+    group_name = req.group_name.strip()
     if not group_name:
         errors.append("Enter a group name.")
     currency, currency_error = _validate_currency(
-        currency_code, currency_scheme, currency_vintage)
+        req.currency_code, req.currency_scheme, req.currency_vintage)
     if currency_error:
         errors.append(currency_error)
     if errors:
         raise ExecutionGateError(errors)
+    return _ValidGrouping(
+        picked=picked, group_name=group_name, currency=currency,
+        simulations=simulations, event_rate_selections=selections,
+        simulation_set_selections=simulation_sets,
+        simulation_periods_selections=simulation_periods)
 
+
+def request_grouping(*, submission_id: Any, submission_name: str,
+                     req: GroupingRequest, actor_id: Any) -> str:
+    """Validate the posted selection, compose the plan once, persist it on a
+    fresh ``submit_grouping`` ``rwb_job`` and dispatch. Raises
+    ``ExecutionGateError`` on any validation failure — no partial persistence
+    (SC-005). Returns the new ``grouping_request_id``."""
+    valid = _validate(submission_id, req)
     # A collision with a live group name is not an error — the ``_n`` suffix
     # applies automatically (contracts/routes.md); the worker re-checks under
     # its own claim anyway.
-    group_full_name, _ = _free_group_name(submission_id, group_name)
+    group_full_name, _ = _free_group_name(submission_id, valid.group_name)
     grouping_request_id = str(uuid.uuid4())
     plan = {
         "grouping_request_id": grouping_request_id,
@@ -384,17 +428,17 @@ def request_grouping(
         "submission_name": submission_name,
         "group_full_name": group_full_name,
         "actor_id": (str(actor_id) if actor_id is not None else None),
-        "currency": currency,
-        "propagate_detailed_losses": bool(propagate_detailed_output),
-        "num_of_simulations": simulations,
-        "event_rate_selections": selections,
-        "simulation_set_selections": simulation_sets,
-        "simulation_periods_selections": simulation_periods,
-        "expected_inspection_fingerprint": expected_inspection_fingerprint.strip(),
+        "currency": valid.currency,
+        "propagate_detailed_losses": bool(req.propagate_detailed_output),
+        "num_of_simulations": valid.simulations,
+        "event_rate_selections": valid.event_rate_selections,
+        "simulation_set_selections": valid.simulation_set_selections,
+        "simulation_periods_selections": valid.simulation_periods_selections,
+        "expected_inspection_fingerprint": req.expected_inspection_fingerprint.strip(),
         "members": [
             {"analysis_id": m.id, "irp_id": m.irp_id, "name": m.name,
              "display_name": m.display_name, "kind": m.kind}
-            for m in picked
+            for m in valid.picked
         ],
     }
     job_id = rwb_job_service.enqueue_rwb_job(

@@ -45,9 +45,7 @@ from irp_integration.grouping import (
     GroupingPartition,
     GroupingPartitionKey,
     GroupingProblem,
-    GroupingProblemCode,
     GroupingRegionFact,
-    GroupingSimulationMapping,
     GroupingTreaty,
     SimulationSetOption,
 )
@@ -1535,7 +1533,7 @@ __all__ = [
     "count_analyses_named", "get_analysis_by_name_only",
     "GroupingInspection", "GroupingMember", "GroupingRegionFact",
     "GroupingPartition", "GroupingPartitionKey", "EventRateSchemeOption",
-    "GroupingProblem", "GroupingProblemCode", "GroupingSimulationMapping",
+    "GroupingProblem",
     "GroupingTreaty", "SimulationSetOption",
     "IRPIntegrationError", "IRPGroupingValidationError",
 ]

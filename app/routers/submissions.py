@@ -499,24 +499,25 @@ async def group_compose_finish(request: Request, submission_id: str):
         return _partial(request, "partials/group_inspection.html",
                         {**_inspection_context(view), "finish_stopped": True})
     plt = view.inspection.output_loss_table == "PLT"
+    req = grouping_service.GroupingRequest(
+        member_ids=member_ids, group_name=form.get("group_name", ""),
+        currency_code=view.common_currency,
+        currency_scheme=defaults["scheme"],
+        currency_vintage=defaults["vintage"],
+        propagate_detailed_output=True,
+        num_of_simulations=(
+            str(grouping_service.DEFAULT_GROUP_SIMULATION_PERIODS)
+            if plt else "1"),
+        event_rate_selections=[], simulation_set_selections=[],
+        simulation_periods_selections=(
+            grouping_service.default_simulation_periods_selections(view)
+            if plt else []),
+        expected_inspection_fingerprint=view.inspection.fingerprint,
+        inspected_analysis_ids=[str(i) for i in view.inspection.analysis_ids])
     try:
         grouping_request_id = grouping_service.request_grouping(
             submission_id=submission.id, submission_name=submission.name,
-            member_ids=member_ids, group_name=form.get("group_name", ""),
-            currency_code=view.common_currency,
-            currency_scheme=defaults["scheme"],
-            currency_vintage=defaults["vintage"],
-            propagate_detailed_output=True,
-            num_of_simulations=(
-                str(grouping_service.DEFAULT_GROUP_SIMULATION_PERIODS)
-                if plt else "1"),
-            event_rate_selections=[], simulation_set_selections=[],
-            simulation_periods_selections=(
-                grouping_service.default_simulation_periods_selections(view)
-                if plt else []),
-            expected_inspection_fingerprint=view.inspection.fingerprint,
-            inspected_analysis_ids=[str(i) for i in view.inspection.analysis_ids],
-            actor_id=request.state.user.id)
+            req=req, actor_id=request.state.user.id)
     except ExecutionGateError as exc:
         return _partial(request, "partials/group_inspection.html",
                         {"errors": exc.errors}, status_code=422)
@@ -537,20 +538,7 @@ async def group_compose_submit(request: Request, submission_id: str):
     try:
         grouping_request_id = grouping_service.request_grouping(
             submission_id=submission.id, submission_name=submission.name,
-            member_ids=form.getlist("member_ids"),
-            group_name=form.get("group_name", ""),
-            currency_code=form.get("currency_code", ""),
-            currency_scheme=form.get("currency_scheme", ""),
-            currency_vintage=form.get("currency_vintage", ""),
-            propagate_detailed_output=(
-                form.get("propagate_detailed_output") is not None),
-            num_of_simulations=form.get("num_of_simulations", ""),
-            event_rate_selections=form.getlist("event_rate_selection"),
-            simulation_set_selections=form.getlist("simulation_set_selection"),
-            simulation_periods_selections=form.getlist("simulation_periods_selection"),
-            expected_inspection_fingerprint=form.get(
-                "expected_inspection_fingerprint", ""),
-            inspected_analysis_ids=form.getlist("inspected_analysis_ids"),
+            req=grouping_service.GroupingRequest.from_form(form),
             actor_id=request.state.user.id)
     except ExecutionGateError as exc:
         # Retargeted at screen 3's error slot because htmx drops a non-2xx

@@ -21,7 +21,6 @@ from app.services.irp_gateway import (
     GroupingPartitionKey,
     GroupingRegionFact,
     GroupingTreaty,
-    SimulationSetOption,
 )
 from app.services.treaty_service import display_value, humanize_key
 
@@ -219,7 +218,12 @@ def _row(view: GroupingInspectionView, part: GroupingPartition) -> PartitionRow:
         mode=mode, options=options,
         simulation_set_required=part.simulation_set_selection_required,
         simulation_set_options=tuple(
-            _simulation_set(partition, opt) for opt in part.simulation_set_options),
+            SimulationSetChoice(
+                simulation_set_id=opt.simulation_set_id,
+                label=opt.label or f"Simulation set {opt.simulation_set_id}",
+                simulation_periods=opt.simulation_periods,
+                value={**partition, "simulation_set_id": opt.simulation_set_id})
+            for opt in part.simulation_set_options),
         observed_pets=_observed_pets(facts),
         fixed_simulation_periods=fixed_simulation_periods(view.inspection, part))
 
@@ -233,14 +237,6 @@ def _observed_pets(facts: list[GroupingRegionFact]) -> tuple[ObservedPet, ...]:
                 label=fact.pet_name or f"PET {fact.pet_id}",
                 simulation_periods=fact.periods))
     return tuple(pets[pet_id] for pet_id in sorted(pets))
-
-
-def _simulation_set(partition: dict, opt: SimulationSetOption) -> SimulationSetChoice:
-    return SimulationSetChoice(
-        simulation_set_id=opt.simulation_set_id,
-        label=opt.label or f"Simulation set {opt.simulation_set_id}",
-        simulation_periods=opt.simulation_periods,
-        value={**partition, "simulation_set_id": opt.simulation_set_id})
 
 
 __all__ = [

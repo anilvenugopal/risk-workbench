@@ -186,7 +186,7 @@
     <div>
       <span title="{{ member.display_name if member else id }}">{{ member.display_name if member else id }}</span>
       {% if member and member.engine %}<span class="exec-summary">{{ member.engine }}</span>{% endif %}
-      {% if member %}<span class="badge badge--neutral badge--sm">{{ member.kind_label|lower }}</span>{% endif %}
+      {% if member %}<span class="badge badge--neutral badge--sm">{{ member.kind }}</span>{% endif %}
     </div>
     {% endfor %}
   </div>

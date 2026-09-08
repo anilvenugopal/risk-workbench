@@ -49,15 +49,16 @@ def _composed_grouping(iteration2_db, group_name: str = "CRE_Sub One_Group",
     ids = [_irp(a1), _irp(a2)]
     request_id = svc.request_grouping(
         submission_id=submission_id, submission_name="Sub One",
-        member_ids=[a1, a2], group_name=group_name,
-        currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
-        propagate_detailed_output=True,
-        num_of_simulations="50000",
-        event_rate_selections=[json.dumps(_SELECTION)],
-        simulation_set_selections=[], simulation_periods_selections=[],
-        expected_inspection_fingerprint=(
-            fingerprint or f"v1:fake-{ids[0]},{ids[1]}"),
-        inspected_analysis_ids=[str(i) for i in ids],
+        req=svc.GroupingRequest(
+            member_ids=[a1, a2], group_name=group_name,
+            currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
+            propagate_detailed_output=True,
+            num_of_simulations="50000",
+            event_rate_selections=[json.dumps(_SELECTION)],
+            simulation_set_selections=[], simulation_periods_selections=[],
+            expected_inspection_fingerprint=(
+                fingerprint or f"v1:fake-{ids[0]},{ids[1]}"),
+            inspected_analysis_ids=[str(i) for i in ids]),
         actor_id=iteration2_db.user_a)
     job = execute_one(
         "SELECT id, input_data FROM rwb_job WHERE requestor_id = :r",
@@ -236,14 +237,15 @@ def test_worker_submits_the_simulation_sets_beside_the_scheme_and_fingerprint(
                   "simulation_periods": 100000}
     svc.request_grouping(
         submission_id=submission_id, submission_name="Sub One",
-        member_ids=ctx["member_ids"], group_name="CRE_Sub One_Group",
-        currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
-        propagate_detailed_output=True, num_of_simulations="50000",
-        event_rate_selections=[json.dumps(ws_scheme)],
-        simulation_set_selections=[json.dumps(ws_set), json.dumps(eq_set)],
-        simulation_periods_selections=[json.dumps(jp_periods)],
-        expected_inspection_fingerprint=FINGERPRINT,
-        inspected_analysis_ids=[str(i) for i in ctx["irp_ids"]],
+        req=svc.GroupingRequest(
+            member_ids=ctx["member_ids"], group_name="CRE_Sub One_Group",
+            currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
+            propagate_detailed_output=True, num_of_simulations="50000",
+            event_rate_selections=[json.dumps(ws_scheme)],
+            simulation_set_selections=[json.dumps(ws_set), json.dumps(eq_set)],
+            simulation_periods_selections=[json.dumps(jp_periods)],
+            expected_inspection_fingerprint=FINGERPRINT,
+            inspected_analysis_ids=[str(i) for i in ctx["irp_ids"]]),
         actor_id=iteration2_db.user_a)
 
     assert grouping_jobs.run_pending(worker_id="w1") == 1

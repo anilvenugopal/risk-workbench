@@ -57,7 +57,7 @@
                     <input type="checkbox" name="member_ids" value="{{ m.id }}" data-display="{{ m.display_name }}"{% if m.id in preselected %} checked{% endif %}>
                     <span title="{{ m.display_name }}">{{ m.display_name }}</span>
                     {% if m.engine %}<span class="exec-summary">{{ m.engine }}</span>{% endif %}
-                    <span class="badge badge--neutral badge--sm">{{ m.kind_label|lower }}</span>
+                    <span class="badge badge--neutral badge--sm">{{ m.kind }}</span>
                   </label>
                   {% endfor %}
                 </div>

@@ -63,8 +63,7 @@ def _inspected(member_ids: list[str]) -> list[str]:
 
 def _request(ctx, iteration2_db, member_ids=None, **overrides) -> str:
     member_ids = member_ids or [ctx["a1"], ctx["a2"]]
-    kwargs = {
-        "submission_id": ctx["submission_id"], "submission_name": "Sub One",
+    fields = {
         "member_ids": member_ids,
         "group_name": "CRE_Sub One_Group",
         "currency_code": "USD", "currency_scheme": "RMS",
@@ -73,10 +72,11 @@ def _request(ctx, iteration2_db, member_ids=None, **overrides) -> str:
         "simulation_set_selections": [], "simulation_periods_selections": [],
         "expected_inspection_fingerprint": _FINGERPRINT,
         "inspected_analysis_ids": _inspected(member_ids),
-        "actor_id": iteration2_db.user_a,
     }
-    kwargs.update(overrides)
-    return svc.request_grouping(**kwargs)
+    fields.update(overrides)
+    return svc.request_grouping(
+        submission_id=ctx["submission_id"], submission_name="Sub One",
+        req=svc.GroupingRequest(**fields), actor_id=iteration2_db.user_a)
 
 
 def _no_rwb_job() -> None:
