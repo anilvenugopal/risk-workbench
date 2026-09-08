@@ -298,9 +298,11 @@ one of its members is deleted (data-model §2).
   are ticked; opens the GET route above with the ticked ids. Rendered only
   when the section has submission context (submission page and
   submission-contextual EDM page — T-12).
-- Group rows render via `executed_analysis_row.html` with: Portfolio/Template
-  cells empty (a group has neither), EDM cell empty, **Engine cell "Group"**
-  (FR-014), Currency/AAL/Status/Submitted/Risk Modeler as for any analysis.
+- Group rows render via `executed_analysis_row.html` with: the group name
+  spanning the Portfolio and Template tracks (a group has neither; a hidden
+  second cell keeps the TSV column count), EDM cell empty, **Engine cell
+  "Group"** (FR-014), Currency/AAL/Status/Submitted/Risk Modeler as for any
+  analysis.
   Group rows are selectable for View (FR-015) and for further grouping
   (FR-018), and deletable when `is_deletable`.
 

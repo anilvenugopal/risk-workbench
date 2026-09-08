@@ -1,15 +1,11 @@
 # Feature Specification: Grouping
 
 **Branch**: `012-grouping-execution` | **Created**: 2026-08-27
+**Phase**: Implementing | **Blocking**: the IRP sandbox run of `tests/irp/test_grouping.py` (T020/T022) before T-11 is validated
 
 <!-- Product only. Design → plan.md. Schema → data-model.md. Evidence and
      rejected options → research.md. Everything above the `---` is what a
      reviewer reads to decide: keep it under 40 lines. -->
-
-## Status
-
-**Phase:** Draft
-**Blocking:** Nothing
 
 ## Outcome
 
@@ -40,7 +36,11 @@ An analyst combines finished analyses and groups within a submission into a sing
 5. Currency, scheme, and vintage are confirmed by the analyst at each group submit with env-var defaults — never stored configuration.
 6. Loss-affecting treaty terms sharing a Treaty Number are compared at inspection; every mismatch is shown as a table of the compared treaties with the values that differ, and never blocks the submit.
 
-## Open product decisions
+Product decisions O-01 to O-14 (all Approved; O-02 Deferred) are tabled below the line under [Product decisions](#product-decisions).
+
+---
+
+## Product decisions
 
 | ID | Decision | Status | Where |
 |---|---|---|---|
@@ -52,14 +52,12 @@ An analyst combines finished analyses and groups within a submission into a sing
 | O-06 | The analyst picks the scheme per conflicting partition, no default preselected (note 22 O22-1); the simulation periods are a compose input for a PLT group (O-11), 1 for an ELT group | Approved | research.md Clarifications 2026-09-02; CIC walkthrough of the dialog still owed (PRD O11-2 / O15-7) |
 | O-07 | Groups are submitted without the submission tag: the platform grouping job schema has no tag field and no endpoint tags an analysis after creation. Member analyses still carry the tag. Revisit if Moody's adds a tagging endpoint | Approved | research.md T-07 and Clarifications, decided 2026-08-27 |
 | O-08 | Risk Modeler's Create independent groups checkbox is not carried over: CIC never enables it, and the results views already show a group beside its member analyses. The compose settings are the currency block, Propagate detailed output, and the simulation count | Approved | research.md T-08 and Clarifications, decided 2026-08-27 |
-| O-09 | Members are identified by Platform analysis ID (`irp_analysis.irp_id`; names duplicate tenant-wide, note 22 O22-16). Inspection runs before submit and blocks with structured problems; submission re-inspects and fails the job with `inspection_changed` when facts changed. Treaty term mismatches are listed and never block (FR-020) | Approved | research.md T-03, T-10 and Clarifications 2026-09-02, 2026-09-03 |
+| O-09 | Members are identified by Platform analysis ID (`irp_analysis.irp_id`; names duplicate tenant-wide). Inspection runs before submit and blocks with structured problems; the job fails with `inspection_changed` when facts changed; treaty mismatches never block (FR-020) | Approved | research.md T-03, T-10 and Clarifications 2026-09-02, 2026-09-03 |
 | O-10 | The group currency is prefilled with the currency code every member ran in; when the codes differ or a member's currency is unknown, the env default (USD) is prefilled. Scheme and vintage stay the env defaults either way. Neither Risk Modeler's empty-and-blocked field nor a fixed USD default | Approved | note 26 D7; research.md Clarifications 2026-09-04; decided 2026-09-04 |
-| O-11 | Simulation periods are chosen from Risk Modeler's fixed list — 3,125, 6,250, 12,500, 25,000, 50,000, 100,000, 200,000, 400,000, 800,000 — twice over for a PLT group: per partition on the Inspection screen, preselected at 100,000, and for the group on the Settings screen, preselected at 50,000. A partition whose PLT members all ran on one PET of a known length shows that length read-only instead of a dropdown, as Risk Modeler does. No member-length hint | Approved | note 26 D18, note 27 D19/D20; research.md Clarifications 2026-09-04; decided 2026-09-04 |
+| O-11 | Simulation periods come from Risk Modeler's fixed list (FR-019): per partition of a PLT group on the Inspection screen, preselected at 100,000, and for the group on the Settings screen, preselected at 50,000; a partition whose PLT members all ran on one PET shows that length read-only | Approved | note 26 D18, note 27 D19/D20; research.md Clarifications 2026-09-04; decided 2026-09-04 |
 | O-12 | Wherever the Workbench shows an analysis id to the analyst — the expanded analysis row, the inspection treaty table — it is Risk Modeler's app analysis id (`irp_app_analysis_id`, the id the Risk Modeler UI shows), read from the column, else the stored metadata's `appAnalysisId`, else an em dash; never the Platform `analysisId` | Approved | note 26 D15; decided 2026-09-04; further placements held by CIC for the 9/4 call |
 | O-13 | The compose dialog's selected members are shown as a chips panel beside the pick-list, each chip removable; the pick-list keeps its order and its unselected rows (CIC's move-ticked-rows-to-top ask is met by the panel) | Approved | note 26 D13/D14; decided 2026-09-04 |
-| O-14 | Finish on the Members screen inspects and submits in one request with every setting defaulted (members' currency, env scheme and vintage, Propagate ON; for a PLT group 50,000 simulation periods for the group and the partition default for each partition still offering a choice). It stops — landing on the Inspection screen with one generic notice — when the inspection blocks, a partition needs a scheme or simulation-set choice, the members' currency codes differ or one is unknown, or the env scheme/vintage default is missing. Treaty mismatches do not stop it. Success closes the dialog with the same toast and grid refresh as Group — no confirmation pane: the analyst reads the outcome off the group row, which appears with live status | Approved | note 26 D8–D10, note 27 D8; research.md Clarifications 2026-09-04; decided 2026-09-04 |
-
----
+| O-14 | Finish on the Members screen inspects and submits in one request with every setting defaulted (FR-025). It stops on the Inspection screen with one generic notice when any choice is left to the analyst or a default is missing; treaty mismatches do not stop it. Success closes the dialog with the same toast and grid refresh as Group | Approved | note 26 D8–D10, note 27 D8; research.md Clarifications 2026-09-04; decided 2026-09-04 |
 
 ## User Stories
 
@@ -83,7 +81,7 @@ CIC's common case: two North-America windstorm DLM analyses run under different 
 **Acceptance**
 
 1. **Given** two finished DLM analyses with different event-rate schemes, **When** the analyst inspects them, **Then** the dialog shows one choice per conflicting partition listing only the members' schemes, and Group stays disabled until every choice is made.
-2. **Given** a finished DLM analysis and a finished HD analysis, **When** the analyst inspects them, **Then** the dialog shows the group output as PLT, a Simulation periods dropdown on every partition row with 50,000 preselected, and on the Settings screen the Group simulation periods dropdown with 50,000 preselected; the Settings screen lists the schemes, simulation sets, and simulation periods chosen.
+2. **Given** a finished DLM analysis and a finished HD analysis, **When** the analyst inspects them, **Then** the dialog shows the group output as PLT, a Simulation periods dropdown on every partition row with 100,000 preselected, and on the Settings screen the Group simulation periods dropdown with 50,000 preselected; the Settings screen lists the schemes, simulation sets, and simulation periods chosen.
 3. **Given** a member set that cannot be grouped, **When** the analyst inspects it, **Then** the dialog names the problem with the members, partition, and PET IDs involved, and nothing is submitted.
 4. **Given** member facts that changed between inspection and submit, **When** the grouping job runs, **Then** it fails with a reason telling the analyst to inspect again, and no group is created.
 
@@ -130,7 +128,7 @@ Analysts are not always in the Workbench. Every individual analysis the Workbenc
 - **FR-021**: When the group output is PLT, the analyst chooses a simulation set for each ELT peril/region/model-version partition from the platform's sets for that partition, shown by name and period count; no set is preselected, the choice is independent of the event-rate scheme, and a PLT/HD partition keeps the PET its members ran on, named with its period count and not offered as a choice. A partition with no available set blocks the inspection.
 - **FR-022**: The compose dialog's Members screen shows the selected members as a chips panel beside the pick-list, one chip per ticked member with a remove control that unticks it; the pick-list keeps its order and its unselected rows (O-13).
 - **FR-023**: The expanded analysis row's Analysis id is the Risk Modeler app analysis id — the column, else the metadata snapshot's `appAnalysisId`, else an em dash — for own, broker, and group rows alike; the Platform analysis id is never shown there (O-12).
-- **FR-024**: A group's Event rate scheme value in the expanded analysis row (one scheme per member region/peril) is capped at five lines with an ellipsis; the full list stays available on hover.
+- **FR-024**: Every value in the expanded analysis row's settings grid except the wide Members list is capped at five lines with an ellipsis, the full text staying available on hover; the value that needs it is a group's Event rate scheme (one scheme per member region/peril).
 - **FR-025**: The Members screen offers Finish beside Next, enabled under the same conditions. Finish inspects the members and, when the inspection has no blocking problem, no partition needs an event-rate scheme or simulation-set choice, every member ran in one known currency code, and the env scheme and vintage defaults resolve, submits the group in the same request with that currency, the env scheme and vintage, Propagate detailed output ON, and the simulation periods — 1 for an ELT group; 50,000 for a PLT group, with the partition default for each partition still offering a choice and nothing for a PET-bound one (FR-019). The dialog closes and the toast and grid refresh happen exactly as for Group: the group row is the confirmation. Otherwise Finish lands on the Inspection screen with one generic notice, submits nothing, and the analyst continues with Next. Treaty mismatches never stop Finish (O-14).
 
 ## Key Entities
