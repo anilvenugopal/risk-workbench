@@ -1071,7 +1071,6 @@ def upgrade() -> None:
     op.execute(sa.text(
         "INSERT INTO irp_analysis_status_kind (code, label, sort_order) VALUES "
         "('pending', 'Pending', 10), "
-        "('running', 'Running', 20), "
         "('ready', 'Ready', 30), "
         "('error', 'Error', 40)"
     ))

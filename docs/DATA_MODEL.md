@@ -763,7 +763,7 @@ erDiagram
 | `breakout_group` | One custom breakout per (source portfolio, canonical member set); owns the analyst's label and the filter set its generated portfolio links back to. |
 | `irp_treaty` | Treaty in IRP, belonging to one EDM; referenced by name. |
 | `irp_analysis` | Analysis/group. `edm_id`/`rdm_id` both nullable, CHECK ≥1; broker rows use (`rdm_id`, `irp_id`) and have `edm_id` null. |
-| `irp_analysis_status_kind` | `pending` / `running` / `ready` / `error`. |
+| `irp_analysis_status_kind` | `pending` / `ready` / `error`. |
 | `analysis_template` | Saved analysis-job config (global). |
 | `analysis_template_tag` | Tags on a template (junction). |
 | `template_suite` / `template_suite_item` | Named unordered set of templates (P-08). |
@@ -790,7 +790,7 @@ erDiagram
 | `role_kind` | `analyst`, `admin` (confirm with team); `admin` has `is_admin=true`. |
 | `submission_status_kind` | `ACTIVE`, `COMPLETED`, `CANCELLED`. |
 | `treaty_type_kind` | TBD with team (candidates: `cat_xol`, `quota_share`, `surplus`, `per_risk_xol`, `aggregate_xol`, `stop_loss`). |
-| `irp_analysis_status_kind` | `pending`, `running`, `ready`, `error`. |
+| `irp_analysis_status_kind` | `pending`, `ready`, `error`. |
 | `irp_job_type_kind` | `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`. |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
 | `rwb_job_requestor_type_kind` | `irp_job`, `analyst_request`, `rwb_job`, `breakout_group`. |
