@@ -1041,35 +1041,23 @@ class _RealGateway:
                 vintage=currency["vintage"], as_of_date=currency["asOfDate"]),
             propagate_detailed_losses=propagate_detailed_losses,
             num_of_simulations=num_of_simulations)
-        selections = [
-            EventRateSelection(
-                partition=GroupingPartitionKey(
-                    peril_code=s["peril_code"], region_code=s["region_code"],
-                    model_version=s["model_version"]),
-                event_rate_scheme_id=s["event_rate_scheme_id"])
-            for s in event_rate_selections
-        ]
-        simulation_sets = [
-            SimulationSetSelection(
-                partition=GroupingPartitionKey(
-                    peril_code=s["peril_code"], region_code=s["region_code"],
-                    model_version=s["model_version"]),
-                simulation_set_id=s["simulation_set_id"])
-            for s in simulation_set_selections
-        ]
-        simulation_periods = [
-            SimulationPeriodsSelection(
-                partition=GroupingPartitionKey(
-                    peril_code=s["peril_code"], region_code=s["region_code"],
-                    model_version=s["model_version"]),
-                simulation_periods=s["simulation_periods"])
-            for s in simulation_periods_selections
-        ]
+        def selections(cls: type, rows: list[dict], value_field: str) -> list:
+            return [
+                cls(partition=GroupingPartitionKey(
+                        peril_code=s["peril_code"], region_code=s["region_code"],
+                        model_version=s["model_version"]),
+                    **{value_field: s[value_field]})
+                for s in rows
+            ]
         submission = self._client().grouping.submit(
             analysis_ids=analysis_ids, settings=settings,
-            event_rate_selections=selections,
-            simulation_set_selections=simulation_sets,
-            simulation_periods_selections=simulation_periods,
+            event_rate_selections=selections(
+                EventRateSelection, event_rate_selections, "event_rate_scheme_id"),
+            simulation_set_selections=selections(
+                SimulationSetSelection, simulation_set_selections, "simulation_set_id"),
+            simulation_periods_selections=selections(
+                SimulationPeriodsSelection, simulation_periods_selections,
+                "simulation_periods"),
             expected_inspection_fingerprint=expected_inspection_fingerprint)
         return str(submission.job_id), submission.request_body
 

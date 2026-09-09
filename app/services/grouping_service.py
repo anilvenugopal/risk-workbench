@@ -124,17 +124,15 @@ def list_eligible_members(submission_id: Any) -> list[GroupMember]:
     seen_broker_irp_ids: set[str] = set()
     for r in rows:
         is_group = bool(r["is_group"])
-        if r["rdm_id"] is not None:
-            if r["irp_id"] is not None and str(r["irp_id"]) in seen_broker_irp_ids:
+        is_broker = r["rdm_id"] is not None
+        if is_broker and r["irp_id"] is not None:
+            if str(r["irp_id"]) in seen_broker_irp_ids:
                 continue
-            if r["irp_id"] is not None:
-                seen_broker_irp_ids.add(str(r["irp_id"]))
-            kind = "group" if is_group else "broker"
-        else:
-            kind = "group" if is_group else "own"
+            seen_broker_irp_ids.add(str(r["irp_id"]))
+        kind = "group" if is_group else "broker" if is_broker else "own"
         settings = _parse_json_dict(r["settings_metadata"], "settings_metadata")
         display = _to_display(settings)
-        currency = (display.currency if r["rdm_id"] is not None
+        currency = (display.currency if is_broker
                     else _submitted_view(r["submitted_settings"]).currency)
         app_analysis_id = (r["irp_app_analysis_id"]
                            or (settings or {}).get("appAnalysisId"))
@@ -228,11 +226,11 @@ def partition_facts(inspection: irp_gateway.GroupingInspection,
                     ) -> list[irp_gateway.GroupingRegionFact]:
     """The region facts of the partition's own members."""
     members = set(part.analysis_ids)
-    key = part.key
     return [fact for member in inspection.members for fact in member.regions
             if fact.analysis_id in members
-            and (fact.peril_code, fact.region_code, fact.model_version)
-            == (key.peril_code, key.region_code, key.model_version)]
+            and irp_gateway.GroupingPartitionKey(
+                peril_code=fact.peril_code, region_code=fact.region_code,
+                model_version=fact.model_version) == part.key]
 
 
 def fixed_simulation_periods(inspection: irp_gateway.GroupingInspection,

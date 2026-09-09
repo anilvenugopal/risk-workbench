@@ -40,10 +40,9 @@ def _claim_group(plan: dict) -> dict:
     ``irp_analysis_group_member`` rows. A fresh claim takes the first
     collision-free name against LIVE group names of the submission (T-09)."""
     group_id = plan["group_analysis_id"]
-    existing = execute_one(
+    claimed = execute_one(
         "SELECT id, name, full_name FROM irp_analysis WHERE id = :id",
         {"id": group_id}, connection="WORKBENCH")
-    claimed = existing
     if claimed is None:
         for _, full_name, name in free_name_attempts(
                 plan["group_full_name"], scope_column="submission_id",
