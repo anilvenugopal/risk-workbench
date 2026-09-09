@@ -87,7 +87,7 @@ per-queue worker framework this feature extends (T-01).
   gateway call: `submit_grouping`, which builds the package settings and
   selections — the per-partition simulation periods as
   `SimulationPeriodsSelection`, accepted by irp-integration from the build
-  after `0.8.0rc8`, pinned at `0.8.0rc9` — and calls `client.grouping.submit()` with the plan's
+  after `0.8.0rc8`, pinned at `0.8.0rc11` — and calls `client.grouping.submit()` with the plan's
   fingerprint. The package re-inspects and raises
   `IRPGroupingValidationError` (structured problems) when facts changed or a
   block appears; the worker maps the problems to an analyst-readable
@@ -115,7 +115,7 @@ per-queue worker framework this feature extends (T-01).
 | Database | `irp_analysis.submission_id` (FK, nullable) + origin CHECK third leg + filtered unique `(submission_id, name)`; new `irp_analysis_group_member` table; `submit_grouping` seeded in `rwb_job_type_kind` (migration, `seed_db.py`, `iteration1_mirror.py`) |
 | Worker | New `app/workers/grouping_jobs.py` (`submit_grouping` actor, own queue; tenant-wide name pre-check; structured failure reasons); `finalize_analysis` gains the group branch (name-only resolution); poller `_GETTERS`/`_TERMINAL_HANDLERS` gain `grouping` |
 | UI | Group button + three-screen compose dialog (`group_compose_modal.html`: members with the chips panel, inspection, settings; reuses `currency_block`, re-rendered per inspection with the members' currency), its `group_inspection.html` screen built by `grouping_view.py`, and the `group_submit_errors.html` 422 fragment; group rows in the submission merged grid and results page; Engine column renders "Group"; the expanded analysis row shows the app analysis id (`analysis_service.ExecutedAnalysis.app_analysis_id` / `BrokerAnalysis.app_analysis_id`) and clamps a group's scheme list to five lines (`details.css`); Finish on the Members screen (`POST .../group/finish`, FR-025); the grid's Delete covers group rows (`POST .../analyses/delete`) |
-| Library | irp-integration pinned to `0.8.0rc9` (TestPyPI); `irp_gateway` grouping methods replaced by `inspect_grouping` / `submit_grouping` / `get_grouping_job` / `count_analyses_named` over `client.grouping` (+ `FakeIRP`) |
+| Library | irp-integration pinned to `0.8.0rc11` (TestPyPI); `irp_gateway` grouping methods replaced by `inspect_grouping` / `submit_grouping` / `get_grouping_job` / `count_analyses_named` over `client.grouping` (+ `FakeIRP`) |
 
 ## Carried work
 
@@ -148,7 +148,7 @@ Landed on this branch with authority outside spec 012:
 
 ## Technical Context
 
-**New dependencies**: irp-integration `0.8.0rc9` from TestPyPI (`make
+**New dependencies**: irp-integration `0.8.0rc11` from TestPyPI (`make
 irp-testpypi`), which ships `client.grouping.inspect()` / `submit()` /
 `get_job()` with explicit event-rate and simulation-set selections and removed
 the name-based `submit_analysis_grouping_job`,
