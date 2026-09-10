@@ -18,7 +18,7 @@
     <form method="post" action="{{ action_url }}" @change="onChange($event)"
           hx-post="{{ action_url }}" hx-target="#execute-modal" hx-swap="innerHTML"
           hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
-          @htmx:after-request="if ($event.detail.successful) document.getElementById('execute-modal').replaceChildren()">
+          @htmx:after-request="if ($event.target === $el && $event.detail.successful) document.getElementById('execute-modal').replaceChildren()">
       <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
       <input type="hidden" name="kind" value="{{ kind }}">
       {% for p in portfolios %}<input type="hidden" name="portfolio_ids" value="{{ p.id }}">{% endfor %}

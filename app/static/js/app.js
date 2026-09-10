@@ -386,20 +386,18 @@ document.addEventListener('alpine:init', () => {
   // model profile, event rate scheme, output profile). The <select> stays the
   // source of truth (native `required`, and the profile field still drives its
   // hx-get cascade off it) but is hidden by .ta--ready once Alpine mounts; a
-  // text input filters its live options client-side, matching the "links to"
+  // text input filters its options client-side, matching the "links to"
   // typeahead's degrade-without-JS story but with an already-known,
-  // already-rendered option list instead of a server round trip. `sync()` also
-  // re-runs after htmx swaps a fresh option list into the cascade target
-  // (event rate scheme), since replacing <option> children doesn't fire a
-  // native change event.
-  Alpine.data('selectSearch', (options = {}) => ({
+  // already-rendered option list instead of a server round trip.
+  Alpine.data('selectSearch', (config = {}) => ({
     isOpen: false,
     activeIndex: -1,
     query: '',
     // Optional fields pass { clearable: true } for a "None" row. The text input
     // only filters, so without that row an analyst cannot undo a selection —
     // emptying the input and leaving restores the committed label via close().
-    clearable: options.clearable === true,
+    clearable: config.clearable === true,
+    options: [],
     init() {
       this.$el.classList.add('ta--ready');
       this.sync();
@@ -407,17 +405,10 @@ document.addEventListener('alpine:init', () => {
     get select() {
       return this.$refs.select;
     },
-    get allOptions() {
-      const rows = Array.from(this.select.options)
-        .filter((o) => o.value !== '')
-        .map((o) => ({ value: o.value, label: o.textContent.trim() }));
-      if (this.clearable) rows.unshift({ value: '', label: 'None' });
-      return rows;
-    },
     get filteredOptions() {
       const term = this.query.trim().toLowerCase();
-      if (!term) return this.allOptions;
-      return this.allOptions.filter((o) => o.label.toLowerCase().includes(term));
+      if (!term) return this.options;
+      return this.options.filter((o) => o.label.toLowerCase().includes(term));
     },
     get placeholder() {
       const blank = this.select.querySelector('option[value=""]');
@@ -427,6 +418,13 @@ document.addEventListener('alpine:init', () => {
       this.activeIndex = this.filteredOptions.length === 1 ? 0 : -1;
     },
     sync() {
+      // The menu renders from this copy, not from select.options: htmx swaps a
+      // fresh option list into the cascade targets (event rate scheme, scheme
+      // vintage), and Alpine cannot see a change inside a live DOM collection.
+      this.options = Array.from(this.select.options)
+        .filter((o) => o.value !== '')
+        .map((o) => ({ value: o.value, label: o.textContent.trim() }));
+      if (this.clearable) this.options.unshift({ value: '', label: 'None' });
       const current = this.select.selectedOptions[0];
       this.query = current && current.value ? current.textContent.trim() : '';
       this.isOpen = false;
