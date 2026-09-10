@@ -121,7 +121,13 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .attr-grid dt, .settings-grid dt { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
 /* long values wrap rather than truncate — event rate scheme names run past any column width */
 .attr-grid dd, .settings-grid dd { margin: 2px 0 0; font-size: var(--fs-label); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* a group's scheme list (one per member region/peril) stops at five lines; the title carries the rest */
+.settings-grid > div:not(.settings-grid__wide) > dd { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
 .attr-grid dd.blank, .settings-grid dd.blank { color: var(--text-disabled); font-weight: var(--fw-regular); }
+/* the group row's Members list spans the grid — a 64-char analysis name does not
+   fit one 170px column */
+.settings-grid__wide { grid-column: 1 / -1; }
+.settings-grid__wide ul { list-style: none; margin: 0; padding: 0; }
 
 /* The expanded analysis row splits in two: the source line and the metadata
    fields on the left, condensed results on the right; the flex wrap stacks them
@@ -149,6 +155,7 @@ select.persp { font: inherit; font-size: var(--fs-caption); padding: 0 var(--spa
 .ep tbody td.rp { font-family: var(--font-ui); font-size: var(--fs-label); font-weight: var(--fw-medium); text-align: left; color: var(--text-secondary); }
 .ep tr.aal td { border-top: 2px solid var(--border-strong); border-bottom: none; font-weight: var(--fw-medium); background: var(--surface-recessed); }
 .ep tr.aal td.rp { font-weight: var(--fw-semibold); color: var(--text-primary); }
+.ep--results tbody td.rp { text-align: right; }
 .ep tr.sd td { border-bottom: none; background: var(--surface-recessed); color: var(--text-secondary); }
 .metric { color: var(--text-primary); font-weight: var(--fw-semibold); }
 

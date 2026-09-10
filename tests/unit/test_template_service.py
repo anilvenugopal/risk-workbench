@@ -190,6 +190,17 @@ def test_scheme_prefill_requires_exactly_one_match(iteration2_db, fake_irp):
     assert not any(row["selected"] for row in multiple)
 
 
+def test_scheme_prefill_skips_non_dlm_profiles(iteration2_db, fake_irp):
+    """A scheme is required for DLM only, so the lone-match pre-fill stays off
+    an HD profile — it offers the same options with nothing chosen."""
+    metadata_jobs._sync_irp_metadata_body()
+
+    options = template_service.scheme_options("RMS Default HD")
+
+    assert [row["name"] for row in options] == ["RMS WS"]
+    assert not any(row["selected"] for row in options)
+
+
 def test_scheme_options_exclude_workbench_inactive_schemes(
     iteration2_db, fake_irp,
 ):

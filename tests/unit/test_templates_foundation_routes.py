@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 
 from app.routers import templates
 from app.services.auth_service import CurrentUser
+from app.templating import TEMPLATE_DIRS
 
 
 class _InjectUser(BaseHTTPMiddleware):
@@ -30,7 +31,7 @@ class _InjectUser(BaseHTTPMiddleware):
 
 def _client() -> TestClient:
     app = FastAPI()
-    app.state.templates = Jinja2Templates(directory="app/templates")
+    app.state.templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     app.add_middleware(_InjectUser)
     app.include_router(templates.router)
     return TestClient(app)

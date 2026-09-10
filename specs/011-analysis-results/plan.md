@@ -1,6 +1,6 @@
 # Implementation Plan: Analysis Results Sync & Viewing (Iteration 8)
 
-**Branch**: `011-analysis-results` | **Date**: 2026-08-25 | **Spec**: [spec.md](spec.md)
+**Branch**: `011-analysis-results` | **Date**: 2026-08-25 | **Revised**: 2026-09-03 (Retry, T-11 — built on `012-grouping-execution`) | **Spec**: [spec.md](spec.md)
 
 <!-- Technical only. User stories and scope → spec.md. Schema → data-model.md.
      Payloads → contracts/. Endpoint investigation → research.md. Everything
@@ -35,7 +35,15 @@
   explicitly-empty entry (FR-004); any call failure → job `failed` with
   `error_detail`, `loss_results` untouched, analysis stays FINISHED (O-06). The
   extract snapshots `engineType`/`engineVersion` from the analysis metadata
-  payload (FR-021).
+  payload (FR-021). A failed row is re-run in place by the analyst (FR-007,
+  T-11, 2026-09-03): a `btn-sm` Retry inside the shared `status_cell` span
+  and the expanded row's failed paragraph posts
+  `POST /results/analyses/{analysis_id}/retry` (handler in `shell.py`),
+  which calls `analysis_service.retry_results_retrieval` →
+  `ensure_pending_rwb_job` on the retrieval's own key plus `dispatch`; the
+  same `rwb_job` row goes back to `pending`, so `_mark_failed_retrievals`
+  clears and the cell reads `retrieving…` on the `analyses-changed`
+  refetch. No new column; the dedicated and comparison pages are unchanged.
 - Triggers are worker-side chains, poller untouched: own —
   `finalize_analysis` enqueues retrieval on success; broker —
   `backfill_rdm_analyses` enqueues one retrieval per captured live analysis
@@ -104,6 +112,7 @@
 | Service | `AnalysisSettings.framework`; `BrokerAnalysis.rm_url` + `created_at`; results state, per-perspective AAL and standard deviation, currency, condensed extract, and the submitted-settings read. |
 | UI | Merged analyses partial on EDM detail + new submission Results section; two-column expanded row; dedicated results page + nav node + shell `extra_crumbs`; perspective/units/copy/order controls. Nothing outside the analyses sections is touched. |
 | Library | Gateway: `get_analysis_stats` / `get_analysis_ep` + FakeIRP counterparts. |
+| Retry (2026-09-03) | `POST /results/analyses/{analysis_id}/retry` in `app/routers/shell.py`; `analysis_service.retry_results_retrieval`; Retry macro in `analysis_row_macros.html` used by `status_cell` and `analysis_results_inline.html`. No schema, worker, or gateway change. |
 
 ## High-risk technical decisions
 
@@ -119,6 +128,7 @@
 | T-08 | An unproduced perspective returns an empty list from `get_stats`/`get_ep` (treated as explicitly empty); any non-2xx is a retrieval failure | Assumed | Sandbox tier confirms; the worker's branch is one `if not rows` either way — [research.md#R7](research.md#r7--dedicated-page-route-breadcrumbs-and-controls-t-07-t-08) |
 | T-09 | The expanded row's Analysis settings read a per-analysis snapshot, `irp_analysis.submitted_settings`, written by `_claim_analysis` from the approved plan item it submits. Not the `analysis_template` row: templates are editable, so a later edit would misreport a finished run (AGENTS.md architecture rule 8 — approved plans are immutable). Not the `execute_analysis_batch` `input_data` either — a work order is not a display source, and the read would be a two-hop JSON index lookup per row | Approved | [data-model.md](data-model.md) §1b |
 | T-10 | Submitted renders client-side: the server writes UTC into `<time datetime="…Z">` and a JS sliver formats it with `toLocaleString` (FR-024). The server has no way to know the reader's timezone, and the value is display-only | Approved | preview `docs/ui_previews/merged_analyses_table.html` |
+| T-11 | Retry is `ensure_pending_rwb_job` on the retrieval's existing key `(irp_analysis, analysis_id, retrieve_analysis_results)` — the same row the chain inserted is revived, so the read model's failed-join clears with no new column or status. One route keyed on the analysis id, under the results root, in `shell.py`; the control lives in the shared `status_cell` macro and the expanded row's failed paragraph only. Not on `/results/analyses` or the comparison page: neither has the `#analyses-csrf` input or an `analyses-changed` listener, and each would need its own refresh path for one click that the row already offers. `None` from the primitive (already pending/running) is reported as a warning toast plus the same section refetch, which shows `retrieving…` | Approved | [research.md#R9](research.md#r9--retry-in-place-for-a-failed-retrieval-fr-007-t-11); [contracts/routes.md](contracts/routes.md) §5 |
 
 ---
 
@@ -152,7 +162,8 @@ Material interactions — where an article actively shapes this design:
 - **Article 5 (mechanical follow-up auto-fires)**: retrieval is the mechanical
   consequence of "run finished" / "RDM imported" — enqueued by the backfill
   workers with no analyst click. Viewing N-up is the judgment step and waits
-  for the View click.
+  for the View click. The Retry route (T-11) enqueues and dispatches only;
+  the re-run itself is the same `retrieve_analysis_results` actor.
 - **Article 3 (kind tables)**: `analysis_perspective_kind` and the
   `irp_analysis` requestor kind are seeded kind rows. `perspectiveCode` /
   `epType` strings inside `loss_results` mirror RM's response vocabulary
@@ -160,7 +171,8 @@ Material interactions — where an article actively shapes this design:
 - **Article 10 (SQL queue)**: retrieval is a standard `rwb_job` — atomic
   claim, heartbeat, reconciler recovery is the FR-007 "interrupted work
   recovers automatically". A failed retrieval stays terminal (never
-  resurrected by dedup), which is exactly O-06's contract.
+  resurrected by dedup), which is exactly O-06's contract; only the
+  analyst's Retry revives it, through `ensure_pending_rwb_job` (FR-044/045).
 - **Article 8 (server-rendered)**: perspective switching is an HTMX fragment
   re-render with a query param (screen-wide by construction), and so is a
   column reorder; the client slivers are units formatting and clipboard copy
@@ -198,8 +210,8 @@ specs/011-analysis-results/
 app/
 ├── routers/edms.py                  # merged analyses section (perspective param, View)
 ├── routers/submissions.py           # Results section fragment
-├── routers/shell.py                 # /results/analyses dedicated page
-├── services/analysis_service.py     # merged read models, extract/currency extraction
+├── routers/shell.py                 # /results/analyses dedicated page; POST …/{analysis_id}/retry (T-11)
+├── services/analysis_service.py     # merged read models, extract/currency extraction; retry_results_retrieval
 ├── services/irp_gateway.py          # get_analysis_stats / get_analysis_ep
 ├── workers/analysis_jobs.py         # retrieve_analysis_results; chain in finalize_analysis
 ├── workers/entity_jobs.py           # chain in backfill_rdm_analyses
@@ -237,7 +249,17 @@ No constitution violations to justify.
   enqueues from both backfills; read models (currency, per-perspective AAL and
   standard deviation, results state incl. failed-with-reason join); routes render merged table,
   inline condensed block, results-pending, and the dedicated page with ids
-  ordering and perspective param. FakeIRP gains stats/EP fixtures.
+  ordering and perspective param. FakeIRP gains stats/EP fixtures. Retry
+  (T-11): the service revives the same `rwb_job` row (id unchanged,
+  `attempt_count` +1, `error_detail` NULL) and the read model's results
+  state returns to pending; a pending/running head returns `None`; stored
+  results and unknown ids are rejected; the route returns 204 with
+  `analyses-changed` and the toast, 204 + `HX-Refresh` on bad CSRF; the
+  failed row renders the control on own and broker rows and the ready row
+  does not; and one drain of the revived row through `analysis_jobs.run_one`
+  against FakeIRP stores the extract. Nothing new for `tests/sqlserver`: the
+  only SQL added is a one-row `irp_analysis` read by id, and the revive
+  UPDATE is `ensure_pending_rwb_job`'s existing statement.
 - **SQL Server integration**: migration + seeds land (`loss_results`,
   `analysis_perspective_kind`, requestor kind row); retrieval enqueue dedup
   under the real UNIQUE key; extract write/read round-trip on NVARCHAR(MAX).

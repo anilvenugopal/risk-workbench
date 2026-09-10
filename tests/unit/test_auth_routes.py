@@ -45,9 +45,10 @@ class _OptionalUser(BaseHTTPMiddleware):
 def _make_app(user=None):
     from app.routers.auth import router
     from app.config import settings
+    from app.templating import TEMPLATE_DIRS
 
     app = FastAPI()
-    templates = Jinja2Templates(directory="app/templates")
+    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["app_env"] = settings.app_env
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
