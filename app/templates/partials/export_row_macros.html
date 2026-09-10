@@ -4,7 +4,7 @@
    perspective (FR-004). The form's --cols list must match the seven cells. #}
 {% macro analysis_row(a, checked=false, oob=false) -%}
 {% set blocked = a.disabled_reason or a.exported %}
-<div class="drow-static" id="export-row-{{ a.id }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+<div class="drow-static" id="export-row-{{ a.id }}" data-name="{{ a.name|lower }}"{% if oob %} hx-swap-oob="true"{% endif %}>
   <span class="l"><span class="geohaz-pick">
     <input type="checkbox" name="analysis_ids" value="{{ a.id }}" @change="onChange()"
            {% if checked and not a.exported %}checked{% endif %}{% if blocked %} disabled{% endif %}></span></span>

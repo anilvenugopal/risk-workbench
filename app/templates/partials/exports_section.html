@@ -1,8 +1,11 @@
 {# Exports requested from this submission, newest first (contracts/routes.md
-   §5). Polls every 10s only while some export still has an analysis in
-   progress; a terminal state renders without a trigger and the polling stops. #}
+   §5). Each row expands to the analyses in that export. Polls every 10s only
+   while some export still has an analysis in progress; a terminal state renders
+   without a trigger and the polling stops. data-restore-open keeps an expanded
+   row open across those swaps. #}
+{% import "partials/export_row_macros.html" as rows %}
 {% set in_progress = exports|selectattr('in_progress')|list|length > 0 %}
-<details class="sec" open id="submission-exports"
+<details class="sec" open id="submission-exports" data-restore-open
   {% if in_progress %}hx-get="/submissions/{{ submission_id }}/exports" hx-trigger="every 10s"
   hx-target="this" hx-swap="outerHTML"{% endif %}>
   <summary>
@@ -14,21 +17,34 @@
   </summary>
   {% if exports %}
   <div class="dtable-shell">
-    <div class="dtable" style="--cols: 90px minmax(200px,1.4fr) 170px minmax(160px,1fr) 90px 90px 90px; min-width: 900px">
+    <div class="dtable dtable--wraphead"
+         style="--cols: 140px minmax(200px,1.4fr) 170px minmax(160px,1fr) 90px minmax(200px,1.2fr); min-width: 1000px">
       <div class="dtable__head">
         <span class="l">Perspective</span><span class="l">Requested by</span><span class="l">Requested</span>
-        <span class="l">Client</span><span>Analyses</span><span>Loaded</span><span>Failed</span>
+        <span class="l">Client</span><span>Analyses</span><span class="l">Progress</span>
       </div>
       {% for e in exports %}
-      <div class="drow-static">
-        <span class="l"><a class="link" href="/submissions/{{ submission_id }}/exports/{{ e.export_id }}">{{ e.perspective_code }}</a></span>
-        <span class="l" title="{{ e.requested_by_email }}">{{ e.requested_by_email }}</span>
-        <span class="l"><time data-utc="{{ e.requested_at }}" title="{{ e.requested_at }} UTC">{{ e.requested_at }}</time></span>
-        <span class="l">{{ e.client_name or '—' }}</span>
-        <span>{{ e.analysis_count }}</span>
-        <span>{{ e.loaded_count }}</span>
-        <span>{{ e.failed_count }}</span>
-      </div>
+      <details class="drow" id="export-summary-{{ e.export_id }}">
+        <summary>
+          <span class="l"><span class="dt-name"><span class="dt-caret">&#9656;</span>
+            <a class="link" href="/submissions/{{ submission_id }}/exports/{{ e.export_id }}"
+               onclick="event.stopPropagation()">{{ e.perspective_code }}</a></span></span>
+          <span class="l" title="{{ e.requested_by_email }}">{{ e.requested_by_email }}</span>
+          <span class="l"><time data-utc="{{ e.requested_at }}" title="{{ e.requested_at }} UTC">{{ e.requested_at }}</time></span>
+          <span class="l">{{ e.client_name or '—' }}</span>
+          <span>{{ e.analysis_count }}</span>
+          <span class="l">{{ e.progress }}</span>
+        </summary>
+        <div class="drow__body">
+          {% for a in e.analyses %}
+          <div class="export-summary__analysis">
+            <span title="{{ a.analysis_name }}">{{ a.analysis_name }}</span>
+            <span>{{ rows.status_chip(a.status) }}</span>
+            <span class="export-summary__dataid">{{ a.data_id if a.data_id is not none else '—' }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </details>
       {% endfor %}
     </div>
   </div>

@@ -9,7 +9,7 @@
 {% endblock %}
 
 {% block main %}
-<div class="page-pad" style="max-width: 960px;">
+<div class="page-pad">
   <div class="detail-head">
     <h1>Export loss results</h1>
     {% if submission %}
@@ -25,27 +25,32 @@
   <div class="form-banner form-banner--error">{{ error }}</div>
   {% endif %}
 
-  {# A plain form post: htmx does not swap a 422 re-render, so the validation
-     message would never show over hx-post. analysisPicks() counts the ticked
-     rows for the Export button, as on the submission page. #}
+  {# A plain form post: htmx does not swap a 422 response, so the re-rendered
+     validation message would never show over hx-post. analysisPicks() counts the
+     ticked rows for the Export button and drives the name search; after each
+     fragment swap the search is re-applied, because an out-of-band row swap
+     rebuilds the row without its hidden state. #}
   <form method="post" action="/submissions/{{ submission.id }}/exports" id="export-form"
-        x-data="analysisPicks()">
+        x-data="analysisPicks()" @htmx:after-settle="filter(term)">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
 
-    <div class="wf-fields">
-      <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
-
-      <div class="wf-field" style="align-items:flex-start">
-        <label style="padding-top:8px">ANALYSES <span class="wf-field__req" title="Required">*</span></label>
+    <div class="export-pick">
+      <div class="export-pick__list">
         {% if analyses %}
-        {# Ticking re-renders the perspective select, the data-name fields, and
-           the exported marks (contracts/routes.md §3). #}
+        <div class="export-pick__search">
+          <input class="wf-field__input" type="search" placeholder="Search analyses by name"
+                 aria-label="Search analyses by name" @input="filter($event.target.value)">
+          <span class="export-pick__count" x-text="filterLabel"></span>
+        </div>
+        {# Ticking re-renders the perspective select, the cart, and the exported
+           marks (contracts/routes.md §3). The data-name inputs travel with the
+           request so a name typed before the next tick is not lost. #}
         <div class="dtable-shell"
              hx-get="/submissions/{{ submission.id }}/exports/new/fields" hx-trigger="change"
-             hx-include="[name='analysis_ids'], [name='perspective']"
+             hx-include="[name='analysis_ids'], [name='perspective'], [name^='data_name']"
              hx-target="#export-fields" hx-swap="outerHTML">
-          <div class="dtable dtable--selectable"
-               style="--cols: var(--pick-w) minmax(220px,2fr) 70px 90px 80px 130px minmax(200px,1.5fr); min-width: 720px">
+          <div class="dtable dtable--selectable dtable--wraphead"
+               style="--cols: var(--pick-w) minmax(360px,2fr) 70px 90px 80px 130px minmax(200px,1.5fr); min-width: 1010px">
             <div class="dtable__head">
               <span class="l"></span><span class="l">Analysis</span><span class="l">Origin</span>
               <span class="l">RM id</span><span class="l">Currency</span><span class="l">Perspectives</span>
@@ -61,13 +66,19 @@
             {% endfor %}
           </div>
         </div>
+        <div class="state-box" x-cloak x-show="term && !shown">No analysis matches
+          “<span x-text="term"></span>”.</div>
         {% else %}
         <div class="state-box">No finished analyses to export. Run a suite or template,
           or import a broker RDM, and retrieve the results first.</div>
         {% endif %}
       </div>
 
-      {% include "partials/export_form_fields.html" %}
+      {% if analyses %}{% include "partials/export_form_fields.html" %}{% endif %}
+    </div>
+
+    <div class="wf-fields">
+      <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
 
       <div class="wf-field">
         <label>CLIENT <span class="wf-field__req" title="Required">*</span></label>

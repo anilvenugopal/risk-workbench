@@ -1,6 +1,8 @@
 {# The export detail page's analysis table; polls every 5s while any analysis
    is not yet loaded or failed (contracts/routes.md §6). The Retry route
-   re-renders it, with `retry_message` when the retry was refused (§7). #}
+   re-renders it, with `retry_message` when the retry was refused (§7). The
+   analysis name is frozen at the left while the recorded attributes and the row
+   counts scroll under it. #}
 <div id="export-analyses"
      {% if export.in_progress %}hx-get="/submissions/{{ export.submission_id }}/exports/{{ export.export_id }}/analyses"
      hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
@@ -8,10 +10,13 @@
   <div class="form-banner form-banner--error">Retry refused: {{ retry_message }}.</div>
   {% endif %}
   <div class="dtable-shell">
-    <div class="dtable" style="--cols: minmax(220px,2fr) 70px 170px 150px 80px 80px 90px 90px 100px 100px 90px; min-width: 1260px">
+    <div class="dtable dtable--wraphead export-analyses"
+         style="--cols: minmax(360px,2fr) 70px 170px 150px minmax(140px,1fr) 80px 80px 80px 90px 70px 70px 70px 90px 90px 90px 100px 100px 90px; min-width: 2000px">
       <div class="dtable__head">
         <span class="l">Analysis</span><span class="l">Origin</span><span class="l">Status</span>
-        <span class="l">Last change</span><span>Data ID</span><span>Staged</span>
+        <span class="l">Last change</span><span class="l">Data name</span><span>Data ID</span>
+        <span>RM id</span><span>Currency</span><span>Model version</span><span>Engine</span>
+        <span>Peril</span><span>Region</span><span>Staged</span>
         <span>Stochastic</span><span>Historical</span><span>Exposure raised</span>
         <span>Std dev zeroed</span><span class="l"></span>
       </div>

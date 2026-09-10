@@ -1,15 +1,16 @@
-{# Selection-dependent half of the export form (contracts/routes.md §3):
-   the perspective choices every selected analysis shares, one data-name field
-   per selected analysis, and — once a perspective is chosen — the exported
-   marks, each swapping its row out-of-band to unticked and disabled. #}
+{# The export cart (contracts/routes.md §3): the perspective every selected
+   analysis shares, one cart row per selected analysis carrying its optional data
+   name, and — once a perspective is chosen — the exported marks, each swapping
+   its row in the analyses table out-of-band to unticked and disabled. #}
 {% import "partials/export_row_macros.html" as rows %}
-<div id="export-fields">
+<div id="export-fields" class="export-cart">
   <div class="wf-field">
     <label>PERSPECTIVE <span class="wf-field__req" title="Required">*</span></label>
     <select class="wf-field__input" name="perspective" required
             {% if not choices %}disabled{% endif %}
             hx-get="/submissions/{{ submission_id }}/exports/new/fields" hx-trigger="change"
-            hx-include="[name='analysis_ids']" hx-target="#export-fields" hx-swap="outerHTML">
+            hx-include="[name='analysis_ids'], [name^='data_name']"
+            hx-target="#export-fields" hx-swap="outerHTML">
       <option value="">{% if selected and not choices %}No shared perspective{% else %}Select…{% endif %}</option>
       {% for code in choices %}
       <option value="{{ code }}" {% if code == perspective %}selected{% endif %}>{{ code }}</option>
@@ -22,19 +23,28 @@
     {% endif %}
   </div>
 
-  {% if selected %}
-  <div class="wf-field">
-    <label>DATA NAME</label>
-    <div class="export-names">
-      {% for a in selected if not a.exported %}
-      <label>{{ a.name }}
-        <input class="wf-field__input" type="text" name="data_name[{{ a.id }}]"
-               maxlength="{{ data_name_max }}" placeholder="Optional"
-               value="{{ data_names.get(a.id, '') if data_names is defined else '' }}"></label>
+  {% set carted = selected|rejectattr('exported')|list %}
+  <div class="bo-cart">
+    <div class="bo-cart__head">Selected analyses ({{ carted|length }})</div>
+    {% if carted %}
+    <div class="export-cart__rows">
+      {% for a in carted %}
+      <div class="bo-cart-row">
+        <div class="bo-cart-row__top">
+          <span class="bo-cart-row__label">{{ a.name }}</span>
+          <button type="button" class="bo-cart-row__remove" @click="untick('{{ a.id }}')">remove</button>
+        </div>
+        <label class="export-cart-row__name">Data name
+          <input class="wf-field__input" type="text" name="data_name[{{ a.id }}]"
+                 maxlength="{{ data_name_max }}" placeholder="Optional"
+                 value="{{ data_names.get(a.id, '') if data_names is defined else '' }}"></label>
+      </div>
       {% endfor %}
     </div>
+    {% else %}
+    <div class="bo-cart__empty">Tick analyses on the left.</div>
+    {% endif %}
   </div>
-  {% endif %}
 
   {% set exported = selected|selectattr('exported')|list %}
   {% if exported %}
