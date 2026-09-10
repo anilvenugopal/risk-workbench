@@ -32,7 +32,14 @@ from urllib.parse import quote
 
 from sqlalchemy import text
 
-from app.services._common import _rm_ui_root, _uid, _utcnow
+from app.services._common import (
+    _escape_like,
+    _in_clause,
+    _rm_ui_root,
+    _uid,
+    _utcnow,
+    _word_and_clauses,
+)
 from app.services.errors import (
     ConcurrencyConflict,
     SelfLinkError,
@@ -200,15 +207,6 @@ def _as_date(value: Any) -> Any:
     return date.fromisoformat(str(value))
 
 
-def _escape_like(value: str) -> str:
-    """Neutralize LIKE wildcards in analyst input, so searching "A_B" matches a
-    literal underscore rather than any character. Pair with ``ESCAPE '\\'`` on the
-    predicate. Only ``%``, ``_`` and the escape character itself are handled —
-    those are the three both SQL Server and SQLite agree on."""
-    out = value.replace("\\", "\\\\")
-    return out.replace("%", "\\%").replace("_", "\\_")
-
-
 def _as_uuid(value: Any) -> str | None:
     """``value`` as a canonical lowercase UUID string, or ``None`` when it is not
     a UUID at all.
@@ -296,28 +294,6 @@ def _to_row(row: dict) -> SubmissionRow:
     )
 
 
-def _word_and_clauses(
-    term: str, columns: tuple[str, ...], prefix: str,
-) -> tuple[list[str], dict[str, Any]]:
-    """One clause per whitespace-separated word in ``term``: the word has to appear in
-    at least one of ``columns``, and every word has to match.
-
-    Terms AND-combine (CR2): "american family" must not return every deal carrying
-    "American". Substring per word rather than a similarity score — tolerant enough
-    to find "American Family Mutual" from "american fam", and no fuzzier than that.
-
-    ``prefix`` namespaces the bound parameters so two searched fields in one query
-    cannot collide on ``:t0``."""
-    clauses: list[str] = []
-    params: dict[str, Any] = {}
-    for index, word in enumerate(term.split()):
-        key = f"{prefix}{index}"
-        match = " OR ".join(f"{col} LIKE :{key} ESCAPE '\\'" for col in columns)
-        clauses.append(f"({match})")
-        params[key] = f"%{_escape_like(word)}%"
-    return clauses, params
-
-
 def _submission_rows(
     clauses: list[str], params: dict[str, Any], *, exclude_id: Any = None,
     limit: int | None = None, offset: int = 0,
@@ -342,16 +318,6 @@ def _submission_rows(
     if limit is not None:
         sql += " " + row_limit(limit, offset=offset)
     return [_to_row(row) for row in execute(sql, params, connection="WORKBENCH")]
-
-
-def _in_clause(
-    column: str, values: list[Any], prefix: str,
-) -> tuple[str, dict[str, Any]]:
-    """An ``IN (...)`` predicate over ``values``, one bound parameter each.
-    ``prefix`` namespaces them so two filters in one query cannot collide."""
-    params = {f"{prefix}{index}": value for index, value in enumerate(values)}
-    placeholders = ", ".join(f":{key}" for key in params)
-    return f"{column} IN ({placeholders})", params
 
 
 def _attach_crm_ids(rows: list[SubmissionRow]) -> None:

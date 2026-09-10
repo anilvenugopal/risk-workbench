@@ -155,6 +155,16 @@ def get_user_by_id(user_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def list_active_analysts() -> list[dict]:
+    """Every active user as ``(id, display_name)`` rows, for the owner pickers on
+    ``/submissions`` and ``/workflows/rwb-jobs``."""
+    return execute(
+        "SELECT id, display_name FROM app_user WHERE is_active = 1 "
+        "ORDER BY display_name",
+        {}, connection="WORKBENCH",
+    )
+
+
 def get_user_by_oid(oid: str) -> dict | None:
     """Lookup by Entra OID."""
     rows = execute(

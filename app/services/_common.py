@@ -25,6 +25,47 @@ from db import execute, execute_command, execute_one, get_connection, is_unique_
 logger = logging.getLogger(__name__)
 
 
+def _escape_like(value: str) -> str:
+    """Neutralize LIKE wildcards in analyst input, so searching "A_B" matches a
+    literal underscore rather than any character. Pair with ``ESCAPE '\\'`` on the
+    predicate. Only ``%``, ``_`` and the escape character itself are handled —
+    those are the three both SQL Server and SQLite agree on."""
+    out = value.replace("\\", "\\\\")
+    return out.replace("%", "\\%").replace("_", "\\_")
+
+
+def _word_and_clauses(
+    term: str, columns: tuple[str, ...], prefix: str,
+) -> tuple[list[str], dict[str, Any]]:
+    """One clause per whitespace-separated word in ``term``: the word has to appear in
+    at least one of ``columns``, and every word has to match.
+
+    Terms AND-combine (CR2): "american family" must not return every deal carrying
+    "American". Substring per word rather than a similarity score — tolerant enough
+    to find "American Family Mutual" from "american fam", and no fuzzier than that.
+
+    ``prefix`` namespaces the bound parameters so two searched fields in one query
+    cannot collide on ``:t0``."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    for index, word in enumerate(term.split()):
+        key = f"{prefix}{index}"
+        match = " OR ".join(f"{col} LIKE :{key} ESCAPE '\\'" for col in columns)
+        clauses.append(f"({match})")
+        params[key] = f"%{_escape_like(word)}%"
+    return clauses, params
+
+
+def _in_clause(
+    column: str, values: list[Any], prefix: str,
+) -> tuple[str, dict[str, Any]]:
+    """An ``IN (...)`` predicate over ``values``, one bound parameter each.
+    ``prefix`` namespaces them so two filters in one query cannot collide."""
+    params = {f"{prefix}{index}": value for index, value in enumerate(values)}
+    placeholders = ", ".join(f":{key}" for key in params)
+    return f"{column} IN ({placeholders})", params
+
+
 @dataclass(frozen=True)
 class SubmissionRef:
     id: str
