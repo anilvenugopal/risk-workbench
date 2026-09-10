@@ -66,7 +66,7 @@ An analyst or operator today has no single place to see what background work is 
 
 **Acceptance**
 
-1. **Given** jobs of multiple types exist in different states, **When** the monitoring page is opened, **Then** every job is listed with its type, current status, and how long it has been queued or running.
+1. **Given** jobs of multiple types exist in different states, **When** the monitoring page is opened and the owner filter cleared, **Then** every job is listed with its type, current status, and how long it has been queued or running.
 2. **Given** a job is queued but not yet started, **When** it is cancelled from the page, **Then** it never runs, and this is reflected immediately on the page.
 3. **Given** a worker claims a queued job at the same moment an operator cancels it, **When** both actions race, **Then** exactly one of them takes effect and neither action errors or duplicates the job.
 4. **Given** a job has failed, **When** it is resubmitted from the page, **Then** it moves back to queued and is picked up again, without creating a second, separate job record.
@@ -84,8 +84,8 @@ An analyst or operator today has no single place to see what background work is 
 - **FR-005**: The system MUST provide a way to check, for every job type at once, whether any job is still queued or in progress.
 - **FR-006**: A deploy process MUST be able to use that check to confirm it is safe to proceed before changing running code.
 - **FR-007**: Recovering a job whose worker process was stopped or killed MUST work the same regardless of how many job types exist or which one was affected.
-- **FR-008**: The monitoring page MUST list every job across all job types, showing at minimum its type, current status, and elapsed queued/running time.
-- **FR-008a**: The monitoring page MUST support narrowing the list by the submission a job's linked EDM/RDM belongs to (by name/cedant and by submission status) and by owner, defaulting to the current analyst's own submissions' jobs.
+- **FR-008**: The monitoring page MUST list jobs of every job type — no type is hidden from it — showing at minimum each job's type, current status, and elapsed queued/running time. Clearing the owner filter MUST list every job, including jobs that belong to no submission.
+- **FR-008a**: The monitoring page MUST support narrowing the list by the submission a job's linked EDM/RDM belongs to (by name/cedant and by submission status) and by owner, defaulting to the current analyst's own submissions' jobs. A job that belongs to no submission — `link_type = 'not_applicable'`, or an EDM/RDM attached to none — matches no owner, so it appears only when the owner filter is cleared.
 - **FR-009**: A job that is queued but not yet started MUST be visibly distinguishable from one that is running. A running job whose worker has stopped heartbeating (missing, or older than the configured staleness window) MUST be visibly distinguishable as "dead," separate from a running job with a live heartbeat.
 - **FR-010**: A user MUST be able to cancel a job that is queued but not yet started, a job that has failed, or a running job that is dead (per FR-009).
 - **FR-011**: Cancelling a running job with a **live** heartbeat MUST NOT be possible from the page.

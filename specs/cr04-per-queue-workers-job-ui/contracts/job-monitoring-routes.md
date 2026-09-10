@@ -14,7 +14,7 @@ otherwise as originally specified.
 
 Fills an existing, previously-stubbed nav slot: `workflows.rwb_jobs` in `app/nav/manifest.py` (under the Workflows rail root, alongside Active/Review Queue/IRP Jobs/Exceptions), now served by `app/routers/rwb_jobs.py` (moved off the placeholder stub previously in `app/routers/shell.py` / `app/templates/pages/workflows_rwb_jobs.html`). No new nav node.
 
-Monitoring + search page. Lists `rwb_job` rows, grouped by `rwb_job_type`, ordered within each group by status then most-recent `updated_at`, narrowed by the filters below (all optional, AND-combined):
+Monitoring + search page. Lists the first 50 `rwb_job` rows (`rwb_job_service.MONITOR_LIMIT`, applied with `db.row_limit` the way `irp_job_service.list_recent` caps its own monitor), grouped by `rwb_job_type`, ordered within each group by status then most-recent `updated_at`, narrowed by the filters below (all optional, AND-combined):
 
 | Filter | Matches on | Default |
 |---|---|---|
@@ -39,9 +39,9 @@ Each row renders:
 | Failure detail | `error_detail` | Shown only when `status_code = 'failed'`. |
 | Action | Cancel (`pending`, `failed`, or dead `running`) / Resubmit (`failed` only) / none (live `running`, `succeeded`, `cancelled`) | See below. A `failed` row shows both Cancel and Resubmit. |
 
-Every sortable column is a clickable header (same click-to-sort convention as `pages/submissions.html`, D15): clicking flips direction; clicking a different column starts it in that column's own default direction. Sorting orders the already-filtered rows; it is independent of the filters above.
+Every sortable column is a clickable header (same click-to-sort convention as `pages/submissions.html`, D15): clicking flips direction; clicking a different column starts it in that column's own default direction. Sorting orders the already-filtered rows; it is independent of the filters above. With no `sort` param the grouped order above is what renders — the header sort is a display order layered on top of it, never the default.
 
-No pagination requirement stated in spec.md — if the row count makes this impractical, add pagination as an implementation detail, not a contract change.
+No pagination: the row cap plus the filters is how an analyst reaches older jobs. Adding a pager later is an implementation detail, not a contract change.
 
 ## `GET /workflows/rwb-jobs/table`
 

@@ -32,4 +32,4 @@
 ## Notes
 
 - One open product decision remains (O-01: start/stop script shape — nohup-style vs. systemd for the worker). It does not block drafting the spec or requirements, since both stories are testable either way, but it does block `plan.md`, which must commit to a concrete script/unit shape. Resolve O-01 before or during `/speckit-plan`.
-- O-02 and O-03 are recorded as `Assumed`, not `Open` — both were explicit, locked decisions in `docs/CR/CR_04a__JOB_MONITORING_UI.md` and `docs/CR/CR_04__PER_QUEUE_WORKERS.md` respectively, carried into this spec as accepted defaults rather than open questions.
+- O-02 is recorded as `Assumed`, not `Open` — it was an explicit, locked decision in `docs/CR/CR_04__PER_QUEUE_WORKERS.md`, carried into this spec as an accepted default rather than an open question. O-03 was `Assumed` on the same grounds and is now `Approved` in `spec.md`.
