@@ -27,14 +27,12 @@ from app.services._common import _utcnow
 router = APIRouter()
 
 _NAV_KEY = "workflows.rwb_jobs"
-# The table fragment's own element id. A request naming it as its HTMX target
-# gets the table alone: rebuilding the analyst list, the submission-status list
-# and the nav shell for htmx to discard is the cost of a keystroke otherwise.
+# The table fragment's element id; a request naming it as its HTMX target gets
+# the table alone, skipping the picker reads htmx would only discard.
 _LIST_TARGET = "rwb-jobs-live"
 _SORT_COLUMNS = ("rwb_job_type", "entity_name", "submission", "status_code",
                  "submitted_at", "elapsed")
-# The direction a column starts in when the analyst first clicks it: text
-# ascending, time and duration descending (longest and most recent first).
+# Direction a column starts in on its first click: text up, time/duration down.
 _SORT_STARTS_DESCENDING = {
     "rwb_job_type": False, "entity_name": False, "submission": False,
     "status_code": False, "submitted_at": True, "elapsed": True,
@@ -128,8 +126,7 @@ def _sort_key(sort: str):
 
 def _sort_links(filter_query: str, sort: str, descending: bool) -> dict[str, dict]:
     """One link per sortable header cell (D15). Clicking the sorted column flips
-    its direction; clicking another starts it in ``_SORT_STARTS_DESCENDING``.
-    Each link carries the applied filters, so sorting never drops what's typed."""
+    its direction; each link carries the filters, so sorting never drops them."""
     stem = "/workflows/rwb-jobs?" + (f"{filter_query}&" if filter_query else "")
     links = {}
     for key in _SORT_COLUMNS:
@@ -146,10 +143,8 @@ def _sort_links(filter_query: str, sort: str, descending: bool) -> dict[str, dic
 
 
 def _decorate(rows: list[dict], *, type_labels: dict, status_labels: dict) -> None:
-    """Add the display columns ``partials/rwb_jobs_row.html`` reads: the
-    submissions the job's EDM/RDM belongs to, both kind-table labels, and
-    elapsed time. Elapsed is computed here rather than in SQL because it moves
-    on every render."""
+    """Add the display columns ``partials/rwb_jobs_row.html`` reads. Elapsed time
+    is computed here rather than in SQL because it moves on every render."""
     links = [(r["link_type"], r["link_id"]) for r in rows if r["link_id"] is not None]
     submissions_by_link = rwb_job_service.list_submissions_for_rwb_jobs(links)
     now = _utcnow()
@@ -167,9 +162,8 @@ def _decorate(rows: list[dict], *, type_labels: dict, status_labels: dict) -> No
 
 
 def _list_context(request: Request) -> dict:
-    """Everything ``partials/rwb_jobs_table.html`` reads. The page route adds its
-    owner and submission-status pickers on top; the 3-second poll does not, so a
-    poll never pays for the reads only those pickers need."""
+    """Everything ``partials/rwb_jobs_table.html`` reads. The page route adds the
+    owner and submission-status pickers on top; the 3-second poll does not."""
     current_user = request.state.user
     submission_name = (request.query_params.get("q") or "").strip() or None
     submission_status_codes = [
@@ -189,8 +183,7 @@ def _list_context(request: Request) -> dict:
         rwb_job_types=rwb_job_types or None,
         status_codes=status_codes or None,
     )
-    # Both kind lists are read for the row labels, so the job-type and job-status
-    # pickers reuse them rather than reading the same two tables again.
+    # Read for the row labels; the job-type and job-status pickers reuse them.
     job_types = rwb_job_service.job_type_kinds()
     job_statuses = rwb_job_service.status_kinds()
     _decorate(rows, type_labels=dict(job_types), status_labels=dict(job_statuses))
@@ -232,16 +225,14 @@ def _list_context(request: Request) -> dict:
         # Filters plus the sort in force, for the poll to re-render what the
         # analyst is actually looking at.
         "list_query": urlencode(query_values + order_values),
-        # Any row not yet terminal → keep polling; once every row has finished
-        # the fragment stops emitting the trigger and the poll ends on its own.
+        # Any row not yet terminal keeps the 3s trigger in the fragment.
         "live": any(r["status_code"] in ("pending", "running") for r in rows),
     }
 
 
 def _row_response(request: Request, rwb_job_id: str):
-    """The changed row's partial, showing its actual status after the guarded
-    update — rowcount 0 (a worker claimed it, or the reconciler reclaimed it,
-    first) re-renders reality rather than reporting an error."""
+    """The changed row's partial. A guarded update that matched nothing re-reads
+    the row as it now stands rather than reporting an error."""
     rows = rwb_job_service.list_rwb_jobs_for_monitoring(rwb_job_ids=[rwb_job_id])
     if not rows:
         return Response(status_code=404)

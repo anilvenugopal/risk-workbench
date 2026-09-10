@@ -238,10 +238,8 @@ def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
     )
 
 
-# Rows the monitoring page reads at once. ``rwb_job`` is append-only and the page
-# re-reads on every poll, so the list is capped like the sibling
-# ``irp_job_service.list_recent`` rather than paged — the filters are how an
-# analyst reaches older jobs.
+# Capped like ``irp_job_service.list_recent`` rather than paged: ``rwb_job`` is
+# append-only, and the filters are how an analyst reaches older jobs.
 MONITOR_LIMIT = 50
 
 
