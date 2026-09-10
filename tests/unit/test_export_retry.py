@@ -127,6 +127,7 @@ def test_load_branch_rearms_the_load_job_keyed_by_the_stage_job(failed):
         requestor_type="irp_job", requestor_id=f["irp_job_id"],
         rwb_job_type="stage_results_export", link_type="edm", link_id=f["edm_id"],
         context_type="irp_analysis", context_id=f["analysis_id"], input_data={})
+    rwb_job_service.claim_rwb_job(rwb_job_id=stage_job, worker_id="w1")
     rwb_job_service.complete_rwb_job(rwb_job_id=stage_job, status="succeeded")
 
     assert svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"]) == "load"
@@ -154,6 +155,7 @@ def test_stage_branch_rearms_the_stage_job(failed):
         rwb_job_type="stage_results_export", link_type="edm", link_id=f["edm_id"],
         context_type="irp_analysis", context_id=f["analysis_id"], input_data={})
     stage_job = rwb_jobs("stage_results_export")[0]
+    rwb_job_service.claim_rwb_job(rwb_job_id=stage_job["id"], worker_id="w1")
     rwb_job_service.complete_rwb_job(rwb_job_id=stage_job["id"], status="failed",
                                      error_detail="Archive root x is not available")
     with __import__("unittest.mock", fromlist=["patch"]).patch(
@@ -176,6 +178,7 @@ def test_submit_branch_resets_the_row_and_rearms_the_export_submit(failed):
         requestor_type="analyst_request", requestor_id=f["export_id"],
         rwb_job_type="submit_results_export", link_type="not_applicable", link_id=None,
         context_type="result_export", context_id=f["export_id"], input_data={})
+    rwb_job_service.claim_rwb_job(rwb_job_id=submit_job, worker_id="w1")
     rwb_job_service.complete_rwb_job(rwb_job_id=submit_job, status="succeeded")
 
     assert svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"]) == "submit"

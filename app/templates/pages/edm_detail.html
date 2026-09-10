@@ -14,7 +14,7 @@
 <div class="form-banner form-banner--error">{{ geohaz_error }}</div>
 {% endif %}
 {% include "partials/edm_detail_body.html" %}
-{# Both modal mounts sit OUTSIDE the self-polling #edm-detail wrapper — same
+{# The modal mounts sit OUTSIDE the self-polling #edm-detail wrapper — same
    reason submission_detail.html keeps #submission-entity-modal outside its
    polled sections: an open modal must never be wiped by the 3s poll. #}
 <div id="execute-modal"></div>

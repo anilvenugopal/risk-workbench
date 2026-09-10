@@ -50,8 +50,10 @@ def client(iteration2_db, loss_db) -> TestClient:
             request.state.user = user
             return await call_next(request)
 
+    from app.templating import TEMPLATE_DIRS
+
     app = FastAPI()
-    templates = Jinja2Templates(directory="app/templates")
+    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["app_env"] = settings.app_env
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
@@ -370,6 +372,7 @@ def test_retry_on_a_failed_row_rearms_submit_and_rerenders_the_polling_table(cli
         "error_message = 'Analysis not found' WHERE irp_analysis_id = :a", {"a": export["b"]},
         connection="LOSS")
     submit_job = rwb_jobs("submit_results_export")[0]
+    rwb_job_service.claim_rwb_job(rwb_job_id=submit_job["id"], worker_id="w1")
     rwb_job_service.complete_rwb_job(rwb_job_id=submit_job["id"], status="succeeded")
 
     response = _retry(client, export, export["b"])

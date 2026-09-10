@@ -188,6 +188,21 @@ follows screen-wide; >10 selections scroll horizontally; originating-tab selecti
 - [X] T037 Subtraction review of the full diff per AGENTS.md: remove comments/tests restating the implementation, inline single-use helpers, delete speculative branches; compare diff size with requirement size. *2026-08-26: full 011 diff (~3,440 insertions app+tests) reviewed. Two history-preserving comments removed (`analyses_merged_section.html` "Replaces …" lineage, `_to_display` "folded into analysis_mode before" note). No speculative branches, no single-use helpers to inline, no tests restating implementation found; three partials and the old two-section layout were already deleted during the stories. Diff size is proportional to the 25-FR / 4-story scope. Unit tier 1327 passed after the edits.*
 - [ ] T038 Run the quickstart.md walkthrough end-to-end (developer-run stack) and report tiers by name and count — unit tier count, SQL Server tier (`make test-sql`), IRP sandbox tier (`--run-irp`). *2026-08-26: unit tier 1327 passed. SQL Server tier being run by the developer; IRP sandbox tier and the quickstart walkthrough need the developer-run stack (`linux-box` down).*
 
+## Phase 8: Retry a failed retrieval (FR-007, T-11 — added 2026-09-03)
+
+Built on branch `012-grouping-execution` alongside the R3a `_curve_points` fix,
+which is already in that worktree. No UI preview: a `btn-sm` inside an existing
+styled cell (docs/UI_WORKFLOW.md rule 1, trivial change). One story; stop after
+T044 for the approver to click the live case in quickstart.md.
+
+- [x] T039 [FR-007] [T-11] `analysis_service.retry_results_retrieval(*, analysis_id, actor_id) -> str | None` in `app/services/analysis_service.py`: one `irp_analysis` read by id (`deleted_at`, `loss_results`); raise `LookupError` when missing or deleted and `ValueError("Results are already stored.")` when `loss_results` is set; otherwise `rwb_job_service.ensure_pending_rwb_job(requestor_type="irp_analysis", requestor_id=analysis_id, rwb_job_type="retrieve_analysis_results", input_data={"analysis_id": analysis_id}, actor_id=actor_id)` then `dispatch.dispatch(...)`; return the primitive's result (`None` = already in flight)
+- [x] T040 [FR-007] [T-11] `POST /results/analyses/{analysis_id}/retry` in `app/routers/shell.py` beside the `/results/analyses` GET, per contracts/routes.md §5: CSRF check with the analyses-POST fallback (204 + `HX-Refresh` for HTMX), `LookupError` → 404, `ValueError` → 422 `form-banner--error`, otherwise 204 with `HX-Trigger` `analyses-changed` plus the success toast ("Results retrieval queued.") or the warning toast ("Results retrieval is already running.") when the service returns `None`
+- [x] T041 [FR-007] [T-11] Retry control in `app/templates/partials/analysis_row_macros.html`: a `retry_button(a)` macro rendering `<button class="btn-sm" type="button" onclick="event.stopPropagation()" hx-post="/results/analyses/{{ a.id }}/retry" hx-include="#analyses-csrf" hx-swap="none">Retry</button>`, emitted by `status_cell` inside the status `<span class="l">` after the `Results: …` reason when `a.results_state == 'failed'` — never as a new direct child of `<summary>` (the header comment's `tableToTsv()` rule). Import the macro in `partials/analysis_results_inline.html` and add the same button to its "Results retrieval failed." paragraph
+- [x] T042 [P] [FR-007] [T-11] Service tests in `tests/unit/test_analysis_service.py`: seed a ready analysis with `loss_results` NULL and a `failed` retrieval row keyed `(irp_analysis, id)` with `error_detail`; `retry_results_retrieval` returns the same rwb_job id, the row is `pending` with `attempt_count` 2 and `error_detail` NULL, and `list_executed_analyses` reports `results_state == "pending"`; a `pending` head returns `None` and changes nothing; stored results raise `ValueError`; an unknown id raises `LookupError`
+- [x] T043 [P] [FR-007] [T-11] Route and template tests: in `tests/unit/test_shell_routes.py` the POST returns 204 with `analyses-changed` and the success toast, the warning toast on an in-flight head, 404 on an unknown id, 204 + `HX-Refresh` on a bad CSRF token; in `tests/unit/test_submission_routes.py` and `tests/unit/test_broker_analyses.py` a failed own row and a failed broker row render `hx-post="/results/analyses/<id>/retry"` inside the status cell and a ready row does not; count `<summary>` direct children unchanged for the failed row
+- [x] T044 [FR-007] [T-11] Worker drain test in `tests/unit/test_analysis_jobs_worker.py`: revive a failed retrieval row through `retry_results_retrieval`, then `analysis_jobs.run_one(rwb_job_id=…, rwb_job_type="retrieve_analysis_results")` against FakeIRP's HD-shaped EP fixture (the R3a builder case) — `loss_results` stored with `null` at `2000`, rwb_job `succeeded`
+- [x] T045 Run the unit tier (`uv run pytest tests/unit`, compare against the ~190 Windows `icons/theme_light.svg` baseline) and report the count; then the developer restarts the worker and runs the live case at the end of quickstart.md. SQL Server tier: nothing new to run (T-11 adds no SQL shape); say so in the report
+
 ---
 
 ## Dependencies & Execution Order
@@ -198,6 +213,7 @@ follows screen-wide; >10 selections scroll horizontally; originating-tab selecti
 - **US3 (Phase 5)** depends on US1's read models (T013); T026 → T027/T028; T029 is independent of T026.
 - **US4 (Phase 6)** depends on US3's merged section (T027) for the View button and on T013 for read models. T031a (approved preview) → T034; T032 → T033 → T034; T035 last.
 - **Polish (Phase 7)** after all desired stories.
+- **Retry (Phase 8)** after Phase 7; T039 → T040 → T041; T042 ∥ T043 after T041; T044 after T039; T045 last.
 
 ### Parallel opportunities
 

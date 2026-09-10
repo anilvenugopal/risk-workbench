@@ -5,6 +5,7 @@ MERGE rwb_job_link_type_kind AS target
 USING (VALUES
     ('edm',            'EDM',            10),
     ('rdm',            'RDM',            20),
+    ('submission',     'Submission',     30),
     ('not_applicable', 'Not applicable', 900)
 ) AS src (code, label, sort_order)
 ON target.code = src.code

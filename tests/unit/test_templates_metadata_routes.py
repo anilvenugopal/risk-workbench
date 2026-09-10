@@ -15,6 +15,7 @@ from app.routers import templates
 from app.services import rwb_job_service
 from app.services.auth_service import CurrentUser
 from app.services.irp_gateway import CurrencyEntry
+from app.templating import TEMPLATE_DIRS
 from app.workers import dispatch, metadata_jobs
 from db import execute
 
@@ -41,7 +42,7 @@ class _InjectUser(BaseHTTPMiddleware):
 
 def _client(*, admin: bool = False) -> TestClient:
     app = FastAPI()
-    renderer = Jinja2Templates(directory="app/templates")
+    renderer = Jinja2Templates(directory=TEMPLATE_DIRS)
     renderer.env.globals["app_env"] = settings.app_env
     renderer.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     renderer.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
@@ -239,6 +240,7 @@ def test_failed_sync_reason_and_prior_snapshot_time_are_displayed(
         link_type="not_applicable", link_id=None,
         context_type=None, context_id=None,
     )
+    rwb_job_service.claim_rwb_job(rwb_job_id=job_id, worker_id="test-worker")
     rwb_job_service.complete_rwb_job(
         rwb_job_id=job_id,
         status="failed",

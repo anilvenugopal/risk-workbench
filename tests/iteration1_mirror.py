@@ -151,7 +151,7 @@ ITERATION2_SCHEMA = [
     # loss_results (the retrieval extract) and submitted_settings (the approved
     # plan item snapshot, T-09).
     """CREATE TABLE irp_analysis (
-        id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT,
+        id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT, submission_id TEXT,
         irp_id TEXT, irp_app_analysis_id TEXT, name TEXT, full_name TEXT,
         source_rdm_name TEXT,
         status_code TEXT, created_by_irp_job_irp_id TEXT,
@@ -168,6 +168,17 @@ ITERATION2_SCHEMA = [
     """CREATE UNIQUE INDEX uq_irp_analysis_execution_item
         ON irp_analysis (execution_id, irp_portfolio_id, execution_item_no)
         WHERE execution_id IS NOT NULL""",
+    # One live group per (submission, name) — the submit_grouping worker's
+    # claim-loop collision check races against it (spec 012, T-04).
+    """CREATE UNIQUE INDEX uq_irp_analysis_live_submission_name
+        ON irp_analysis (submission_id, name)
+        WHERE submission_id IS NOT NULL AND deleted_at IS NULL""",
+    # Group membership (spec 012, T-05) — written once at claim, never updated.
+    """CREATE TABLE irp_analysis_group_member (
+        group_analysis_id TEXT NOT NULL, member_analysis_id TEXT NOT NULL,
+        inserted_at TEXT NOT NULL,
+        PRIMARY KEY (group_analysis_id, member_analysis_id)
+    )""",
 ]
 
 # ── Iteration-3 mirror: irp_portfolio / irp_treaty (spec 004, data-model §2/§3) ──
@@ -297,6 +308,7 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("execute_analysis_batch", "Execute Analysis Batch", 29),  # spec 010
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
                      ("finalize_analysis", "Finalize Analysis", 31),  # spec 010
+                     ("submit_grouping", "Submit grouping", 33),  # spec 012
                      ("submit_results_export", "Submit Results Export", 40),  # spec 014
                      ("stage_results_export", "Stage Results Export", 41),
                      ("load_results_export", "Load Results Export", 42),
@@ -306,13 +318,16 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("run_breakout_country", "Portfolio breakout by country", 105),
                      ("run_breakout_peril", "Portfolio breakout by peril", 107),
                      ("run_breakout_custom", "Portfolio breakout by custom group", 110),  # T-12
-                     ("sync_irp_metadata", "Sync IRP metadata", 120)]  # spec 009
+                     ("sync_irp_metadata", "Sync IRP metadata", 120),  # spec 009
+                     ("dummy_wait", "Dummy: wait (dev/test only)", 900),
+                     ("dummy_fail", "Dummy: fail (dev/test only)", 910)]
 RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("analyst_request", "Analyst Request", 20),
                                ("rwb_job", "RWB Job", 30),
                                ("breakout_group", "Breakout Group", 40),  # T-13
                                ("irp_analysis", "IRP Analysis", 50)]  # spec 011 T-01
 RWB_JOB_LINK_TYPE_SEED = [("edm", "EDM", 10), ("rdm", "RDM", 20),
+                          ("submission", "Submission", 30),  # spec 012 T-04
                           ("not_applicable", "Not applicable", 900)]  # CR-04c
 RWB_JOB_CONTEXT_TYPE_SEED = [("edm", "EDM", 10), ("rdm", "RDM", 20),
                              ("irp_analysis", "IRP Analysis", 30),
@@ -321,7 +336,8 @@ RWB_JOB_CONTEXT_TYPE_SEED = [("edm", "EDM", 10), ("rdm", "RDM", 20),
                              ("execution", "Execution", 60),  # CR-04c
                              ("result_export", "Result Export", 70)]  # spec 014
 RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
-                       ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
+                       ("succeeded", "Succeeded", 30), ("failed", "Failed", 40),
+                       ("cancelled", "Cancelled", 50)]
 IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("ready", "Ready", 30),
                             ("error", "Error", 40)]
 BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-model §2
@@ -349,6 +365,7 @@ EXACT_MATCH_TABLES = (
     "rwb_job_requestor_type_kind", "rwb_job_status_kind", "irp_analysis_status_kind",
     "rwb_job_link_type_kind", "rwb_job_context_type_kind",
     "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat", "irp_analysis",
+    "irp_analysis_group_member",  # spec 012
     # Iteration 3 — EDM detail entities (spec 004; full mirrors, exact match).
     "irp_portfolio", "irp_treaty",
     # Iteration 4 — breakout dimension kind table (spec 005) + the custom

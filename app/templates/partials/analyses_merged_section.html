@@ -7,6 +7,25 @@
    app.js, not here: it carries the execution id this section polls on.
    app.js restores expanded rows and ticked checkboxes across swaps via
    data-analyses-section. #}
+{# One click-to-sort header cell (note 27 D6, copying the 8/9 D15 pattern).
+   A <button>, not the <a> the two submissions copies use: the target here is an
+   HTML fragment, so an href would be a broken ctrl-click destination, and an
+   <a> without one gets no tab stop and no Enter key. `aria-label`, not
+   `aria-sort`, because this grid is a CSS grid of <span>s rather than a table;
+   it repeats the column name because aria-label replaces the visible text.
+   `data-value` keeps the caret glyph out of Copy table. The sort state arrives
+   as an argument — a macro cannot read this template's own variables. #}
+{% macro sort_th(key, label, st) %}
+{% set active = st.key == key %}
+{% set next_desc = (not st.desc) if active else (key == 'submitted') %}
+<span class="l" data-value="{{ label }}">
+  <button type="button" class="sort-th{{ ' is-sorted' if active }}"
+          aria-label="{{ label }}{{ (', sorted descending' if st.desc else ', sorted ascending') if active }}"
+          hx-get="{{ st.stem }}sort={{ key }}&amp;dir={{ 'desc' if next_desc else 'asc' }}"
+          hx-target="#{{ st.target }}" hx-swap="outerHTML">{{ label
+    }}<span class="sort-th__caret" aria-hidden="true">{{ ('▼' if st.desc else '▲') if active else '' }}</span></button>
+</span>
+{% endmacro %}
 {% set analyses = analyses if analyses is defined else edm.executed_analyses %}
 {% set groups = groups if groups is defined else submission_rdms|default([]) %}
 {% set show_edm = show_edm|default(false) %}
@@ -24,10 +43,25 @@
      ~ ('?submission=' ~ source_submission.id if source_submission is defined and source_submission else '')
      ~ ((('&' if source_submission is defined and source_submission else '?') ~ 'edm=' ~ edm.id)
         if edm is defined and edm else '') %}
+{% set grouping_request_id = grouping_request_id|default('') %}
+{% set sort_key = sort|default('') or 'submitted' %}
+{% set sort_desc = sort_desc|default(true) %}
 {% set query = ('status=' ~ status_filter if status_filter else '') %}
 {% if execution_id %}{% set query = query ~ ('&' if query else '') ~ 'execution_id=' ~ execution_id %}{% endif %}
+{% if grouping_request_id %}{% set query = query ~ ('&' if query else '') ~ 'grouping_request_id=' ~ grouping_request_id %}{% endif %}
+{# Every sort link carries the applied status filter and any live execution id.
+   The poll and status-select URLs carry the chosen order back, and omit it at
+   the default order so an unsorted grid's poll URL reads as it always has. #}
+{% set sort_stem = analyses_base ~ '?' ~ (query ~ '&' if query else '') %}
+{% set sort_query = ('' if sort_key == 'submitted' and sort_desc
+     else 'sort=' ~ sort_key ~ '&dir=' ~ ('desc' if sort_desc else 'asc')) %}
+{% if sort_query %}{% set query = query ~ ('&' if query else '') ~ sort_query %}{% endif %}
+{% set filter_query = ('execution_id=' ~ execution_id if execution_id else '') %}
+{% if sort_query %}{% set filter_query = filter_query ~ ('&' if filter_query else '') ~ sort_query %}{% endif %}
 {% set analyses_url = analyses_base ~ ('?' ~ query if query else '') %}
-{% set filter_url = analyses_base ~ ('?execution_id=' ~ execution_id if execution_id else '') %}
+{% set filter_url = analyses_base ~ ('?' ~ filter_query if filter_query else '') %}
+{% set sort_state = {'key': sort_key, 'desc': sort_desc,
+     'stem': sort_stem, 'target': section_id} %}
 {% set broker_total = groups|map(attribute='analysis_count')|sum %}
 {% set live = execution_live|default(false)
      or analyses|selectattr('is_live')|list|length > 0
@@ -63,12 +97,25 @@
     {% if delete_url %}
     <input type="hidden" id="analyses-csrf" name="csrf_token" value="{{ generate_csrf_token() }}">
     <button class="btn-sm" type="button" onclick="event.stopPropagation()"
-            :disabled="!count || brokerCount"
+            :disabled="!count || brokerCount > 0"
             :title="brokerCount ? 'Delete applies to workbench analyses only — untick the broker rows' : null"
             hx-post="{{ delete_url }}"
             hx-include="[name='analysis_ids'], #analyses-csrf" hx-swap="none"
             hx-confirm="Delete the selected analyses? They are also deleted in Risk Modeler. This cannot be undone.">
       Delete</button>
+    {% endif %}
+    {# Group only on the submission's Results grid: a group row carries
+       submission_id and no edm_id (ck_irp_analysis_origin), so the EDM-scoped
+       section — the one with an ``edm`` in context — could never show the row
+       it just composed. #}
+    {% if source_submission is defined and source_submission
+          and not (edm is defined and edm) %}
+    <button class="btn-sm" type="button" onclick="event.stopPropagation()"
+            :disabled="count < 2" data-group-analyses
+            hx-get="/submissions/{{ source_submission.id }}/analyses/group"
+            hx-include="[name='analysis_ids']"
+            hx-target="#group-modal" hx-swap="innerHTML"
+            title="Group the selected analyses (needs at least two)">Group</button>
     {% endif %}
     <button class="btn-sm" type="button" onclick="event.preventDefault()"
             title="Pair analyses and open the comparison (new tab)"
@@ -87,18 +134,20 @@
   {% if analyses or groups %}
   <div class="dtable-shell">
     <div class="dtable dtable--selectable"
-         style="--cols:42px minmax(210px,1.4fr) minmax(210px,1.4fr) {% if show_edm %}minmax(140px,1fr) {% endif %}70px 70px minmax(120px,1fr) 90px 110px minmax(190px,1.3fr) 180px 90px;min-width:{{ '1560px' if show_edm else '1420px' }}">
+         style="--cols:42px minmax(210px,1.4fr) minmax(210px,1.4fr) {% if show_edm %}minmax(140px,1fr) {% endif %}84px 84px minmax(120px,1fr) 104px 110px minmax(190px,1.3fr) 180px 90px;min-width:{{ '1602px' if show_edm else '1462px' }}">
       <div class="dtable__head">
         <span class="l"><span class="geohaz-pick">
           <input type="checkbox" x-ref="selectAll" title="Select all — untick to exclude"
                  @change="all($event.target.checked)"></span></span>
         <span class="l">Portfolio</span><span class="l">Template</span>
         {% if show_edm %}<span class="l">EDM</span>{% endif %}
-        <span class="l">Peril</span>
-        <span class="l">Region</span><span class="l">Engine</span>
-        <span class="l">Currency</span>
+        {{ sort_th('peril', 'Peril', sort_state) }}
+        {{ sort_th('region', 'Region', sort_state) }}
+        {{ sort_th('engine', 'Engine', sort_state) }}
+        {{ sort_th('currency', 'Currency', sort_state) }}
         <span>AAL &middot; {{ default_perspective_label }}</span><span class="l">Status</span>
-        <span class="l">Submitted</span><span class="l">Risk Modeler</span>
+        {{ sort_th('submitted', 'Submitted', sort_state) }}
+        <span class="l">Risk Modeler</span>
       </div>
       {% set shown = namespace(n=0) %}
       {% for a in analyses %}

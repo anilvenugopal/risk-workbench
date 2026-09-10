@@ -151,6 +151,7 @@
           rdm_analyses_prefix=results_section.rdm_analyses_prefix,
           delete_url=results_section.delete_url,
           status_filter=results_section.status_filter,
+          sort=results_section.sort, sort_desc=results_section.sort_desc,
           own_empty_text=results_section.own_empty_text,
           all_empty_text=results_section.all_empty_text %}
     {% include "partials/analyses_merged_section.html" %}
@@ -160,6 +161,8 @@
   <div id="submission-exports" hx-get="/submissions/{{ submission.id }}/exports"
        hx-trigger="load" hx-swap="outerHTML"></div>
   <div id="submission-entity-modal"></div>
+  <div id="group-modal"
+       hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }"></div>
   {# Compare modal mount (spec 013) — outside the self-polling Results section
      so the 3s poll never removes an open modal (breakout-modal precedent). #}
   <div id="compare-modal-mount"></div>

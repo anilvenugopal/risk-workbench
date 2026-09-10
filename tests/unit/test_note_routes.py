@@ -12,6 +12,7 @@ from app.config import settings
 from app.routers import edms, rdms
 from app.services import edm_service, entity_note_service, rdm_service
 from app.services.errors import NoteConflict
+from app.templating import TEMPLATE_DIRS
 
 
 class _InjectUser(BaseHTTPMiddleware):
@@ -26,7 +27,7 @@ class _InjectUser(BaseHTTPMiddleware):
 
 def _client() -> TestClient:
     app = FastAPI()
-    templates = Jinja2Templates(directory="app/templates")
+    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals.update(
         app_env=settings.app_env,
         password_auth_enabled=settings.password_auth_enabled,

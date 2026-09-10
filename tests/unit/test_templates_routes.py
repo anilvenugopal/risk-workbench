@@ -20,6 +20,7 @@ from app.config import settings
 from app.routers import templates
 from app.services import template_service
 from app.services.auth_service import CurrentUser
+from app.templating import TEMPLATE_DIRS
 from app.workers import metadata_jobs
 
 
@@ -55,7 +56,7 @@ class _InjectUser(BaseHTTPMiddleware):
 
 def _client(user: CurrentUser | None = None) -> TestClient:
     app = FastAPI()
-    renderer = Jinja2Templates(directory="app/templates")
+    renderer = Jinja2Templates(directory=TEMPLATE_DIRS)
     renderer.env.globals["app_env"] = settings.app_env
     renderer.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     renderer.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
@@ -425,6 +426,24 @@ def test_edit_form_prefills_scheme_options_for_the_stored_profile(
     body = _client().get(f"/templates/analysis-templates/{template_id}").text
 
     assert '<option value="RMS WS" selected>' in body
+
+
+def test_edit_form_keeps_a_saved_template_free_of_a_scheme(
+    iteration2_db, fake_irp,
+):
+    """scheme_options() pre-selects a lone profile match on the profile-change
+    cascade (FR-007), but a template saved without a scheme must reopen without
+    one — otherwise the next save silently puts the scheme back."""
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values_for_service(
+        name="US Wind HD", analysis_profile_name="RMS Default HD",
+        event_rate_scheme_name=None,
+    ))
+
+    body = _client().get(f"/templates/analysis-templates/{template_id}").text
+
+    assert "<option value=\"\" selected>Choose a scheme" in _flat(body)
+    assert '<option value="RMS WS" selected>' not in body
 
 
 def test_edit_form_labels_hidden_scheme_as_hidden_not_missing(

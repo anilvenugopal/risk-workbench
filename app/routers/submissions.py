@@ -18,28 +18,34 @@ is wrong.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import date
 from functools import partial
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._analysis_delete import delete_analyses_response
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.services import (
+    analysis_execution_service,
     analysis_service,
+    auth_service,
     edm_service,
     export_service,
+    grouping_service,
     rdm_service,
     shared_drive,
     submission_service,
 )
 from app.services._common import _uid
+from app.services.analysis_execution_service import ExecutionGateError
 from app.services.errors import (
     ConcurrencyConflict,
     InvalidMemberName,
@@ -49,7 +55,7 @@ from app.services.errors import (
     SubmissionClosed,
     UnknownLinkError,
 )
-from db import execute
+from app.services.grouping_view import build_inspection_screen
 
 router = APIRouter()
 
@@ -195,16 +201,6 @@ def _reshow_form(
         status_code=status_code)
 
 
-def _active_analysts() -> list[dict]:
-    """Every active user, for the detail page's reassign picker and the list's
-    Owner filter."""
-    return execute(
-        "SELECT id, display_name FROM app_user WHERE is_active = 1 "
-        "ORDER BY display_name",
-        {}, connection="WORKBENCH",
-    )
-
-
 # One place per kind for the router-level operations that differ between EDM
 # and RDM — mirrors the service layer's own ``_common._ENTITY_ASSOC``.
 _ENTITY_KIND = {
@@ -312,9 +308,15 @@ def _results_groups(submission_id: str) -> list:
 
 def _results_section_context(request: Request, submission_id: str,
                              submission) -> dict:
+    grouping_request_id = (request.query_params.get("grouping_request_id")
+                           or "").strip() or None
+    sort, descending = analysis_service.sort_from_query(request.query_params)
     return {
-        "analyses": analysis_service.list_submission_executed_analyses(
-            submission_id=submission_id),
+        "analyses": analysis_service.sort_analyses(
+            analysis_service.list_submission_executed_analyses(
+                submission_id=submission_id), sort, descending),
+        "sort": sort,
+        "sort_desc": descending,
         "groups": _results_groups(submission_id),
         "source_submission": submission,
         "show_edm": True,
@@ -322,8 +324,13 @@ def _results_section_context(request: Request, submission_id: str,
         "section_title": "Results",
         "analyses_table_url": f"/submissions/{submission_id}/analyses",
         "rdm_analyses_prefix": f"/submissions/{submission_id}/rdms",
-        "delete_url": None,
+        "delete_url": f"/submissions/{submission_id}/analyses/delete",
         "status_filter": _results_status_filter(request),
+        # Keeps the 3s poll alive between a compose POST and the worker's claim
+        # of the group row (spec 012 — no group row exists yet to read as live).
+        "grouping_request_id": grouping_request_id or "",
+        "execution_live": grouping_service.grouping_request_is_live(
+            grouping_request_id),
         "own_empty_text": "No analyses executed in this deal yet. Run a suite "
                           "or template from one of its EDMs.",
         "all_empty_text": "No analyses in this deal yet. Run a suite or "
@@ -365,6 +372,196 @@ def submission_rdm_analyses(request: Request, submission_id: str, rdm_id: str):
                     {"analyses": analyses, "rdm": rdm, "show_edm": True})
 
 
+# ── Group compose dialog (spec 012, contracts/routes.md) ─────────────────────
+
+@router.get("/submissions/{submission_id}/analyses/group",
+            response_class=HTMLResponse)
+def group_compose_modal(request: Request, submission_id: str):
+    """The three-screen dialog with its fresh-open prefills: generated name,
+    env currency defaults, Propagate ON (FR-004/FR-005)."""
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    members = grouping_service.list_eligible_members(submission.id)
+    ctx: dict = {"submission": submission,
+                 "action_url": f"/submissions/{submission.id}/analyses/group",
+                 "inspect_url": f"/submissions/{submission.id}/analyses/group/inspect",
+                 "finish_url": f"/submissions/{submission.id}/analyses/group/finish"}
+    if len(members) < 2:
+        ctx["blocking"] = ("This submission needs at least two finished "
+                           "analyses before they can be grouped.")
+        return _partial(request, "partials/group_compose_modal.html", ctx)
+    ctx.update({
+        "blocking": None,
+        "members": members,
+        "preselected": {p.lower() for p in
+                        request.query_params.getlist("analysis_ids")},
+        "group_name": grouping_service.build_group_name(submission.id,
+                                                        submission.name),
+        **_group_currency_context(),
+    })
+    return _partial(request, "partials/group_compose_modal.html", ctx)
+
+
+def _group_currency_context(code: str | None = None) -> dict:
+    """The ``currency_block`` context for the group dialog: the env defaults,
+    with ``code`` (the members' common currency) replacing the default code
+    (FR-004)."""
+    defaults = analysis_execution_service.currency_defaults()
+    return {
+        "currency_code_val": code or defaults["code"],
+        "currency_scheme_val": defaults["scheme"],
+        "currency_vintage_val": defaults["vintage"],
+        "vintage_options": analysis_execution_service.vintage_options(
+            defaults["scheme"]),
+        "currency_options": analysis_execution_service.currency_options(),
+        "scheme_options": analysis_execution_service.currency_scheme_options(),
+    }
+
+
+@router.post("/submissions/{submission_id}/analyses/group/inspect",
+             response_class=HTMLResponse)
+async def group_compose_inspect(request: Request, submission_id: str):
+    """Screen 2 of the dialog: Platform reads only, rendered into
+    ``#group-inspection`` plus the out-of-band ``#group-summary``,
+    ``#group-sims``, and ``#group-currency`` (contracts/routes.md). Gate and
+    read failures render the same fragment with the error list at 422."""
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if _is_htmx(request):
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    try:
+        view = grouping_service.inspect_grouping(
+            submission_id=submission.id,
+            member_ids=form.getlist("member_ids"))
+    except ExecutionGateError as exc:
+        return _partial(request, "partials/group_inspection.html",
+                        {"errors": exc.errors}, status_code=422)
+    return _partial(request, "partials/group_inspection.html",
+                    _inspection_context(view))
+
+
+def _inspection_context(view) -> dict:
+    return {"view": view, "screen": build_inspection_screen(view), "errors": [],
+            "simulation_period_options": grouping_service.SIMULATION_PERIOD_OPTIONS,
+            "default_group_simulation_periods":
+                grouping_service.DEFAULT_GROUP_SIMULATION_PERIODS,
+            "default_partition_simulation_periods":
+                grouping_service.DEFAULT_PARTITION_SIMULATION_PERIODS,
+            **_group_currency_context(view.common_currency)}
+
+
+def _grouping_submitted_trigger(grouping_request_id: str) -> str:
+    return json.dumps({
+        "grouping-submitted": {"grouping_request_id": grouping_request_id},
+        "rwb:toast": {"message": "Grouping submitted.", "type": "success"},
+    })
+
+
+@router.post("/submissions/{submission_id}/analyses/group/finish",
+             response_class=HTMLResponse)
+async def group_compose_finish(request: Request, submission_id: str):
+    """Screen 1's Finish (FR-025): inspect, and when nothing is left for the
+    analyst to choose, submit the group at once in the members' currency with
+    the env scheme and vintage, Propagate ON, and — for a PLT group — the
+    default simulation periods. Otherwise the inspection renders as screen 2
+    with the stop notice, and the analyst continues with Next. Success ends
+    exactly as the Group submit does: 204, the toast, and the group row."""
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if _is_htmx(request):
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    member_ids = form.getlist("member_ids")
+    try:
+        view = grouping_service.inspect_grouping(
+            submission_id=submission.id, member_ids=member_ids)
+    except ExecutionGateError as exc:
+        return _partial(request, "partials/group_inspection.html",
+                        {"errors": exc.errors}, status_code=422)
+    defaults = analysis_execution_service.currency_defaults()
+    if grouping_service.finish_blockers(view, currency_defaults=defaults):
+        return _partial(request, "partials/group_inspection.html",
+                        {**_inspection_context(view), "finish_stopped": True})
+    plt = view.inspection.output_loss_table == "PLT"
+    req = grouping_service.GroupingRequest(
+        member_ids=member_ids, group_name=form.get("group_name", ""),
+        currency_code=view.common_currency,
+        currency_scheme=defaults["scheme"],
+        currency_vintage=defaults["vintage"],
+        propagate_detailed_output=True,
+        num_of_simulations=(
+            str(grouping_service.DEFAULT_GROUP_SIMULATION_PERIODS)
+            if plt else "1"),
+        event_rate_selections=[], simulation_set_selections=[],
+        simulation_periods_selections=(
+            grouping_service.default_simulation_periods_selections(view)
+            if plt else []),
+        expected_inspection_fingerprint=view.inspection.fingerprint,
+        inspected_analysis_ids=[str(i) for i in view.inspection.analysis_ids])
+    try:
+        grouping_request_id = grouping_service.request_grouping(
+            submission_id=submission.id, submission_name=submission.name,
+            req=req, actor_id=request.state.user.id)
+    except ExecutionGateError as exc:
+        return _partial(request, "partials/group_inspection.html",
+                        {"errors": exc.errors}, status_code=422)
+    return Response(status_code=204, headers={
+        "HX-Trigger": _grouping_submitted_trigger(grouping_request_id)})
+
+
+@router.post("/submissions/{submission_id}/analyses/group")
+async def group_compose_submit(request: Request, submission_id: str):
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if _is_htmx(request):
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    try:
+        grouping_request_id = grouping_service.request_grouping(
+            submission_id=submission.id, submission_name=submission.name,
+            req=grouping_service.GroupingRequest.from_form(form),
+            actor_id=request.state.user.id)
+    except ExecutionGateError as exc:
+        # Retargeted at screen 3's error slot because htmx drops a non-2xx
+        # body at the triggering element's own target by default; the dialog
+        # keeps its state.
+        response = _partial(request, "partials/group_submit_errors.html",
+                            {"errors": exc.errors}, status_code=422)
+        if _is_htmx(request):
+            response.headers["HX-Retarget"] = "#group-submit-errors"
+            response.headers["HX-Reswap"] = "innerHTML"
+        return response
+    return Response(status_code=204, headers={
+        "HX-Trigger": _grouping_submitted_trigger(grouping_request_id)})
+
+
+@router.post("/submissions/{submission_id}/analyses/delete")
+async def delete_submission_analyses(request: Request, submission_id: str):
+    """The Results grid's Delete (spec 012 contracts/routes.md): own analyses
+    across every EDM of the deal plus its group rows. A group row carries
+    ``submission_id`` and no ``edm_id``, so the EDM page's delete cannot reach
+    it — this route is the only one that can."""
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if _is_htmx(request):
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    return delete_analyses_response(request, form, submission_id=submission_id)
+
+
 @router.get("/submissions/{submission_id}/analyses/compare",
             response_class=HTMLResponse)
 def submission_analyses_compare(request: Request, submission_id: str):
@@ -384,7 +581,7 @@ def _detail_context(request: Request, submission_id: str) -> dict | None:
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return None
-    analysts = _active_analysts()
+    analysts = auth_service.list_active_analysts()
     sort_state = _entity_sort_state(request)
     edm_sort, edm_descending = sort_state["edm"]
     rdm_sort, rdm_descending = sort_state["rdm"]
@@ -717,7 +914,7 @@ def list_submissions_page(request: Request):
         "treaty_types": TREATY_TYPES,
         "statuses": submission_service.status_kinds(),
         "owner_options": [(analyst["id"], analyst["display_name"])
-                          for analyst in _active_analysts()],
+                          for analyst in auth_service.list_active_analysts()],
         "filter_values": filter_values,
         "min_treaty_year": MIN_TREATY_YEAR,
         "max_treaty_year": MAX_TREATY_YEAR,

@@ -136,6 +136,7 @@ def main() -> int:
                     ('execute_analysis_batch',    'Execute Analysis Batch',    29),
                     ('retrieve_analysis_results', 'Retrieve Analysis Results', 30),
                     ('finalize_analysis',         'Finalize Analysis',         31),
+                    ('submit_grouping',           'Submit grouping',           33),
                     ('submit_results_export',     'Submit Results Export',     40),
                     ('stage_results_export',      'Stage Results Export',      41),
                     ('load_results_export',       'Load Results Export',       42),
@@ -173,6 +174,7 @@ def main() -> int:
                 USING (VALUES
                     ('edm',            'EDM',            10),
                     ('rdm',            'RDM',            20),
+                    ('submission',     'Submission',     30),
                     ('not_applicable', 'Not applicable', 900)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code

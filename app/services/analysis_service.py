@@ -23,7 +23,7 @@ from typing import Any
 from sqlalchemy import text
 
 from app.config import settings
-from app.services import irp_gateway
+from app.services import irp_gateway, rwb_job_service
 from app.services._common import (
     CONDENSED_RETURN_PERIODS,
     STORED_RETURN_PERIODS,
@@ -32,6 +32,7 @@ from app.services._common import (
     _uid,
     _utcnow,
 )
+from app.workers import dispatch
 from db import execute, execute_command, execute_one, get_connection
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,8 @@ class SubmittedSettings:
     construction_occupancy: str | None = None
     # submitted_settings.currency.code — the own row's pairing-guard value.
     currency: str | None = None
+    # spec 012 — the group row's member analyses, in approved-plan order.
+    member_names: list[str] = field(default_factory=list)
 
 
 def _submitted_view(raw: Any) -> SubmittedSettings:
@@ -110,11 +113,17 @@ def _submitted_view(raw: Any) -> SubmittedSettings:
         return SubmittedSettings()
     unknown = p.get("treat_construction_occupancy_as_unknown")
     currency = p.get("currency")
+    members = p.get("members")
+    if not isinstance(members, list):
+        members = []
+    names = [m.get("display_name") or m.get("name") for m in members
+             if isinstance(m, dict)]
     return SubmittedSettings(
         construction_occupancy=("Treat as unknown" if unknown
                                 else _text(unknown)),
         currency=(_text(currency.get("code"))
                   if isinstance(currency, dict) else None),
+        member_names=[n for n in names if n],
     )
 
 
@@ -174,6 +183,7 @@ class BrokerAnalysis:
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
     rm_url: str | None = None    # Risk Modeler link-out from the snapshot's
                                  # appAnalysisId, as own rows build theirs (FR-025)
+    app_analysis_id: str | None = None  # the snapshot's appAnalysisId — the id shown
     created_at: Any = None       # RM createDate — the broker's own run date (FR-024)
     results_state: str = "pending"      # pending | failed | ready
     results_error: str | None = None    # failed retrieval's error_detail
@@ -196,6 +206,17 @@ class BrokerAnalysisGroup:
     sync_running: bool = False
 
 
+# ExecutedAnalysis.run_state -> the status-chip variant that renders it.
+_CHIP_BY_RUN_STATE = {
+    "submitting": "importing",
+    "running": "importing",
+    "retrying": "importing",
+    "finished": "ready",
+    "submit_failed": "submission-failed",
+    "failed": "error",
+}
+
+
 @dataclass
 class ExecutedAnalysis:
     id: str
@@ -210,12 +231,16 @@ class ExecutedAnalysis:
     inserted_at: Any = None     # submit request time (Submitted column)
     irp_id: str | None = None   # RM analysisId; backfilled after FINISHED
     irp_app_analysis_id: str | None = None  # RM appAnalysisId; web-UI id
+    # The id the expanded row shows: the column, else the metadata snapshot's
+    # appAnalysisId (spec 012 FR-023) — never the API analysisId.
+    app_analysis_id: str | None = None
     rm_url: str | None = None   # Risk Modeler link-out; None without irp_app_analysis_id
     settings: dict | None = None
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
     irp_job_id: str | None = None       # latest linked irp_job
     job_status: str | None = None       # latest irp_job.status; None before submit
     submission_attempt_count: int = 0
+    is_group: bool = False              # spec 012 — Engine cell reads "Group"
     results_state: str = "pending"      # pending | failed | ready
     results_error: str | None = None    # failed retrieval's error_detail
     results: list[PerspectiveResults] = field(default_factory=list)  # [] until ready
@@ -235,33 +260,54 @@ class ExecutedAnalysis:
                     and self.results_state == "pending"))
 
     @property
-    def status_label(self) -> str:
+    def run_state(self) -> str:
+        """Where the run stands, derived from the mirrored ``irp_job.status``:
+
+        ``submitting``     no ``irp_job`` row yet
+        ``running``        Risk Modeler accepted it (PENDING/QUEUED/RUNNING)
+        ``retrying``       a submit attempt failed, attempts remain
+        ``submit_failed``  the submit attempts ran out
+        ``finished``       the run finished in Risk Modeler
+        ``failed``         FAILED or CANCELLED in Risk Modeler
+
+        Read this, not ``status_chip`` — the chip is one rendering of it.
+        Note ``finished`` is not the same as deletable or grouped under Ready:
+        both of those also wait on the backfill (``status_code``)."""
         if self.job_status is None:
-            return "Submitting…"
+            return "submitting"
+        if self.job_status in ("PENDING", "QUEUED", "RUNNING"):
+            return "running"
+        if self.job_status == "SUBMISSION RETRYING":
+            return "retrying"
         if self.job_status == "SUBMISSION FAILED":
+            return "submit_failed"
+        if self.job_status == "FINISHED":
+            return "finished"
+        return "failed"  # FAILED, CANCELLED
+
+    @property
+    def status_label(self) -> str:
+        if self.run_state == "submitting":
+            return "Submitting…"
+        if self.run_state == "submit_failed":
             return (f"Failed to submit · attempt {self.submission_attempt_count}/"
                     f"{settings.irp_submission_max_retries}")
         return self.job_status.capitalize()
 
     @property
     def status_chip(self) -> str:
-        """One of the existing import-status chip variants (submissions.css) —
-        no new CSS, keyed off the derived label rather than a stored status."""
-        if self.job_status in (None, "QUEUED", "RUNNING", "SUBMISSION RETRYING"):
-            return "importing"
-        if self.job_status == "FINISHED":
-            return "ready"
-        if self.job_status == "SUBMISSION FAILED":
-            return "submission-failed"
-        return "error"  # FAILED, CANCELLED
+        """The ``status-chip--*`` modifier for ``run_state``. Analyses reuse the
+        EDM/RDM import chip variants in components.css rather than adding a
+        second set of colors, so the class names do not match the states."""
+        return _CHIP_BY_RUN_STATE[self.run_state]
 
     @property
     def group_key(self) -> str:
         """The Analyses grid's group: ``failed`` / ``in_progress`` / ``ready``.
-        Derived, not raw ``status_code`` — a failed-to-submit row is
-        ``status_code='pending'`` but belongs under Failed."""
-        if self.status_code == "error" or self.status_chip in (
-                "error", "submission-failed"):
+        A run out of submit attempts is ``status_code='pending'`` but belongs
+        under Failed; a retrying one still belongs under In progress."""
+        if self.status_code == "error" or self.run_state in (
+                "failed", "submit_failed"):
             return "failed"
         if self.status_code == "ready":
             return "ready"
@@ -269,12 +315,14 @@ class ExecutedAnalysis:
 
     @property
     def is_deletable(self) -> bool:
-        """Terminal rows only. Deliberately NOT ``status_chip == 'ready'``: the
-        chip turns ready at job FINISHED, seconds before the backfill writes
-        ``irp_id`` — deleting in that window would orphan the RM analysis."""
-        return (self.job_status != "SUBMISSION RETRYING"
+        """Terminal rows only. Deliberately NOT ``run_state == 'finished'``: the
+        run finishes seconds before the backfill writes ``irp_id`` and flips
+        ``status_code`` — deleting in that window would orphan the RM
+        analysis. A retrying row is still in flight, whatever ``status_code``
+        says."""
+        return (self.run_state != "retrying"
                 and (self.status_code in ("ready", "error")
-                     or self.status_chip == "submission-failed"))
+                     or self.run_state == "submit_failed"))
 
 
 def _parse_settings(raw: Any) -> dict | None:
@@ -308,6 +356,26 @@ def _text(value: Any) -> str | None:
     return str(value)
 
 
+def _event_rate_scheme(p: dict) -> str | None:
+    """Own analyses list their scheme in ``eventRateSchemeNames``. A group's
+    list is empty; its schemes (one per member region/peril) sit in
+    ``additionalProperties`` under key ``eventRateSchemes``, each property's
+    ``value`` an object with ``eventRateSchemeName``."""
+    named = _text(p.get("eventRateSchemeNames"))
+    if named:
+        return named
+    for prop in p.get("additionalProperties") or []:
+        if isinstance(prop, dict) and prop.get("key") == "eventRateSchemes":
+            names = []
+            for entry in prop.get("properties") or []:
+                value = entry.get("value") if isinstance(entry, dict) else None
+                name = value.get("eventRateSchemeName") if isinstance(value, dict) else None
+                if name and name not in names:
+                    names.append(name)
+            return ", ".join(names) or None
+    return None
+
+
 def _to_display(settings: dict | None) -> AnalysisSettings:
     p = settings or {}
     return AnalysisSettings(
@@ -324,10 +392,45 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
         line_of_business=_text(_first(p, "lineOfBusiness", "lob")),
         term=_text(_first(p, "term", "timeDependency", "rateTimeDependency")),
         pla=_text(_first(p, "lossAmplification", "pla", "plaEnabled")),
-        # eventRateSchemeNames: a LIST of {id, code, name} reference objects.
-        event_rate_scheme=_text(p.get("eventRateSchemeNames")),
+        event_rate_scheme=_event_rate_scheme(p),
         rate_vintage=_text(_first(p, "rateVintage", "eventRateSchemeVersion")),
     )
+
+
+# The grid columns the header can sort on (note 27 D6). Peril, Region, Engine and
+# Currency are read off settings_metadata in Python, not columns, so the order is
+# applied to the built rows. "submitted" is the query's own order and has no
+# key here: inserted_at is TEXT on the SQLite mirror and DATETIME2 on SQL
+# Server, so comparing it in Python would compare different types on the two
+# tiers.
+SORT_KEYS = {
+    "peril": lambda a: a.display.peril,
+    "region": lambda a: a.display.region,
+    "engine": lambda a: "Group" if a.is_group else a.display.engine,
+    "currency": lambda a: a.display.currency,
+}
+
+
+def sort_from_query(params) -> tuple[str, bool]:
+    """The grid's ``?sort=``/``?dir=`` pair as ``(sort, descending)``, for both
+    the submission and EDM Analyses sections."""
+    sort = (params.get("sort") or "").strip()
+    return sort, (params.get("dir") or "desc") != "asc"
+
+
+def sort_analyses(rows: list, sort: str, descending: bool) -> list:
+    """The built rows in header order. A ``sort`` outside ``SORT_KEYS`` — the
+    default ``submitted`` included — keeps the query order. Blank and missing
+    values land last in both directions — an em-dash row belongs at the bottom
+    whichever way the caret points."""
+    key = SORT_KEYS.get(sort)
+    if key is None:
+        return list(rows) if descending else list(reversed(rows))
+    present, missing = [], []
+    for row in rows:
+        (present if (key(row) or "").strip() else missing).append(row)
+    present.sort(key=lambda a: key(a).strip().casefold(), reverse=descending)
+    return present + missing
 
 
 # One row per (RDM×EDM) handle.
@@ -385,6 +488,7 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
                 is_group=bool(r["is_group"]), settings=settings,
                 display=_to_display(settings),
                 rm_url=_rm_analysis_url((settings or {}).get("appAnalysisId")),
+                app_analysis_id=_text((settings or {}).get("appAnalysisId")),
                 created_at=(settings or {}).get("createDate"),
                 results_state=("ready" if results else "pending"),
                 results=results)
@@ -397,6 +501,7 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
                 existing.settings = settings
                 existing.display = _to_display(settings)
                 existing.rm_url = _rm_analysis_url(settings.get("appAnalysisId"))
+                existing.app_analysis_id = _text(settings.get("appAnalysisId"))
                 existing.created_at = settings.get("createDate")
         if not existing.results:
             results = _perspective_results(r["loss_results"], perspectives)
@@ -465,7 +570,7 @@ _EXECUTED_SELECT = f"""
     LEFT JOIN app_user u ON u.id = a.inserted_by
     {_LATEST_JOB_JOIN}
     WHERE a.edm_id = :edm_id AND a.execution_id IS NOT NULL AND a.deleted_at IS NULL
-    ORDER BY a.inserted_at DESC
+    ORDER BY a.inserted_at DESC, a.id DESC
 """
 
 
@@ -504,11 +609,14 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
             inserted_at=r["inserted_at"],
             edm_name=r.get("edm_name"),
             irp_id=irp_id, irp_app_analysis_id=irp_app_analysis_id,
+            app_analysis_id=(irp_app_analysis_id
+                             or _text((parsed or {}).get("appAnalysisId"))),
             rm_url=_rm_analysis_url(irp_app_analysis_id), settings=parsed,
             display=_to_display(parsed),
             irp_job_id=(_uid(r["irp_job_id"]) if r["irp_job_id"] else None),
             job_status=r["job_status"],
             submission_attempt_count=int(r["submission_attempt_count"] or 0),
+            is_group=bool(r.get("is_group")),
             results_state=("ready" if results else "pending"), results=results,
             submitted=submitted, run_currency=submitted.currency))
     _mark_failed_retrievals(analyses)
@@ -521,9 +629,9 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
 
 
 _SUBMISSION_EXECUTED_SELECT = f"""
-    SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
+    SELECT a.id AS id, a.name, a.full_name, a.status_code, a.failure_reason,
            a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
-           a.loss_results, a.submitted_settings,
+           a.loss_results, a.submitted_settings, a.is_group,
            p.name AS portfolio_name, t.name AS template_name,
            e.name AS edm_name, u.display_name AS run_by,
            j.id AS irp_job_id, j.status AS job_status,
@@ -537,7 +645,25 @@ _SUBMISSION_EXECUTED_SELECT = f"""
     {_LATEST_JOB_JOIN}
     WHERE se.submission_id = :submission_id AND a.rdm_id IS NULL
       AND e.deleted_at IS NULL AND a.deleted_at IS NULL
-    ORDER BY a.inserted_at DESC
+    UNION ALL
+    SELECT a.id AS id, a.name, a.full_name, a.status_code, a.failure_reason,
+           a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
+           a.loss_results, a.submitted_settings, a.is_group,
+           NULL AS portfolio_name, NULL AS template_name,
+           NULL AS edm_name, u.display_name AS run_by,
+           j.id AS irp_job_id, j.status AS job_status,
+           j.submission_attempt_count
+    FROM irp_analysis a
+    LEFT JOIN app_user u ON u.id = a.inserted_by
+    {_LATEST_JOB_JOIN}
+    WHERE a.submission_id = :submission_id AND a.is_group = 1
+      AND a.deleted_at IS NULL
+    -- ``id`` follows the timestamp so rows sharing one come back in the same
+    -- order every poll, and reversing the list for ascending Submitted is a
+    -- defined order. A compound ORDER BY resolves against the output names
+    -- only, and bare ``id`` is ambiguous across the joined tables, hence the
+    -- explicit ``AS id`` on both branches.
+    ORDER BY inserted_at DESC, id DESC
 """
 
 
@@ -574,28 +700,27 @@ _SOFT_DELETE_ANALYSIS = (
 )
 
 
-def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
-                             actor_id: Any) -> DeleteOutcome:
-    """Delete terminal own-executed analyses (spec 010 P-19): validate the
-    whole batch up front (every posted id must resolve on this EDM and be
-    ``is_deletable``, else ``ValueError``), then per row cascade to Risk
-    Modeler first and soft-delete locally on success. A row whose RM delete
-    fails is recorded in ``failed`` and kept visible for retry; a row the poller
-    claimed for a submission retry mid-batch is recorded in ``retrying`` and left
-    alone. Neither aborts the batch — the rows already deleted stay deleted, and
-    the caller reports all three counts. RM-first order: a crash between the two
+def _delete_analyses(rows: list[ExecutedAnalysis], analysis_ids: list[Any],
+                     actor_id: Any, foreign_message: str) -> DeleteOutcome:
+    """Delete terminal analyses (spec 010 P-19): validate the whole batch up
+    front (every posted id must resolve among ``rows`` and be ``is_deletable``,
+    else ``ValueError``), then per row cascade to Risk Modeler first and
+    soft-delete locally on success. A row whose RM delete fails is recorded in
+    ``failed`` and kept visible for retry; a row the poller claimed for a
+    submission retry mid-batch is recorded in ``retrying`` and left alone.
+    Neither aborts the batch — the rows already deleted stay deleted, and the
+    caller reports all three counts. RM-first order: a crash between the two
     calls leaves a visible row with a dangling ``irp_id`` — recoverable by
     retrying — rather than a hidden RM analysis."""
     ids = [i for i in dict.fromkeys(_uid(a) for a in analysis_ids) if i]
     if not ids:
         raise ValueError("No analyses selected.")
-    rows = {a.id: a for a in list_executed_analyses(edm_id=edm_id)}
+    by_id = {a.id: a for a in rows}
     picked = []
     for analysis_id in ids:
-        row = rows.get(analysis_id)
+        row = by_id.get(analysis_id)
         if row is None:
-            raise ValueError(
-                "A selected analysis no longer belongs to this EDM.")
+            raise ValueError(foreign_message)
         if not row.is_deletable:
             raise ValueError(
                 f"'{row.full_name or row.name}' is still in progress "
@@ -640,6 +765,63 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
                             connection="WORKBENCH")
         deleted += 1
     return DeleteOutcome(deleted=deleted, failed=failed, retrying=retrying)
+
+
+def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
+                             actor_id: Any) -> DeleteOutcome:
+    """The EDM page's Analyses grid: own analyses executed from one EDM."""
+    return _delete_analyses(
+        list_executed_analyses(edm_id=edm_id), analysis_ids, actor_id,
+        "A selected analysis no longer belongs to this EDM.")
+
+
+def delete_submission_analyses(*, submission_id: Any, analysis_ids: list[Any],
+                               actor_id: Any) -> DeleteOutcome:
+    """The submission page's Results grid: own analyses across every EDM of the
+    deal, plus its group rows (spec 012 contracts/routes.md — a group carries
+    ``submission_id`` and no ``edm_id``, so this is the only grid it can be
+    deleted from). Broker rows are not in the candidate set, so posting one
+    raises the same ``ValueError`` an unrelated id does."""
+    return _delete_analyses(
+        list_submission_executed_analyses(submission_id=submission_id),
+        analysis_ids, actor_id,
+        "A selected analysis no longer belongs to this deal.")
+
+
+def retry_results_retrieval(*, analysis_id: Any, actor_id: Any) -> str | None:
+    """The row's Retry (spec 011 FR-007, T-11): revive the analysis's own
+    ``retrieve_analysis_results`` job in place. The key is the one
+    ``finalize_analysis`` and ``backfill_rdm_analyses`` enqueue under, so the
+    failed row itself goes back to ``pending`` and ``_mark_failed_retrievals``
+    stops matching it. Raises ``LookupError`` for an unknown or deleted analysis
+    and ``ValueError`` when results are already stored; returns ``None`` when
+    the retrieval is already pending or running."""
+    aid = _uid(analysis_id)
+    row = execute_one(
+        "SELECT loss_results, edm_id, rdm_id, submission_id FROM irp_analysis "
+        "WHERE id = :id AND deleted_at IS NULL",
+        {"id": aid}, connection="WORKBENCH")
+    if row is None:
+        raise LookupError(aid)
+    if row["loss_results"] is not None:
+        raise ValueError("Results are already stored.")
+    # Same three origin legs as ck_irp_analysis_origin: own run, broker
+    # capture, or group (CR-04c §6, spec 012 T-04).
+    if row["edm_id"] is not None:
+        link_type, link_id = "edm", row["edm_id"]
+    elif row["rdm_id"] is not None:
+        link_type, link_id = "rdm", row["rdm_id"]
+    else:
+        link_type, link_id = "submission", row["submission_id"]
+    job_id = rwb_job_service.ensure_pending_rwb_job(
+        requestor_type="irp_analysis", requestor_id=aid,
+        rwb_job_type="retrieve_analysis_results",
+        link_type=link_type, link_id=link_id,
+        context_type="irp_analysis", context_id=aid,
+        input_data={"analysis_id": aid}, actor_id=actor_id)
+    dispatch.dispatch(rwb_job_id=job_id,
+                      rwb_job_type="retrieve_analysis_results")
+    return job_id
 
 
 @dataclass
@@ -944,7 +1126,7 @@ __all__ = [
     "ComparableAnalysis", "ComparisonPair", "DeleteOutcome",
     "ExecutedAnalysis", "PairPercent", "PerspectiveResults", "ResultsColumn",
     "SubmittedSettings",
-    "delete_executed_analyses",
+    "delete_executed_analyses", "delete_submission_analyses",
     "execution_batch_is_live",
     "expanded_return_periods", "list_analysis_perspectives",
     "list_broker_analyses", "list_comparable_analyses",

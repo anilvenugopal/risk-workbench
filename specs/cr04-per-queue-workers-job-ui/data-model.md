@@ -27,10 +27,14 @@ No change to `rwb_job`'s columns, indexes, or `UNIQUE(requestor_type, requestor_
 | `running` | `pending` | `reconcile_stale_rwb_jobs` (reconciler) | stale heartbeat |
 | `succeeded` / `failed` | `pending` | `ensure_pending_rwb_job` (resubmit) | terminal status only |
 | **`pending`** | **`cancelled`** *(new)* | **`cancel_rwb_job`** | **`WHERE status_code = 'pending'`** |
+| **`failed`** | **`cancelled`** *(new, CR-04a extension)* | **`cancel_rwb_job`** | **`WHERE status_code = 'failed'`** |
+| **`running` (dead)** | **`cancelled`** *(new, CR-04a extension)* | **`cancel_rwb_job`** | **`WHERE status_code = 'running' AND (heartbeat missing OR older than settings.rwb_heartbeat_stale_secs)`** |
 
-`cancelled` is terminal — nothing transitions out of it. It is not in the resubmit path: `ensure_pending_rwb_job`'s existing logic only revives `succeeded`/`failed` rows (confirmed by reading the function — see `research.md#R5`), so this feature does not need to decide whether a cancelled job can be resubmitted; by construction, it cannot, unless that function is separately extended (out of scope here, not requested).
+`cancelled` is terminal — nothing transitions out of it. It is not in the resubmit path: `ensure_pending_rwb_job`'s existing logic only revives `succeeded`/`failed` rows (confirmed by reading the function — see `research.md#R5`), so a `failed` row cancelled this way is simply no longer eligible for resubmit — cancelling and resubmitting a `failed` row are now mutually exclusive next steps, not sequential ones.
 
-The `pending → cancelled` guard is the same shape as the existing `pending → running` guard (`claim_rwb_job`): both are a single `UPDATE ... WHERE status_code = 'pending'`, both resolve races by rowcount. Whichever of `claim_rwb_job` or `cancel_rwb_job` runs first against a given row wins; the other's `UPDATE` matches zero rows and is a no-op. No new locking, no new coordination.
+`cancel_rwb_job` is one guarded `UPDATE` covering all three transitions above, not three separate statements — its `WHERE` ORs the three guards together. Each still resolves races by rowcount exactly like the existing `pending → running` guard (`claim_rwb_job`): whichever of `claim_rwb_job`/`cancel_rwb_job` runs first against a `pending` row wins, and whichever of `reconcile_stale_rwb_jobs`/`cancel_rwb_job` runs first against a dead `running` row wins (the loser's `UPDATE` matches zero rows — a no-op, never an error). No new locking, no new coordination.
+
+**Dead-job detection is computed at read time, not stored.** `list_rwb_jobs_for_monitoring` LEFT JOINs `rwb_job_heartbeat` and derives `is_dead` per row using the same staleness threshold (`settings.rwb_heartbeat_stale_secs`) `reconcile_stale_rwb_jobs` already uses — this feature adds no new column and no new kind-table value; a dead row's `status_code` reads `running` right up until something (this feature's Cancel, or the poller's reconciler) changes it.
 
 ## Entities (from spec.md)
 
