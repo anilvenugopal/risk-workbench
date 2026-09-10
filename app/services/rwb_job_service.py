@@ -17,6 +17,7 @@ unit tier and SQL Server.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
@@ -24,8 +25,11 @@ from typing import Any
 from sqlalchemy import text
 
 from app import log_context
-from app.services._common import _json, _utcnow
-from db import execute, execute_command, execute_one, get_connection, is_unique_violation
+from app.config import settings
+from app.services._common import _in_clause, _json, _utcnow, _word_and_clauses
+from db import execute, execute_command, execute_one, get_connection, is_unique_violation, row_limit
+
+logger = logging.getLogger(__name__)
 
 _INSERT_IF_ABSENT = """
     INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, link_id,
@@ -76,12 +80,12 @@ def enqueue_rwb_job(
     fan-in idempotency backbone the poller/workers rely on); the request path uses
     ``ensure_pending_rwb_job``.
 
-    ``link_type``/``link_id`` name the EDM or RDM this job concerns (CR-04c) —
-    always required; ``link_type="not_applicable"`` covers job types with no
-    EDM/RDM. ``context_type``/``context_id`` name what this job's own operation
-    acts on, derived from the worker body — never copied from ``requestor_id``.
-    Both are required keyword arguments but accept ``None`` for job types that
-    act on no single application row.
+    ``link_type``/``link_id`` name the EDM, RDM, or submission this job concerns
+    (CR-04c) — always required; ``link_type="not_applicable"`` covers job types
+    with none of the three. ``context_type``/``context_id`` name what this job's
+    own operation acts on, derived from the worker body — never copied from
+    ``requestor_id``. Both are required keyword arguments but accept ``None``
+    for job types that act on no single application row.
 
     ``correlation_id`` defaults to the bound log context's — the request middleware
     (web tier) or the per-job bind (poller/worker chaining) has stamped it, so call
@@ -188,18 +192,31 @@ def claim_rwb_job(*, rwb_job_id: Any, worker_id: str) -> bool:
 
 
 def cancel_rwb_job(*, rwb_job_id: Any) -> bool:
-    """Cancel a queued row before a worker claims it: ``pending`` → ``cancelled``.
-    Same atomic-guard shape as ``claim_rwb_job`` — whichever of the two runs first
-    against a given row wins; the other's ``UPDATE`` matches zero rows and is a
-    no-op. Returns ``False`` for a row that is already running or terminal."""
+    """Cancel a job from the monitoring page: ``pending`` (racing ``claim_rwb_job``
+    — whichever runs first wins), ``failed`` (dismissing a failure nobody intends
+    to resubmit, which forecloses ``resubmit_rwb_job``), or a ``running`` row
+    whose heartbeat is missing or older than ``rwb_heartbeat_stale_secs``. One
+    guarded ``UPDATE`` for all three. Returns ``False`` when the row is
+    ``succeeded``, ``cancelled``, or ``running`` with a live heartbeat."""
     now = _utcnow()
+    cutoff = now - timedelta(seconds=settings.rwb_heartbeat_stale_secs)
     rows = execute_command(
         """
         UPDATE rwb_job
         SET status_code = 'cancelled', updated_at = :now
-        WHERE id = :id AND status_code = 'pending'
+        WHERE id = :id
+          AND (
+            status_code = 'pending'
+            OR status_code = 'failed'
+            OR (status_code = 'running' AND id IN (
+                SELECT rj.id FROM rwb_job rj
+                LEFT JOIN rwb_job_heartbeat hb ON hb.rwb_job_id = rj.id
+                WHERE rj.id = :id
+                  AND (hb.heartbeat_at IS NULL OR hb.heartbeat_at < :cutoff)
+            ))
+          )
         """,
-        {"now": now, "id": str(rwb_job_id)},
+        {"now": now, "cutoff": cutoff, "id": str(rwb_job_id)},
         connection="WORKBENCH",
     )
     return rows == 1
@@ -221,25 +238,206 @@ def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
     )
 
 
-def list_rwb_jobs_for_monitoring() -> list[dict]:
-    """Every ``rwb_job`` row for the monitoring page (CR-004a), grouped by
-    ``rwb_job_type`` and ordered by status then most-recently-updated within each
-    group, per ``contracts/job-monitoring-routes.md``. Elapsed-time display (now
-    minus ``submitted_at``/``completed_at``) is computed by the caller, not here —
-    it changes on every render, so baking it into the query would only be correct
-    at the instant the query ran."""
+# Capped like ``irp_job_service.list_recent`` rather than paged: ``rwb_job`` is
+# append-only, and the filters are how an analyst reaches older jobs.
+MONITOR_LIMIT = 50
+
+
+def list_rwb_jobs_for_monitoring(
+    *, submission_name: str | None = None, submission_status_codes: list[str] | None = None,
+    owner_ids: list[Any] | None = None, rwb_job_types: list[str] | None = None,
+    status_codes: list[str] | None = None, rwb_job_ids: list[Any] | None = None,
+) -> list[dict]:
+    """The first ``MONITOR_LIMIT`` ``rwb_job`` rows for the monitoring page,
+    grouped by ``rwb_job_type`` and ordered by status then most-recently-updated
+    within each group, per ``contracts/job-monitoring-routes.md``. Every filter
+    is optional and AND-combined. ``rwb_job_ids`` re-reads named rows with the
+    same computed columns, which is how cancel and resubmit render the one row
+    they changed.
+
+    Search reaches submission through the job's own ``link_type``/``link_id``
+    (CR-04c), never through ``requestor_type``/``requestor_id``, which names who
+    triggered the job rather than what it concerns. ``owner_ids`` filters on the
+    submission's ``assigned_analyst_id`` — a plain predicate (Article 6), not an
+    access gate. A job whose ``link_type = 'not_applicable'``, or whose EDM/RDM
+    belongs to no submission, is excluded by any of the three submission-scoped
+    filters and returned when none of them are set. A job whose EDM/RDM belongs
+    to several submissions still returns one row.
+
+    Elapsed time is computed by the caller: it changes on every render.
+
+    Every row carries ``is_dead`` (0/1) — ``status_code = 'running'`` with a
+    ``rwb_job_heartbeat`` row missing or older than
+    ``settings.rwb_heartbeat_stale_secs``, the same staleness
+    ``reconcile_stale_rwb_jobs`` reclaims. ``status_codes`` accepts the
+    synthetic ``"dead"`` to filter on that computed condition; the row's stored
+    ``status_code`` stays ``'running'`` until ``cancel_rwb_job`` or the
+    reconciler moves it."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if rwb_job_ids:
+        clause, p = _in_clause("rj.id", [str(i) for i in rwb_job_ids], "rid")
+        clauses.append(clause)
+        params |= p
+    if rwb_job_types:
+        clause, p = _in_clause("rj.rwb_job_type", rwb_job_types, "jt")
+        clauses.append(clause)
+        params |= p
+    if status_codes:
+        # "dead" isn't a stored status_code — it's a running row whose heartbeat
+        # is stale or missing, the same condition reconcile_stale_rwb_jobs
+        # reclaims. Split it out and OR it back in against the heartbeat join
+        # below, alongside a plain status_code IN (...) for whatever real
+        # statuses were also asked for.
+        real_statuses = [s for s in status_codes if s != "dead"]
+        status_clauses: list[str] = []
+        if real_statuses:
+            clause, p = _in_clause("rj.status_code", real_statuses, "st")
+            status_clauses.append(clause)
+            params |= p
+        if "dead" in status_codes:
+            status_clauses.append(
+                "(rj.status_code = 'running' "
+                "AND (hb.heartbeat_at IS NULL OR hb.heartbeat_at < :dead_cutoff))")
+        clauses.append("(" + " OR ".join(status_clauses) + ")")
+    submission_scoped = bool(submission_name or submission_status_codes or owner_ids)
+    if submission_scoped:
+        sub_clauses: list[str] = []
+        sub_params: dict[str, Any] = {}
+        if submission_name:
+            name_clauses, name_params = _word_and_clauses(
+                submission_name.strip(), ("s.name", "s.cedant_name"), "sn")
+            sub_clauses += name_clauses
+            sub_params |= name_params
+        if submission_status_codes:
+            clause, p = _in_clause("s.status_code", submission_status_codes, "ss")
+            sub_clauses.append(clause)
+            sub_params |= p
+        if owner_ids:
+            clause, p = _in_clause("s.assigned_analyst_id",
+                                    [str(o) for o in owner_ids], "so")
+            sub_clauses.append(clause)
+            sub_params |= p
+        sub_where = (" AND " + " AND ".join(sub_clauses)) if sub_clauses else ""
+        clauses.append(
+            "EXISTS ("
+            "SELECT 1 FROM submission_edm se JOIN submission s ON s.id = se.submission_id "
+            f"WHERE rj.link_type = 'edm' AND se.edm_id = rj.link_id{sub_where}"
+            " UNION ALL "
+            "SELECT 1 FROM submission_rdm sr JOIN submission s ON s.id = sr.submission_id "
+            f"WHERE rj.link_type = 'rdm' AND sr.rdm_id = rj.link_id{sub_where}"
+            " UNION ALL "
+            "SELECT 1 FROM submission s "
+            f"WHERE rj.link_type = 'submission' AND s.id = rj.link_id{sub_where}"
+            ")"
+        )
+        params |= sub_params
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    # Always bound: both the "dead" filter clause above and the is_dead display
+    # column below reference the same cutoff, so every row's dead-ness reflects
+    # one consistent instant rather than "now" drifting between the two reads.
+    params["dead_cutoff"] = (
+        _utcnow() - timedelta(seconds=settings.rwb_heartbeat_stale_secs))
     return execute(
-        """
-        SELECT id, requestor_type, requestor_id, link_type, link_id,
-               context_type, context_id, rwb_job_type, status_code,
-               error_detail, attempt_count, submitted_at, completed_at,
-               inserted_at, updated_at
-        FROM rwb_job
-        ORDER BY rwb_job_type, status_code, updated_at DESC
-        """,
-        {},
+        f"""
+        SELECT rj.id, rj.requestor_type, rj.requestor_id, rj.link_type, rj.link_id,
+               rj.context_type, rj.context_id, rj.rwb_job_type, rj.status_code,
+               rj.error_detail, rj.attempt_count, rj.submitted_at, rj.completed_at,
+               rj.inserted_at, rj.updated_at,
+               COALESCE(e.name, r.name) AS entity_name,
+               CASE WHEN rj.status_code = 'running'
+                         AND (hb.heartbeat_at IS NULL OR hb.heartbeat_at < :dead_cutoff)
+                    THEN 1 ELSE 0 END AS is_dead
+        FROM rwb_job rj
+        LEFT JOIN irp_edm e ON rj.link_type = 'edm' AND e.id = rj.link_id
+        LEFT JOIN irp_rdm r ON rj.link_type = 'rdm' AND r.id = rj.link_id
+        LEFT JOIN rwb_job_heartbeat hb ON hb.rwb_job_id = rj.id
+        {where}
+        ORDER BY rj.rwb_job_type, rj.status_code, rj.updated_at DESC
+        """ + row_limit(MONITOR_LIMIT),
+        params,
         connection="WORKBENCH",
     )
+
+
+def job_type_kinds() -> list[tuple[str, str]]:
+    """Every ``rwb_job_type`` as ``(code, label)`` in display order, for the
+    monitoring page's job-type filter — mirrors
+    ``submission_service.status_kinds()``'s read-from-the-kind-table
+    convention rather than a literal list."""
+    rows = execute(
+        "SELECT code, label FROM rwb_job_type_kind ORDER BY sort_order, code",
+        {}, connection="WORKBENCH",
+    )
+    return [(row["code"], row["label"]) for row in rows]
+
+
+def status_kinds() -> list[tuple[str, str]]:
+    """Every ``rwb_job_status_kind`` as ``(code, label)``, plus the synthetic
+    ``"dead"`` value (§3 decision 6a — a computed condition, not a stored
+    status, so it has no kind-table row of its own), for the monitoring
+    page's job-status filter. ``"dead"`` sorts right after ``"running"``,
+    where it belongs conceptually."""
+    rows = execute(
+        "SELECT code, label FROM rwb_job_status_kind ORDER BY sort_order, code",
+        {}, connection="WORKBENCH",
+    )
+    kinds = [(row["code"], row["label"]) for row in rows]
+    running_index = next(
+        (i for i, (code, _) in enumerate(kinds) if code == "running"), len(kinds) - 1)
+    kinds.insert(running_index + 1, ("dead", "Dead"))
+    return kinds
+
+
+def list_submissions_for_rwb_jobs(
+    links: list[tuple[str, Any]],
+) -> dict[tuple[str, str], list[dict]]:
+    """Every submission each ``(link_type, link_id)`` pair belongs to, keyed by
+    that same pair (``link_id`` normalized to ``str``) — the monitoring page's
+    batched second read for the "submission(s)" display column, kept separate
+    from ``list_rwb_jobs_for_monitoring`` so a job's row count never depends on
+    how many submissions its EDM/RDM belongs to. One query per link type (``edm``
+    ids, ``rdm`` ids, and ``submission`` ids don't share a source table; a
+    ``submission`` link is the submission, so that query reads ``submission`` by
+    id and yields exactly one entry), Python-side dict build
+    rather than ``STRING_AGG``/``GROUP_CONCAT`` — not portable to the SQLite unit
+    tier (``submission_service.py``'s own portability contract)."""
+    result: dict[tuple[str, str], list[dict]] = {}
+    edm_ids = [str(lid) for lt, lid in links if lt == "edm" and lid is not None]
+    rdm_ids = [str(lid) for lt, lid in links if lt == "rdm" and lid is not None]
+    if edm_ids:
+        clause, params = _in_clause("se.edm_id", edm_ids, "e")
+        rows = execute(
+            "SELECT se.edm_id AS link_id, s.id, s.name FROM submission_edm se "
+            f"JOIN submission s ON s.id = se.submission_id WHERE {clause} "
+            "ORDER BY s.name",
+            params, connection="WORKBENCH",
+        )
+        for row in rows:
+            key = ("edm", str(row["link_id"]))
+            result.setdefault(key, []).append({"id": row["id"], "name": row["name"]})
+    if rdm_ids:
+        clause, params = _in_clause("sr.rdm_id", rdm_ids, "r")
+        rows = execute(
+            "SELECT sr.rdm_id AS link_id, s.id, s.name FROM submission_rdm sr "
+            f"JOIN submission s ON s.id = sr.submission_id WHERE {clause} "
+            "ORDER BY s.name",
+            params, connection="WORKBENCH",
+        )
+        for row in rows:
+            key = ("rdm", str(row["link_id"]))
+            result.setdefault(key, []).append({"id": row["id"], "name": row["name"]})
+    sub_ids = [str(lid) for lt, lid in links if lt == "submission" and lid is not None]
+    if sub_ids:
+        clause, params = _in_clause("s.id", sub_ids, "s")
+        rows = execute(
+            f"SELECT s.id, s.name FROM submission s WHERE {clause} ORDER BY s.name",
+            params, connection="WORKBENCH",
+        )
+        for row in rows:
+            result[("submission", str(row["id"]))] = [
+                {"id": row["id"], "name": row["name"]}]
+    return result
 
 
 def resubmit_rwb_job(*, rwb_job_id: Any) -> str | None:
@@ -279,19 +477,29 @@ def complete_rwb_job(
 ) -> None:
     """In-place completion (Article 4): set ``succeeded``/``failed`` + payload +
     ``completed_at``. Chained tail rows are enqueued by the caller in the same
-    worker-owned transaction (contracts/data-access.md)."""
+    worker-owned transaction (contracts/data-access.md).
+
+    Guarded on ``running`` like every other transition here: a worker that
+    finishes after ``cancel_rwb_job`` cancelled its dead row, or after
+    ``reconcile_stale_rwb_jobs`` reclaimed it to ``pending`` and the queue
+    re-dispatched it, matches zero rows and leaves the newer state alone.
+    ``cancelled`` is terminal (data-model.md)."""
     now = _utcnow()
-    execute_command(
+    rows = execute_command(
         """
         UPDATE rwb_job
         SET status_code = :st, output_data = :out, error_detail = :err,
             completed_at = :now, updated_at = :now
-        WHERE id = :id
+        WHERE id = :id AND status_code = 'running'
         """,
         {"st": status, "out": _json(output_data), "err": error_detail,
          "now": now, "id": str(rwb_job_id)},
         connection="WORKBENCH",
     )
+    if rows != 1:
+        logger.warning(
+            "rwb_job %s completion as %s ignored — row is no longer running",
+            rwb_job_id, status)
 
 
 def load_input_data(rwb_job_id: Any) -> dict:
@@ -383,6 +591,9 @@ __all__ = [
     "resubmit_rwb_job",
     "get_rwb_job",
     "list_rwb_jobs_for_monitoring",
+    "list_submissions_for_rwb_jobs",
+    "job_type_kinds",
+    "status_kinds",
     "complete_rwb_job",
     "load_input_data",
     "reconcile_stale_rwb_jobs",

@@ -82,7 +82,7 @@ of truth this spec and its tasks are derived from.
 - **FR-001**: `rwb_job` MUST have `link_type` (`NOT NULL`), `link_id`
   (nullable), `context_type` (nullable), `context_id` (nullable) columns.
 - **FR-002**: `link_type` MUST be one of a fixed, seeded set of codes
-  (`edm`, `rdm`, `not_applicable`), enforced by a foreign key once Phase 1's
+  (`edm`, `rdm`, `submission`, `not_applicable`), enforced by a foreign key once Phase 1's
   backfill is verified.
 - **FR-003**: `context_type` MUST be one of a fixed, seeded set of codes
   (`edm`, `rdm`, `irp_analysis`, `portfolio`, `breakout_group`, `execution`)

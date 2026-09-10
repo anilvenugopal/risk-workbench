@@ -91,6 +91,10 @@ class TestSimpleShellRoutes:
     # router (Iteration 1, T030) and is no longer a shell route. Its coverage
     # lives in the submission service tests + CSRF audit.
 
+    # NOTE: /workflows/rwb-jobs moved from the shell stub to the DB-backed
+    # app/routers/rwb_jobs.py (CR-04a) and is no longer a shell route. Its
+    # coverage lives in tests/unit/test_rwb_jobs_routes.py.
+
     def test_workflows(self, client):
         assert client.get("/workflows").status_code == 200
 
@@ -105,9 +109,6 @@ class TestSimpleShellRoutes:
 
     def test_workflows_review(self, client):
         assert client.get("/workflows/review").status_code == 200
-
-    def test_workflows_rwb_jobs(self, client):
-        assert client.get("/workflows/rwb-jobs").status_code == 200
 
     def test_workflows_exceptions(self, client):
         assert client.get("/workflows/exceptions").status_code == 200

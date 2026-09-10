@@ -24,6 +24,36 @@
 .badge--info     { background: var(--color-info-bg);       color: var(--color-info);     border-color: var(--color-info-border); }
 .badge--sm { font-size: 10px; padding: 1px 6px; }
 
+/* ── Status chips ────────────────────────────────────── */
+/* One pill, three vocabularies: submission status, EDM/RDM import status, and
+   rwb_job status. Job variants carry a --job- prefix because `cancelled` is a
+   code in both the submission and the job vocabulary. Every variant doubles the
+   class so they all sit at the same specificity. Cancelled is grey in both
+   vocabularies: a cancelled deal is a closed one, not a failure. */
+.status-chip {
+  display: inline-block; font-size: var(--fs-caption); font-weight: var(--fw-medium);
+  letter-spacing: .03em; text-transform: uppercase;
+  padding: 1px var(--space-2); border-radius: var(--radius-pill);
+  border: 1px solid var(--border-default); color: var(--text-secondary);
+  background: var(--surface-recessed);
+}
+.status-chip.status-chip--active         { background: var(--color-info-bg);      color: var(--color-info);      border-color: var(--color-info-border); }
+.status-chip.status-chip--completed      { background: var(--color-positive-bg);  color: var(--color-positive);  border-color: var(--color-positive-border); }
+.status-chip.status-chip--cancelled      { background: var(--surface-recessed);   color: var(--text-tertiary);   border-color: var(--border-default); }
+.status-chip.status-chip--pending_import,
+.status-chip.status-chip--importing      { background: var(--c-navy-050);         color: var(--c-navy-600);      border-color: var(--c-navy-200); }
+.status-chip.status-chip--ready          { background: var(--c-green-050);        color: var(--c-green-700);     border-color: var(--c-green-200); }
+.status-chip.status-chip--error,
+.status-chip.status-chip--submission-failed { background: var(--c-red-050);       color: var(--c-red-700);       border-color: var(--c-red-200); }
+/* "dead" is synthetic: a running row whose heartbeat is missing or stale, per
+   rwb_job_service.list_rwb_jobs_for_monitoring. */
+.status-chip.status-chip--job-pending    { background: var(--c-navy-050);         color: var(--c-navy-600);      border-color: var(--c-navy-200); }
+.status-chip.status-chip--job-running    { background: var(--color-info-bg);      color: var(--color-info);      border-color: var(--color-info-border); }
+.status-chip.status-chip--job-dead       { background: var(--color-warning-wash); color: var(--color-warning);   border-color: var(--color-warning-border); }
+.status-chip.status-chip--job-succeeded  { background: var(--color-positive-bg);  color: var(--color-positive);  border-color: var(--color-positive-border); }
+.status-chip.status-chip--job-failed     { background: var(--color-danger-bg);    color: var(--color-danger);    border-color: var(--color-danger-border); }
+.status-chip.status-chip--job-cancelled  { background: var(--surface-recessed);   color: var(--text-tertiary);   border-color: var(--border-default); }
+
 /* ── Icon button (icon-only, 28×28) ─────────────────────────────────────── */
 .icon-btn {
   width: 28px; height: 28px;

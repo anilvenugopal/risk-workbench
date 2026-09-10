@@ -130,6 +130,14 @@
 /* trailing "clear filters" affordance on any filtered-empty row */
 .clear-filters { color: var(--color-brand); font-size: var(--fs-label); }
 
+/* ── RWB Jobs monitor (CR-04a) ────────────────────────────────── */
+/* Status chips for this page live in components.css with every other chip. */
+.jobs-deal { max-width: 220px; }
+.jobs-deal a { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.err-detail { display: block; margin-top: 2px; font-size: var(--fs-caption); color: var(--color-danger); max-width: 260px; white-space: normal; }
+.run-note { font-size: var(--fs-caption); color: var(--text-tertiary); }
+.jobs-note { border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--fs-label); margin-bottom: var(--space-3); background: var(--color-warning-wash); border: 1px solid var(--color-warning-border); color: var(--color-warning); }
+
 /* ── Analysis metadata ───────────────────────────────────────────────────── */
 .metadata-panel { background: var(--surface-panel); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: var(--space-5); }
 .metadata-meta { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; margin-bottom: var(--space-4); color: var(--text-tertiary); font-size: var(--fs-caption); }
