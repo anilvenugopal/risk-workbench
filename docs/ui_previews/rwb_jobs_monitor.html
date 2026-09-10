@@ -98,12 +98,12 @@ h1,h2,h3{margin:0}
 .sort-th__caret{font-size:var(--fs-eyebrow);line-height:1}
 
 .status-chip{display:inline-block;font-size:var(--fs-caption);font-weight:var(--fw-medium);letter-spacing:.03em;text-transform:uppercase;padding:1px var(--space-2);border-radius:var(--radius-pill);border:1px solid var(--border-default);color:var(--text-secondary);background:var(--surface-recessed)}
-.status-chip--pending{background:var(--c-navy-050);color:var(--c-navy-600);border-color:var(--c-navy-200)}
-.status-chip--running{background:var(--color-info-bg);color:var(--color-info);border-color:var(--color-info-border)}
-.status-chip--dead{background:var(--color-warning-wash);color:var(--color-warning);border-color:var(--color-warning-border)}
-.status-chip--succeeded{background:var(--color-positive-bg);color:var(--color-positive);border-color:var(--color-positive-border)}
-.status-chip--failed{background:var(--color-danger-bg);color:var(--color-danger);border-color:var(--color-danger-border)}
-.status-chip--cancelled{background:var(--surface-recessed);color:var(--text-tertiary);border-color:var(--border-default)}
+.status-chip--job-pending{background:var(--c-navy-050);color:var(--c-navy-600);border-color:var(--c-navy-200)}
+.status-chip--job-running{background:var(--color-info-bg);color:var(--color-info);border-color:var(--color-info-border)}
+.status-chip--job-dead{background:var(--color-warning-wash);color:var(--color-warning);border-color:var(--color-warning-border)}
+.status-chip--job-succeeded{background:var(--color-positive-bg);color:var(--color-positive);border-color:var(--color-positive-border)}
+.status-chip--job-failed{background:var(--color-danger-bg);color:var(--color-danger);border-color:var(--color-danger-border)}
+.status-chip--job-cancelled{background:var(--surface-recessed);color:var(--text-tertiary);border-color:var(--border-default)}
 
 .err-detail{display:block;margin-top:2px;font-size:var(--fs-caption);color:var(--color-danger);max-width:260px;white-space:normal}
 .run-note{font-size:var(--fs-caption);color:var(--text-tertiary)}
@@ -189,7 +189,7 @@ h1,h2,h3{margin:0}
           <td>Backfill EDM Detail</td>
           <td><a class="crumb" href="#">EDM_2604_Property</a></td>
           <td class="jobs-deal"><a class="crumb" href="#" target="_blank" rel="noopener">TY2604_AmericanFamily</a></td>
-          <td><span class="status-chip status-chip--running">Running</span></td>
+          <td><span class="status-chip status-chip--job-running">Running</span></td>
           <td>2m 14s</td>
           <td class="run-note">—</td>
         </tr>
@@ -198,7 +198,7 @@ h1,h2,h3{margin:0}
           <td><a class="crumb" href="#">RDM_Meridian</a></td>
           <td class="jobs-deal"><a class="crumb" href="#" target="_blank" rel="noopener">TY2603_Meridian</a></td>
           <td>
-            <span class="status-chip status-chip--dead">Dead</span>
+            <span class="status-chip status-chip--job-dead">Dead</span>
             <span class="run-note" style="display:block;margin-top:2px">worker stopped heartbeating</span>
           </td>
           <td>ran 6m 40s</td>
@@ -208,7 +208,7 @@ h1,h2,h3{margin:0}
           <td>Upload EDM</td>
           <td><a class="crumb" href="#">EDM_2601_Zephyr</a></td>
           <td class="jobs-deal"><a class="crumb" href="#" target="_blank" rel="noopener">TY2601_Zephyr</a></td>
-          <td><span class="status-chip status-chip--pending">Pending</span></td>
+          <td><span class="status-chip status-chip--job-pending">Pending</span></td>
           <td>queued since 14:02</td>
           <td><button class="btn-sm btn-sm--danger" type="button">Cancel</button></td>
         </tr>
@@ -220,7 +220,7 @@ h1,h2,h3{margin:0}
             <span class="muted" title="TY2603_Meridian, TY2599_Coastal">+2 more</span>
           </td>
           <td>
-            <span class="status-chip status-chip--failed">Failed</span>
+            <span class="status-chip status-chip--job-failed">Failed</span>
             <span class="err-detail">upload_rdm submit failed: name already exists in Risk Modeler</span>
           </td>
           <td>ran 41s</td>
@@ -233,7 +233,7 @@ h1,h2,h3{margin:0}
           <td>Execute Analysis Batch</td>
           <td class="na">—</td>
           <td class="na">—</td>
-          <td><span class="status-chip status-chip--succeeded">Succeeded</span></td>
+          <td><span class="status-chip status-chip--job-succeeded">Succeeded</span></td>
           <td>ran 3m 02s</td>
           <td class="run-note">—</td>
         </tr>
@@ -356,7 +356,7 @@ h1,h2,h3{margin:0}
           <td><a class="crumb" href="#">RDM_Meridian</a></td>
           <td class="jobs-deal"><a class="crumb" href="#" target="_blank" rel="noopener">TY2603_Meridian</a></td>
           <td>
-            <span class="status-chip status-chip--pending">Pending</span>
+            <span class="status-chip status-chip--job-pending">Pending</span>
             <span class="run-note" style="display:block;margin-top:2px">reclaimed by the poller just before Cancel landed</span>
           </td>
           <td>queued since 14:09</td>
