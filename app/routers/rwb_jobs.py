@@ -191,6 +191,11 @@ def _context(request: Request) -> dict:
         "rows": rows,
         "filter_values": filter_values,
         "filter_query": urlencode(query_values),
+        # Filters plus the sort in force. The 3s poll and the cancel/resubmit
+        # posts re-render the table from their own request, so without the
+        # sort they would hand back a table ordered by the default column.
+        "list_query": urlencode(
+            query_values + [("sort", sort), ("dir", "desc" if descending else "asc")]),
         "submission_statuses": submission_service.status_kinds(),
         "job_types": rwb_job_service.job_type_kinds(),
         "job_statuses": rwb_job_service.status_kinds(),

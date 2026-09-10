@@ -213,6 +213,34 @@ class TestRwbJobsPage:
         assert "American Family Renewal" not in resp.text
 
 
+class TestRwbJobsSort:
+    def test_sort_header_selects_only_the_table(self, iteration2_db):
+        # The header links back to the full page route, so without hx-select
+        # htmx swaps the whole document into #rwb-jobs-live.
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs")
+        header = resp.text.split('class="sort-th', 1)[1]
+        assert 'hx-select="#rwb-jobs-live"' in header.split("</a>", 1)[0]
+
+    def test_poll_and_action_urls_carry_the_active_sort(self, iteration2_db):
+        # The 3s poll and the cancel/resubmit posts each re-render the table
+        # from their own request, so their URLs have to carry sort/dir.
+        job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                 requestor_id=str(uuid.uuid4()),
+                                 rwb_job_type="dummy_wait", **_NO_LINK)
+        claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+        sorted_query = "owner=any&amp;sort=elapsed&amp;dir=desc"
+
+        resp = TestClient(_make_app()).get(
+            "/workflows/rwb-jobs?owner=any&sort=elapsed&dir=desc")
+        assert f"/workflows/rwb-jobs/table?{sorted_query}" in resp.text
+
+        complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
+        resp = TestClient(_make_app()).get(
+            "/workflows/rwb-jobs?owner=any&sort=elapsed&dir=desc")
+        assert f"/workflows/rwb-jobs/{job_id}/cancel?{sorted_query}" in resp.text
+        assert f"/workflows/rwb-jobs/{job_id}/resubmit?{sorted_query}" in resp.text
+
+
 class TestRwbJobsCancel:
     def test_cancel_pending_row_via_route(self, iteration2_db):
         from app.auth.csrf import generate_csrf_token

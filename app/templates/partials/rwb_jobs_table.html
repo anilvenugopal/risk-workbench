@@ -13,15 +13,15 @@
 {% set href = '/workflows/rwb-jobs?' ~ (filter_query ~ '&' if filter_query else '') ~ 'sort=' ~ column ~ '&dir=' ~ next_dir %}
 <th aria-sort="{{ 'descending' if (is_sorted and descending) else 'ascending' if is_sorted else 'none' }}">
   <a class="sort-th{{ ' is-sorted' if is_sorted }}" href="{{ href }}"
-     hx-get="{{ href }}" hx-target="#rwb-jobs-live" hx-swap="outerHTML"
-     hx-push-url="true">{{ title
+     hx-get="{{ href }}" hx-target="#rwb-jobs-live" hx-select="#rwb-jobs-live"
+     hx-swap="outerHTML" hx-push-url="true">{{ title
     }}{% if is_sorted %}<span class="sort-th__caret">{{ '▼' if descending else '▲' }}</span>{% endif %}</a>
 </th>
 {% endmacro %}
 
 <div id="rwb-jobs-live"
   {%- if live %}
-  hx-get="/workflows/rwb-jobs/table?{{ filter_query }}" hx-trigger="every 3s"
+  hx-get="/workflows/rwb-jobs/table?{{ list_query }}" hx-trigger="every 3s"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
 
@@ -76,7 +76,7 @@
           {% set can_cancel = row.status_code == 'pending' or row.status_code == 'failed' or row.is_dead %}
           {% if can_cancel %}
           <form method="post" action="/workflows/rwb-jobs/{{ row.id }}/cancel"
-                hx-post="/workflows/rwb-jobs/{{ row.id }}/cancel"
+                hx-post="/workflows/rwb-jobs/{{ row.id }}/cancel?{{ list_query }}"
                 hx-target="#rwb-jobs-live" hx-swap="outerHTML"
                 hx-confirm="Cancel this job? This can't be undone." style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
@@ -85,7 +85,7 @@
           {% endif %}
           {% if row.status_code == 'failed' %}
           <form method="post" action="/workflows/rwb-jobs/{{ row.id }}/resubmit"
-                hx-post="/workflows/rwb-jobs/{{ row.id }}/resubmit"
+                hx-post="/workflows/rwb-jobs/{{ row.id }}/resubmit?{{ list_query }}"
                 hx-target="#rwb-jobs-live" hx-swap="outerHTML" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
             <button class="btn-sm" type="submit">Resubmit</button>
