@@ -378,11 +378,10 @@ def _retrieve_analysis_results_body(rwb_job_id: Any) -> runtime.JobResult:
     settings = (json.loads(row["settings_metadata"])
                 if row["settings_metadata"] else None)
     # Own rows point at the RM portfolio the analysis ran against; broker rows
-    # (rdm_id set) at RM's own reported pointer captured at RDM backfill.
-    # One metadata re-read when the pointer is NULL (also filling the engine
-    # fields when settings_metadata is NULL too).
-    pointer = (row["exposure_resource_id"] if row["rdm_id"] is not None
-               else row["portfolio_irp_id"])
+    # and imported rows (#101) at RM's own reported pointer, stored when the
+    # row was written. One metadata re-read when neither is set (also filling
+    # the engine fields when settings_metadata is NULL too).
+    pointer = row["portfolio_irp_id"] or row["exposure_resource_id"]
     if pointer is None:
         try:
             meta = irp_gateway.get_analysis_metadata(analysis_id=int(row["irp_id"]))

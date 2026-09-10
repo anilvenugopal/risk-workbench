@@ -810,6 +810,7 @@ document.addEventListener('alpine:init', () => {
     count: 0,
     total: 0,
     brokerCount: 0,
+    importedCount: 0,
     observer: null,
     init() {
       this.onChange();
@@ -827,10 +828,29 @@ document.addEventListener('alpine:init', () => {
       this.count = checked.length;
       this.brokerCount = checked.filter(
         (box) => box.dataset.broker !== undefined).length;
+      this.importedCount = checked.filter(
+        (box) => box.dataset.imported !== undefined).length;
       const selectAll = this.$refs.selectAll;
       if (!selectAll) return;
       selectAll.checked = this.total > 0 && this.count === this.total;
       selectAll.indeterminate = this.count > 0 && this.count < this.total;
+    },
+    // Delete removes an imported analysis from the deal only (#101) and
+    // deletes an own analysis in Risk Modeler too, so the confirmation has to
+    // name whichever of the two the ticked rows mean.
+    get confirmMessage() {
+      const own = this.count - this.importedCount;
+      if (!this.importedCount) {
+        return 'Delete the selected analyses? They are also deleted in Risk '
+          + 'Modeler. This cannot be undone.';
+      }
+      if (!own) {
+        return 'Remove the selected analyses from this deal? They stay in '
+          + 'Risk Modeler.';
+      }
+      return `Delete ${own} analysis(es) — also deleted in Risk Modeler, which `
+        + `cannot be undone — and remove ${this.importedCount} imported `
+        + 'analysis(es) from this deal, which stay in Risk Modeler?';
     },
     all(checked) {
       this.boxes().forEach((box) => { box.checked = checked; });

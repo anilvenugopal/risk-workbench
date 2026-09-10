@@ -98,8 +98,9 @@ class PerspectiveResults:
 @dataclass
 class SubmittedSettings:
     """The expanded row's Analysis settings group, read from the submit-time
-    snapshot ``irp_analysis.submitted_settings``. Broker rows have no snapshot
-    at all, which the row renders as *not returned*."""
+    snapshot ``irp_analysis.submitted_settings``. An imported row's snapshot
+    holds only the currency code Risk Modeler reports for the analysis. Broker
+    rows have no snapshot at all, which the row renders as *not returned*."""
     construction_occupancy: str | None = None
     # submitted_settings.currency.code — the own row's pairing-guard value.
     currency: str | None = None
@@ -212,6 +213,7 @@ _CHIP_BY_RUN_STATE = {
     "running": "importing",
     "retrying": "importing",
     "finished": "ready",
+    "imported": "ready",
     "submit_failed": "submission-failed",
     "failed": "error",
 }
@@ -241,6 +243,9 @@ class ExecutedAnalysis:
     job_status: str | None = None       # latest irp_job.status; None before submit
     submission_attempt_count: int = 0
     is_group: bool = False              # spec 012 — Engine cell reads "Group"
+    # Pulled in by Risk Modeler id (#101): no irp_job, so run_state reads off
+    # this rather than the (absent) job status.
+    imported: bool = False
     results_state: str = "pending"      # pending | failed | ready
     results_error: str | None = None    # failed retrieval's error_detail
     results: list[PerspectiveResults] = field(default_factory=list)  # [] until ready
@@ -263,6 +268,7 @@ class ExecutedAnalysis:
     def run_state(self) -> str:
         """Where the run stands, derived from the mirrored ``irp_job.status``:
 
+        ``imported``       pulled in by Risk Modeler id — finished before it arrived
         ``submitting``     no ``irp_job`` row yet
         ``running``        Risk Modeler accepted it (PENDING/QUEUED/RUNNING)
         ``retrying``       a submit attempt failed, attempts remain
@@ -273,6 +279,8 @@ class ExecutedAnalysis:
         Read this, not ``status_chip`` — the chip is one rendering of it.
         Note ``finished`` is not the same as deletable or grouped under Ready:
         both of those also wait on the backfill (``status_code``)."""
+        if self.imported:
+            return "imported"
         if self.job_status is None:
             return "submitting"
         if self.job_status in ("PENDING", "QUEUED", "RUNNING"):
@@ -287,6 +295,8 @@ class ExecutedAnalysis:
 
     @property
     def status_label(self) -> str:
+        if self.run_state == "imported":
+            return "Imported"
         if self.run_state == "submitting":
             return "Submitting…"
         if self.run_state == "submit_failed":
@@ -617,6 +627,7 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
             job_status=r["job_status"],
             submission_attempt_count=int(r["submission_attempt_count"] or 0),
             is_group=bool(r.get("is_group")),
+            imported=r.get("imported_at") is not None,
             results_state=("ready" if results else "pending"), results=results,
             submitted=submitted, run_currency=submitted.currency))
     _mark_failed_retrievals(analyses)
@@ -632,6 +643,7 @@ _SUBMISSION_EXECUTED_SELECT = f"""
     SELECT a.id AS id, a.name, a.full_name, a.status_code, a.failure_reason,
            a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
            a.loss_results, a.submitted_settings, a.is_group,
+           NULL AS imported_at,
            p.name AS portfolio_name, t.name AS template_name,
            e.name AS edm_name, u.display_name AS run_by,
            j.id AS irp_job_id, j.status AS job_status,
@@ -649,6 +661,7 @@ _SUBMISSION_EXECUTED_SELECT = f"""
     SELECT a.id AS id, a.name, a.full_name, a.status_code, a.failure_reason,
            a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
            a.loss_results, a.submitted_settings, a.is_group,
+           a.imported_at,
            NULL AS portfolio_name, NULL AS template_name,
            NULL AS edm_name, u.display_name AS run_by,
            j.id AS irp_job_id, j.status AS job_status,
@@ -656,7 +669,8 @@ _SUBMISSION_EXECUTED_SELECT = f"""
     FROM irp_analysis a
     LEFT JOIN app_user u ON u.id = a.inserted_by
     {_LATEST_JOB_JOIN}
-    WHERE a.submission_id = :submission_id AND a.is_group = 1
+    WHERE a.submission_id = :submission_id
+      AND (a.is_group = 1 OR a.imported_at IS NOT NULL)
       AND a.deleted_at IS NULL
     -- ``id`` follows the timestamp so rows sharing one come back in the same
     -- order every poll, and reversing the list for ascending Submitted is a
@@ -705,13 +719,15 @@ def _delete_analyses(rows: list[ExecutedAnalysis], analysis_ids: list[Any],
     """Delete terminal analyses (spec 010 P-19): validate the whole batch up
     front (every posted id must resolve among ``rows`` and be ``is_deletable``,
     else ``ValueError``), then per row cascade to Risk Modeler first and
-    soft-delete locally on success. A row whose RM delete fails is recorded in
-    ``failed`` and kept visible for retry; a row the poller claimed for a
-    submission retry mid-batch is recorded in ``retrying`` and left alone.
-    Neither aborts the batch — the rows already deleted stay deleted, and the
-    caller reports all three counts. RM-first order: a crash between the two
-    calls leaves a visible row with a dangling ``irp_id`` — recoverable by
-    retrying — rather than a hidden RM analysis."""
+    soft-delete locally on success. An imported row (#101) names an analysis
+    this deal did not create and another deal may also hold, so it is only
+    soft-deleted — Risk Modeler is not called for it. A row whose RM delete
+    fails is recorded in ``failed`` and kept visible for retry; a row the
+    poller claimed for a submission retry mid-batch is recorded in
+    ``retrying`` and left alone. Neither aborts the batch — the rows already
+    deleted stay deleted, and the caller reports all three counts. RM-first
+    order: a crash between the two calls leaves a visible row with a dangling
+    ``irp_id`` — recoverable by retrying — rather than a hidden RM analysis."""
     ids = [i for i in dict.fromkeys(_uid(a) for a in analysis_ids) if i]
     if not ids:
         raise ValueError("No analyses selected.")
@@ -731,7 +747,7 @@ def _delete_analyses(rows: list[ExecutedAnalysis], analysis_ids: list[Any],
     failed: list[str] = []
     retrying: list[str] = []
     for row in picked:
-        if row.irp_id is not None:
+        if row.irp_id is not None and not row.imported:
             # Outside any transaction (Article 11 — never hold a txn across
             # a Risk Modeler round-trip).
             try:
@@ -778,10 +794,11 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
 def delete_submission_analyses(*, submission_id: Any, analysis_ids: list[Any],
                                actor_id: Any) -> DeleteOutcome:
     """The submission page's Results grid: own analyses across every EDM of the
-    deal, plus its group rows (spec 012 contracts/routes.md — a group carries
-    ``submission_id`` and no ``edm_id``, so this is the only grid it can be
-    deleted from). Broker rows are not in the candidate set, so posting one
-    raises the same ``ValueError`` an unrelated id does."""
+    deal, plus its group rows and the analyses imported by Risk Modeler id
+    (#101). A group and an imported analysis carry ``submission_id`` and no
+    ``edm_id`` (spec 012 contracts/routes.md), so this is the only grid either
+    can be deleted from. Broker rows are not in the candidate set, so posting
+    one raises the same ``ValueError`` an unrelated id does."""
     return _delete_analyses(
         list_submission_executed_analyses(submission_id=submission_id),
         analysis_ids, actor_id,

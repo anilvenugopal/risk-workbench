@@ -4,12 +4,14 @@
     <span class="l">
       {% if a.is_deletable %}
       <span class="geohaz-pick"><input type="checkbox" name="analysis_ids" value="{{ a.id }}"
+             {% if a.imported %}data-imported{% endif %}
              onclick="event.stopPropagation()" @change="onChange()"></span>
       {% endif %}
     </span>
-    {% if a.is_group %}
-    {# A group has no portfolio or template — its name spans both tracks, like a
-       broker row's (the hidden span keeps tableToTsv column alignment). #}
+    {% if a.is_group or a.imported %}
+    {# A group or an imported analysis has no portfolio or template — its name
+       spans both tracks, like a broker row's (the hidden span keeps tableToTsv
+       column alignment). #}
     {% set group_name = a.full_name or a.name %}
     <span class="l dt-span2"><span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-title" title="{{ group_name }}"

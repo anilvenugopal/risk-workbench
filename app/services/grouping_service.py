@@ -46,7 +46,7 @@ class GroupMember:
     irp_id: int | None        # Platform analysisId — the grouping member key (T-10)
     name: str | None          # the ≤64-char name known to Risk Modeler
     display_name: str | None  # full_name where one exists
-    kind: str                 # own | broker | group
+    kind: str                 # own | broker | group | imported
     engine: str | None        # pick-list disclosure column
     # Run currency code: own rows and groups from submitted_settings, broker
     # rows from the Risk Modeler metadata (the FR-005 rule); None when unknown.
@@ -82,7 +82,7 @@ class GroupingInspectionView:
 _ELIGIBLE_SELECT = """
     SELECT a.id, a.name, a.full_name, a.is_group, a.settings_metadata,
            a.submitted_settings, a.irp_app_analysis_id,
-           a.rdm_id, a.irp_id, a.inserted_at
+           a.rdm_id, a.irp_id, a.imported_at, a.inserted_at
     FROM irp_analysis a
     JOIN submission_edm se ON se.edm_id = a.edm_id
     JOIN irp_edm e ON e.id = a.edm_id AND e.deleted_at IS NULL
@@ -91,7 +91,7 @@ _ELIGIBLE_SELECT = """
     UNION ALL
     SELECT a.id, a.name, a.full_name, a.is_group, a.settings_metadata,
            a.submitted_settings, a.irp_app_analysis_id,
-           a.rdm_id, a.irp_id, a.inserted_at
+           a.rdm_id, a.irp_id, a.imported_at, a.inserted_at
     FROM irp_analysis a
     JOIN submission_rdm sr ON sr.rdm_id = a.rdm_id
     JOIN irp_rdm r ON r.id = a.rdm_id AND r.deleted_at IS NULL
@@ -99,9 +99,10 @@ _ELIGIBLE_SELECT = """
     UNION ALL
     SELECT a.id, a.name, a.full_name, a.is_group, a.settings_metadata,
            a.submitted_settings, a.irp_app_analysis_id,
-           a.rdm_id, a.irp_id, a.inserted_at
+           a.rdm_id, a.irp_id, a.imported_at, a.inserted_at
     FROM irp_analysis a
-    WHERE a.submission_id = :sid AND a.is_group = 1
+    WHERE a.submission_id = :sid
+      AND (a.is_group = 1 OR a.imported_at IS NOT NULL)
       AND a.status_code = 'ready' AND a.deleted_at IS NULL
     ORDER BY inserted_at DESC
 """
@@ -110,8 +111,8 @@ _ELIGIBLE_SELECT = """
 def list_eligible_members(submission_id: Any) -> list[GroupMember]:
     """Every analysis of the submission a group may contain (FR-003): own
     analyses at ``ready``, captured broker analyses (every capture is a
-    finished run), and finished groups (nesting, FR-018). Running/failed rows
-    never appear. Broker handles are deduped by RM ``analysisId`` — the same
+    finished run), finished groups (nesting, FR-018), and analyses imported
+    by Risk Modeler id (#101). Running/failed rows never appear. Broker handles are deduped by RM ``analysisId`` — the same
     analysis captured under two of the submission's RDMs is one member."""
     from app.services.analysis_service import (  # noqa: PLC0415 — display only; avoids a cycle
         _submitted_view,
@@ -129,9 +130,13 @@ def list_eligible_members(submission_id: Any) -> list[GroupMember]:
             if str(r["irp_id"]) in seen_broker_irp_ids:
                 continue
             seen_broker_irp_ids.add(str(r["irp_id"]))
-        kind = "group" if is_group else "broker" if is_broker else "own"
+        is_imported = r["imported_at"] is not None
+        kind = ("group" if is_group else "broker" if is_broker
+                else "imported" if is_imported else "own")
         settings = _parse_json_dict(r["settings_metadata"], "settings_metadata")
         display = _to_display(settings)
+        # Broker rows have no submit-time snapshot; their run currency is the
+        # Risk Modeler metadata's (the FR-005 rule).
         currency = (display.currency if is_broker
                     else _submitted_view(r["submitted_settings"]).currency)
         app_analysis_id = (r["irp_app_analysis_id"]
