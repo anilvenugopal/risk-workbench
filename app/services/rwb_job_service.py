@@ -77,12 +77,12 @@ def enqueue_rwb_job(
     fan-in idempotency backbone the poller/workers rely on); the request path uses
     ``ensure_pending_rwb_job``.
 
-    ``link_type``/``link_id`` name the EDM or RDM this job concerns (CR-04c) —
-    always required; ``link_type="not_applicable"`` covers job types with no
-    EDM/RDM. ``context_type``/``context_id`` name what this job's own operation
-    acts on, derived from the worker body — never copied from ``requestor_id``.
-    Both are required keyword arguments but accept ``None`` for job types that
-    act on no single application row.
+    ``link_type``/``link_id`` name the EDM, RDM, or submission this job concerns
+    (CR-04c) — always required; ``link_type="not_applicable"`` covers job types
+    with none of the three. ``context_type``/``context_id`` name what this job's
+    own operation acts on, derived from the worker body — never copied from
+    ``requestor_id``. Both are required keyword arguments but accept ``None``
+    for job types that act on no single application row.
 
     ``correlation_id`` defaults to the bound log context's — the request middleware
     (web tier) or the per-job bind (poller/worker chaining) has stamped it, so call
@@ -279,10 +279,10 @@ def list_rwb_jobs_for_monitoring(
 
     Search reaches submission through the job's own ``link_type``/``link_id``
     (CR-04c) — never through ``requestor_type``/``requestor_id``, which names
-    who triggered the job, not what EDM/RDM (and therefore submission) it
-    concerns. ``submission_name`` matches the submission's ``name`` or
-    ``cedant_name`` the same word-and-clauses way
-    ``submission_service.list_submissions`` matches them. ``owner_ids`` filters
+    who triggered the job, not what EDM, RDM, or submission it concerns.
+    ``submission_name`` matches the submission's ``name`` or ``cedant_name`` the
+    same word-and-clauses way ``submission_service.list_submissions`` matches
+    them. ``owner_ids`` filters
     on the submission's ``assigned_analyst_id`` — a plain predicate (Article 6),
     not an access gate; the caller decides whether to default it to the current
     user. A job whose ``link_type = 'not_applicable'``, or whose EDM/RDM belongs
@@ -355,6 +355,9 @@ def list_rwb_jobs_for_monitoring(
             " UNION ALL "
             "SELECT 1 FROM submission_rdm sr JOIN submission s ON s.id = sr.submission_id "
             f"WHERE rj.link_type = 'rdm' AND sr.rdm_id = rj.link_id{sub_where}"
+            " UNION ALL "
+            "SELECT 1 FROM submission s "
+            f"WHERE rj.link_type = 'submission' AND s.id = rj.link_id{sub_where}"
             ")"
         )
         params |= sub_params
@@ -423,7 +426,9 @@ def list_submissions_for_rwb_jobs(
     batched second read for the "submission(s)" display column, kept separate
     from ``list_rwb_jobs_for_monitoring`` so a job's row count never depends on
     how many submissions its EDM/RDM belongs to. One query per link type (``edm``
-    ids and ``rdm`` ids don't share a source table), Python-side dict build
+    ids, ``rdm`` ids, and ``submission`` ids don't share a source table; a
+    ``submission`` link is the submission, so that query reads ``submission`` by
+    id and yields exactly one entry), Python-side dict build
     rather than ``STRING_AGG``/``GROUP_CONCAT`` — not portable to the SQLite unit
     tier (``submission_service.py``'s own portability contract)."""
     result: dict[tuple[str, str], list[dict]] = {}
@@ -451,6 +456,16 @@ def list_submissions_for_rwb_jobs(
         for row in rows:
             key = ("rdm", str(row["link_id"]))
             result.setdefault(key, []).append({"id": row["id"], "name": row["name"]})
+    sub_ids = [str(lid) for lt, lid in links if lt == "submission" and lid is not None]
+    if sub_ids:
+        clause, params = _in_clause("s.id", sub_ids, "s")
+        rows = execute(
+            f"SELECT s.id, s.name FROM submission s WHERE {clause} ORDER BY s.name",
+            params, connection="WORKBENCH",
+        )
+        for row in rows:
+            result[("submission", str(row["id"]))] = [
+                {"id": row["id"], "name": row["name"]}]
     return result
 
 

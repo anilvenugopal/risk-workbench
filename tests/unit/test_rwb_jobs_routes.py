@@ -167,6 +167,22 @@ class TestRwbJobsPage:
             "/workflows/rwb-jobs")
         assert "Not Mine" not in resp.text
 
+    def test_grouping_job_listed_under_default_owner(self, iteration2_db):
+        # A submit_grouping job links to the submission itself (no EDM/RDM),
+        # so it must be reached by the default owner=mine filter and show
+        # its submission name.
+        user_a = iteration2_db.user_a
+        sub_id = _submission(name="Grouped Deal", assigned_analyst_id=user_a)
+        enqueue_rwb_job(requestor_type="analyst_request", requestor_id=str(uuid.uuid4()),
+                        rwb_job_type="submit_grouping", link_type="submission",
+                        link_id=sub_id, context_type="irp_analysis",
+                        context_id=str(uuid.uuid4()))
+
+        resp = TestClient(_make_app(user=_fake_user(id=user_a))).get(
+            "/workflows/rwb-jobs")
+        assert resp.status_code == 200
+        assert "Grouped Deal" in resp.text
+
     def test_owner_any_shows_every_submissions_jobs(self, iteration2_db):
         user_a, user_b = iteration2_db.user_a, iteration2_db.user_b
         edm_id = _edm()

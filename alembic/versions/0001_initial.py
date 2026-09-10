@@ -400,8 +400,8 @@ def upgrade() -> None:
         # requestor_id has NO DB FK — its target varies by requestor_type
         # (irp_job / analyst_request / rwb_job / breakout_group), data-model §4.
         sa.Column("requestor_id", sa.Uuid, nullable=False),
-        # link_type/link_id: the EDM or RDM this job concerns, for search.
-        # not_applicable covers job types with no EDM/RDM (CR-04c §4).
+        # link_type/link_id: the EDM, RDM, or submission this job concerns, for
+        # search. not_applicable covers job types with none of the three (CR-04c §4).
         sa.Column("link_type", sa.NVARCHAR(50), nullable=False),
         sa.Column("link_id", sa.Uuid, nullable=True),
         # context_type/context_id: the object this job's own operation acts
