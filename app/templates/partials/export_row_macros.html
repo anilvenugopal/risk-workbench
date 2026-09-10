@@ -1,0 +1,30 @@
+{# One analysis row of the export form, on the shared .dtable grid. `oob`
+   renders the same row as an out-of-band swap from the selection fragment:
+   unticked and disabled once the analysis is shown as exported for the chosen
+   perspective (FR-004). The form's --cols list must match the seven cells. #}
+{% macro analysis_row(a, checked=false, oob=false) -%}
+{% set blocked = a.disabled_reason or a.exported %}
+<div class="drow-static" id="export-row-{{ a.id }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <span class="l"><span class="geohaz-pick">
+    <input type="checkbox" name="analysis_ids" value="{{ a.id }}" @change="onChange()"
+           {% if checked and not a.exported %}checked{% endif %}{% if blocked %} disabled{% endif %}></span></span>
+  <span class="l"><span class="dt-title{% if blocked %} na{% endif %}" title="{{ a.name }}">{{ a.name }}</span></span>
+  <span class="l">{{ a.origin }}</span>
+  <span class="l">{% if a.irp_app_analysis_id %}#{{ a.irp_app_analysis_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</span>
+  <span class="l">{{ a.currency or '' }}</span>
+  <span class="l">{{ a.perspectives|join(', ') }}</span>
+  <span class="l">{% if a.disabled_reason %}<span class="na" title="Cannot be exported: {{ a.disabled_reason }}.">Cannot be exported: {{ a.disabled_reason }}.</span>{% endif %}</span>
+  {% if a.exported %}
+  <div class="export-mark">Exported {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
+    · {{ a.exported.status }} · <a href="{{ a.exported.detail_url }}">open export</a></div>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{# The derived status chip. Waiting statuses share one colour; staged, loaded,
+   and failed each have their own. #}
+{% macro status_chip(status) -%}
+{% set variant = 'loaded' if status == 'loaded' else 'failed' if status == 'failed'
+                 else 'staged' if status in ('staged', 'loading') else 'waiting' %}
+<span class="status-chip status-chip--export-{{ variant }}">{{ status }}</span>
+{%- endmacro %}

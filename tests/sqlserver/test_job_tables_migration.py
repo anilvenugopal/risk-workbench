@@ -83,8 +83,27 @@ class TestJobTablesMigration:
             "SELECT code FROM rwb_job_type_kind", {}, connection="WORKBENCH")}
         assert {"upload_edm", "upload_rdm", "backfill_rdm_analyses",
                 "notify_analyst", "execute_analysis_batch",
-                "finalize_analysis"} <= codes
-        assert {"delete_edm", "delete_rdm"}.isdisjoint(codes)
+                "finalize_analysis", "submit_results_export",
+                "stage_results_export", "load_results_export"} <= codes
+        assert {"delete_edm", "delete_rdm", "download_export_file",
+                "push_results_to_loss_repo"}.isdisjoint(codes)
+
+    def test_rwb_job_context_type_kind_has_result_export(self):
+        codes = {r["code"] for r in execute(
+            "SELECT code FROM rwb_job_context_type_kind", {}, connection="WORKBENCH")}
+        assert "result_export" in codes
+
+    def test_irp_job_export_id_column_and_index_present(self):
+        col = execute_scalar(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'irp_job' AND COLUMN_NAME = 'export_id' "
+            "AND DATA_TYPE = 'uniqueidentifier' AND IS_NULLABLE = 'YES'",
+            {}, connection="WORKBENCH")
+        assert col == 1
+        idx = execute_scalar(
+            "SELECT COUNT(*) FROM sys.indexes WHERE name = 'ix_irp_job_export_id' "
+            "AND object_id = OBJECT_ID('dbo.irp_job')", {}, connection="WORKBENCH")
+        assert idx == 1
 
     def test_irp_analysis_status_kind_seeds(self):
         codes = {r["code"] for r in execute(

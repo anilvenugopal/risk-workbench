@@ -352,3 +352,11 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .bo-banner--partial { background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); color: var(--color-warning); }
 .bo-row-error { font-size: var(--fs-caption); color: var(--color-negative); background: var(--color-negative-bg); border-top: 1px solid var(--color-negative-border); padding: var(--space-1) var(--space-3); position: sticky; left: 0; width: 100cqw; }
 .bo-row-error strong { font-weight: var(--fw-semibold); }
+
+/* ── loss results export (spec 014): form and detail rows on the .dtable grid ── */
+.export-mark { grid-column: 1 / -1; padding: 0 var(--space-3) var(--space-2); font-size: var(--fs-caption); color: var(--color-warning); white-space: normal; }
+.export-names { display: flex; flex-direction: column; gap: var(--space-2); }
+.export-names label { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-caption); color: var(--text-tertiary); }
+.export-analysis { flex-wrap: wrap; }
+.export-detail__error { grid-column: 1 / -1; padding: 0 var(--space-3) var(--space-2); font-size: var(--fs-caption); color: var(--color-danger); white-space: normal; }
+.export-detail__path { grid-column: 1 / -1; padding: 0 var(--space-3) var(--space-2); font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-tertiary); white-space: normal; word-break: break-all; }

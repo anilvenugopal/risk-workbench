@@ -116,7 +116,7 @@ One analysis in an export failed: Risk Modeler rejected the request, the shared 
 - **FR-020**: A processing step interrupted by a crash or restart is re-run automatically from its last completed step, with the same guarantees as Retry; an interrupted load never leaves a partial data set.
 - **FR-021**: A load that has already completed is never repeated: any re-run of a loaded analysis writes nothing and reports success.
 - **FR-022**: The client team can run the load step for a staged analysis themselves, from the repository, without the Workbench; a load run that way is visible to the Workbench as loaded.
-- **FR-023**: Each export's analyses, Risk Modeler jobs, and Workbench jobs are traceable from one export identifier, and the request records carry requester email and time so a repository DBA can trace a data set without a Workbench login.
+- **FR-023**: Each export's analyses, Risk Modeler jobs, and Workbench jobs are traceable in the database from one export identifier (the detail page shows the analyses, not the job ids), and the request records carry requester email and time so a repository DBA can trace a data set without a Workbench login.
 - **FR-024**: The Workbench never deletes a downloaded archive, a row of a staged or loaded analysis, or a loaded repository row; the file and loss rows of an interrupted stage are replaced when that stage re-runs. Retention of staged rows is decided separately (plan O-03).
 
 ## Key Entities

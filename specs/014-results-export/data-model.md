@@ -18,7 +18,7 @@ target column reads it.
 
 | Column | Type | Source | Read by |
 |---|---|---|---|
-| `export_id` | `Uuid`, nullable, no FK, index `ix_irp_job_export_id` | `submit_results_export` worker, on each `export` job it inserts | Poller terminal handler (passes it into the stage job's `input_data`); export detail page (lists an export's Risk Modeler jobs) |
+| `export_id` | `Uuid`, nullable, no FK, index `ix_irp_job_export_id` | `submit_results_export` worker, on each `export` job it inserts | Poller terminal handler (passes it into the stage job's `input_data`); the submit worker, to reuse a job a crashed run already recorded; a DBA tracing an export's Risk Modeler jobs (FR-023; the detail page does not list them) |
 
 Existing `irp_job` columns an `export` job uses: `irp_job_type = 'export'`
 (seed exists), `irp_id` (Risk Modeler export job ID), `irp_analysis_id`,
@@ -189,6 +189,10 @@ Until built, the stage worker fails an archive whose loss-table folder is
 | `CRMID` | `manifest.crm_id` |
 | `Database`, `ArchiveFile` (O-10), `AReLossSet`, `LOB`, `Geography` | Not populated |
 
+`Name` and `Description` (and §5.3 `Event_Name`) are `VARCHAR(MAX)` at CIC
+while the manifest and lookup columns are `NVARCHAR`: a character outside the
+server's code page arrives as `?` with no error. CIC owns those columns.
+
 ### 5.2 `dbo.RMSELT` — stochastic rows
 
 `DataID` ← `manifest.data_id`; `EventID`, `Loss`, `StdDevI`, `StdDevC`,
@@ -258,9 +262,8 @@ Manifest columns, plus `origin` (own, broker, or group) read from `irp_analysis`
 | `load_status = loading` | loading |
 | `stage_status = staged` | staged |
 | `irp_export_job_id IS NULL` | pending |
-| `export` `irp_job.status` terminal and not `FINISHED` | failed (the stage worker stamps `stage_status = failed` moments later) |
-| `export` `irp_job.status` not terminal | requested from Risk Modeler |
-| `export` `irp_job.status = FINISHED` | downloading and staging |
+| `export` `irp_job.status` terminal, any outcome | downloading and staging (the poller has handed the row to the stage worker, which stamps `stage_status = failed` itself when the job did not finish) |
+| otherwise | requested from Risk Modeler |
 
 Last change time is `manifest.updated_at`. Retry is offered when the status
-is failed. Comparison pairs and the export form selection are not persisted.
+is failed, which the manifest row alone decides. Comparison pairs and the export form selection are not persisted.

@@ -34,10 +34,12 @@ from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.services import (
     analysis_service,
     edm_service,
+    export_service,
     rdm_service,
     shared_drive,
     submission_service,
 )
+from app.services._common import _uid
 from app.services.errors import (
     ConcurrencyConflict,
     InvalidMemberName,
@@ -1260,3 +1262,182 @@ def delete_crm(
     if _is_htmx(request):
         return _crm_partial(request, submission_id)
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+# ── Loss results export (spec 014, contracts/routes.md) ─────────────────────
+
+def _export_nav(request: Request, key: str, submission, last_label: str) -> dict:
+    """The nav context with the submission crumb named and linked, and the
+    hidden export node's crumb relabelled for this page."""
+    nav = get_nav_context(request.state.user, key)
+    crumbs = [dict(c) for c in nav["breadcrumb"]]
+    for crumb in crumbs:
+        if crumb["key"] == "submissions.detail":
+            crumb["label"] = submission.name
+            crumb["route"] = f"/submissions/{submission.id}"
+    crumbs[-1]["label"] = last_label
+    nav["breadcrumb"] = crumbs
+    return nav
+
+
+def _export_fields_context(analyses: list, selected_ids, perspective: str,
+                           data_names: dict | None = None) -> dict:
+    wanted = {_uid(v) for v in selected_ids}
+    selected = [a for a in analyses if a.id in wanted and a.disabled_reason is None]
+    choices = export_service.perspective_choices(selected)
+    perspective = perspective if perspective in choices else ""
+    if perspective:
+        export_service.mark_exported(selected, perspective)
+    return {"selected": selected, "choices": choices, "perspective": perspective,
+            "data_name_max": export_service.DATA_NAME_MAX_LEN,
+            "data_names": {_uid(k): v for k, v in (data_names or {}).items()}}
+
+
+def _export_form_response(request: Request, submission_id: str, *, selected_ids=(),
+                          perspective: str = "", values: dict | None = None,
+                          data_names: dict | None = None, error: str | None = None,
+                          status_code: int = 200):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _templates(request).TemplateResponse(
+            request, "pages/submission_export_new.html",
+            {"current_user": request.state.user,
+             "nav": get_nav_context(request.state.user, "submissions.export_new"),
+             "submission": None, "gone": True}, status_code=404)
+    analyses = export_service.list_exportable_analyses(submission_id) or []
+    crm_ids = submission_service.list_crm_ids(submission_id)
+    form_values = {"client_id": "", "treaty_incept": submission.inception_date or "",
+                   "crm_id": (crm_ids[0].crm_id if crm_ids else ""), "data_vintage": ""}
+    form_values.update(values or {})
+    return _templates(request).TemplateResponse(
+        request, "pages/submission_export_new.html", {
+            "current_user": request.state.user,
+            "nav": _export_nav(request, "submissions.export_new", submission, "Export"),
+            "submission": submission, "submission_id": submission.id, "gone": False,
+            "analyses": analyses, "clients": export_service.list_clients(),
+            "values": form_values, "selected_ids": {_uid(v) for v in selected_ids},
+            "error": error,
+            **_export_fields_context(analyses, selected_ids, perspective, data_names),
+        }, status_code=status_code)
+
+
+@router.get("/submissions/{submission_id}/exports/new", response_class=HTMLResponse)
+def export_new(request: Request, submission_id: str):
+    return _export_form_response(request, submission_id)
+
+
+@router.get("/submissions/{submission_id}/exports/new/fields", response_class=HTMLResponse)
+def export_new_fields(request: Request, submission_id: str):
+    analyses = export_service.list_exportable_analyses(submission_id)
+    if analyses is None:
+        return _not_found(request)
+    return _partial(request, "partials/export_form_fields.html", {
+        "submission_id": submission_id,
+        **_export_fields_context(analyses, request.query_params.getlist("analysis_ids"),
+                                 request.query_params.get("perspective", "")),
+    })
+
+
+@router.post("/submissions/{submission_id}/exports")
+async def create_export(request: Request, submission_id: str):
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token") or ""):
+        return RedirectResponse(f"/submissions/{submission_id}/exports/new", status_code=303)
+    analysis_ids = form.getlist("analysis_ids")
+    perspective = (form.get("perspective") or "").strip().upper()
+    treaty_incept_raw = (form.get("treaty_incept") or "").strip()
+    data_vintage_raw = (form.get("data_vintage") or "").strip()
+    crm_id = form.get("crm_id") or ""
+    data_names = {key[len("data_name["):-1]: value for key, value in form.multi_items()
+                  if key.startswith("data_name[") and key.endswith("]")}
+    reshow = partial(
+        _export_form_response, request, submission_id, selected_ids=analysis_ids,
+        perspective=perspective, data_names=data_names, status_code=422,
+        values={"client_id": form.get("client_id") or "", "treaty_incept": treaty_incept_raw,
+                "crm_id": crm_id, "data_vintage": data_vintage_raw})
+    treaty_incept = _parse_date(treaty_incept_raw)
+    if treaty_incept_raw and treaty_incept is None:
+        return reshow(error="Treaty inception is not a valid date.")
+    data_vintage = _parse_date(data_vintage_raw)
+    if data_vintage_raw and data_vintage is None:
+        return reshow(error="Data vintage is not a valid date.")
+    try:
+        export_id = export_service.create_export(
+            submission_id=submission_id, user_email=request.state.user.email,
+            analysis_ids=analysis_ids, perspective_code=perspective,
+            client_id=_parse_int(form.get("client_id")), treaty_incept=treaty_incept,
+            crm_id=crm_id, data_vintage=data_vintage, data_names=data_names)
+    except export_service.ExportValidationError as exc:
+        return reshow(error=str(exc))
+    return RedirectResponse(f"/submissions/{submission_id}/exports/{export_id}", status_code=303)
+
+
+@router.get("/submissions/{submission_id}/exports", response_class=HTMLResponse)
+def submission_exports(request: Request, submission_id: str):
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    return _partial(request, "partials/exports_section.html", {
+        "submission_id": submission_id,
+        "exports": export_service.list_exports(submission_id)})
+
+
+def _export_not_found(request: Request):
+    return _templates(request).TemplateResponse(
+        request, "base/error.html",
+        {"status_code": 404, "title": "Not found",
+         "detail": "That export was not requested from this submission.",
+         "is_htmx": _is_htmx(request), "current_user": request.state.user},
+        status_code=404)
+
+
+@router.get("/submissions/{submission_id}/exports/{export_id}", response_class=HTMLResponse)
+def export_detail(request: Request, submission_id: str, export_id: str):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    export = export_service.get_export_detail(submission_id, export_id)
+    if export is None:
+        return _export_not_found(request)
+    return _templates(request).TemplateResponse(
+        request, "pages/submission_export_detail.html", {
+            "current_user": request.state.user,
+            "nav": _export_nav(request, "submissions.export_detail", submission,
+                               f"Export {export.perspective_code} · {export.requested_at}"),
+            "submission": submission, "export": export})
+
+
+@router.get("/submissions/{submission_id}/exports/{export_id}/analyses",
+            response_class=HTMLResponse)
+def export_analyses(request: Request, submission_id: str, export_id: str):
+    export = export_service.get_export_detail(submission_id, export_id)
+    if export is None:
+        return _export_not_found(request)
+    return _partial(request, "partials/export_analyses_table.html", {"export": export})
+
+
+@router.post("/submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/retry")
+def retry_export_analysis(request: Request, submission_id: str, export_id: str,
+                          irp_analysis_id: str, csrf_token: str = Form(...)):
+    detail_url = f"/submissions/{submission_id}/exports/{export_id}"
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(detail_url, status_code=303)
+    message = None
+    try:
+        export_service.apply_retry(submission_id, export_id, irp_analysis_id)
+    except export_service.ExportNotFound:
+        return _export_not_found(request)
+    except export_service.ExportRetryRefused as exc:
+        message = str(exc)
+    status_code = 409 if message else 200
+    if not _is_htmx(request):
+        if message is not None:
+            return _templates(request).TemplateResponse(
+                request, "base/error.html",
+                {"status_code": 409, "title": "Retry refused", "detail": message,
+                 "is_htmx": False, "current_user": request.state.user}, status_code=409)
+        return RedirectResponse(detail_url, status_code=303)
+    # The whole table, so its polling trigger returns while the re-armed job
+    # runs; the Retry form's before-swap hook lets htmx swap the 409 in.
+    export = export_service.get_export_detail(submission_id, export_id)
+    return _partial(request, "partials/export_analyses_table.html",
+                    {"export": export, "retry_message": message}, status_code=status_code)

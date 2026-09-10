@@ -63,6 +63,16 @@ def _insert_head(params: dict, conn) -> bool:
     return rows == 1
 
 
+def analysis_link(edm_id: Any, rdm_id: Any) -> tuple[str, Any]:
+    """The ``rwb_job`` link for a job about one analysis: its EDM, else its RDM
+    (broker analyses), else ``not_applicable``."""
+    if edm_id:
+        return "edm", edm_id
+    if rdm_id:
+        return "rdm", rdm_id
+    return "not_applicable", None
+
+
 def enqueue_rwb_job(
     *, requestor_type: str, requestor_id: Any, rwb_job_type: str,
     link_type: str, link_id: Any | None, context_type: str | None,
@@ -376,6 +386,7 @@ def backfill_edm_detail_rows(
 
 
 __all__ = [
+    "analysis_link",
     "enqueue_rwb_job",
     "ensure_pending_rwb_job",
     "claim_rwb_job",

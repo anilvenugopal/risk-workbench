@@ -1,0 +1,38 @@
+{# Exports requested from this submission, newest first (contracts/routes.md
+   §5). Polls every 10s only while some export still has an analysis in
+   progress; a terminal state renders without a trigger and the polling stops. #}
+{% set in_progress = exports|selectattr('in_progress')|list|length > 0 %}
+<details class="sec" open id="submission-exports"
+  {% if in_progress %}hx-get="/submissions/{{ submission_id }}/exports" hx-trigger="every 10s"
+  hx-target="this" hx-swap="outerHTML"{% endif %}>
+  <summary>
+    <span class="sec__caret">▸</span>
+    <span class="sec__title">Exports</span>
+    {% if exports %}<span class="badge badge--neutral">{{ exports|length }}</span>{% endif %}
+    <span class="sec__spacer"></span>
+    <a class="btn-sm" href="/submissions/{{ submission_id }}/exports/new" onclick="event.stopPropagation()">Export</a>
+  </summary>
+  {% if exports %}
+  <div class="dtable-shell">
+    <div class="dtable" style="--cols: 90px minmax(200px,1.4fr) 170px minmax(160px,1fr) 90px 90px 90px; min-width: 900px">
+      <div class="dtable__head">
+        <span class="l">Perspective</span><span class="l">Requested by</span><span class="l">Requested</span>
+        <span class="l">Client</span><span>Analyses</span><span>Loaded</span><span>Failed</span>
+      </div>
+      {% for e in exports %}
+      <div class="drow-static">
+        <span class="l"><a class="link" href="/submissions/{{ submission_id }}/exports/{{ e.export_id }}">{{ e.perspective_code }}</a></span>
+        <span class="l" title="{{ e.requested_by_email }}">{{ e.requested_by_email }}</span>
+        <span class="l"><time data-utc="{{ e.requested_at }}" title="{{ e.requested_at }} UTC">{{ e.requested_at }}</time></span>
+        <span class="l">{{ e.client_name or '—' }}</span>
+        <span>{{ e.analysis_count }}</span>
+        <span>{{ e.loaded_count }}</span>
+        <span>{{ e.failed_count }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="state-box">No exports yet</div>
+  {% endif %}
+</details>

@@ -1,0 +1,25 @@
+{# The export detail page's analysis table; polls every 5s while any analysis
+   is not yet loaded or failed (contracts/routes.md §6). The Retry route
+   re-renders it, with `retry_message` when the retry was refused (§7). #}
+<div id="export-analyses"
+     {% if export.in_progress %}hx-get="/submissions/{{ export.submission_id }}/exports/{{ export.export_id }}/analyses"
+     hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+  {% if retry_message|default(none) %}
+  <div class="form-banner form-banner--error">Retry refused: {{ retry_message }}.</div>
+  {% endif %}
+  <div class="dtable-shell">
+    <div class="dtable" style="--cols: minmax(220px,2fr) 70px 170px 150px 80px 80px 90px 90px 100px 100px 90px; min-width: 1260px">
+      <div class="dtable__head">
+        <span class="l">Analysis</span><span class="l">Origin</span><span class="l">Status</span>
+        <span class="l">Last change</span><span>Data ID</span><span>Staged</span>
+        <span>Stochastic</span><span>Historical</span><span>Exposure raised</span>
+        <span>Std dev zeroed</span><span class="l"></span>
+      </div>
+      {% for a in export.analyses %}
+      {% with submission_id=export.submission_id, export_id=export.export_id %}
+      {% include "partials/export_analysis_row.html" %}
+      {% endwith %}
+      {% endfor %}
+    </div>
+  </div>
+</div>

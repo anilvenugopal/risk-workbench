@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from json import loads as _json_loads
 from typing import Any
 
 from sqlalchemy import text
@@ -29,20 +30,22 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
                     irp_job_type: str, irp_id: str | None, status: str,
                     payload: dict | None, response: dict | None,
                     request_params: dict | None,
-                    attempt_count: int, actor_id, now: datetime) -> None:
+                    attempt_count: int, actor_id, now: datetime,
+                    export_id=None) -> None:
     conn.execute(text(
         """
         INSERT INTO irp_job (id, requested_from_submission_id, irp_edm_id,
-            irp_rdm_id, irp_portfolio_id, irp_analysis_id, irp_job_type,
+            irp_rdm_id, irp_portfolio_id, irp_analysis_id, export_id, irp_job_type,
             irp_id, status, correlation_id, last_submission_payload,
             last_submission_response, request_params, submission_attempt_count,
             submitted_at, completed_at, inserted_at, updated_at, inserted_by, updated_by)
-        VALUES (:id, :submission, :edm, :rdm, :portfolio, :analysis, :jt, :irp_id,
+        VALUES (:id, :submission, :edm, :rdm, :portfolio, :analysis, :export, :jt, :irp_id,
             :status, :cid, :payload, :response, :params, :attempts, :now, :completed,
             :now, :now, :by, :by)
         """
     ), {
         "id": job_id,
+        "export": (str(export_id) if export_id is not None else None),
         "submission": (str(requested_from_submission_id)
                        if requested_from_submission_id is not None else None),
         "edm": (str(irp_edm_id) if irp_edm_id is not None else None),
@@ -76,6 +79,7 @@ def record_submitted_irp_job(
     payload: dict | None = None, response: dict | None = None,
     request_params: dict | None = None,
     actor_id: Any | None = None, status: str = "QUEUED", conn=None,
+    export_id: Any | None = None,
 ) -> str:
     """Worker-side: write the submitted ``irp_job`` (``irp_id`` set) plus
     any ``irp_job_resource`` (the ``resource_uri`` captured at submit — the
@@ -94,7 +98,7 @@ def record_submitted_irp_job(
             irp_job_type=irp_job_type, irp_id=irp_id,
             status=status, payload=payload, response=response,
             request_params=request_params,
-            attempt_count=0, actor_id=actor_id, now=now)
+            attempt_count=0, actor_id=actor_id, now=now, export_id=export_id)
         if resource_uri is not None:
             c.execute(text(
                 "INSERT INTO irp_job_resource (id, irp_job_id, resource_type, "
@@ -107,6 +111,48 @@ def record_submitted_irp_job(
 
 # Terminal irp_job.status values (data-model §2). SUBMISSION FAILED is terminal
 # too — owned by the poller's submission_retry batch, never the status tracker.
+def find_export_job(export_id: Any, irp_analysis_id: Any) -> dict | None:
+    """The ``export`` irp_job already recorded for one manifest row, if any.
+    The submit worker checks it before asking Risk Modeler again, so a crash
+    between recording the job and stamping the manifest never submits twice."""
+    rows = execute(
+        "SELECT id, irp_id FROM irp_job WHERE irp_job_type = 'export' "
+        "AND export_id = :e AND irp_analysis_id = :a",
+        {"e": str(export_id), "a": str(irp_analysis_id)}, connection="WORKBENCH")
+    return dict(rows[0]) if rows else None
+
+
+def failure_message(result: Any) -> str | None:
+    """The message Risk Modeler put in a terminal completion body, or ``None``.
+    Real FAILED bodies nest it at ``tasks[].output.errors[].message``; the
+    first non-empty message in task order wins (task 1 carries the engine root
+    cause, later tasks are downstream noise). ``errorMessage`` is the fallback."""
+    if isinstance(result, str):
+        try:
+            result = _json_loads(result)
+        except ValueError:
+            return None
+    if not isinstance(result, dict):
+        return None
+    tasks = result.get("tasks")
+    if isinstance(tasks, list):
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            output = task.get("output")
+            errors = output.get("errors") if isinstance(output, dict) else None
+            if not isinstance(errors, list):
+                continue
+            for error in errors:
+                message = error.get("message") if isinstance(error, dict) else None
+                if isinstance(message, str) and message.strip():
+                    return message.strip()
+    error_message = result.get("errorMessage")
+    if isinstance(error_message, str) and error_message.strip():
+        return error_message.strip()
+    return None
+
+
 TERMINAL = frozenset({"FINISHED", "FAILED", "CANCELLED", "SUBMISSION FAILED"})
 
 
@@ -118,7 +164,7 @@ def list_non_terminal() -> list[dict]:
     rows = execute(
         f"""
         SELECT id, irp_id, irp_job_type, irp_edm_id, irp_rdm_id,
-               irp_portfolio_id, irp_analysis_id,
+               irp_portfolio_id, irp_analysis_id, export_id,
                requested_from_submission_id,
                status, correlation_id, submitted_at
         FROM irp_job
@@ -218,6 +264,6 @@ def list_recent(limit: int = RECENT_LIMIT) -> list[dict]:
 
 
 __all__ = [
-    "record_submitted_irp_job", "record_submission_failure",
-    "TERMINAL", "list_non_terminal", "update_tracking", "list_recent",
+    "record_submitted_irp_job", "record_submission_failure", "find_export_job",
+    "failure_message", "TERMINAL", "list_non_terminal", "update_tracking", "list_recent",
 ]

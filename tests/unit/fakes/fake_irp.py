@@ -17,7 +17,11 @@ Name-collision hits are seeded via ``add_edm_name`` / ``add_rdm_name``.
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 from app.services.irp_gateway import (
+    IRPAPIError,
     AnalysisHit,
     AnalysisMetadata,
     CurrencyEntry,
@@ -235,6 +239,19 @@ class FakeIRP:
         # recorded result reads: {"call", "analysis_id", "perspective_code",
         # "exposure_resource_id"} — the idempotency assertions count these
         self.result_calls: list[dict] = []
+        # ── spec-014 loss results export ─────────────────────────────────────
+        # recorded export submits: {"analysis_id", "loss_details", "job_id"}
+        self.export_submits: list[dict] = []
+        # analysis ids whose export submit raises IRPAPIError (Risk Modeler
+        # rejects that one analysis); the whole-call knob mimics an unreachable
+        # Risk Modeler and raises a plain RuntimeError
+        self.raise_on_export_submit_for: set[int] = set()
+        self.raise_on_export_submit = False
+        # the fixture archive download_export_results copies into output_dir
+        # (None → IRPAPIError, as the wheel raises when a job has no archive)
+        self.export_archive_path: str | Path | None = None
+        self.raise_on_export_download = False
+        self.export_downloads: list[dict] = []
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -682,6 +699,41 @@ class FakeIRP:
     def get_geohaz_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
+
+    # ── spec-014 loss results export ─────────────────────────────────────────
+
+    def submit_analysis_export_job(self, *, analysis_id: int,
+                                   loss_details: list[dict]) -> tuple[int, dict]:
+        if self.raise_on_export_submit:
+            raise RuntimeError("fake IRP: Risk Modeler unreachable")
+        if int(analysis_id) in self.raise_on_export_submit_for:
+            raise IRPAPIError(f"Analysis with ID {analysis_id} not found")
+        irp_id = self._next_id()
+        self.jobs[irp_id] = "QUEUED"
+        request_body = {
+            "exportType": "RESULTS",
+            "resourceUris": [f"/platform/riskdata/v1/analyses/{analysis_id}"],
+            "resourceType": "analyses",
+            "settings": {"fileExtension": "PARQUET", "lossDetails": loss_details},
+        }
+        self.export_submits.append({"analysis_id": int(analysis_id),
+                                    "loss_details": loss_details, "job_id": int(irp_id)})
+        return int(irp_id), request_body
+
+    def get_export_job(self, irp_id: str) -> JobStatus:
+        return JobStatus(status=self.jobs.get(str(irp_id), "QUEUED"),
+                         result=self.results.get(str(irp_id)))
+
+    def download_export_results(self, *, job_id: int, output_dir: str) -> str:
+        self.export_downloads.append({"job_id": int(job_id), "output_dir": output_dir})
+        if self.raise_on_export_download:
+            raise IRPAPIError("fake IRP: download failed")
+        if self.export_archive_path is None:
+            raise IRPAPIError(f"fake IRP: export job {job_id} has no archive")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        target = Path(output_dir) / Path(self.export_archive_path).name
+        shutil.copyfile(self.export_archive_path, target)
+        return str(target)
 
     def search_edms(self, name: str) -> list[EntityHit]:
         self.search_calls.append(("edm", name))

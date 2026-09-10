@@ -134,3 +134,24 @@ def test_identifier_context_rejects_unsafe():
 def test_missing_param_raises():
     with pytest.raises(db.SQLServerQueryError):
         scripts._substitute_named_parameters("WHERE id = {{ missing }}", {"other": 1})
+
+
+# ── execute_procedure / read_uncommitted_hint (spec 014) ──────────────────────
+
+def test_procedure_call_binds_each_parameter_by_name():
+    from db.execute import procedure_call
+    assert procedure_call("stage.usp_load_elt_result", {"manifest_id": 7}) == (
+        "EXEC stage.usp_load_elt_result @manifest_id = :manifest_id")
+    assert procedure_call("dbo.usp_two", {"a": 1, "b": 2}) == (
+        "EXEC dbo.usp_two @a = :a, @b = :b")
+
+
+def test_read_uncommitted_hint_is_empty_on_sqlite():
+    register_engine("LOSS", create_engine("sqlite:///:memory:"))
+    assert db.read_uncommitted_hint("LOSS") == ""
+
+
+def test_read_uncommitted_hint_names_the_hint_on_mssql():
+    # A pyodbc URL builds the mssql dialect without connecting.
+    register_engine("LOSS", create_engine("mssql+pyodbc:///?odbc_connect=DRIVER=x"))
+    assert db.read_uncommitted_hint("LOSS") == "WITH (READUNCOMMITTED)"

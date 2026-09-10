@@ -75,14 +75,17 @@ Form fields: analysis_ids[] (uuid, ≥1), perspective (code), client_id (int),
              data_vintage (date, optional), data_name[<uuid>] (text ≤150, optional)
 ```
 
+The form is a plain POST, not `hx-post`: htmx does not swap a 422 response,
+so the re-rendered message would never show.
+
 Validation, in order; the first failure re-renders §2 with the message and
 the analyst's values, HTTP 422:
 
-1. Every `analysis_ids` entry resolves to an exportable analysis of this
-   submission (T-24); the reason names the analysis otherwise.
+1. Every `analysis_ids` entry (repeats collapsed) resolves to an exportable
+   analysis of this submission (T-24); the reason names the analysis otherwise.
 2. `perspective` is in `EXPORT_PERSPECTIVE_CODES` and in every selected
    analysis's perspectives.
-3. `client_id` exists in `dbo.Client`.
+3. `client_id` is an active client (`dbo.Client.ActiveFlag = 'Y'`, FR-002).
 4. `treaty_incept` parses; `data_vintage` parses when present.
 5. **Duplicate check**: no manifest row exists for any (`irp_app_analysis_id`,
    `perspective`). Failure names each blocked analysis and its existing
@@ -99,9 +102,11 @@ On success:
    validation step 5 (concurrent submit, FR-004).
 3. `rwb_job_service.enqueue_rwb_job` for `submit_results_export`
    ([jobs.md](jobs.md) §1), then `dispatch.dispatch`. If the enqueue fails
-   after the manifest commit, the route answers 500 with the error; the
-   manifest rows stay `pending` and the detail page shows them with no job.
-4. `303 See Other` to §6 (`HX-Redirect` when the request is HTMX).
+   after the manifest commit, every row of the export is stamped
+   `stage_status = 'failed'` with the error and step 4 still runs: the detail
+   page shows the rows failed with Retry (§7), whose submit branch re-arms
+   the request.
+4. `303 See Other` to §6.
 
 An edited `treaty_incept` or `crm_id` is recorded on the manifest only; the
 route never updates `submission.inception_date` or `submission_crm_id`
@@ -152,16 +157,26 @@ POST /submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}
 
 Preconditions: the manifest row exists for (`export_id`, `irp_analysis_id`)
 with `requested_from_submission_id` equal to the path's submission (else
-404) and its derived status is failed; otherwise 409 with the reason (a `loaded`
-row: "already loaded as data ID {data_id}").
+404) and the row itself is failed (`stage_status = 'failed'` or
+`load_status = 'failed'`); otherwise 409 with the reason (a `loaded` row:
+"already loaded as data ID {data_id}"; any other row: "the analysis is
+{status}, not failed"). A Risk Modeler job that ended without `FINISHED`
+reads "downloading and staging" until the stage worker stamps the row, and is
+refused in that window: only that worker fails the row.
 
 Decision (T-28), evaluated top-down, exactly one branch runs:
 
 | Manifest and job state | Action |
 |---|---|
-| `stage_status = staged` | `ensure_pending_rwb_job` for `load_results_export` ([jobs.md](jobs.md) §1) |
-| `zip_file` set and the file exists under `EXPORT_ARCHIVE_DIR`; **or** the `export` `irp_job` is `FINISHED` with `completed_at` within the last 7 days | `ensure_pending_rwb_job` for `stage_results_export` |
+| `stage_status = staged` | `UPDATE` the manifest row: `load_status = 'pending'`, `error_message = NULL`; then `ensure_pending_rwb_job` for `load_results_export` ([jobs.md](jobs.md) §1) |
+| The `export` `irp_job` exists **and** (`zip_file` set and the file exists under `EXPORT_ARCHIVE_DIR`; **or** the job is `FINISHED` with `completed_at` within the last 7 days) | `UPDATE` the manifest row: `stage_status = 'pending'`, `error_message = NULL`; then `ensure_pending_rwb_job` for `stage_results_export` |
 | Otherwise | `UPDATE` the manifest row: `irp_export_job_id = NULL`, `stage_status = 'pending'`, `error_message = NULL`; then `ensure_pending_rwb_job` for `submit_results_export` (the export's existing job) |
 
-Then `dispatch.dispatch` for the re-armed job and re-render the analysis row
-(HTMX) or redirect to §6.
+Each branch first puts the row back into the state its job runs from, so
+the detail page reads it as in progress and polls until the job stamps it.
+
+Then `dispatch.dispatch` for the re-armed job. HTMX: re-render §6's analysis
+table (200), so its polling trigger returns; a refusal answers 409 with the
+same table and the reason above it, and the Retry form's
+`hx-on::before-swap` lets htmx swap the 409 in. Plain request: 303 to §6, or
+the 409 error page.

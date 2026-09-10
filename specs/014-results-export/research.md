@@ -97,6 +97,14 @@ writes `failed` after the rollback, and rethrows. The worker also stamps
 `failed` when the call raises before the procedure could write, and does
 nothing when the row already reads `loaded`.
 
+Two sessions loading the same manifest at once: the second blocks on the
+claim row's lock until the first commits or rolls back, then re-evaluates
+the predicate. After a commit it reads `loaded` and raises 50001 naming the
+data ID; after a rollback it reads `failed` and performs the load itself.
+The "manifest {id} is loading" message needs a row persisted as `loading`,
+which the rollback undoes, so it is unreachable in practice and kept only for
+completeness. Review finding 2026-09-10.
+
 **Rationale**:
 
 - Spec FR-022: the client team can load a staged analysis from SQL Server

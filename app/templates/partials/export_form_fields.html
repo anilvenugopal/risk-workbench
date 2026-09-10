@@ -1,0 +1,50 @@
+{# Selection-dependent half of the export form (contracts/routes.md §3):
+   the perspective choices every selected analysis shares, one data-name field
+   per selected analysis, and — once a perspective is chosen — the exported
+   marks, each swapping its row out-of-band to unticked and disabled. #}
+{% import "partials/export_row_macros.html" as rows %}
+<div id="export-fields">
+  <div class="wf-field">
+    <label>PERSPECTIVE <span class="wf-field__req" title="Required">*</span></label>
+    <select class="wf-field__input" name="perspective" required
+            {% if not choices %}disabled{% endif %}
+            hx-get="/submissions/{{ submission_id }}/exports/new/fields" hx-trigger="change"
+            hx-include="[name='analysis_ids']" hx-target="#export-fields" hx-swap="outerHTML">
+      <option value="">{% if selected and not choices %}No shared perspective{% else %}Select…{% endif %}</option>
+      {% for code in choices %}
+      <option value="{{ code }}" {% if code == perspective %}selected{% endif %}>{{ code }}</option>
+      {% endfor %}
+    </select>
+    {% if selected and not choices %}
+    <div class="wf-field__msg wf-field__error">The selected analyses share no exportable perspective</div>
+    {% elif not selected %}
+    <div class="wf-field__msg wf-field__hint">Tick at least one analysis to choose a perspective.</div>
+    {% endif %}
+  </div>
+
+  {% if selected %}
+  <div class="wf-field">
+    <label>DATA NAME</label>
+    <div class="export-names">
+      {% for a in selected if not a.exported %}
+      <label>{{ a.name }}
+        <input class="wf-field__input" type="text" name="data_name[{{ a.id }}]"
+               maxlength="{{ data_name_max }}" placeholder="Optional"
+               value="{{ data_names.get(a.id, '') if data_names is defined else '' }}"></label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% set exported = selected|selectattr('exported')|list %}
+  {% if exported %}
+  <div class="form-banner form-banner--error">
+    {% for a in exported %}
+    <div>{{ a.name }}: exported {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
+      · {{ a.exported.status }} — <a href="{{ a.exported.detail_url }}">open that export</a>.
+      It cannot be exported again for {{ perspective }}.</div>
+    {% endfor %}
+  </div>
+  {% for a in exported %}{{ rows.analysis_row(a, checked=false, oob=true) }}{% endfor %}
+  {% endif %}
+</div>

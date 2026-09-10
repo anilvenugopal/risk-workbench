@@ -390,3 +390,6 @@
   color: var(--text-tertiary);
 }
 .nc-checking[hidden] { display: none; }
+
+/* export analysis status chips (spec 014) — the import-status palette keyed by
+   how far the analysis has got */

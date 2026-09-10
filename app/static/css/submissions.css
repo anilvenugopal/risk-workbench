@@ -76,6 +76,11 @@
   border: 1px solid var(--border-default); color: var(--text-secondary);
   background: var(--surface-recessed);
 }
+/* Loss results export (spec 014): the derived analysis status. */
+.status-chip--export-waiting { background: var(--c-navy-050); color: var(--c-navy-600); border: 1px solid var(--c-navy-200); }
+.status-chip--export-staged { background: var(--c-amber-050); color: var(--c-amber-700); border: 1px solid var(--c-amber-200); }
+.status-chip--export-loaded { background: var(--c-green-050); color: var(--c-green-700); border: 1px solid var(--c-green-200); }
+.status-chip--export-failed { background: var(--c-red-050); color: var(--c-red-700); border: 1px solid var(--c-red-200); }
 /* Deal-status variants retain the doubled selector used by the shared chip rules. */
 .status-chip.status-chip--active {
   color: var(--color-info); background: var(--color-info-bg);

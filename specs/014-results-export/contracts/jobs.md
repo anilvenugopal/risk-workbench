@@ -25,7 +25,11 @@ inserting a second one.
 ## 2. `submit_results_export` body
 
 1. Read manifest rows `WHERE export_id = :export_id AND stage_status = 'pending' AND irp_export_job_id IS NULL`.
-2. For each row: `irp_gateway.submit_analysis_export_job(analysis_id=int(irp_analysis_irp_id), loss_details=[{"metricType": "LOSS_TABLES", "outputLevels": ["Portfolio"], "perspectiveCodes": [perspective_code]}])`.
+2. For each row: when an `export` `irp_job` already exists for
+   (`export_id`, `irp_analysis_id`) — a previous run died between recording
+   it and stamping the row — `UPDATE` the manifest row `irp_export_job_id`
+   from it and continue, so Risk Modeler is never asked twice. Otherwise
+   `irp_gateway.submit_analysis_export_job(analysis_id=int(irp_analysis_irp_id), loss_details=[{"metricType": "LOSS_TABLES", "outputLevels": ["Portfolio"], "perspectiveCodes": [perspective_code]}])`.
    - Success `(job_id, request_body)`: insert `irp_job` (`irp_job_type
      'export'`, `irp_id = job_id`, `status` from the submit response or
      `QUEUED`, `irp_analysis_id`, `export_id`, `requested_from_submission_id`
@@ -67,8 +71,8 @@ Request body Risk Modeler receives:
 rwb_job_service.enqueue_rwb_job(
     requestor_type="irp_job", requestor_id=job["id"],
     rwb_job_type="stage_results_export",
-    link_type="edm" if job["irp_edm_id"] else "rdm",
-    link_id=job["irp_edm_id"] or job["irp_rdm_id"],
+    link_type=link_type, link_id=link_id,  # rwb_job_service.analysis_link(edm, rdm):
+                                           # edm, else rdm, else not_applicable
     context_type="irp_analysis", context_id=job["irp_analysis_id"],
     input_data={"export_id": str(job["export_id"]),
                 "irp_analysis_id": str(job["irp_analysis_id"]),
@@ -89,8 +93,11 @@ Entry, after reading the manifest row by (`export_id`, `irp_analysis_id`):
 | `stage_status = staged` | Step 8 only |
 | otherwise | `DELETE` this manifest's `rwb_loss_result_elt_data` and `rwb_loss_result_file` rows; remove the local working directory; steps 1–8 |
 
-Steps (any failure in 1–7: `UPDATE` manifest `stage_status = 'failed',
-error_message = <reason>`; `JobResult.fail(reason)`):
+Every exit but success stamps the row, because Retry is offered from the
+manifest alone: any failure in 1–7, an error while clearing the partial
+stage, or the actor time limit → `UPDATE` manifest `stage_status = 'failed',
+error_message = <reason>`; `JobResult.fail(reason)` (the time limit
+re-raises after stamping).
 
 1. Read the `export` `irp_job`; if `status <> 'FINISHED'` fail with the
    job's failure text (from `last_completion_result`) or "Risk Modeler export
@@ -101,6 +108,8 @@ error_message = <reason>`; `JobResult.fail(reason)`):
    `irp_gateway.download_export_results(job_id, output_dir=f"{root}/{export_id}/{irp_analysis_id}")`
    and `UPDATE` `zip_file` to the returned path relative to the root.
 3. Unzip into `{settings.submission_outputs_base}/exports/{export_id}/{irp_analysis_id}/`.
+   A file that is not a zip archive fails the analysis and clears `zip_file`,
+   so Retry downloads it again instead of reusing it.
 4. Locate exactly one top-level folder containing one loss-table folder
    (`ELT` or `PLT`, else fail "unknown loss table type {name}"); `PLT` fails
    "loss table type PLT not supported" until O-08. Read
@@ -123,8 +132,9 @@ error_message = <reason>`; `JobResult.fail(reason)`):
    `stage_status = 'staged', staged_at = now, staged_row_count = SUM(row_count)`;
    remove the working directory (log and ignore a removal error).
 8. `ensure_pending_rwb_job` for `load_results_export` (§1) and
-   `dispatch.dispatch`. A failure here leaves `staged` with no load job and
-   fails the job; a re-run enters at `staged` and repeats step 8.
+   `dispatch.dispatch`. A failure here stamps `load_status = 'failed',
+   error_message = 'could not queue the load: …'` and fails the job; the
+   staged rows stay, and Retry's load branch repeats step 8.
 
 `ELT_COLUMN_MAP`: `PortInfoId→port_info_id`, `PortInfoName→port_info_name`,
 `PortInfoNum→port_info_num`, `EventId→event_id`, `Rate→rate`, `Loss→loss`,
@@ -138,7 +148,7 @@ file whose columns do not match fails the analysis with the missing names.
 3. `stage_status <> staged` → `JobResult.fail("analysis is not staged")`
    without touching the manifest.
 4. `db.execute_procedure("stage.usp_load_elt_result", {"manifest_id": manifest_id}, connection="LOSS")`.
-5. On exception: `db.execute_command("UPDATE stage.rwb_loss_result_manifest SET load_status = 'failed', error_message = :e, updated_at = :now WHERE manifest_id = :id AND load_status <> 'loaded'", …, connection="LOSS")` (log and continue if this raises), then `JobResult.fail(str(exc))`.
+5. On exception: `db.execute_command("UPDATE stage.rwb_loss_result_manifest SET load_status = 'failed', error_message = :e, updated_at = :now WHERE manifest_id = :id AND load_status NOT IN ('loaded', 'loading')", …, connection="LOSS")` (log and continue if this raises; a row another session holds in `loading` is left alone), then `JobResult.fail` with the SQL Server message, the ODBC wrapper stripped.
 6. Success → `JobResult.ok(data_id=<re-read manifest.data_id>)`.
 
 ## 6. Gateway wrappers (`app/services/irp_gateway.py`)
@@ -149,7 +159,7 @@ functions, and `tests/unit/fakes/fake_irp.py`:
 | Function | Wraps | Notes |
 |---|---|---|
 | `submit_analysis_export_job(*, analysis_id: int, loss_details: list[dict]) -> tuple[int, dict]` | `client.analysis.submit_analysis_export_job(analysis_id, loss_details, "PARQUET")` | Request path forbidden; worker only |
-| `get_export_job(job_id: int) -> dict` | `client.export_job.get_export_job(job_id)` | Poller only |
+| `get_export_job(irp_id: str) -> JobStatus` | `client.export_job.get_export_job(int(irp_id))` | Poller only; takes `irp_job.irp_id` and answers like every other `_GETTERS` entry |
 | `download_export_results(*, job_id: int, output_dir: str) -> str` | `client.export_job.download_export_results(job_id, output_dir)` | Stage worker only |
 
 `FakeIRP` records submitted export jobs, lets a test set each job's status

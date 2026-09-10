@@ -74,6 +74,11 @@
             title="Pair analyses and open the comparison (new tab)"
             hx-get="{{ analyses_base }}/compare"
             hx-target="#compare-modal-mount" hx-swap="innerHTML">Compare</button>
+    {% if analyses_base.startswith('/submissions/') and source_submission is defined and source_submission %}
+    <a class="btn-sm" href="/submissions/{{ source_submission.id }}/exports/new"
+       onclick="event.stopPropagation()"
+       title="Export finished analyses to the loss repository">Export</a>
+    {% endif %}
     <button class="btn-sm btn-sm--primary" type="button" onclick="event.preventDefault()"
             :disabled="!count" data-view-analyses data-view-url="{{ view_url }}"
             title="Open the selected analyses side by side (new tab)">View ↗</button>

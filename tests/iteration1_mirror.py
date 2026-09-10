@@ -112,6 +112,7 @@ ITERATION2_SCHEMA = [
     """CREATE TABLE irp_job (
         id TEXT PRIMARY KEY, requested_from_submission_id TEXT,
         irp_edm_id TEXT, irp_rdm_id TEXT, irp_portfolio_id TEXT, irp_analysis_id TEXT,
+        export_id TEXT,
         irp_job_type TEXT, irp_id TEXT, status TEXT, correlation_id TEXT,
         request_params TEXT, completion_summary TEXT,
         last_submission_payload TEXT, last_submission_response TEXT,
@@ -296,8 +297,9 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("execute_analysis_batch", "Execute Analysis Batch", 29),  # spec 010
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
                      ("finalize_analysis", "Finalize Analysis", 31),  # spec 010
-                     ("download_export_file", "Download Export File", 40),
-                     ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
+                     ("submit_results_export", "Submit Results Export", 40),  # spec 014
+                     ("stage_results_export", "Stage Results Export", 41),
+                     ("load_results_export", "Load Results Export", 42),
                      ("notify_analyst", "Notify Analyst", 60),
                      ("run_breakout_lob", "Portfolio breakout by line of business", 90),  # spec 005
                      ("run_breakout_state", "Portfolio breakout by geography (state)", 100),
@@ -316,7 +318,8 @@ RWB_JOB_CONTEXT_TYPE_SEED = [("edm", "EDM", 10), ("rdm", "RDM", 20),
                              ("irp_analysis", "IRP Analysis", 30),
                              ("portfolio", "Portfolio", 40),
                              ("breakout_group", "Breakout Group", 50),
-                             ("execution", "Execution", 60)]  # CR-04c
+                             ("execution", "Execution", 60),  # CR-04c
+                             ("result_export", "Result Export", 70)]  # spec 014
 RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                        ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
 IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("ready", "Ready", 30),

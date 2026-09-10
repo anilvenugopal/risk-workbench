@@ -60,6 +60,7 @@ _GETTERS = {
     "import_rdm": irp_gateway.get_import_job,
     "analysis": irp_gateway.get_analysis_job,
     "geohaz": irp_gateway.get_geohaz_job,
+    "export": irp_gateway.get_export_job,
 }
 
 
@@ -111,30 +112,12 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
 
 
 def _analysis_failure_reason(result: dict | None) -> str:
-    """The message extracted from a terminal analysis completion body, falling
-    back to the raw summary (FR-011). Real FAILED bodies nest the message at
-    ``tasks[].output.errors[].message``; the first non-empty message in task
-    order wins (task 1 carries the engine root cause — e.g. ``ENGINE-400:…`` —
-    later tasks are downstream noise)."""
+    """The failure text recorded on the analysis (FR-011): Risk Modeler's own
+    message when the completion body carries one, else the raw status."""
     if not isinstance(result, dict):
         return "Risk Modeler reported no failure detail"
-    tasks = result.get("tasks")
-    if isinstance(tasks, list):
-        for task in tasks:
-            if not isinstance(task, dict):
-                continue
-            output = task.get("output")
-            errors = output.get("errors") if isinstance(output, dict) else None
-            if not isinstance(errors, list):
-                continue
-            for error in errors:
-                message = error.get("message") if isinstance(error, dict) else None
-                if isinstance(message, str) and message.strip():
-                    return message.strip()
-    error_message = result.get("errorMessage")
-    if isinstance(error_message, str) and error_message.strip():
-        return error_message.strip()
-    return f"Risk Modeler status: {result.get('status', 'unknown')}"
+    return (irp_job_service.failure_message(result)
+            or f"Risk Modeler status: {result.get('status', 'unknown')}")
 
 
 def _analysis_created_id(result: dict | None) -> str | None:
@@ -205,12 +188,30 @@ def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> Non
     )
 
 
+def _handle_export_terminal(conn, job: dict, status: str, resolved: dict) -> None:
+    """Any terminal status enqueues the stage job (spec 014, contracts/jobs.md §3):
+    the stage worker reads the job's status itself and fails the analysis when
+    it is not FINISHED, so the failure text lands on the manifest row."""
+    link_type, link_id = rwb_job_service.analysis_link(job["irp_edm_id"], job["irp_rdm_id"])
+    rwb_job_service.enqueue_rwb_job(
+        requestor_type="irp_job", requestor_id=job["id"],
+        rwb_job_type="stage_results_export",
+        link_type=link_type, link_id=link_id,
+        context_type="irp_analysis", context_id=job["irp_analysis_id"],
+        input_data={"export_id": str(job["export_id"]),
+                    "irp_analysis_id": str(job["irp_analysis_id"]),
+                    "irp_job_id": str(job["id"])},
+        conn=conn,
+    )
+
+
 # terminal irp_job.status → handler (extended per user story).
 _TERMINAL_HANDLERS = {
     "import_edm": _handle_import_edm_terminal,
     "import_rdm": _handle_import_rdm_terminal,
     "analysis": _handle_analysis_terminal,
     "geohaz": _handle_geohaz_terminal,
+    "export": _handle_export_terminal,
 }
 
 

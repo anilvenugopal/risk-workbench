@@ -704,6 +704,10 @@ def upgrade() -> None:
         ["irp_analysis_id"], ["id"],
     )
     op.create_index("ix_irp_job_irp_analysis_id", "irp_job", ["irp_analysis_id"])
+    # spec 014: the export batch an `export` irp_job belongs to. No FK — the export
+    # record is stage.rwb_loss_result_manifest in the loss repository.
+    op.add_column("irp_job", sa.Column("export_id", sa.Uuid, nullable=True))
+    op.create_index("ix_irp_job_export_id", "irp_job", ["export_id"])
 
     # ── irp_treaty (reinsurance coded on an EDM — read/cache record) ─────────────
     op.create_table(
@@ -967,8 +971,9 @@ def upgrade() -> None:
         "('execute_analysis_batch', 'Execute Analysis Batch', 29), "
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
         "('finalize_analysis', 'Finalize Analysis', 31), "
-        "('download_export_file', 'Download Export File', 40), "
-        "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
+        "('submit_results_export', 'Submit Results Export', 40), "
+        "('stage_results_export', 'Stage Results Export', 41), "
+        "('load_results_export', 'Load Results Export', 42), "
         "('notify_analyst', 'Notify Analyst', 60), "
         "('run_breakout_lob', 'Portfolio breakout by line of business', 90), "
         "('run_breakout_state', 'Portfolio breakout by geography (state)', 100), "
@@ -1014,7 +1019,8 @@ def upgrade() -> None:
         "('irp_analysis', 'IRP Analysis', 30), "
         "('portfolio', 'Portfolio', 40), "
         "('breakout_group', 'Breakout Group', 50), "
-        "('execution', 'Execution', 60)"
+        "('execution', 'Execution', 60), "
+        "('result_export', 'Result Export', 70)"
     ))
     op.execute(sa.text(
         "INSERT INTO analysis_perspective_kind (code, label, sort_order) VALUES "
@@ -1131,6 +1137,7 @@ def downgrade() -> None:
     op.drop_table("rwb_job")
     op.drop_index("ix_irp_job_resource_irp_job_id", table_name="irp_job_resource")
     op.drop_table("irp_job_resource")
+    op.drop_index("ix_irp_job_export_id", table_name="irp_job")
     op.drop_index("ix_irp_job_irp_analysis_id", table_name="irp_job")
     op.drop_index("ix_irp_job_irp_portfolio_id", table_name="irp_job")
     op.drop_index("ix_irp_job_requested_from_submission_id", table_name="irp_job")

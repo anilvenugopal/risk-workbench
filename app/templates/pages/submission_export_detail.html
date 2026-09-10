@@ -1,0 +1,38 @@
+{% extends "base/shell.html" %}
+{% block title %}Export {{ export.perspective_code }} · {{ submission.name }}{% endblock %}
+
+{% block page_actions %}
+<a href="/submissions/{{ submission.id }}" class="btn-sm">← Back to deal</a>
+{% endblock %}
+
+{% block main %}
+<div class="page-pad">
+  <div class="detail-head">
+    <h1>Export {{ export.perspective_code }}
+      <span class="badge badge--neutral">{{ export.analyses|length }} analys{{ 'is' if export.analyses|length == 1 else 'es' }}</span></h1>
+    <div class="deal-head__created">Requested
+      <time data-utc="{{ export.requested_at }}" title="{{ export.requested_at }} UTC">{{ export.requested_at }}</time>
+      by {{ export.requested_by_email }}
+      <span class="crumb__sep">·</span>
+      <span class="mono" title="Export ID">{{ export.export_id }}</span>
+    </div>
+    <div class="deal-facts">
+      <span class="deal-fact"><span class="deal-fact__label">Submission:</span>
+        <span class="deal-fact__value"><a href="/submissions/{{ submission.id }}">{{ submission.name }}</a></span></span>
+      <span class="deal-fact"><span class="deal-fact__label">Perspective:</span>
+        <span class="deal-fact__value">{{ export.perspective_code }}</span></span>
+      <span class="deal-fact"><span class="deal-fact__label">Client:</span>
+        <span class="deal-fact__value">{{ export.client_name or export.client_id }}</span></span>
+      <span class="deal-fact"><span class="deal-fact__label">Treaty inception:</span>
+        <span class="deal-fact__value">{{ export.treaty_incept }}</span></span>
+      <span class="deal-fact"><span class="deal-fact__label">CRM ID:</span>
+        <span class="deal-fact__value">{{ export.crm_id or '—' }}</span></span>
+      <span class="deal-fact"><span class="deal-fact__label">Data vintage:</span>
+        <span class="deal-fact__value">{{ export.data_vintage or '—' }}</span></span>
+    </div>
+  </div>
+
+  <div class="section-head"><h2>Analyses</h2></div>
+  {% include "partials/export_analyses_table.html" %}
+</div>
+{% endblock %}

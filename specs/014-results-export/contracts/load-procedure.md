@@ -20,6 +20,9 @@ or by a person in SQL Server Management Studio. The lookup join is on
 | No `dbo.Lookup_RMS_HistoricalRDS` row with `ModelVersion = manifest.data_model_version` | `50002` "Lookup_RMS_HistoricalRDS has no rows for model version {v}" |
 | Any stage `event_id` matches more than one lookup row (join on `EventID` and `ModelVersion`) | `50003` "event {event_id} matches {n} historical lookup rows for model version {v}" |
 
+The `@@TRANCOUNT` check runs before `SET XACT_ABORT ON`: `THROW` honours
+`XACT_ABORT`, and the caller's own open transaction must survive the 50000.
+
 ### Effects, in one transaction after the claim
 
 1. `UPDATE stage.rwb_loss_result_elt_data SET event_type = 'historical'` for
@@ -40,8 +43,9 @@ or by a person in SQL Server Management Studio. The lookup join is on
 
 `CATCH`: `IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;` then
 `UPDATE manifest SET load_status = 'failed', error_message = ERROR_MESSAGE(),
-updated_at = SYSUTCDATETIME() WHERE manifest_id = @manifest_id AND load_status <> 'loaded';`
-then `THROW;`.
+updated_at = SYSUTCDATETIME() WHERE manifest_id = @manifest_id AND load_status = 'loading';`
+then `THROW;`. The stamp reaches only the row this call claimed: a refused
+claim (50001) leaves a row that is still staging, or already loaded, alone.
 
 Guarantees: exactly one `Data` row per successful call; zero target rows on
 failure; `loaded` and `data_id` visible only after commit; the row never
@@ -78,8 +82,11 @@ Returns `"WITH (READUNCOMMITTED)"` when the resolved engine dialect is
   `LOSS` login), so `stage` and the procedure are owned by `dbo` and
   ownership chaining reaches `dbo.Data`, `dbo.RMSELT`,
   `dbo.RMS_HistoricalRDS`.
-- Idempotent: `IF SCHEMA_ID('stage') IS NULL CREATE SCHEMA stage AUTHORIZATION dbo`;
+- Re-runnable: `IF SCHEMA_ID('stage') IS NULL CREATE SCHEMA stage AUTHORIZATION dbo`;
   `IF OBJECT_ID(...) IS NULL CREATE TABLE ...`; `CREATE OR ALTER PROCEDURE`.
+  The table guards create a table only when it is absent, so the file
+  installs the first version of each table; a later release that changes a
+  table ships an explicit `ALTER TABLE` block in the same file.
 - The file names no database and nothing else that is environment-specific;
   it installs unchanged in dev and at CIC (T-21). The procedure reads
   `dbo.Lookup_RMS_HistoricalRDS` by two-part name under ownership chaining,
