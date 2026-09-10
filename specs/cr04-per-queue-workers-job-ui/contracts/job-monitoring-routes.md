@@ -4,8 +4,10 @@ Server-rendered (Article 8) — HTMX partial swaps, not a JSON API. No client-si
 
 **Updated per CR-04a's rewrite (see `docs/CR/CR_04a__JOB_MONITORING_UI.md`):**
 search reaches submission through `rwb_job.link_type`/`link_id` →
-`submission_edm`/`submission_rdm` → `submission` (CR-04c's columns), never
-through `requestor_type`/`requestor_id`. This contract's route shapes are
+`submission_edm`/`submission_rdm` → `submission` for an `edm`/`rdm` link, or
+`submission` directly for a `submission` link (CR-04c's columns and its fourth
+`rwb_job_link_type_kind` row), never through `requestor_type`/`requestor_id`.
+This contract's route shapes are
 otherwise as originally specified.
 
 ## `GET /workflows/rwb-jobs`
@@ -18,19 +20,19 @@ Monitoring + search page. Lists `rwb_job` rows, grouped by `rwb_job_type`, order
 |---|---|---|
 | Submission name / cedant | word-and match, same as `submission_service.list_submissions`'s `name`/`cedant_name` | off |
 | Submission status | `submission.status_code`, from `submission_status_kind` | off |
-| Owner | `submission.assigned_analyst_id`, reached via the job's linked EDM/RDM | **current user** (no `owner` param at all); `owner=any` clears it; an explicit list narrows to those analysts |
+| Owner | `submission.assigned_analyst_id`, reached via the job's linked EDM/RDM or directly via a `submission` link | **current user** (no `owner` param at all); `owner=any` clears it; an explicit list narrows to those analysts |
 | Job type | `rwb_job.rwb_job_type` | off |
 | Job status | `rwb_job.status_code` | off |
 
-A job whose `link_type = 'not_applicable'`, or whose EDM/RDM belongs to no submission, is excluded by any submission-name/status/owner filter but still listed when none of those three are set. A job's EDM/RDM belonging to more than one submission does not fan the job out into multiple rows — the submission filters match "at least one."
+A job whose `link_type = 'not_applicable'`, or whose EDM/RDM belongs to no submission, is excluded by any submission-name/status/owner filter but still listed when none of those three are set. A `submission` link always has exactly one submission, so it is never in that excluded set. A job's EDM/RDM belonging to more than one submission does not fan the job out into multiple rows — the submission filters match "at least one."
 
 Each row renders:
 
 | Field | Source | Notes |
 |---|---|---|
 | Job type | `rwb_job.rwb_job_type` | Sortable. |
-| EDM/RDM | `rwb_job.link_type`/`link_id` → `irp_edm`/`irp_rdm` | Sortable. "—" for `not_applicable`. |
-| Submission(s) | linked EDM/RDM → `submission_edm`/`submission_rdm` → `submission` | Sortable. Each name links to `/submissions/{id}`, opening in a new tab. First name + "+N more" for multiple, "—" for none — same display convention as `partials/library_table.html`. |
+| EDM/RDM | `rwb_job.link_type`/`link_id` → `irp_edm`/`irp_rdm` | Sortable. "—" for `not_applicable` and for a `submission` link (a grouping job has no single EDM/RDM). |
+| Submission(s) | linked EDM/RDM → `submission_edm`/`submission_rdm` → `submission`; a `submission` link → `submission` by id (always exactly one) | Sortable. Each name links to `/submissions/{id}`, opening in a new tab. First name + "+N more" for multiple, "—" for none — same display convention as `partials/library_table.html`. |
 | Status | `rwb_job.status_code`, plus the computed `is_dead` flag | Sortable. `pending` rows render as a distinct "queued" marker. A `running` row with `is_dead = 1` (heartbeat missing or older than `settings.rwb_heartbeat_stale_secs`) renders as a "Dead" chip, not "Running" — `status_code` is still `running` underneath. |
 | Submitted at | `submitted_at` | Sortable. The raw timestamp; "—" for `pending` (null until claimed). |
 | Elapsed | a computed duration, not a timestamp | Sortable (by the underlying seconds, not the formatted string). `pending`: now minus `inserted_at`, prefixed "queued". `running`/dead: now minus `submitted_at`. Terminal: `completed_at` minus `submitted_at` (a fixed span). "—" when there's nothing to compute (a terminal row that never got a `submitted_at`, e.g. `dummy_wait`/`sync_irp_metadata` failing before being claimed). |

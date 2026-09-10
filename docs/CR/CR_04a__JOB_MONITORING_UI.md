@@ -56,16 +56,20 @@ the filter parameters below instead of returning every row unconditionally.
 
 1. **Search reaches submission through `link_type`/`link_id`, never through a
    stored `submission_id` on `rwb_job`.** Matches CR-04c §12: `rwb_job` gets no
-   `submission_id` column. A job's `link_type`/`link_id` names the EDM or RDM;
-   `submission_edm`/`submission_rdm` are the existing M:N joins from there to
-   `submission`. A job whose `link_type = 'not_applicable'` (metadata sync,
-   dummy jobs) has no submission and is never matched by a submission filter.
-2. **A job's EDM/RDM can belong to zero, one, or several submissions.** The
-   list shows every submission a matched job's EDM/RDM belongs to (comma-style,
-   first name plus "+N more" — the same display convention
-   `partials/library_table.html` already uses for an EDM/RDM's submissions).
-   Filtering by submission or owner matches a job if **any** of its EDM/RDM's
-   submissions match; it does not fan the job out into one row per submission.
+   `submission_id` column. A job's `link_type`/`link_id` names the EDM, RDM,
+   or submission it concerns; `submission_edm`/`submission_rdm` are the
+   existing M:N joins from an EDM or RDM to `submission`, and a `submission`
+   link (grouping jobs — see CR-04c §"a fourth `rwb_job_link_type_kind` row")
+   is the submission itself. A job whose `link_type = 'not_applicable'`
+   (metadata sync, dummy jobs) has no submission and is never matched by a
+   submission filter.
+2. **A job's EDM/RDM can belong to zero, one, or several submissions; a
+   `submission` link always resolves to exactly one.** The list shows every
+   submission a matched job's EDM/RDM belongs to (comma-style, first name plus
+   "+N more" — the same display convention `partials/library_table.html`
+   already uses for an EDM/RDM's submissions). Filtering by submission or owner
+   matches a job if **any** of its EDM/RDM's submissions match; it does not fan
+   the job out into one row per submission.
 3. **Filters, all AND-combined, all optional:**
    - **Submission name / cedant** — free-text, matched the same
      word-and-clauses way `submission_service.list_submissions` matches `name`/
@@ -82,9 +86,10 @@ the filter parameters below instead of returning every row unconditionally.
    - **Job type** (`rwb_job_type`) — multi-select from `rwb_job_type_kind`.
    - **Job status** (`status_code`) — multi-select from `rwb_job_status_kind`.
    - A job with no submission at all (`link_type = 'not_applicable'`, or an
-     EDM/RDM not yet attached to any submission) is excluded by a submission-
-     name/status/owner filter but still shown when none of those three are set
-     — job type and job status filter independently of submission.
+     EDM/RDM not yet attached to any submission — never a `submission` link,
+     which always has one) is excluded by a submission-name/status/owner filter
+     but still shown when none of those three are set — job type and job status
+     filter independently of submission.
 4. **Grouping/order unchanged from the original decision:** rows are ordered by
    `rwb_job_type`, then `status_code`, then most-recent `updated_at`, matching
    `list_rwb_jobs_for_monitoring`'s existing `ORDER BY` and the original
@@ -147,14 +152,17 @@ right name for what this page needs) to:
   optional filters.
 - Join `rwb_job` to `irp_edm` (`link_type = 'edm'`) and `irp_rdm`
   (`link_type = 'rdm'`) for the linked entity's name, and to
-  `rwb_job_type_kind` for the type label.
+  `rwb_job_type_kind` for the type label. A `submission` link has no EDM/RDM
+  name; that column shows "—" and the Submission column carries the identity.
 - Apply the submission-name/status/owner filters as an `EXISTS` predicate
-  reaching `submission_edm`/`submission` or `submission_rdm`/`submission`
+  reaching `submission_edm`/`submission`, `submission_rdm`/`submission`, or
+  `submission` directly (`link_type = 'submission'`, `s.id = rj.link_id`)
   through the row's own `link_type`/`link_id` — never a `JOIN` that would
   duplicate a job row once per matching submission.
 - Return each row's linked entity name and enough to resolve its submissions,
-  but resolve the actual submission list in a **second, batched query** over
-  the distinct `(link_type, link_id)` pairs in the result set — mirrors
+  but resolve the actual submission list in a **second, batched read** over
+  the distinct `(link_type, link_id)` pairs in the result set, one query per
+  link type (`submission_edm`, `submission_rdm`, or `submission` by id) — mirrors
   `edm_service.latest_backfill_statuses`'s batch-then-join-in-Python shape,
   and avoids `STRING_AGG`/`GROUP_CONCAT` (banned in service SQL per
   `submission_service.py`'s own portability contract — not portable to the
@@ -336,7 +344,8 @@ EDM/RDM, never stored redundantly on a row that already names its EDM/RDM.
   flag.
 - The monitoring page lists jobs by type and status (including `pending` jobs
   with no start time, and `running` jobs split into live vs. dead), each
-  showing its EDM/RDM and a link to its submission(s) (new tab). Every column
+  showing its EDM/RDM (or "—" for a grouping job, which links to the
+  submission directly) and a link to its submission(s) (new tab). Every column
   sorts by clicking its header.
 - The page defaults to the current analyst's own submissions' jobs, with an
   owner filter to see another analyst's or everyone's.
@@ -356,8 +365,8 @@ EDM/RDM, never stored redundantly on a row that already names its EDM/RDM.
 - `link_type`, `link_id` (confirm every filter and join goes through these)
 - `workflows.rwb_jobs`, `/workflows/rwb-jobs` (nav slot and route — unchanged
   path, changed handler)
-- `submission_edm`, `submission_rdm` (the join tables this search reaches
-  submission through)
+- `submission_edm`, `submission_rdm`, `link_type = 'submission'` (the two join
+  tables and the direct submission link this search reaches submission through)
 - `multi_picker`, `owner_options`, `owner=any` (the filter convention reused
   from `pages/submissions.html`)
 - `is_dead`, `rwb_job_heartbeat`, `rwb_heartbeat_stale_secs` (dead-job
