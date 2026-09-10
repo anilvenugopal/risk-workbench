@@ -6,7 +6,7 @@
    poll URL so a swap never resets either. ``execution-submitted`` is handled in
    app.js, not here: it carries the execution id this section polls on.
    app.js restores expanded rows and ticked checkboxes across swaps via
-   data-analyses-section. #}
+   data-restore-open; data-analyses-section scopes the selection helpers. #}
 {# One click-to-sort header cell (note 27 D6, copying the 8/9 D15 pattern).
    A <button>, not the <a> the two submissions copies use: the target here is an
    HTML fragment, so an href would be a broken ctrl-click destination, and an
@@ -66,7 +66,7 @@
 {% set live = execution_live|default(false)
      or analyses|selectattr('is_live')|list|length > 0
      or groups|selectattr('sync_running')|list|length > 0 %}
-<details class="sec" open id="{{ section_id }}" data-analyses-section
+<details class="sec" open id="{{ section_id }}" data-analyses-section data-restore-open
   x-data="analysisPicks()"
   hx-get="{{ analyses_url }}"
   hx-trigger="analyses-changed from:body{% if live %}, every 3s{% endif %}"
