@@ -35,6 +35,7 @@ from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.services import (
     analysis_execution_service,
+    analysis_import_service,
     analysis_service,
     edm_service,
     grouping_service,
@@ -333,6 +334,7 @@ def _results_section_context(request: Request, submission_id: str,
         "analyses_table_url": f"/submissions/{submission_id}/analyses",
         "rdm_analyses_prefix": f"/submissions/{submission_id}/rdms",
         "delete_url": f"/submissions/{submission_id}/analyses/delete",
+        "import_url": f"/submissions/{submission_id}/analyses/import",
         "status_filter": _results_status_filter(request),
         # Keeps the 3s poll alive between a compose POST and the worker's claim
         # of the group row (spec 012 — no group row exists yet to read as live).
@@ -552,6 +554,119 @@ async def group_compose_submit(request: Request, submission_id: str):
         return response
     return Response(status_code=204, headers={
         "HX-Trigger": _grouping_submitted_trigger(grouping_request_id)})
+
+
+# ── Import by Risk Modeler id (#101) ─────────────────────────────────────────
+
+def _import_context(submission, entries, *, entry_value: str = "",
+                    message: str | None = None,
+                    message_kind: str = "error") -> dict:
+    return {"submission": submission, "entries": entries,
+            "entry_value": entry_value, "message": message,
+            "message_kind": message_kind,
+            "check_url": f"/submissions/{submission.id}/analyses/import/check",
+            "import_url": f"/submissions/{submission.id}/analyses/import"}
+
+
+def _retarget_import_body(response):
+    """The import POST targets nothing (``hx-swap="none"``), and htmx drops a
+    non-2xx body anyway, so a body re-render has to say where it goes."""
+    response.headers["HX-Retarget"] = "#import-body"
+    response.headers["HX-Reswap"] = "innerHTML"
+    return response
+
+
+def _posted_entries(form) -> list:
+    entries = [analysis_import_service.ImportCandidate.from_form(raw)
+               for raw in form.getlist("entries")]
+    return [e for e in entries if e is not None]
+
+
+@router.get("/submissions/{submission_id}/analyses/import",
+            response_class=HTMLResponse)
+def analysis_import_modal(request: Request, submission_id: str):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    return _partial(request, "partials/analysis_import_modal.html",
+                    _import_context(submission, []))
+
+
+@router.post("/submissions/{submission_id}/analyses/import/check",
+             response_class=HTMLResponse)
+async def analysis_import_check(request: Request, submission_id: str):
+    """Add (or Remove) in the import dialog: check the typed id against Risk
+    Modeler and the deal, then re-render the whole body — entry field,
+    message, list, footer — from the posted hidden inputs plus the new
+    candidate. Always 200: a refused id is a message beside the retained
+    entry, not an error response."""
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if _is_htmx(request):
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    entries = _posted_entries(form)
+    entry_value = (form.get("entry") or "").strip()
+    remove = (form.get("remove") or "").strip()
+    if remove:
+        entries = [e for e in entries if e.app_analysis_id != remove]
+        return _partial(request, "partials/analysis_import_body.html",
+                        _import_context(submission, entries,
+                                        entry_value=entry_value))
+    try:
+        candidate = analysis_import_service.check_analysis(
+            submission_id=submission.id, app_analysis_id=entry_value,
+            existing=[e.app_analysis_id for e in entries])
+    except analysis_import_service.ImportCheckError as exc:
+        return _partial(request, "partials/analysis_import_body.html",
+                        _import_context(submission, entries,
+                                        entry_value=entry_value,
+                                        message=str(exc),
+                                        message_kind=exc.kind))
+    return _partial(request, "partials/analysis_import_body.html",
+                    _import_context(submission, [*entries, candidate]))
+
+
+@router.post("/submissions/{submission_id}/analyses/import")
+async def analysis_import_submit(request: Request, submission_id: str):
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if _is_htmx(request):
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    entries = _posted_entries(form)
+    if not entries:
+        return _retarget_import_body(HTMLResponse(
+            '<div class="form-banner--error">Add at least one analysis to '
+            'import.</div>', status_code=422))
+    outcome = analysis_import_service.import_analyses(
+        submission_id=submission.id, entries=entries,
+        actor_id=request.state.user.id)
+    if outcome.imported == 0:
+        # Nothing landed: keep the dialog open with the typed list intact, so
+        # the analyst can drop the entries that failed and import the rest.
+        return _retarget_import_body(_partial(
+            request, "partials/analysis_import_body.html",
+            _import_context(submission, entries,
+                            message=" ".join(outcome.failed),
+                            message_kind="warning")))
+    message = f"Imported {outcome.imported} analysis(es)."
+    toast_type = "success"
+    if outcome.failed:
+        message += " " + " ".join(outcome.failed)
+        toast_type = "warning"
+    return Response(status_code=204, headers={
+        "HX-Trigger": json.dumps({
+            "analyses-changed": True,
+            "rwb:toast": {"message": message, "type": toast_type},
+        }),
+    })
 
 
 @router.post("/submissions/{submission_id}/analyses/delete")

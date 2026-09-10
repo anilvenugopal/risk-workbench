@@ -1,0 +1,49 @@
+{# The import dialog's body and footer — the fragment the check route returns
+   into #import-body, and what the modal includes on first render. Each added
+   analysis is a row plus its hidden ``entries`` input (the checked candidate as
+   JSON), so Add, Remove and Import all read the same form. Enter in the entry
+   field clicks Add rather than submitting the import. #}
+<div class="modal-body" x-data='{ entry: {{ entry_value|tojson }} }'>
+  <div class="import-entry">
+    <div class="wf-field">
+      <label for="import-entry">RISK MODELER ANALYSIS ID</label>
+      <input class="wf-field__input" id="import-entry" type="text" name="entry" inputmode="numeric"
+             placeholder="e.g. 35810" value="{{ entry_value }}" x-model="entry" autofocus
+             @keydown.enter.prevent="$refs.add.click()">
+    </div>
+    <button class="modal-btn modal-btn--secondary" type="button" x-ref="add" :disabled="!entry.trim()"
+            hx-post="{{ check_url }}" hx-include="closest form"
+            hx-target="#import-body" hx-swap="innerHTML" hx-indicator="#import-check">Add</button>
+  </div>
+  <div class="wf-field__hint">The id Risk Modeler shows on the analysis &mdash; a group and a single analysis both.</div>
+  <div id="import-check" class="import-check"><span class="spin" role="status" aria-label="Checking"></span>Checking in Risk Modeler&hellip;</div>
+  {% if message %}
+  <div class="import-msg import-msg--{{ message_kind }}">{{ message }}</div>
+  {% endif %}
+  {% if entries %}
+  <div class="import-list">
+    {% for c in entries %}
+    <div class="import-row">
+      <input type="hidden" name="entries" value="{{ c.form_value }}">
+      <span class="import-row__id">{{ c.app_analysis_id }}</span>
+      <span class="import-row__name" title="{{ c.name or '' }}">{{ c.name or '—' }}</span>
+      {% if c.is_group %}<span class="badge badge--brand badge--sm">Group</span>
+      {% elif c.engine %}<span class="badge badge--neutral badge--sm">{{ c.engine }}</span>
+      {% else %}<span></span>{% endif %}
+      <span class="import-row__meta">{{ c.currency or '' }}</span>
+      <button class="icon-btn" type="button" aria-label="Remove {{ c.app_analysis_id }}"
+              hx-post="{{ check_url }}" hx-include="closest form"
+              hx-vals='{"remove": "{{ c.app_analysis_id }}"}'
+              hx-target="#import-body" hx-swap="innerHTML">×</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="state-box">No analyses added yet.</div>
+  {% endif %}
+</div>
+<div class="modal-footer">
+  <span class="import-count">{% if entries %}{{ entries|length }} {{ 'analysis' if entries|length == 1 else 'analyses' }} added{% endif %}</span>
+  <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('import-modal').replaceChildren()">Cancel</button>
+  <button class="modal-btn modal-btn--primary" type="submit"{% if not entries %} disabled{% endif %}>Import{% if entries %} {{ entries|length }}{% endif %}</button>
+</div>
