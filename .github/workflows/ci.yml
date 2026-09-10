@@ -54,6 +54,10 @@ jobs:
 
       - name: Install ODBC Driver 18 (required by pyodbc)
         run: |
+          # apt-get update fails the whole step (exit 100) when any configured
+          # source has a broken index. google-chrome is unused here and
+          # microsoft-prod duplicates the mssql-release.list added below.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/microsoft-prod.list
           curl -sSL https://packages.microsoft.com/keys/microsoft.asc \
             | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc > /dev/null
           curl -sSL https://packages.microsoft.com/config/ubuntu/24.04/prod.list \

@@ -38,6 +38,11 @@ Rules:
   interpolation (spec non-negotiable 5). Return-period keys are the 11 stored
   points as strings (JSON object keys), from the exact-match array lookup in
   the EP curve response (`value.returnPeriods` / `value.positionValues`).
+- **All 11 keys are always present; a point the curve does not carry is
+  `null`.** A DLM curve carries all 11. An HD curve carries 12 points —
+  10,000 / 5,000 / 1,000 / 500 / 250 / 200 / 100 / 50 / 25 / 10 / 5 / 2 — so
+  every HD perspective stores `null` at 2,000 and the results views render the
+  em dash there ([research.md#R3a](../research.md#r3a--hd-analyses-return-a-12-point-ep-curve-with-no-2000-year-point)).
 - **EP types**: `oep` from the `epType == "OEP"` element, `aep` from
   `"AEP"`; `TCE-OEP` / `TCE-AEP` elements are discarded (spec O-04).
 - **`aal`** = stats `purePremium`; **`std_dev`** = stats `totalStdDev`, both from

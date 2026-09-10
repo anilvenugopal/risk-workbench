@@ -23,3 +23,15 @@
             <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
           </div>
 {% endmacro %}
+
+{# A whole typeahead field: the `.ta` container, the hidden <select> — its
+   <option>s are the call body, `attrs` any further <select> attributes — and
+   the controls above. #}
+{% macro typeahead_select(name, attrs={}, required=false, input_class='', search='selectSearch()') %}
+<div class="ta" x-data="{{ search }}" @click.outside="close()">
+  <select class="wf-field__input{{ input_class }}" name="{{ name }}" x-ref="select"{% if required %} required{% endif %}{% for key, value in attrs.items() %} {{ key }}="{{ value }}"{% endfor %}>
+    {{ caller() }}
+  </select>
+  {{ typeahead_controls(required=required) }}
+</div>
+{% endmacro %}

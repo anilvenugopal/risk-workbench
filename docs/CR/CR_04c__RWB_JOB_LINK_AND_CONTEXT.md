@@ -82,10 +82,17 @@ concrete collision.
   `grouping_request_is_live()`, filtering on `requestor_type`/`requestor_id`
   directly.
 
-  Decision: `submit_grouping` gets `link_type='edm'` — a group's members are
-  drawn from a submission's analyses, which resolve to EDMs, so `link_id` is
-  the member analyses' EDM id (unlike `execution_id`-style sites, this is not
-  a "no EDM in scope" case once the grouping plan is composed).
+  Decision: a fourth `rwb_job_link_type_kind` row, `submission`, and
+  `submit_grouping` gets `link_type='submission'` with `link_id` =
+  `submission_id`. An EDM link does not fit: `grouping_service._ELIGIBLE_SELECT`
+  admits own analyses (an EDM), captured broker analyses (an RDM, no EDM), and
+  nested groups (neither), so a group's members need not share an EDM or have
+  one at all. Spec 012 already added `submission_id` as the third leg of
+  `ck_irp_analysis_origin` for exactly this reason; `link_type='submission'`
+  mirrors that leg. The group's `finalize_analysis` (`_handle_grouping_terminal`)
+  and the `retrieve_analysis_results` chained off a group finalize carry the
+  same link — a grouping `irp_job` has `irp_edm_id IS NULL` and
+  `requested_from_submission_id` set.
 
   Sequencing: Phase 1 of this CR lands on `main` first, as a non-breaking
   change (additive columns, existing constraint untouched — see §8). Once

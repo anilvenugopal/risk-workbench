@@ -385,26 +385,34 @@ document.addEventListener('alpine:init', () => {
   // Searchable enhancement over a plain <select> (analysis template create/edit —
   // model profile, event rate scheme, output profile). The <select> stays the
   // source of truth (native `required`, and the profile field still drives its
-  // hx-get cascade off it) but is hidden once Alpine mounts; a text input filters
-  // its live options client-side, matching the "links to" typeahead's
-  // degrade-without-JS story but with an already-known, already-rendered option
-  // list instead of a server round trip. `sync()` also re-runs after htmx swaps
-  // a fresh option list into the cascade target (event rate scheme), since
-  // replacing <option> children doesn't fire a native change event.
-  Alpine.data('selectSearch', () => ({
+  // hx-get cascade off it) but is hidden by .ta--ready once Alpine mounts; a
+  // text input filters its live options client-side, matching the "links to"
+  // typeahead's degrade-without-JS story but with an already-known,
+  // already-rendered option list instead of a server round trip. `sync()` also
+  // re-runs after htmx swaps a fresh option list into the cascade target
+  // (event rate scheme), since replacing <option> children doesn't fire a
+  // native change event.
+  Alpine.data('selectSearch', (options = {}) => ({
     isOpen: false,
     activeIndex: -1,
     query: '',
+    // Optional fields pass { clearable: true } for a "None" row. The text input
+    // only filters, so without that row an analyst cannot undo a selection —
+    // emptying the input and leaving restores the committed label via close().
+    clearable: options.clearable === true,
     init() {
+      this.$el.classList.add('ta--ready');
       this.sync();
     },
     get select() {
       return this.$refs.select;
     },
     get allOptions() {
-      return Array.from(this.select.options)
+      const rows = Array.from(this.select.options)
         .filter((o) => o.value !== '')
         .map((o) => ({ value: o.value, label: o.textContent.trim() }));
+      if (this.clearable) rows.unshift({ value: '', label: 'None' });
+      return rows;
     },
     get filteredOptions() {
       const term = this.query.trim().toLowerCase();
@@ -832,6 +840,104 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // Group compose dialog (spec 012): one form, three x-show panes on `step`.
+  // Screen 1's Next fires the button's `inspect` trigger (hx-post to the
+  // inspect route); Back from screen 2 aborts that request so no stale swap
+  // can land. Hidden panes still serialize, so the final POST carries every
+  // screen. recompute() is also called by the currency_block macro's
+  // vintage-swap hook.
+  Alpine.data('groupComposeModal', () => ({
+    step: 1,
+    picked: 0,
+    groupName: '',
+    canNext1: false,
+    hasInspection: false,
+    canNext2: false,
+    canSubmit: false,
+    schemesChosen: [],
+    setsChosen: [],
+    periodsChosen: [],
+    sel: [],  // the ticked members, derived from the checkboxes (chips panel)
+    init() { this.recompute(); },
+    unpick(id) {
+      const box = this.$root.querySelector(`input[name="member_ids"][value="${id}"]`);
+      if (!box) return;
+      box.checked = false;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+    },
+    filter(q) {
+      const needle = q.trim().toLowerCase();
+      this.$root.querySelectorAll('.entity-candidate[data-name]').forEach((row) => {
+        // .entity-candidate sets display:flex, which beats the hidden attribute
+        row.style.display = row.dataset.name.includes(needle) ? '' : 'none';
+      });
+    },
+    inspect() {
+      this.clearInspection();
+      this.step = 2;
+      htmx.trigger(this.$refs.inspect, 'inspect');
+    },
+    finish() {
+      this.clearInspection();
+      this.step = 2;
+      htmx.trigger(this.$refs.finish, 'finish');
+    },
+    back() {
+      if (this.step === 2) {
+        htmx.trigger(this.$refs.inspect, 'htmx:abort');
+        htmx.trigger(this.$refs.finish, 'htmx:abort');
+        this.clearInspection();
+      }
+      this.$root.querySelector('#group-submit-errors').replaceChildren();
+      this.step -= 1;
+    },
+    chosen(name) {
+      return Array.from(this.$root.querySelectorAll(`select[name="${name}"]`))
+        .map((select) => ({
+          partition: select.dataset.partition,
+          label: select.selectedOptions[0].dataset.label,
+        }));
+    },
+    toSettings() {
+      this.schemesChosen = this.chosen('event_rate_selection');
+      this.setsChosen = this.chosen('simulation_set_selection');
+      this.periodsChosen = this.chosen('simulation_periods_selection');
+      this.step = 3;
+      this.recompute();
+    },
+    clearInspection() {
+      ['#group-inspection', '#group-summary', '#group-sims'].forEach((id) => {
+        this.$root.querySelector(id).replaceChildren();
+      });
+      this.schemesChosen = [];
+      this.setsChosen = [];
+      this.periodsChosen = [];
+      this.recompute();
+    },
+    recompute() {
+      const root = this.$root;
+      this.sel = Array.from(root.querySelectorAll('input[name="member_ids"]:checked'))
+        .map((box) => ({ id: box.value, name: box.dataset.display }));
+      this.picked = this.sel.length;
+      const name = root.querySelector('input[name="group_name"]');
+      this.groupName = name ? name.value.trim() : '';
+      this.canNext1 = this.picked >= 2 && !!this.groupName;
+      this.hasInspection = root.querySelector('#group-inspection').children.length > 0;
+      const choicesDone = Array.from(
+        root.querySelectorAll('select[name="event_rate_selection"], select[name="simulation_set_selection"], select[name="simulation_periods_selection"]'))
+        .every((select) => select.value);
+      this.canNext2 = !!root.querySelector('[data-inspection-ready]') && choicesDone;
+      const currencyDone = ['currency_code', 'currency_scheme', 'currency_vintage']
+        .every((f) => {
+          const select = root.querySelector(`select[name="${f}"]`);
+          return select && select.value;
+        });
+      const sims = root.querySelector('[name="num_of_simulations"]');
+      const simsOk = !!sims && /^\d+$/.test(sims.value) && Number(sims.value) > 0;
+      this.canSubmit = this.canNext1 && this.canNext2 && currencyDone && simsOk;
+    },
+  }));
+
   // The Compare modal's cart (spec 013 T-02): strictly client-side — tick
   // order marks the first pick base (FR-003); Compare opens the built
   // /results/comparison URL in a new tab (the View pattern), whose render
@@ -1120,6 +1226,28 @@ document.addEventListener('execution-submitted', (e) => {
   });
 });
 
+// Grouping submit (spec 012): the compose dialog's POST fires this alongside
+// rwb:toast and closes itself. Clear the just-grouped ticks, then refetch the
+// merged analyses section once with the grouping request id — the returned
+// fragment keeps polling while the submit_grouping head is live, so the group
+// row lands once the worker claims it (the execution-submitted pattern).
+document.addEventListener('grouping-submitted', (e) => {
+  let last = null;
+  document.querySelectorAll('input[name="analysis_ids"]:checked').forEach((box) => {
+    box.checked = false; last = box;
+  });
+  if (last) last.dispatchEvent(new Event('change', { bubbles: true }));
+
+  const requestId = e.detail && e.detail.grouping_request_id;
+  const section = document.querySelector('[data-analyses-section]');
+  if (!section) return;
+  const url = new URL(section.getAttribute('hx-get'), window.location.origin);
+  if (requestId) url.searchParams.set('grouping_request_id', requestId);
+  htmx.ajax('GET', url.pathname + url.search, {
+    target: `#${section.id}`, swap: 'outerHTML',
+  });
+});
+
 // Swapping a merged analyses section (outerHTML, on every poll) rebuilds every
 // row from scratch, so an expanded row's <details open> and a ticked
 // checkbox would otherwise reset — losing the analyst's place mid-inspection
@@ -1178,7 +1306,7 @@ function tableToTsv(dtable) {
   const rows = [];
   const head = dtable.querySelector('.dtable__head');
   if (head) {
-    rows.push([...head.children].slice(1).map((c) => c.textContent.trim()));
+    rows.push([...head.children].slice(1).map(cellValue));
   }
   dtable.querySelectorAll('.drow > summary').forEach((summary) => {
     rows.push([...summary.children].slice(1).map(cellValue));

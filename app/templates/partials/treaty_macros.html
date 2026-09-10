@@ -1,0 +1,25 @@
+{# Cell formatters for a Risk Modeler attribute value, shared by the EDM
+   treaty rows (spec 004 US2) and the group inspection's treaty mismatch
+   table (spec 012 FR-020). Values reach these already shaped by
+   ``treaty_service.display_value``; the macros own the cell itself — the empty
+   em dash, thousands grouping, and the boolean spelling. #}
+{%- macro money(v) -%}
+  {%- if v is none -%}<span class="na">&mdash;</span>
+  {%- elif v is number -%}${{ '{:,.0f}'.format(v) }}
+  {%- else -%}{{ v }}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro attr_val(v) -%}
+  {%- if v is none or v == '' -%}<span class="na">&mdash;</span>
+  {%- elif v is mapping -%}{{ v.get('code') or v.get('name') or v.items()|map('last')|join(', ') }}
+  {%- elif v is boolean -%}{{ 'Yes' if v else 'No' }}
+  {%- elif v is number -%}{{ '{:,.10g}'.format(v) }}
+  {%- else -%}{{ v }}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro presence(pair) -%}
+  {%- set first, more = pair -%}
+  {%- if first is none or first == '' -%}<span class="na">&mdash;</span>
+  {%- else -%}{{ first }}{% if more %} <span class="dt-geo-sub">+{{ more }}</span>{% endif %}
+  {%- endif -%}
+{%- endmacro -%}

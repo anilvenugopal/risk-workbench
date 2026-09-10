@@ -1,0 +1,138 @@
+{# Group compose dialog (spec 012, contracts/routes.md), rendered into
+   #group-modal by GET /submissions/{sid}/analyses/group. One form, three
+   x-show panes on `step`: Members, Inspection, Settings. Hidden panes still
+   serialize, so the final POST carries every screen. Screen 1's Next posts
+   the members to the inspect route (custom `inspect` trigger) into
+   #group-inspection; that response also fills #group-summary, #group-sims,
+   and #group-currency out of band. Screen 1's Finish posts the same fields
+   to the finish route (custom `finish` trigger): a stop renders as screen 2,
+   a success answers 204 and the button closes the dialog, as the submit does.
+   The submit's 422 lands in #group-submit-errors. #}
+{% from "partials/currency_block.html" import currency_block with context %}
+<div class="modal-overlay" @click.self="document.getElementById('group-modal').replaceChildren()">
+  <div class="modal-card modal-card--wide modal-card--group" role="dialog" aria-modal="true" aria-labelledby="group-modal-title"
+       {% if not blocking %}x-data="groupComposeModal()"{% endif %}>
+    <div class="modal-header">
+      <span id="group-modal-title" class="modal-title">Group analyses &middot; {{ submission.name }}</span>
+      {% if not blocking %}
+      <nav class="steps" aria-label="Steps">
+        <span class="step" :class="{'step--current': step === 1, 'step--done': step > 1}"><span class="step__n">1</span>Members</span><span class="step__sep"></span>
+        <span class="step" :class="{'step--current': step === 2, 'step--done': step > 2}"><span class="step__n">2</span>Inspection</span><span class="step__sep"></span>
+        <span class="step" :class="{'step--current': step === 3}"><span class="step__n">3</span>Settings</span>
+      </nav>
+      {% endif %}
+      <button class="icon-btn" type="button" aria-label="Close" @click="document.getElementById('group-modal').replaceChildren()">×</button>
+    </div>
+    {% if blocking %}
+    <div class="modal-body">
+      <div class="state-box state-box--warn">{{ blocking }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('group-modal').replaceChildren()">Close</button>
+    </div>
+    {% else %}
+    <form method="post" action="{{ action_url }}" @change="recompute()" @input="recompute()"
+          hx-post="{{ action_url }}" hx-swap="none"
+          @htmx:after-swap="recompute()"
+          @htmx:after-request="if ($event.detail.elt === $el && $event.detail.successful) document.getElementById('group-modal').replaceChildren()">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <div class="modal-body">
+
+        <div class="modal-pane" x-show="step === 1">
+          <div class="wf-field">
+            <label for="group-name">GROUP NAME</label>
+            <input class="wf-field__input" id="group-name" type="text" name="group_name" value="{{ group_name }}">
+          </div>
+          <div>
+            <div class="exec-section-label">Members</div>
+            <div class="bo-custom__cols">
+              <div class="bo-custom__opts">
+                <div class="entity-candidate-search">
+                  <input class="wf-field__input" type="search" placeholder="Search analyses by name"
+                         aria-label="Search analyses by name" @input="filter($event.target.value)">
+                </div>
+                <div class="entity-candidate-list">
+                  {% for m in members %}
+                  <label class="entity-candidate" data-name="{{ m.display_name|lower }}">
+                    <input type="checkbox" name="member_ids" value="{{ m.id }}" data-display="{{ m.display_name }}"{% if m.id in preselected %} checked{% endif %}>
+                    <span title="{{ m.display_name }}">{{ m.display_name }}</span>
+                    {% if m.engine %}<span class="exec-summary">{{ m.engine }}</span>{% endif %}
+                    <span class="badge badge--neutral badge--sm">{{ m.kind }}</span>
+                  </label>
+                  {% endfor %}
+                </div>
+                <div class="wf-field__hint" style="margin-top:var(--space-1)"><span x-text="picked"></span> of {{ members|length }} selected</div>
+              </div>
+              <div class="bo-picked" aria-label="Selected analyses">
+                <div class="bo-picked__empty" x-show="!sel.length">Nothing selected yet</div>
+                <div class="bo-picked__chips" x-show="sel.length" x-cloak>
+                  <template x-for="s in sel" :key="s.id">
+                    <button class="bo-picked__chip" type="button" :title="'Remove ' + s.name" @click="unpick(s.id)">
+                      <span x-text="s.name"></span><span class="bo-picked__x">×</span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-pane" x-show="step === 2">
+          <div id="group-inspect-wait" class="insp-wait"><div class="spin" role="status" aria-label="Inspecting"></div><span>Inspecting&hellip;</span></div>
+          <div id="group-inspection"></div>
+        </div>
+
+        <div class="modal-pane" x-show="step === 3">
+          <div id="group-submit-errors"></div>
+          <div class="sum-grid">
+            <div>
+              <div class="exec-section-label">What will be grouped</div>
+              <div id="group-summary"></div>
+              <template x-if="schemesChosen.length || setsChosen.length || periodsChosen.length">
+                <div>
+                  <div class="exec-section-label" style="margin-top:var(--space-3)">Inspection</div>
+                  <dl class="sum-list">
+                    <dt x-show="schemesChosen.length">Schemes chosen</dt>
+                    <dd x-show="schemesChosen.length"><template x-for="s in schemesChosen"><span class="sum-scheme"><small x-text="s.partition"></small><span x-text="s.label" :title="s.label"></span></span></template></dd>
+                    <dt x-show="setsChosen.length">Simulation sets chosen</dt>
+                    <dd x-show="setsChosen.length"><template x-for="s in setsChosen"><span class="sum-scheme"><small x-text="s.partition"></small><span x-text="s.label" :title="s.label"></span></span></template></dd>
+                    <dt x-show="periodsChosen.length">Simulation periods chosen</dt>
+                    <dd x-show="periodsChosen.length"><template x-for="s in periodsChosen"><span class="sum-scheme"><small x-text="s.partition"></small><span x-text="s.label" :title="s.label"></span></span></template></dd>
+                  </dl>
+                </div>
+              </template>
+            </div>
+            <div class="sum-settings">
+              <div id="group-currency">
+                {{ currency_block('group', 'for this group', 'currency_code', 'currency_scheme', 'currency_vintage', currency_code_val, currency_scheme_val, currency_vintage_val, vintage_options) }}
+              </div>
+              <label class="check-row">
+                <input type="checkbox" name="propagate_detailed_output" checked>
+                <span>Propagate detailed output</span>
+              </label>
+              <div id="group-sims"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button" x-show="step === 1" @click="document.getElementById('group-modal').replaceChildren()">Cancel</button>
+        <button class="modal-btn modal-btn--secondary" type="button" x-show="step > 1" @click="back()">Back</button>
+        <button class="modal-btn modal-btn--primary" type="button" x-show="step === 1" x-ref="inspect" :disabled="!canNext1"
+                hx-post="{{ inspect_url }}" hx-trigger="inspect" hx-include="closest form"
+                hx-target="#group-inspection" hx-swap="innerHTML" hx-indicator="#group-inspect-wait"
+                @click="inspect()">Next</button>
+        <button class="modal-btn modal-btn--primary" type="button" x-show="step === 1" x-ref="finish" :disabled="!canNext1"
+                title="Inspect and submit at once when nothing is left to choose"
+                hx-post="{{ finish_url }}" hx-trigger="finish" hx-include="closest form"
+                hx-target="#group-inspection" hx-swap="innerHTML" hx-indicator="#group-inspect-wait"
+                @htmx:after-request="if ($event.detail.elt === $el && $event.detail.xhr.status === 204) document.getElementById('group-modal').replaceChildren()"
+                @click="finish()">Finish</button>
+        <button class="modal-btn modal-btn--primary" type="button" x-show="step === 2 && hasInspection" :disabled="!canNext2" @click="toSettings()">Next</button>
+        <button class="modal-btn modal-btn--primary" type="submit" x-show="step === 3" :disabled="!canSubmit">Group</button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>

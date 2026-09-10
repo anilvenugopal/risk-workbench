@@ -48,6 +48,33 @@ def name_attempt(full_name: str, attempt: int) -> tuple[str, str]:
             full_name[:NAME_MAX_LEN - len(suffix)] + suffix)
 
 
+# Bound on total name attempts (claim collisions + duplicate-name retries) —
+# past this many suffixes something other than a collision is wrong.
+MAX_NAME_ATTEMPTS = 25
+
+_NAME_SCOPES = ("edm_id", "submission_id")
+
+
+def free_name_attempts(full_name: str, *, scope_column: str, scope_value: Any,
+                       start: int = 0):
+    """Yield ``(attempt, full_name, name)`` for each collision suffix from
+    ``start`` whose name is not LIVE in the scope — an EDM's analyses or a
+    submission's groups. The probe races with other workers, so a caller that
+    then inserts or renames takes the next value on a unique violation.
+    ``RuntimeError`` past ``MAX_NAME_ATTEMPTS``."""
+    if scope_column not in _NAME_SCOPES:
+        raise ValueError(scope_column)
+    for attempt in range(start, MAX_NAME_ATTEMPTS):
+        full, name = name_attempt(full_name, attempt)
+        taken = execute_one(
+            f"SELECT 1 FROM irp_analysis WHERE {scope_column} = :scope "
+            "AND name = :n AND deleted_at IS NULL",
+            {"scope": str(scope_value), "n": name}, connection="WORKBENCH")
+        if taken is None:
+            yield attempt, full, name
+    raise RuntimeError(f"no free name after {MAX_NAME_ATTEMPTS} attempts")
+
+
 def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
                     execution_id: str, actor_id: str | None) -> dict:
     """Resume-or-claim the ``irp_analysis`` row for one work unit
@@ -63,16 +90,8 @@ def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
         return existing
 
     full = build_full_name(portfolio["name"], item["template_name"])
-    attempt = 0
-    while True:
-        full_name, name = name_attempt(full, attempt)
-        taken = execute_one(
-            "SELECT 1 FROM irp_analysis "
-            "WHERE edm_id = :e AND name = :n AND deleted_at IS NULL",
-            {"e": edm_id, "n": name}, connection="WORKBENCH")
-        if taken is not None:
-            attempt += 1
-            continue
+    for _, full_name, name in free_name_attempts(
+            full, scope_column="edm_id", scope_value=edm_id):
         analysis_id = str(uuid.uuid4())
         now = _utcnow()
         try:
@@ -96,7 +115,6 @@ def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
                     "now": now, "by": actor_id})
         except Exception as exc:  # noqa: BLE001 — a UNIQUE race means try the next suffix
             if is_unique_violation(exc):
-                attempt += 1
                 continue
             raise
         return {"id": analysis_id, "name": name, "full_name": full_name}
@@ -200,30 +218,44 @@ def _fail_analysis(analysis_id: str, reason: str) -> runtime.JobResult:
 
 
 def _finalize_analysis_body(rwb_job_id: Any) -> runtime.JobResult:
-    """Take a FINISHED own-executed analysis to ``ready``: store ``irp_id`` (RM's
-    ``analysisId``, extracted by the poller from the completion body),
-    ``irp_app_analysis_id`` (the web-UI id for deep links) and
-    ``settings_metadata``."""
+    """Take a FINISHED own-executed analysis or group to ``ready``: store
+    ``irp_id`` (RM's ``analysisId`` — extracted by the poller from the completion
+    body for own analyses, resolved by name for groups), ``irp_app_analysis_id``
+    (the web-UI id for deep links) and ``settings_metadata``."""
     ctx = rwb_job_service.load_input_data(rwb_job_id)
     analysis_id = ctx.get("analysis_id")
     row = execute_one(
-        "SELECT edm_id, rdm_id FROM irp_analysis WHERE id = :id",
+        "SELECT is_group, edm_id, rdm_id, submission_id, name "
+        "FROM irp_analysis WHERE id = :id",
         {"id": analysis_id}, connection="WORKBENCH") if analysis_id else None
     if row is None:
         return runtime.JobResult.ok(skipped="analysis missing")
-    # ck_irp_analysis_origin guarantees at least one of edm_id/rdm_id is set;
-    # neither present means that constraint was bypassed — a real bug, not a
+    # ck_irp_analysis_origin guarantees one of edm_id/rdm_id/submission_id is
+    # set; none present means that constraint was bypassed — a real bug, not a
     # legitimate not_applicable case (CR-04c §6).
     if row["edm_id"] is not None:
         link_type, link_id = "edm", row["edm_id"]
     elif row["rdm_id"] is not None:
         link_type, link_id = "rdm", row["rdm_id"]
+    elif row["submission_id"] is not None:
+        link_type, link_id = "submission", row["submission_id"]
     else:
         raise ValueError(
-            f"irp_analysis {analysis_id} has neither edm_id nor rdm_id — "
-            "violates ck_irp_analysis_origin")
+            f"irp_analysis {analysis_id} has no edm_id, rdm_id or "
+            "submission_id — violates ck_irp_analysis_origin")
 
     rm_id = ctx.get("rm_analysis_id")
+    if not rm_id and row["is_group"] and row["edm_id"] is None:
+        # A grouping completion body carries no analysisId, and a group has no
+        # EDM to disambiguate a name search with — but its name was unique
+        # tenant-wide at submit (the grouping worker's duplicate pre-check +
+        # its _n retry), so a name-only search must hit exactly once (spec 012 T-11).
+        try:
+            rm_id = irp_gateway.get_analysis_by_name_only(row["name"]).analysis_id
+        except Exception as exc:  # noqa: BLE001 — resolution failed, visible job failure
+            logger.warning("finalize_analysis: group name resolve failed "
+                           "for %s (%r): %s", analysis_id, row["name"], exc)
+            return _fail_analysis(analysis_id, f"group resolve failed: {exc}")
     if not rm_id:
         return _fail_analysis(analysis_id, "completion payload had no analysisId")
 
@@ -274,15 +306,16 @@ def finalize_analysis(rwb_job_id: str) -> None:
 
 def _curve_points(element: dict | None) -> dict | None:
     """The 11 stored points from one EP-curve element, by exact return-period
-    match in ``value.returnPeriods``/``value.positionValues`` (every stored
-    target is present in RM's 10,004-point curve). A missing
-    point raises, failing the job rather than storing a partial curve."""
+    match in ``value.returnPeriods``/``value.positionValues`` — never
+    interpolated. A DLM curve carries all 11; an HD curve carries 12 points and
+    no 2,000-year one, so a target the curve does not carry is stored as
+    ``null`` (research R3a)."""
     if element is None:
         return None
     value = element.get("value") or {}
     by_period = dict(zip(value.get("returnPeriods") or [],
                          value.get("positionValues") or []))
-    return {str(rp): by_period[float(rp)] for rp in STORED_RETURN_PERIODS}
+    return {str(rp): by_period.get(float(rp)) for rp in STORED_RETURN_PERIODS}
 
 
 def build_loss_results_extract(*, perspective_codes: list[str],
