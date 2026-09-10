@@ -9,7 +9,9 @@ Covers:
   - the atomic claim (UPDATE ... WHERE status_code='pending') returns rowcount 1
     then 0 under contention;
   - the idempotent chained insert on UNIQUE(requestor_type, requestor_id,
-    rwb_job_type) absorbs a duplicate exactly once.
+    rwb_job_type) absorbs a duplicate exactly once;
+  - the CR-04a cancel and completion guards, and the monitoring read's
+    submission EXISTS + heartbeat staleness predicate, on the real driver.
 """
 
 from __future__ import annotations
@@ -19,7 +21,10 @@ import uuid
 import pytest
 
 from db import execute, execute_command, execute_scalar
-from app.services.rwb_job_service import claim_rwb_job, enqueue_rwb_job
+from app.services.rwb_job_service import (cancel_rwb_job, claim_rwb_job,
+                                          complete_rwb_job, enqueue_rwb_job,
+                                          list_rwb_jobs_for_monitoring)
+from app.workers.runtime import upsert_heartbeat
 
 pytestmark = pytest.mark.sqlserver
 
@@ -232,3 +237,97 @@ class TestQueueBehavior:
             "SELECT COUNT(*) FROM rwb_job WHERE requestor_id = :r "
             "AND rwb_job_type = 'upload_rdm'", {"r": rid}, connection="WORKBENCH")
         assert n == 1
+
+
+# ── behavioral: the CR-04a cancel/completion guards and the monitoring read ───
+
+def _queued(cleanup_rwb, rwb_job_type: str = "upload_edm") -> tuple[str, str]:
+    rid = str(uuid.uuid4())
+    cleanup_rwb.append(rid)
+    job_id = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
+                             rwb_job_type=rwb_job_type,
+                             link_type="not_applicable", link_id=None,
+                             context_type=None, context_id=None)
+    assert job_id is not None
+    return job_id, rid
+
+
+class TestCancelGuard:
+    def test_cancel_matches_pending_and_failed_but_not_succeeded(self, cleanup_rwb):
+        pending_id, _ = _queued(cleanup_rwb)
+        assert cancel_rwb_job(rwb_job_id=pending_id) is True
+
+        failed_id, _ = _queued(cleanup_rwb, "upload_rdm")
+        claim_rwb_job(rwb_job_id=failed_id, worker_id="w1")
+        complete_rwb_job(rwb_job_id=failed_id, status="failed", error_detail="boom")
+        assert cancel_rwb_job(rwb_job_id=failed_id) is True
+
+        done_id, _ = _queued(cleanup_rwb, "notify_analyst")
+        claim_rwb_job(rwb_job_id=done_id, worker_id="w1")
+        complete_rwb_job(rwb_job_id=done_id, status="succeeded")
+        assert cancel_rwb_job(rwb_job_id=done_id) is False
+
+    def test_cancel_matches_a_dead_running_row_but_not_a_live_one(self, cleanup_rwb):
+        # The correlated heartbeat subquery inside the UPDATE is the part that
+        # has to behave the same on SQL Server as on the SQLite unit tier.
+        live_id, _ = _queued(cleanup_rwb)
+        claim_rwb_job(rwb_job_id=live_id, worker_id="w1")
+        upsert_heartbeat(rwb_job_id=live_id, worker_id="w1")
+        assert cancel_rwb_job(rwb_job_id=live_id) is False
+
+        dead_id, _ = _queued(cleanup_rwb, "upload_rdm")
+        claim_rwb_job(rwb_job_id=dead_id, worker_id="w1")  # never heartbeated
+        assert cancel_rwb_job(rwb_job_id=dead_id) is True
+
+
+class TestCompletionGuard:
+    def test_completion_does_not_revive_a_cancelled_row(self, cleanup_rwb):
+        job_id, _ = _queued(cleanup_rwb)
+        claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+        assert cancel_rwb_job(rwb_job_id=job_id) is True
+
+        complete_rwb_job(rwb_job_id=job_id, status="succeeded", output_data={"ok": 1})
+
+        status = execute_scalar("SELECT status_code FROM rwb_job WHERE id = :id",
+                                {"id": job_id}, connection="WORKBENCH")
+        assert status == "cancelled"
+
+
+class TestMonitoringRead:
+    def test_unlinked_job_survives_the_submission_exists_predicate(self, cleanup_rwb):
+        # The three-leg EXISTS ... UNION ALL over submission_edm/submission_rdm/
+        # submission has to parse and run on SQL Server, and a not_applicable
+        # link has to fall through it when no submission filter is set.
+        job_id, _ = _queued(cleanup_rwb)
+
+        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
+
+        assert [r["id"] for r in rows] == [job_id]
+        assert rows[0]["is_dead"] == 0
+
+    def test_owner_filter_excludes_a_job_with_no_submission(self, cleanup_rwb):
+        job_id, _ = _queued(cleanup_rwb)
+
+        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id],
+                                            owner_ids=[str(uuid.uuid4())])
+
+        assert rows == []
+
+    def test_is_dead_reads_true_for_a_running_row_with_no_heartbeat(self, cleanup_rwb):
+        job_id, _ = _queued(cleanup_rwb)
+        claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+
+        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
+        assert rows[0]["is_dead"] == 1
+
+        upsert_heartbeat(rwb_job_id=job_id, worker_id="w1")
+        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
+        assert rows[0]["is_dead"] == 0
+
+    def test_dead_status_filter_selects_the_same_rows(self, cleanup_rwb):
+        job_id, _ = _queued(cleanup_rwb)
+        claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated
+
+        ids = {r["id"] for r in list_rwb_jobs_for_monitoring(status_codes=["dead"])}
+
+        assert job_id in ids

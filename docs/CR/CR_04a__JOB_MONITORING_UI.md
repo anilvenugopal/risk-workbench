@@ -178,6 +178,21 @@ and a dead `running` row (`LEFT JOIN rwb_job_heartbeat` in the same guarded
 Still one guarded statement, still returns a plain rowcount-based bool —
 callers that only ever cancelled `pending` rows see no behavior change.
 
+`complete_rwb_job` — its `WHERE` gains `AND status_code = 'running'`, and it
+logs a warning when that matches nothing. Widening Cancel to reach a dead
+`running` row (decision 6a) is what makes the guard necessary: without it, a
+worker that was merely wedged rather than dead finishes and writes
+`succeeded`/`failed` over the `cancelled` the analyst just set, which
+`data-model.md` states cannot happen. The same guard stops a zombie first
+attempt from completing a row `reconcile_stale_rwb_jobs` already reset to
+`pending`. `ensure_pending_rwb_job`, `enqueue_rwb_job` and `claim_rwb_job` are
+unchanged.
+
+`list_rwb_jobs_for_monitoring` — capped at `MONITOR_LIMIT` (50) rows via
+`db.row_limit`, matching `irp_job_service.list_recent`: `rwb_job` is
+append-only and the page re-reads on every poll. Gains an `rwb_job_ids` filter
+so Cancel and Resubmit can re-read the one row they changed.
+
 ### 4.3 Monitoring route + templates (new; replaces the stub)
 
 - `app/routers/rwb_jobs.py` (new file, registered in `app/main.py`) —

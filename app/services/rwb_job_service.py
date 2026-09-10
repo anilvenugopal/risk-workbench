@@ -17,6 +17,7 @@ unit tier and SQL Server.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
@@ -25,8 +26,10 @@ from sqlalchemy import text
 
 from app import log_context
 from app.config import settings
-from app.services._common import _json, _utcnow
-from db import execute, execute_command, execute_one, get_connection, is_unique_violation
+from app.services._common import _in_clause, _json, _utcnow, _word_and_clauses
+from db import execute, execute_command, execute_one, get_connection, is_unique_violation, row_limit
+
+logger = logging.getLogger(__name__)
 
 _INSERT_IF_ABSENT = """
     INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, link_id,
@@ -189,18 +192,11 @@ def claim_rwb_job(*, rwb_job_id: Any, worker_id: str) -> bool:
 
 
 def cancel_rwb_job(*, rwb_job_id: Any) -> bool:
-    """Cancel a job from the monitoring page (CR-004a): ``pending`` → ``cancelled``
-    (before a worker claims it — same atomic-guard shape as ``claim_rwb_job``,
-    whichever of the two runs first against a given row wins), ``failed`` →
-    ``cancelled`` (dismiss a failure nobody intends to resubmit — the alternative
-    to calling ``resubmit_rwb_job``, forecloses it), or a **dead** ``running`` row
-    → ``cancelled`` (a worker claimed it and then never heartbeated, or stopped
-    heartbeating more than ``rwb_heartbeat_stale_secs`` ago — the same staleness
-    ``reconcile_stale_rwb_jobs`` detects, but that function's only remedy is
-    resetting the row to ``pending`` for another attempt; this lets the
-    monitoring page cancel it outright instead of waiting for that reclaim,
-    without reintroducing a general "stop a running job" action — a row with a
-    live heartbeat never matches this guard). Returns ``False`` when the row is
+    """Cancel a job from the monitoring page: ``pending`` (racing ``claim_rwb_job``
+    — whichever runs first wins), ``failed`` (dismissing a failure nobody intends
+    to resubmit, which forecloses ``resubmit_rwb_job``), or a ``running`` row
+    whose heartbeat is missing or older than ``rwb_heartbeat_stale_secs``. One
+    guarded ``UPDATE`` for all three. Returns ``False`` when the row is
     ``succeeded``, ``cancelled``, or ``running`` with a live heartbeat."""
     now = _utcnow()
     cutoff = now - timedelta(seconds=settings.rwb_heartbeat_stale_secs)
@@ -242,72 +238,49 @@ def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
     )
 
 
-def _word_and_clauses(
-    term: str, columns: tuple[str, ...], prefix: str,
-) -> tuple[list[str], dict[str, Any]]:
-    """One clause per whitespace-separated word in ``term``: the word must appear
-    in at least one of ``columns``, and every word must match (AND across words,
-    OR across columns) — mirrors ``submission_service._word_and_clauses``, kept
-    local rather than imported so this module doesn't reach into another
-    service's private helpers."""
-    clauses: list[str] = []
-    params: dict[str, Any] = {}
-    for index, word in enumerate(term.split()):
-        key = f"{prefix}{index}"
-        escaped = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        match = " OR ".join(f"{col} LIKE :{key} ESCAPE '\\'" for col in columns)
-        clauses.append(f"({match})")
-        params[key] = f"%{escaped}%"
-    return clauses, params
-
-
-def _in_clause(column: str, values: list[Any], prefix: str) -> tuple[str, dict[str, Any]]:
-    params = {f"{prefix}{i}": v for i, v in enumerate(values)}
-    placeholders = ", ".join(f":{k}" for k in params)
-    return f"{column} IN ({placeholders})", params
+# Rows the monitoring page reads at once. ``rwb_job`` is append-only and the page
+# re-reads on every poll, so the list is capped like the sibling
+# ``irp_job_service.list_recent`` rather than paged — the filters are how an
+# analyst reaches older jobs.
+MONITOR_LIMIT = 50
 
 
 def list_rwb_jobs_for_monitoring(
     *, submission_name: str | None = None, submission_status_codes: list[str] | None = None,
     owner_ids: list[Any] | None = None, rwb_job_types: list[str] | None = None,
-    status_codes: list[str] | None = None,
+    status_codes: list[str] | None = None, rwb_job_ids: list[Any] | None = None,
 ) -> list[dict]:
-    """``rwb_job`` rows for the monitoring page (CR-004a), grouped by
-    ``rwb_job_type`` and ordered by status then most-recently-updated within each
-    group, per ``contracts/job-monitoring-routes.md``. Every filter is optional
-    and AND-combined; an empty/``None`` value turns that filter off.
+    """The first ``MONITOR_LIMIT`` ``rwb_job`` rows for the monitoring page,
+    grouped by ``rwb_job_type`` and ordered by status then most-recently-updated
+    within each group, per ``contracts/job-monitoring-routes.md``. Every filter
+    is optional and AND-combined. ``rwb_job_ids`` re-reads named rows with the
+    same computed columns, which is how cancel and resubmit render the one row
+    they changed.
 
     Search reaches submission through the job's own ``link_type``/``link_id``
-    (CR-04c) — never through ``requestor_type``/``requestor_id``, which names
-    who triggered the job, not what EDM, RDM, or submission it concerns.
-    ``submission_name`` matches the submission's ``name`` or ``cedant_name`` the
-    same word-and-clauses way ``submission_service.list_submissions`` matches
-    them. ``owner_ids`` filters
-    on the submission's ``assigned_analyst_id`` — a plain predicate (Article 6),
-    not an access gate; the caller decides whether to default it to the current
-    user. A job whose ``link_type = 'not_applicable'``, or whose EDM/RDM belongs
-    to no submission, is excluded by any of the three submission-scoped filters
-    but still returned when none of them are set. A job's EDM/RDM belonging to
-    more than one submission still returns exactly one row — the submission
-    filters match "belongs to at least one qualifying submission," they never
-    fan a job out per submission (that's ``list_submissions_for_rwb_jobs``,
-    the batched second read the caller uses for display).
+    (CR-04c), never through ``requestor_type``/``requestor_id``, which names who
+    triggered the job rather than what it concerns. ``owner_ids`` filters on the
+    submission's ``assigned_analyst_id`` — a plain predicate (Article 6), not an
+    access gate. A job whose ``link_type = 'not_applicable'``, or whose EDM/RDM
+    belongs to no submission, is excluded by any of the three submission-scoped
+    filters and returned when none of them are set. A job whose EDM/RDM belongs
+    to several submissions still returns one row.
 
-    Elapsed-time display (now minus ``submitted_at``/``completed_at``) is
-    computed by the caller, not here — it changes on every render, so baking it
-    into the query would only be correct at the instant the query ran.
+    Elapsed time is computed by the caller: it changes on every render.
 
-    Every row carries ``is_dead`` (0/1): true iff ``status_code = 'running'``
-    and its ``rwb_job_heartbeat`` row is missing or older than
-    ``settings.rwb_heartbeat_stale_secs`` — the same staleness
-    ``reconcile_stale_rwb_jobs`` reclaims to ``pending`` on the poller's next
-    pass. ``status_codes`` accepts the synthetic value ``"dead"`` alongside real
-    ``rwb_job_status_kind`` codes to filter on this computed condition instead
-    of a stored column; a dead row's own ``status_code`` is still ``'running'``
-    underneath (nothing here writes to the row — see ``cancel_rwb_job`` for the
-    one action a dead row accepts)."""
+    Every row carries ``is_dead`` (0/1) — ``status_code = 'running'`` with a
+    ``rwb_job_heartbeat`` row missing or older than
+    ``settings.rwb_heartbeat_stale_secs``, the same staleness
+    ``reconcile_stale_rwb_jobs`` reclaims. ``status_codes`` accepts the
+    synthetic ``"dead"`` to filter on that computed condition; the row's stored
+    ``status_code`` stays ``'running'`` until ``cancel_rwb_job`` or the
+    reconciler moves it."""
     clauses: list[str] = []
     params: dict[str, Any] = {}
+    if rwb_job_ids:
+        clause, p = _in_clause("rj.id", [str(i) for i in rwb_job_ids], "rid")
+        clauses.append(clause)
+        params |= p
     if rwb_job_types:
         clause, p = _in_clause("rj.rwb_job_type", rwb_job_types, "jt")
         clauses.append(clause)
@@ -383,7 +356,7 @@ def list_rwb_jobs_for_monitoring(
         LEFT JOIN rwb_job_heartbeat hb ON hb.rwb_job_id = rj.id
         {where}
         ORDER BY rj.rwb_job_type, rj.status_code, rj.updated_at DESC
-        """,
+        """ + row_limit(MONITOR_LIMIT),
         params,
         connection="WORKBENCH",
     )
@@ -506,19 +479,29 @@ def complete_rwb_job(
 ) -> None:
     """In-place completion (Article 4): set ``succeeded``/``failed`` + payload +
     ``completed_at``. Chained tail rows are enqueued by the caller in the same
-    worker-owned transaction (contracts/data-access.md)."""
+    worker-owned transaction (contracts/data-access.md).
+
+    Guarded on ``running`` like every other transition here: a worker that
+    finishes after ``cancel_rwb_job`` cancelled its dead row, or after
+    ``reconcile_stale_rwb_jobs`` reclaimed it to ``pending`` and the queue
+    re-dispatched it, matches zero rows and leaves the newer state alone.
+    ``cancelled`` is terminal (data-model.md)."""
     now = _utcnow()
-    execute_command(
+    rows = execute_command(
         """
         UPDATE rwb_job
         SET status_code = :st, output_data = :out, error_detail = :err,
             completed_at = :now, updated_at = :now
-        WHERE id = :id
+        WHERE id = :id AND status_code = 'running'
         """,
         {"st": status, "out": _json(output_data), "err": error_detail,
          "now": now, "id": str(rwb_job_id)},
         connection="WORKBENCH",
     )
+    if rows != 1:
+        logger.warning(
+            "rwb_job %s completion as %s ignored — row is no longer running",
+            rwb_job_id, status)
 
 
 def load_input_data(rwb_job_id: Any) -> dict:

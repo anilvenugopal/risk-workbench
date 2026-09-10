@@ -190,6 +190,42 @@ def test_complete_sets_terminal_status_and_payload(iteration2_db):
     assert row["completed_at"] is not None
 
 
+def test_complete_does_not_revive_a_cancelled_row(iteration2_db):
+    # A worker whose row was cancelled while it ran (dead heartbeat) finishes
+    # and reports success. `cancelled` is terminal — the report is dropped.
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
+    claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+    assert cancel_rwb_job(rwb_job_id=job_id) is True
+
+    complete_rwb_job(rwb_job_id=job_id, status="succeeded", output_data={"ok": True})
+
+    row = execute_one(
+        "SELECT status_code, output_data FROM rwb_job WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH")
+    assert row["status_code"] == "cancelled"
+    assert row["output_data"] is None
+
+
+def test_complete_does_not_stomp_a_reclaimed_row(iteration2_db):
+    # The reconciler reset a stale row to pending for another attempt. The
+    # original worker then returns; its completion must not land on the row the
+    # queue is about to re-dispatch.
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
+    claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated
+    assert reconcile_stale_rwb_jobs(stale_secs=120) == 1
+
+    complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
+
+    row = execute_one("SELECT status_code, error_detail FROM rwb_job WHERE id = :id",
+                      {"id": job_id}, connection="WORKBENCH")
+    assert row["status_code"] == "pending"
+    assert row["error_detail"] is None
+
+
 # ── correlation_id stamping (issue #28) ───────────────────────────────────────
 # The chain id defaults from the bound log context (request middleware / poller /
 # worker binds it), so no enqueue call site passes it explicitly.
@@ -808,6 +844,30 @@ def test_monitoring_no_filters_returns_every_row(iteration2_db):
                               rwb_job_type="dummy_wait", **_NO_LINK)
     ids = {r["id"] for r in list_rwb_jobs_for_monitoring()}
     assert {job_id, dummy_id} <= ids
+
+
+def test_monitoring_read_stops_at_the_row_cap(iteration2_db):
+    from app.services.rwb_job_service import (MONITOR_LIMIT,
+                                              list_rwb_jobs_for_monitoring)
+    for _ in range(MONITOR_LIMIT + 5):
+        enqueue_rwb_job(requestor_type="analyst_request",
+                        requestor_id=str(uuid.uuid4()),
+                        rwb_job_type="dummy_wait", **_NO_LINK)
+
+    assert len(list_rwb_jobs_for_monitoring()) == MONITOR_LIMIT
+
+
+def test_monitoring_reads_one_row_by_id(iteration2_db):
+    # How cancel and resubmit re-render the row they changed.
+    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
+    job_id = _job_for(link_type="edm", link_id=_edm())
+    enqueue_rwb_job(requestor_type="analyst_request",
+                    requestor_id=str(uuid.uuid4()),
+                    rwb_job_type="dummy_wait", **_NO_LINK)
+
+    rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
+
+    assert [r["id"] for r in rows] == [job_id]
 
 
 def test_monitoring_submission_name_matches_via_edm_link(iteration2_db):

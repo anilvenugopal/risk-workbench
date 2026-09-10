@@ -240,6 +240,7 @@ def test_failed_sync_reason_and_prior_snapshot_time_are_displayed(
         link_type="not_applicable", link_id=None,
         context_type=None, context_id=None,
     )
+    rwb_job_service.claim_rwb_job(rwb_job_id=job_id, worker_id="test-worker")
     rwb_job_service.complete_rwb_job(
         rwb_job_id=job_id,
         status="failed",
