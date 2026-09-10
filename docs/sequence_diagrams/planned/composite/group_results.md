@@ -7,19 +7,19 @@ submits. A group **is itself an analysis** in Risk Modeler, so the product feeds
 straight back into View Results and Export like any other analysis.
 
 **Composed of:**
-- `granular/grouping.md` — `analysis.submit_analysis_grouping_job(...)` (async) →
-  poll `analysis.get_analysis_grouping_job` per job.
+- `granular/grouping.md` — `grouping.inspect(analysis_ids)` → user choices →
+  `grouping.submit(...)` (async) → poll `grouping.get_job` per job.
 - A `search_analyses` **read** to populate the member pick-list.
 - If several groups are created in one action, the app **loops the single submit**
   per group (single-endpoint rule — one independent job each).
 
 **Classification:** **async Job** per group (usually one). Not heavy in bytes, but
-each submit is **read-fan-out heavy** (resolve every member + build the
-`regionPerilSimulationSet`). Multiple groups = app-orchestrated loop of singles.
+inspection and submit are each **read-fan-out heavy** (several RM reads per
+member). Multiple groups = app-orchestrated loop of singles.
 
 Pre-requisites:
-- The member analyses/groups exist and are resolvable by name (or name + EDM, since
-  analysis names are unique only within an EDM).
+- The member analyses/groups exist and their Platform analysis ids are known to
+  the app.
 - For a group-of-groups, the member groups have already **finished** (a group can
   only be grouped once it exists as an analysis).
 
@@ -30,23 +30,22 @@ Pre-requisites:
 2. **Select members + name** — User selects the member analyses/groups and names the
    new group. (Optionally the analyst defines more than one group in one action —
    e.g. one per region.)
-3. **Submit** — User clicks "Create group". The app calls the single
-   `analysis.submit_analysis_grouping_job(group_name, member_names, …)` per group
-   being created (looping the single submit if several), capturing each `job_id`.
-   Each submit synchronously (see `granular/grouping.md`):
-   1. dup-name-checks the group name (`search_analyses`);
-   2. resolves each member name → `uri` + `analysisId` — **missing members are
-      silently skipped** (`skip_missing=True` default); if *all* are missing the job
-      is skipped (`job_id=None`);
-   3. builds the `regionPerilSimulationSet` (per member: `get_analysis_by_id` +
-      `get_regions` + reference data);
-   4. `POST`s the group → `job_id`.
-4. **Monitor (async, independent)** — poll `get_analysis_grouping_job(job_id)` per
-   group until terminal.
-5. **On FINISHED** — the group exists as an analysis-like entity (`analysisId`,
-   `isGroup`), resolvable via `search_analyses` and readable through View Results /
-   exportable like any analysis. Surface which members were **included vs skipped**
-   to the analyst.
+3. **Inspect** — The app calls `grouping.inspect(analysis_ids)` per group and shows
+   the output type, the partitions whose event-rate schemes conflict (with the
+   members' schemes on offer), and any blocking problems. The user picks one scheme
+   per conflicting partition and confirms the simulation count. A blocked set stops
+   here.
+4. **Submit** — User clicks "Create group". The app calls the single
+   `grouping.submit(analysis_ids, settings, event_rate_selections,
+   expected_inspection_fingerprint)` per group being created (looping the single
+   submit if several), capturing each `job_id`. Each submit (see
+   `granular/grouping.md`) re-inspects, rejects a changed fingerprint or a block
+   before any POST, then `POST`s the group → `job_id`.
+5. **Monitor (async, independent)** — poll `grouping.get_job(job_id)` per group
+   until terminal.
+6. **On FINISHED** — the group exists as an analysis-like entity (`analysisId`,
+   `isGroup`), resolvable via `search_analyses` by its unique name and readable
+   through View Results / exportable like any analysis.
 
 **Sequence Flow:**
 ```mermaid
@@ -62,18 +61,18 @@ sequenceDiagram
     RM-->>App: analyses + existing groups
     App-->>User: Present member pick-list
     User->>App: Select members + name group(s)
-    User->>App: Create group
 
-    loop each group being created (app loops the single submit)
+    loop each group being created
+        rect rgb(238, 250, 240)
+            Note over App,RM: grouping.inspect (see granular/grouping.md)
+            App->>RM: per member: get_analysis_by_id + get_regions + reference data
+            RM-->>App: facts, conflicting partitions, blocks, fingerprint
+        end
+        App-->>User: output type, scheme choices, simulation count
+        User->>App: choose schemes, confirm count, Create group
         rect rgb(238, 244, 255)
-            Note over App,RM: submit_analysis_grouping_job (see granular/grouping.md)
-            App->>RM: search_analyses (group name dup check)
-            loop each member name
-                App->>RM: search_analyses (resolve uri + analysisId)
-                RM-->>App: member (or missing → silently skipped)
-            end
-            Note over App,RM: build regionPerilSimulationSet (per member reads)
-            App->>RM: POST create analysis group
+            Note over App,RM: grouping.submit (re-inspect, then POST)
+            App->>RM: POST create analysis group (regionPerilSimulationSet from choices)
             RM-->>App: job_id (app records it)
         end
     end
@@ -81,7 +80,7 @@ sequenceDiagram
     rect rgb(245, 238, 255)
         Note over App,RM: Monitor — ASYNC, each group job independently
         loop per job_id until terminal
-            App->>RM: get_analysis_grouping_job (job_id)
+            App->>RM: grouping.get_job (job_id)
             RM-->>App: status + progress
         end
     end
@@ -89,7 +88,7 @@ sequenceDiagram
     alt FINISHED
         App->>RM: search_analyses → group (analysisId, isGroup)
         RM-->>App: Group (analysis-like)
-        App-->>User: Notify — group ready (included vs skipped members)
+        App-->>User: Notify — group ready
     else FAILED / CANCELLED
         App-->>User: Notify — group not created
     end
@@ -105,11 +104,6 @@ sequenceDiagram
   `export_to_loss_repo.md` with the same shape as `submit_analyses.md`. Strong signal
   that "analysis" and "group" are **one entity type**, and that grouping is another
   way to *make* an analysis, not a separate kind of thing to model.
-- **Silent partial membership must surface at the UI.** With `skip_missing=True`
-  (default), a group can be built from fewer members than the analyst selected and
-  the job still succeeds. The `included_items` / `skipped_items` result is the only
-  signal — the composite has to show it, or the analyst won't know the group is
-  incomplete. Candidate for an app-side audit record of "what was asked vs included."
 - **Group-of-groups is a sequencing gate.** A group can only be grouped once it
   exists, so building a hierarchy in one sitting means the member groups must have
   finished first — the same "finished, not merely submitted" dependency seen in
@@ -117,6 +111,6 @@ sequenceDiagram
 - **Multiple groups follow the single-endpoint rule.** If the analyst defines several
   groups at once, the app loops the single submit and captures each `job_id` — no
   plural helper — so a failure in one group doesn't abort or orphan the others.
-- **Coupling is name-based.** Members are resolved by name (or name+EDM). Whatever the
-  app stores about analyses must let it hand the correct names to the submit — the
-  boundary is name-based, not id-based.
+- **Inspection is a user-facing step.** The scheme for a conflicting partition is
+  the analyst's choice, so the composite shows the inspection before it can submit,
+  and the fingerprint ties the submit to what the analyst saw.

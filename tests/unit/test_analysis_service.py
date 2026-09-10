@@ -13,12 +13,19 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import text
 
 from app.config import settings as app_settings
 from app.services import analysis_service
-from app.services._common import _utcnow
-from db import execute_command, get_connection
+from app.services._common import _uid, _utcnow
+from db import execute, execute_command, execute_one, get_connection
+from tests.unit.grouping_rows import (
+    link_submission_edm,
+    seed_broker_analysis,
+    seed_group,
+    seed_submission,
+)
 
 SETTINGS_FULL = {
     "analysisType": "Exceedance Probability", "engineType": "DLM",
@@ -150,10 +157,24 @@ def test_rm_url_needs_irp_app_analysis_id_and_a_configured_rm_ui(iteration2_db, 
     assert rows["A"].rm_url == (
         "https://acme.rms-ppe.com/riskmodeler/datasources/analysis/41867/0")
     assert rows["B"].rm_url is None
+    # the expanded row's Analysis id is the web-UI id, never the API id
+    assert rows["A"].app_analysis_id == "41867"
+    assert rows["B"].app_analysis_id is None
 
     monkeypatch.setattr(app_settings, "risk_modeler_tenant_name", "")
     rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
     assert rows["A"].rm_url is None
+
+
+def test_app_analysis_id_falls_back_to_the_metadata_snapshot(iteration2_db):
+    edm = _edm()
+    _executed(edm_id=edm, name="A", irp_id="9001",
+              settings={"appAnalysisId": 41867})
+
+    [row] = analysis_service.list_executed_analyses(edm_id=edm)
+
+    assert row.irp_app_analysis_id is None
+    assert row.app_analysis_id == "41867"
 
 
 def test_settings_parsed_or_blank_never_error(iteration2_db):
@@ -353,7 +374,7 @@ def test_is_deletable_truth_table(iteration2_db):
     assert rows[seeded["ready"]].is_deletable is True
     assert rows[seeded["submitting"]].is_deletable is False
     assert rows[seeded["running"]].is_deletable is False
-    # chip already reads ready (job FINISHED) but the backfill hasn't written
+    # run_state already reads finished but the backfill hasn't written
     # irp_id yet — deleting now would orphan the RM analysis.
     assert rows[seeded["finished_unbackfilled"]].is_deletable is False
 
@@ -494,6 +515,98 @@ def test_delete_keeps_earlier_rows_when_the_poller_claims_a_later_one(
     assert _deleted_at(first) is not None
     assert _deleted_at(raced) is None
     assert fake_irp.deleted_analyses == ["1"]
+
+
+# ── delete_submission_analyses (spec 012 contracts/routes.md) ────────────────
+
+
+def test_delete_by_submission_removes_a_group(iteration2_db, fake_irp):
+    submission = seed_submission("Sub One")
+    group = _mk("irp_analysis", submission_id=submission, is_group=1,
+                name="CRE_Sub One_Group", full_name="CRE_Sub One_Group",
+                status_code="ready", irp_id="8100")
+
+    outcome = analysis_service.delete_submission_analyses(
+        submission_id=submission, analysis_ids=[group],
+        actor_id=iteration2_db.user_a)
+
+    assert fake_irp.deleted_analyses == ["8100"]
+    assert _deleted_at(group) is not None
+    assert outcome.deleted == 1
+
+
+def test_delete_by_submission_spans_every_edm_of_the_deal(iteration2_db,
+                                                          fake_irp):
+    first, second = _edm("E1"), _edm("E2")
+    submission = seed_submission("Sub One")
+    link_submission_edm(submission, first)
+    link_submission_edm(submission, second)
+    coastal = _executed(edm_id=first, name="A", status_code="ready", irp_id="1")
+    inland = _executed(edm_id=second, name="B", status_code="ready", irp_id="2")
+
+    outcome = analysis_service.delete_submission_analyses(
+        submission_id=submission, analysis_ids=[coastal, inland],
+        actor_id=iteration2_db.user_a)
+
+    assert outcome.deleted == 2
+    assert sorted(fake_irp.deleted_analyses) == ["1", "2"]
+    assert _deleted_at(coastal) is not None and _deleted_at(inland) is not None
+
+
+def test_delete_by_submission_rejects_a_broker_row(iteration2_db, fake_irp):
+    submission = seed_submission("Sub One")
+    broker = seed_broker_analysis(submission, "Broker EU Wind")
+
+    with pytest.raises(ValueError):
+        analysis_service.delete_submission_analyses(
+            submission_id=submission, analysis_ids=[broker],
+            actor_id=iteration2_db.user_a)
+    assert fake_irp.deleted_analyses == []
+    assert _deleted_at(broker) is None
+
+
+def test_delete_by_submission_rejects_a_row_of_another_deal(iteration2_db,
+                                                            fake_irp):
+    edm = _edm()
+    mine, theirs = seed_submission("Mine"), seed_submission("Theirs")
+    link_submission_edm(theirs, edm)
+    foreign = _executed(edm_id=edm, status_code="ready", irp_id="1")
+
+    with pytest.raises(ValueError):
+        analysis_service.delete_submission_analyses(
+            submission_id=mine, analysis_ids=[foreign],
+            actor_id=iteration2_db.user_a)
+    assert _deleted_at(foreign) is None
+
+
+def test_deleting_a_member_leaves_the_group_and_its_membership(iteration2_db,
+                                                               fake_irp):
+    """``irp_analysis_group_member`` rows are retained — the group row's own
+    ``deleted_at`` is the visibility gate (data-model 012 §2)."""
+    edm = _edm()
+    submission = seed_submission("Sub One")
+    link_submission_edm(submission, edm)
+    member = _executed(edm_id=edm, name="A", status_code="ready", irp_id="1")
+    group = _mk("irp_analysis", submission_id=submission, is_group=1,
+                name="CRE_Sub One_Group", full_name="CRE_Sub One_Group",
+                status_code="ready", irp_id="8100")
+    execute_command(
+        "INSERT INTO irp_analysis_group_member "
+        "(group_analysis_id, member_analysis_id, inserted_at) "
+        "VALUES (:g, :m, :now)",
+        {"g": group, "m": member, "now": _utcnow()}, connection="WORKBENCH")
+
+    outcome = analysis_service.delete_submission_analyses(
+        submission_id=submission, analysis_ids=[member],
+        actor_id=iteration2_db.user_a)
+
+    assert outcome.deleted == 1
+    assert _deleted_at(member) is not None
+    assert _deleted_at(group) is None
+    [remaining] = execute(
+        "SELECT member_analysis_id FROM irp_analysis_group_member "
+        "WHERE group_analysis_id = :g", {"g": group}, connection="WORKBENCH")
+    assert _uid(remaining["member_analysis_id"]) == member.lower()
 
 
 # ── spec 011: results state, extract, and submitted settings (T013) ──────────
@@ -737,6 +850,106 @@ def test_results_columns_broker_row_and_failed_retrieval_join(iteration2_db):
     assert col.results_error == "RM returned 500 on EP curve (GR)"
 
 
+# ── spec 012 US3: group rows in the merged grid and the results columns (T024) ─
+
+
+def _settings_cells(analysis) -> str:
+    """The Peril · Region · Engine · Currency cells the merged grid renders."""
+    env = Environment(loader=FileSystemLoader("app/templates"))
+    macros = env.get_template("partials/analysis_row_macros.html").module
+    return str(macros.settings_cells(analysis))
+
+
+def test_submission_grid_group_row_reads_group_with_no_portfolio_or_edm(
+        iteration2_db):
+    edm = _edm("EDM One")
+    submission = seed_submission("Sub One")
+    link_submission_edm(submission, edm)
+    _executed(edm_id=edm, portfolio_id=_portfolio(edm), name="CRE_P1_T1",
+              status_code="ready", settings=SETTINGS_FULL)
+    seed_group(submission, "CRE_Sub One_Group")
+
+    rows = {r.name: r for r in
+            analysis_service.list_submission_executed_analyses(
+                submission_id=submission)}
+
+    group = rows["CRE_Sub One_Group"]
+    assert group.is_group is True
+    assert (group.portfolio_name, group.template_name, group.edm_name) == (
+        None, None, None)
+    assert ">Group</span>" in _settings_cells(group)
+    assert ">DLM · 23.0</span>" in _settings_cells(rows["CRE_P1_T1"])
+
+
+def test_results_columns_include_a_group_in_ids_order(iteration2_db):
+    edm = _edm()
+    submission = seed_submission("Sub One")
+    analysis = _executed(edm_id=edm, name="A", status_code="ready",
+                         loss_results=_extract(),
+                         settings={"currencyCode": "USD"})
+    group = _mk("irp_analysis", submission_id=submission, is_group=1,
+                name="CRE_Sub One_Group", full_name="CRE_Sub One_Group",
+                status_code="ready",
+                settings_metadata=json.dumps({"currencyCode": "USD"}),
+                loss_results=json.dumps(_extract(gr_aal=91000.0)))
+
+    columns, missing = analysis_service.list_results_columns(
+        analysis_ids=[group, analysis])
+
+    assert missing == 0
+    assert [c.name for c in columns] == ["CRE_Sub One_Group", "A"]
+    group_column = columns[0]
+    assert group_column.currency == "USD"
+    assert group_column.results_state == "ready"
+    assert group_column.for_code("GR").aal == 91000.0
+
+
+def _inline_panel(analysis) -> str:
+    env = Environment(loader=FileSystemLoader("app/templates"))
+    env.globals["default_perspective"] = analysis_service.DEFAULT_PERSPECTIVE
+    return env.get_template("partials/analysis_results_inline.html").render(
+        a=analysis)
+
+
+def test_group_row_exposes_member_names_from_the_approved_plan(iteration2_db):
+    edm = _edm("EDM One")
+    submission = seed_submission("Sub One")
+    link_submission_edm(submission, edm)
+    _executed(edm_id=edm, portfolio_id=_portfolio(edm), name="CRE_P1_T1",
+              status_code="ready", settings=SETTINGS_FULL)
+    seed_group(submission, "CRE_Sub One_Group", members=[
+        {"analysis_id": str(uuid.uuid4()), "name": "CRE_P1_T1",
+         "display_name": "CRE_Portfolio One_Template One", "kind": "own",
+         "edm_name": "EDM One"},
+        {"analysis_id": str(uuid.uuid4()), "name": "Broker EU Wind",
+         "kind": "broker", "edm_name": None},
+    ])
+
+    rows = {r.name: r for r in
+            analysis_service.list_submission_executed_analyses(
+                submission_id=submission)}
+
+    group = rows["CRE_Sub One_Group"]
+    assert group.submitted.member_names == [
+        "CRE_Portfolio One_Template One", "Broker EU Wind"]
+    assert rows["CRE_P1_T1"].submitted.member_names == []
+    panel = _inline_panel(group)
+    assert "<dt>Members</dt>" in panel
+    assert "<li>CRE_Portfolio One_Template One</li>" in panel
+    assert "<dt>Members</dt>" not in _inline_panel(rows["CRE_P1_T1"])
+
+
+def test_group_row_with_no_plan_has_no_member_names(iteration2_db):
+    submission = seed_submission("Sub One")
+    seed_group(submission, "CRE_Sub One_Group")
+
+    [group] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+
+    assert group.submitted.member_names == []
+    assert "<dt>Members</dt>" not in _inline_panel(group)
+
+
 # ── spec 013: ResultsColumn engine and run currency (T-03/T-04) ───────────────
 
 
@@ -908,3 +1121,116 @@ def test_comparable_analyses_gone_scope_reads_none(iteration2_db):
         submission_id=fx.submission, edm_id=unrelated_edm) is None
     assert analysis_service.list_comparable_analyses(
         edm_id=str(uuid.uuid4())) is None
+
+
+# ── retry_results_retrieval (spec 011 FR-007, T-11) ──────────────────────────────
+
+
+def _retrieval_job(analysis_id: str) -> dict:
+    return execute_one(
+        "SELECT id, status_code, attempt_count, error_detail FROM rwb_job "
+        "WHERE requestor_type = 'irp_analysis' AND requestor_id = :a "
+        "AND rwb_job_type = 'retrieve_analysis_results'",
+        {"a": analysis_id}, connection="WORKBENCH")
+
+
+def test_retry_revives_the_failed_retrieval_row_in_place(iteration2_db):
+    edm = _edm()
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001")
+    _job(analysis_id=analysis, status="FINISHED")
+    _failed_retrieval(analysis, edm, detail="2000.0")
+    execute_command("UPDATE rwb_job SET attempt_count = 1 WHERE requestor_id = :a",
+                    {"a": analysis}, connection="WORKBENCH")
+    before = _retrieval_job(analysis)
+
+    job_id = analysis_service.retry_results_retrieval(
+        analysis_id=analysis, actor_id=iteration2_db.user_a)
+
+    after = _retrieval_job(analysis)
+    assert job_id == _uid(before["id"]) == _uid(after["id"])
+    assert after["status_code"] == "pending"
+    assert after["attempt_count"] == 2
+    assert after["error_detail"] is None
+    [row] = analysis_service.list_executed_analyses(edm_id=edm)
+    assert row.results_state == "pending"
+    assert row.results_error is None
+    assert row.is_live is True
+
+
+def test_retry_skips_a_retrieval_already_in_flight(iteration2_db):
+    edm = _edm()
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001")
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
+        "status_code) VALUES (:id, 'irp_analysis', :rid, "
+        "'edm', :edm, 'irp_analysis', :rid, "
+        "'retrieve_analysis_results', 'pending')",
+        {"id": str(uuid.uuid4()), "rid": analysis, "edm": edm},
+        connection="WORKBENCH")
+    before = _retrieval_job(analysis)
+
+    assert analysis_service.retry_results_retrieval(
+        analysis_id=analysis, actor_id=iteration2_db.user_a) is None
+    assert _retrieval_job(analysis) == before
+
+
+def test_retry_rejects_stored_results_and_unknown_ids(iteration2_db):
+    edm = _edm()
+    stored = _executed(edm_id=edm, status_code="ready", irp_id="9001",
+                       loss_results=_extract())
+    with pytest.raises(ValueError, match="already stored"):
+        analysis_service.retry_results_retrieval(
+            analysis_id=stored, actor_id=iteration2_db.user_a)
+    with pytest.raises(LookupError):
+        analysis_service.retry_results_retrieval(
+            analysis_id=str(uuid.uuid4()), actor_id=iteration2_db.user_a)
+    deleted = _executed(edm_id=edm, status_code="ready", irp_id="9002")
+    execute_command("UPDATE irp_analysis SET deleted_at = :now WHERE id = :id",
+                    {"now": _utcnow(), "id": deleted}, connection="WORKBENCH")
+    with pytest.raises(LookupError):
+        analysis_service.retry_results_retrieval(
+            analysis_id=deleted, actor_id=iteration2_db.user_a)
+
+
+# ── sort_analyses: the merged grid's click-to-sort order (note 27 D6) ─────────
+
+
+def _sortable(peril=None, region=None, currency=None, engine_type=None,
+              is_group=False):
+    return analysis_service.ExecutedAnalysis(
+        id=str(uuid.uuid4()), name="A", full_name="A", portfolio_name=None,
+        status_code="ready", failure_reason=None, is_group=is_group,
+        display=analysis_service.AnalysisSettings(
+            peril=peril, region=region, currency=currency,
+            engine_type=engine_type))
+
+
+def test_sort_analyses_puts_blank_and_missing_values_last_both_ways():
+    rows = [_sortable(peril="wind"), _sortable(peril=None),
+            _sortable(peril="Earthquake"), _sortable(peril="   ")]
+
+    ascending = analysis_service.sort_analyses(rows, "peril", False)
+    descending = analysis_service.sort_analyses(rows, "peril", True)
+
+    assert [a.display.peril for a in ascending] == ["Earthquake", "wind",
+                                                    None, "   "]
+    assert [a.display.peril for a in descending] == ["wind", "Earthquake",
+                                                     None, "   "]
+
+
+def test_sort_analyses_reads_group_under_group_on_the_engine_key():
+    rows = [_sortable(engine_type="DLM"), _sortable(is_group=True),
+            _sortable(engine_type="HD")]
+
+    ascending = analysis_service.sort_analyses(rows, "engine", False)
+
+    assert [a.is_group for a in ascending] == [False, True, False]
+
+
+def test_sort_analyses_default_and_unknown_keys_keep_the_query_order():
+    rows = [_sortable(peril="B"), _sortable(peril="A")]
+
+    assert analysis_service.sort_analyses(rows, "", True) == rows
+    assert analysis_service.sort_analyses(rows, "nonsense", True) == rows
+    assert analysis_service.sort_analyses(rows, "submitted", False) == rows[::-1]

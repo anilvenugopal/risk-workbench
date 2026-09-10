@@ -96,6 +96,7 @@ def client(iteration2_db) -> TestClient:
     from app.config import settings
     from app.routers import edms
     from app.services.auth_service import CurrentUser
+    from app.templating import TEMPLATE_DIRS
 
     user = CurrentUser(
         id=iteration2_db.user_a, email="analyst.a@example.com",
@@ -109,7 +110,7 @@ def client(iteration2_db) -> TestClient:
             return await call_next(request)
 
     app = FastAPI()
-    templates = Jinja2Templates(directory="app/templates")
+    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["app_env"] = settings.app_env
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
     templates.env.globals["default_perspective"] = (
@@ -268,6 +269,36 @@ def _failed_retrieval(analysis_id: str, edm_id: str,
         connection="WORKBENCH")
 
 
+def test_merged_section_sort_orders_the_rows_and_carries_the_status_filter(client):
+    edm_id = _seed_edm()
+    for peril in ("WS", "EQ", "FL"):
+        _seed_executed(edm_id=edm_id, name=f"{peril} run",
+                       settings={"perilCode": peril})
+
+    html = client.get(
+        f"/edms/{edm_id}/analyses?status=ready&sort=peril&dir=asc").text
+
+    assert (html.index(">EQ<") < html.index(">FL<") < html.index(">WS<"))
+    # the applied filter rides the sort link, which asks for desc on the next click
+    assert (f'hx-get="/edms/{edm_id}/analyses?status=ready&amp;sort=peril'
+            '&amp;dir=desc"' in html)
+    # the chosen order rides the poll URL and the status select
+    assert (f'hx-get="/edms/{edm_id}/analyses?status=ready&amp;sort=peril'
+            '&amp;dir=asc"' in html)
+
+
+def test_the_headers_are_clickable_from_the_page_and_body_routes_too(client):
+    """Both render the section from a context that carries no sort state — the
+    href is built in the template so they get working links anyway."""
+    edm_id = _seed_edm()
+    _seed_executed(edm_id=edm_id, name="A", settings={"perilCode": "WS"})
+
+    for url in (f"/edms/{edm_id}", f"/edms/{edm_id}/body"):
+        html = client.get(url).text
+        assert 'class="sort-th"' in html, url
+        assert f'/edms/{edm_id}/analyses?sort=peril&amp;dir=asc' in html, url
+
+
 def test_merged_section_columns_and_the_four_aal_states(client):
     edm_id = _seed_edm()
     _seed_executed(edm_id=edm_id, name="With results", loss_results=_extract(),
@@ -282,11 +313,13 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     html = client.get(f"/edms/{edm_id}/analyses").text
 
     # one column set (FR-010) — no EDM column on the EDM page
-    for header in (">Portfolio</span>", ">Template</span>", ">Peril</span>",
-                   ">Region</span>", ">Engine</span>", ">Currency</span>",
+    for header in (">Portfolio</span>", ">Template</span>",
                    ">AAL &middot; Pre-Cat Net</span>", ">Status</span>",
-                   ">Submitted</span>", ">Risk Modeler</span>"):
+                   ">Risk Modeler</span>"):
         assert header in html
+    # the five click-to-sort headers (note 27 D6) name themselves in data-value
+    for label in ("Peril", "Region", "Engine", "Currency", "Submitted"):
+        assert f'<span class="l" data-value="{label}">' in html
     assert ">EDM</span>" not in html
     assert ">Type</span>" not in html            # analysis type moved to the expansion
     # the split name (D4) and the abbreviated peril/region (D2)
@@ -350,6 +383,9 @@ def test_contextual_merged_section_holds_both_origins(client, iteration2_db):
     assert (f'hx-get="/submissions/{submission_id}/edms/{edm_id}'
             f'/rdms/{rdm_id}/analyses"') in html
     assert "Broker analyses" not in html  # the separate section is gone (FR-009)
+    # no Group here: a group row carries submission_id and no edm_id, so it
+    # lands in the submission's Results grid, never this one
+    assert "data-group-analyses" not in html
 
 
 def test_contextual_rdm_lazy_rows_use_the_merged_columns(client, iteration2_db):

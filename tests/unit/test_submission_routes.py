@@ -20,6 +20,7 @@ tests want the real writes).
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import date
@@ -43,6 +44,7 @@ def client(iteration2_db) -> TestClient:
     from app.routers import submissions
     from app.services import analysis_service
     from app.services.auth_service import CurrentUser
+    from app.templating import TEMPLATE_DIRS
 
     user = CurrentUser(
         id=iteration2_db.user_a, email="analyst.a@example.com",
@@ -56,7 +58,7 @@ def client(iteration2_db) -> TestClient:
             return await call_next(request)
 
     app = FastAPI()
-    templates = Jinja2Templates(directory="app/templates")
+    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["app_env"] = settings.app_env
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
@@ -1503,12 +1505,65 @@ def test_results_fragment_lists_own_rows_across_edms_and_rdm_groups(client):
     # the RDM group row lazy-loads from the submission-scoped fragment route
     assert "Acme Broker RDM" in html
     assert f'hx-get="/submissions/{submission_id}/rdms/{rdm_id}/analyses"' in html
-    # deletion stays on the EDM page — no Delete control here
-    assert "Delete</button>" not in html
+    # own rows and groups delete from here, and this is the only grid that
+    # composes one (spec 012 contracts/routes.md)
+    assert "Delete</button>" in html
+    assert f'hx-post="/submissions/{submission_id}/analyses/delete"' in html
+    assert "data-group-analyses" in html
+    assert f'hx-get="/submissions/{submission_id}/analyses/group"' in html
     # copy sliver hooks and the Submitted <time data-utc> UTC emit (FR-018/FR-024)
     assert "data-copy-table" in html
     assert 'data-value="Coastal HO"' in html
     assert '<time data-utc="2026-08-21T00:00:00"' in html
+
+
+def test_results_delete_soft_deletes_and_triggers_a_refetch(client, fake_irp):
+    submission_id, _, _ = _seed_results_data(client)
+    html = client.get(f"/submissions/{submission_id}/analyses").text
+    ids = re.findall(r'name="analysis_ids" value="([^"]+)"', html)
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/delete",
+        data={"csrf_token": _csrf(), "analysis_ids": ids[0]},
+    )
+
+    assert response.status_code == 204
+    triggered = json.loads(response.headers["HX-Trigger"])
+    assert triggered["analyses-changed"] is True
+    assert triggered["rwb:toast"]["type"] == "success"
+    assert ids[0] not in client.get(
+        f"/submissions/{submission_id}/analyses").text
+
+
+def test_results_delete_reports_a_non_terminal_row(client, fake_irp):
+    submission_id, edm_id, _ = _seed_results_data(client)
+    running = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code) "
+        "VALUES (:id, :edm, 'CRE_Running_v25', 'CRE_Running_v25', 'pending')",
+        {"id": running, "edm": edm_id}, connection="WORKBENCH")
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/delete",
+        data={"csrf_token": _csrf(), "analysis_ids": running},
+    )
+
+    assert response.status_code == 422
+    assert "still in progress" in response.text
+    assert fake_irp.deleted_analyses == []
+
+
+def test_results_delete_rejects_invalid_csrf(client):
+    submission_id, _, _ = _seed_results_data(client)
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/delete",
+        data={"csrf_token": "bad", "analysis_ids": str(uuid.uuid4())},
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 204
+    assert response.headers["HX-Refresh"] == "true"
 
 
 def test_results_fragment_status_filter_rides_the_poll_url(client):
@@ -1520,6 +1575,8 @@ def test_results_fragment_status_filter_rides_the_poll_url(client):
             in html)
     assert "No analyses match this status filter." in html
     assert "Acme Broker RDM" in html  # broker groups are unaffected by it
+    # the default order stays out of the poll URL (note 27 D6)
+    assert "sort=" not in html.split("hx-target=\"this\"")[0]
 
 
 def test_submission_rdm_lazy_rows_read_merged_columns(client):
@@ -1547,3 +1604,70 @@ def test_detail_page_includes_the_results_section(client):
     assert 'id="submission-analyses"' in html
     assert ">Results</span>" in html
     assert "Coastal HO" in html
+    # the sort state reaches the section from the full-page context too, not
+    # only from the fragment route (note 27 D6)
+    assert 'class="sort-th"' in html
+
+
+def _summary_children(html: str, row_id: str) -> int:
+    """Direct children of the row's <summary> — what tableToTsv slices."""
+    from html.parser import HTMLParser
+
+    class _Count(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.in_row = self.in_summary = False
+            self.depth = self.children = 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "details" and ("id", row_id) in attrs:
+                self.in_row = True
+            elif self.in_row and tag == "summary":
+                self.in_summary = True
+            elif self.in_summary:
+                if self.depth == 0:
+                    self.children += 1
+                if tag != "input":
+                    self.depth += 1
+
+        def handle_startendtag(self, tag, attrs):
+            if self.in_summary and self.depth == 0:
+                self.children += 1
+
+        def handle_endtag(self, tag):
+            if tag == "summary" and self.in_summary:
+                self.in_summary = self.in_row = False
+            elif self.in_summary and tag != "input":
+                self.depth -= 1
+
+    counter = _Count()
+    counter.feed(html)
+    return counter.children
+
+
+def test_results_failed_row_offers_retry_inside_the_status_cell(client):
+    submission_id, edm_id, _ = _seed_results_data(client)
+    [failed] = [r["id"] for r in execute(
+        "SELECT id FROM irp_analysis WHERE edm_id = :e AND rdm_id IS NULL",
+        {"e": edm_id}, connection="WORKBENCH")]
+    [ready] = [r["id"] for r in execute(
+        "SELECT id FROM irp_analysis WHERE edm_id <> :e AND rdm_id IS NULL",
+        {"e": edm_id}, connection="WORKBENCH")]
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
+        "status_code, error_detail) VALUES (:id, 'irp_analysis', :rid, "
+        "'edm', :edm, 'irp_analysis', :rid, "
+        "'retrieve_analysis_results', 'failed', '2000.0')",
+        {"id": str(uuid.uuid4()), "rid": failed, "edm": edm_id},
+        connection="WORKBENCH")
+
+    html = client.get(f"/submissions/{submission_id}/analyses").text
+
+    assert f'hx-post="/results/analyses/{failed}/retry"' in html
+    assert f'hx-post="/results/analyses/{ready}/retry"' not in html
+    assert 'hx-include="#analyses-csrf"' in html
+    assert 'id="analyses-csrf"' in html
+    assert "Results: 2000.0" in html
+    assert (_summary_children(html, f"analysis-row-{failed}")
+            == _summary_children(html, f"analysis-row-{ready}"))

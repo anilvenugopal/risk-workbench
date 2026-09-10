@@ -663,7 +663,12 @@ def scheme_options(profile_name: str, *, conn=None) -> list[dict]:
             "peril": profile["peril_code"],
             "region": profile["model_region_code"],
         })
-        selected = len(options) == 1
+        # Pre-fill only where a scheme is required (FR-005/FR-007): a DLM
+        # profile with exactly one active match. HD and Accumulation profiles
+        # save without a scheme, so choosing one for the analyst is a surprise.
+        selected = len(options) == 1 and profile_family(
+            profile["is_accumulation"], profile["software_version_code"]
+        ) == "DLM"
         for option in options:
             option["selected"] = selected
         return options

@@ -17,6 +17,7 @@ from app.auth.middleware import SessionMiddleware
 from app.config import settings
 from app.logging_setup import RequestContextMiddleware, setup_logging
 from app.services import analysis_service, breakout_service
+from app.templating import TEMPLATE_DIRS
 from db.connection import dispose_all, test_connection
 
 # At module import — after uvicorn has applied its own log config (it configures
@@ -59,7 +60,7 @@ app.add_middleware(SessionMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
 # ── Templates ──────────────────────────────────────────────────────────────
-templates = Jinja2Templates(directory="app/templates")
+templates = Jinja2Templates(directory=TEMPLATE_DIRS)
 
 # Inject globals available in every template
 templates.env.globals["app_env"] = settings.app_env

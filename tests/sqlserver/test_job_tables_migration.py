@@ -89,8 +89,8 @@ class TestJobTablesMigration:
     def test_irp_analysis_status_kind_seeds(self):
         codes = {r["code"] for r in execute(
             "SELECT code FROM irp_analysis_status_kind", {}, connection="WORKBENCH")}
-        # No 'running': irp_job.status carries progress, and every write that
-        # leaves 'pending' is terminal (spec 010, data-model §6).
+        # 'pending' is the only in-flight value; progress while an analysis or
+        # a group runs is irp_job.status (spec 010 data-model §6, spec 012 data-model).
         assert codes == {"pending", "ready", "error"}
 
     def test_irp_analysis_filtered_unique_indexes_present(self):

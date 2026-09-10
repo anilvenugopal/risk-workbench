@@ -248,6 +248,14 @@ def _scheme_select_options(rows: list[dict], current_value: str | None) -> list[
     to another peril/region. Tag the hidden case; give the off-profile case its
     real peril/region so it renders like any resolved option."""
     options = _select_options(rows, "name", current_value)
+    if not current_value:
+        # scheme_options() pre-selects a lone profile match for the cascade
+        # fragment (FR-007). On the form itself the stored value governs, so a
+        # template saved without a scheme renders without one instead of
+        # re-acquiring the pre-fill on every edit.
+        for option in options:
+            option["selected"] = False
+        return options
     if not options or not options[0].get("unresolved"):
         return options
     cached = template_service.scheme_lookup(options[0]["name"])

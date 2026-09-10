@@ -155,6 +155,43 @@ def test_group_analysis_surfaced_as_group(iteration2_db):
     assert g.analyses[0].is_group is True
 
 
+# The LIVE group get-analysis payload (2026-09-02): eventRateSchemeNames is
+# EMPTY for a group; its schemes sit in additionalProperties under key
+# eventRateSchemes, one property per member region/peril.
+def _scheme_property(*names: str) -> dict:
+    return {"key": "eventRateSchemes", "properties": [
+        {"id": 0, "name": "", "value": {
+            "regionCode": "NA", "perilCode": "WS", "framework": "ELT",
+            "eventRateSchemeId": 738 + i, "eventRateSchemeName": name,
+            "simulationSetId": 0, "simulationSetName": "", "simulationPeriods": 0}}
+        for i, name in enumerate(names)]}
+
+
+def test_group_event_rate_scheme_read_from_additional_properties(iteration2_db):
+    rdm, edm = _rdm("R"), _edm("E")
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="1", is_group=True, settings=dict(
+        SETTINGS_LIVE, engineType="Group", eventRateSchemeNames=[],
+        additionalProperties=[
+            {"key": "propagateDetailedOutput",
+             "properties": [{"id": 0, "name": "", "value": "Yes"}]},
+            _scheme_property("RMS 2025 Historical Event Rates")]))
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="2", is_group=True, settings=dict(
+        SETTINGS_LIVE, eventRateSchemeNames=[], additionalProperties=[
+            _scheme_property("RMS 2025 Historical Event Rates",
+                             "RMS 2025 Historical Event Rates",
+                             "RMS 2025 Stochastic Event Rates")]))
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="3", is_group=True, settings=dict(
+        SETTINGS_LIVE, eventRateSchemeNames=[], additionalProperties=[]))
+
+    [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
+    by_irp = {a.irp_id: a for a in g.analyses}
+    assert by_irp["1"].display.event_rate_scheme == "RMS 2025 Historical Event Rates"
+    # one entry per member; repeated names collapse
+    assert by_irp["2"].display.event_rate_scheme == (
+        "RMS 2025 Historical Event Rates, RMS 2025 Stochastic Event Rates")
+    assert by_irp["3"].display.event_rate_scheme is None
+
+
 def test_only_broker_rows_of_this_rdm_and_no_deleted(iteration2_db):
     rdm, other, edm = _rdm("R"), _rdm("R2"), _edm("E")
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="1")
@@ -239,8 +276,10 @@ def test_broker_rm_url_and_created_at(iteration2_db, monkeypatch):
     assert by_irp["5521"].rm_url == (
         "https://acme.rms-ppe.com/riskmodeler/datasources/analysis/41867/0")
     assert by_irp["5521"].created_at == "2026-08-20T14:02:11.000Z"
+    assert by_irp["5521"].app_analysis_id == "41867"  # the expanded row's Analysis id
     assert by_irp["5522"].rm_url is None       # no snapshot → no link
     assert by_irp["5522"].created_at is None   # no snapshot → no Submitted value
+    assert by_irp["5522"].app_analysis_id is None
 
 
 # ── row rendering via the contextual lazy route (T024) ──────────────────────────
@@ -259,9 +298,10 @@ def _client() -> TestClient:
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
     from app.routers import edms
+    from app.templating import TEMPLATE_DIRS
 
     app = FastAPI()
-    templates = Jinja2Templates(directory="app/templates")
+    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["app_env"] = settings.app_env
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
@@ -363,3 +403,19 @@ def test_broker_row_renders_ready_results_and_failed_reason(monkeypatch):
     assert "Results retrieval failed." in html
     assert "results read failed for WX" in html
     assert "Portfolio" not in html
+
+
+def test_broker_failed_row_offers_retry_and_a_ready_row_does_not(monkeypatch):
+    ready = _broker_row(results_state="ready", results=[
+        analysis_service.PerspectiveResults(
+            code="GR", label="Gross", produced=True, aal=1.0, std_dev=1.0,
+            rows=[])])
+    failed = _broker_row(id="analysis-2", irp_id="88216", name="Broker NT",
+                         results_state="failed", results_error="2000.0")
+
+    html = _render_rows(monkeypatch, [ready, failed])
+
+    # the status cell and the expanded panel each carry the control
+    assert html.count('hx-post="/results/analyses/analysis-2/retry"') == 2
+    assert 'hx-post="/results/analyses/analysis-1/retry"' not in html
+    assert 'hx-include="#analyses-csrf"' in html

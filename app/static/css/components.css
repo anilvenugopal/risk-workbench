@@ -84,6 +84,28 @@
   flex: 1 1 auto;
   min-height: 0;
 }
+/* Group compose dialog (spec 012): wider than the breakout modal because
+   analysis and event-rate scheme names run to 60-80 characters side by side.
+   The form sits between the card and the body, so it carries the flex column
+   that lets .modal-body scroll inside the capped card. */
+.modal-card--group { width: min(1080px, 94vw); }
+.modal-card--group > form { display: flex; flex-direction: column; min-height: 0; }
+.modal-card--group .modal-body { overflow-y: auto; }
+.modal-card--group .modal-pane { display: flex; flex-direction: column; gap: var(--space-3); }
+/* Step indicator in the modal header: the three screens are a sequence. */
+.steps { display: flex; align-items: center; gap: var(--space-2); margin-right: var(--space-4); }
+.step { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-caption);
+  color: var(--text-tertiary); font-weight: var(--fw-medium); white-space: nowrap; }
+.step__n { display: inline-flex; align-items: center; justify-content: center; width: 18px;
+  height: 18px; border-radius: var(--radius-pill); border: 1px solid var(--border-strong);
+  font-size: 10px; font-variant-numeric: tabular-nums; }
+.step--current { color: var(--text-primary); }
+.step--current .step__n { background: var(--color-brand); border-color: var(--color-brand);
+  color: var(--btn-primary-fg); }
+.step--done { color: var(--color-brand); }
+.step--done .step__n { background: var(--color-brand-wash); border-color: var(--color-brand-border);
+  color: var(--color-brand); }
+.step__sep { width: 16px; height: 1px; background: var(--border-default); }
 .modal-header {
   display: flex;
   align-items: center;

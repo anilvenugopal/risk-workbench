@@ -115,7 +115,7 @@ intermediate grouping concept. Design note 12 records the decision.
 | Submissions can be sorted. | Implemented | **Added 8/9 (D15):** Name, Cedant, Inception and Year are click-to-sort headers carrying a caret; clicking the sorted column flips it. One column at a time. The default is inception date descending. Applied filters and the page survive a sort, and the order rides in the URL. |
 | Multi-term search uses AND semantics, not OR. | Implemented | **Added 8/4.** "There must be 1000 companies that have American in the name" — typing "American Family" must not return every company containing "American." Applies to the name search, the cedant filter, and the "links to" picker: each typed word must appear, matched as a substring and no fuzzier than that. |
 | Global search runs across Submissions, EDMs, RDMs, analyses, jobs, and results. | Not implemented |  |
-| Search, sort, and filter are available on every list section. | Not implemented | 7/14: wanted on portfolios, treaties, analyses, and results — not just the submissions list. |
+| Search, sort, and filter are available on every list section. | Partial | 7/14: wanted on portfolios, treaties, analyses, and results — not just the submissions list. **Added 9/4 (D6):** the merged analyses grid — the submission Results section and the EDM Analyses section — carries click-to-sort Peril, Region, Engine, Currency and Submitted headers, copying the 8/9 D15 pattern (one column at a time, clicking the sorted column flips it). "You don't have to do all of them." The applied status filter survives a sort and the order survives the 3s poll. Broker rows in the per-RDM groups keep their capture order. Portfolios, treaties and results still have no sort, and no list section but the submissions master list has search or filter. |
 
 **Navigation & drill-down**
 
@@ -484,17 +484,40 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 
 ## 6. Grouping
 
-Combining and breaking out results across dimensions.
+Combining and breaking out results across dimensions. A group is an analysis in
+Risk Modeler (`irp_analysis` with `is_group = true`), created by
+`client.grouping.inspect` followed by `client.grouping.submit`.
+
+> **Design record (2026-08-10 → 08-27; design notes 11 §3, 15 §4, 17 §4).**
+> Grouping is a first-class flow — pick finished analyses, configure, run —
+> replacing Risk Modeler's three-dot "enter analysis to group" entry.
+> irp-integration inspects the members and lists each conflicting
+> peril/region/model-version partition with the schemes its members use; the
+> analyst picks one per partition (write-up:
+> `grouping-and-event-rate-schemes.md` in the IRP workspace root, next to this
+> repo). **CIC has not reviewed the grouping implementation** — the walkthrough
+> Ben owes (design note 11 O11-2, note 15 O15-7) is still open.
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| The analyst selects which analyses to group. | Not implemented |  |
-| Invalid groupings show error messaging. | Not implemented | e.g. mixing DLM and HD analyses. |
-| Nested grouping (groups of groups) is supported. | Not implemented |  |
-| A group is treated like any other analysis. | Not implemented | Viewed and exported the same way. |
-| Group names are auto-generated from the deal. | Not implemented |  |
+| The analyst selects which finished analyses or groups to combine. | Implemented | Prerequisite gate: members exist and are `FINISHED`. |
+| The grouping pick-list is scoped to the current submission. | Implemented | Checkboxes on the submission page's merged Results grid; the EDM detail page has no Group entry point (spec 012 O-03, 9/8). **Corrected 8/20** from EDM-scoped to submission-scoped; members can span EDMs and RDMs within the submission. |
+| Analyses carry a submission-level IRP tag, applied at submit time. | Implemented | **Decided 8/27**: an IRP tag (queryable in the platform and via API), not a Workbench-only association — grouping candidates stay findable when the analyst isn't in the Workbench. Extends §4 "Tags can be set per analysis." |
+| Currency, currency scheme, and vintage are chosen at group-submit time. | Implemented | Same picker as analysis submission (§5, spec 009 P-11). **Decided 9/3 (note 26 D7)**: the currency is prefilled with the code every member ran in, else the env default (USD); scheme and vintage keep the env defaults — spec 012 O-10. |
+| Group simulation periods are chosen from Risk Modeler's fixed list. | Implemented | **Decided 9/3 (note 26 D18)**: 3,125 … 800,000 in a dropdown — spec 012 O-11. **9/4 (note 27 D19, D20)**: the same dropdown on every partition row of a PLT group (`regionPerilSimulationSet[].simulationPeriods`) preselected at **100,000**, the group-level one labelled Group simulation periods and preselected at **50,000**, no member-length hint. The two are separate settings, not one at two levels: the partition value drives the ELT-to-PLT conversion, the group value the combined output. A partition whose PLT members all ran on one PET shows that PET's period count read-only and sends no value, as Risk Modeler does. |
+| Finish on the Members screen inspects and submits in one step when nothing is left to choose. | Implemented | **Decided 9/3 (note 26 D8–D10)**: defaults are the members' currency, env scheme and vintage, Propagate ON; a PLT group takes 50,000 simulation periods for the group. Stops on the Inspection screen with a notice when a scheme or simulation-set choice is needed, currencies differ, or the inspection blocks; treaty mismatches do not stop it. **9/4 (note 27 D8)**: no confirmation pane — the dialog closes and the toast plus the group row arriving with live status are the confirmation. Next stays beside it, because a group with no conflict has no other route to a value the Workbench defaulted — spec 012 O-14. |
+| When members of a partition use different event-rate schemes, the analyst picks one of the members' schemes; the Workbench never chooses. | Implemented | irp-integration's inspection lists the conflicting partitions and their schemes; the compose dialog shows one dropdown per partition with no default; the package builds `regionPerilSimulationSet` from the choices. Risk Modeler's manual pre-step (Convert event rate and loss: copy + `_event` + new rates, no rerun) is not required. Hurricane is the case that matters (80/20, note 15 §4.3). CIC review pending (O11-2 / O15-7). |
+| Mixing DLM and HD analyses in one group is supported. | Implemented | **Reversed 8/27** — previously listed as an invalid grouping. irp-integration reconciles ELT and PLT members in one `regionPerilSimulationSet` and derives `simulateToPLT`; the analyst chooses the simulation periods. |
+| "Propagate detailed output" defaults ON; the analyst may turn it off. | Implemented | Exactly what detail is retained (state-level, per-treaty) is still open — note 11 O11-1. |
+| "Create independent groups" defaults OFF. | Implemented | Not carried over at all — no checkbox (spec 012 O-08). "We're never going to want to turn those on." |
+| Invalid groupings show error messaging. | Implemented | Inspection names the blocking problem with the members, partition, and PET ids before anything reaches the platform. |
+| Nested grouping (groups of groups) is supported. | Implemented |  |
+| A group is treated like any other analysis. | Implemented | Viewed and exported the same way; the results grid discloses a group via the Engine column, not the name (note 20 D8). Results retrieval for a group is unverified in the sandbox (spec 012 T-11). |
+| Group names are auto-generated from the deal. | Implemented | `CRE_<submission name>_Group`, `_n` collision suffix, editable in the compose dialog before submit (spec 012 O-01). |
+| Groups appear on the submission-level results page. | Implemented | Groups (and cross-EDM analyses) exist only at submission level (note 19 D14). |
+| The analyst controls the left-to-right ordering of analyses and groups in the results view. | Implemented | Note 19 D15 — "I want to see my analyses left to right and my group at the end, or my group at the beginning." Move-left / Move-right arrows per column on the results page; a group id moves the same as an analysis id (spec 012 FR-016). Drag-and-drop stays with the results-view work (spec 012 O-04). |
 
-**Out of scope for MVP:** create ELTs by zone / county / country (done in SQL or the old tool today).
+**Out of scope for MVP:** create ELTs by zone / county / country (done in SQL or the old tool today); **opt-in end-of-suite auto-grouping** (Wendy, 8/20) — offer to auto-group a suite run's results in the suite's currency; deferred, the mixed-currency case is unresolved.
 
 ---
 
@@ -514,7 +537,7 @@ Reviewing, comparing, and delivering finalized results. Volume is highly variabl
 | A dedicated results page is reached by multi-select from both the submission page and the EDM detail page. | Not implemented | **Added 8/25 (D14).** The submission page is mandatory — cross-EDM analyses and groups live only there. |
 | The dedicated results page opens in a new browser tab, with breadcrumbs, and the tab title carries the submission or EDM name. | Not implemented | **Added 8/25 (D21/D22).** From the EDM: breadcrumbs retain EDM + submission; from the submission: submission only. Cheryl on Risk Modeler's tab strip: "the ones that just say Risk Modeler, Risk Modeler, Risk Modeler … that's not as helpful." |
 | Displayed units never auto-switch; a ones/thousands/millions selector controls them. | Not implemented | **Added 8/25 (D16).** Cheryl: "let's not switch between millions and thousands … keep everything in millions with the decimal points." |
-| The analyst controls the left-to-right order of analyses and groups on the results view. | Not implemented | **Added 8/25 (D15).** "I want to see my analyses left to right and my group at the end, or my group at the beginning." Pre-empts the grouping design. |
+| The analyst controls the left-to-right order of analyses and groups on the results view. | Implemented | **Added 8/25 (D15).** "I want to see my analyses left to right and my group at the end, or my group at the beginning." Move-left / Move-right arrows per column (spec 012 FR-016); drag-and-drop deferred (spec 012 O-04). |
 | Portfolio↔analysis linking is not solved. | Implemented | Deliberately deferred — it doesn't exist today either; analysts rely on naming conventions and broker documentation. **Scope note:** this is the results-comparison linking (which analyses to line up own-vs-broker), still deferred. It is *distinct* from showing the **portfolio an analysis ran against** (§2.3 metadata), which Iteration 3 surfaces by resolving Risk Modeler's `exposureResourceType = PORTFOLIO` exposure pointer (spec 004 FR-036; PRD §21 Iteration 3) — **now narrowed, see the next row.** |
 | The resolved exposure pointer is trusted only for analyses CIC ran itself. | Partial | **Narrowed 8/4.** For imported/broker RDMs the pointer is untrustworthy: "there actually is no way to tie an RDM analysis to a specific EDM portfolio that you can trust," and a false link was demoed live (a US EQ analysis attributed to a USFL portfolio). Trustworthy only if the EDMs/RDMs never left CIC's environment; not displayed as a link otherwise. See the §2.2 trust rule. |
 | Up to ~5 analyses are consumable on screen. | Not implemented | Default density guideline, not a hard cap. |
