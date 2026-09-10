@@ -56,9 +56,10 @@ class _InjectUser(BaseHTTPMiddleware):
 def _make_app(user=None):
     from app.auth.csrf import generate_csrf_token
     from app.routers import rwb_jobs
+    from app.templating import TEMPLATE_DIRS
 
     app = FastAPI()
-    templates = Jinja2Templates(directory="app/templates")
+    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
     app.state.templates = templates
 
