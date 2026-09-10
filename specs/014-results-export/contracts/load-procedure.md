@@ -3,15 +3,13 @@
 ## 1. Interface
 
 ```sql
-EXEC stage.usp_load_elt_result @manifest_id = <int>, @use_peril = <bit, default 0>;
+EXEC stage.usp_load_elt_result @manifest_id = <int>;
 ```
 
 Authored in `db/bootstrap/loss_schema.sql`; installed by the CIC DBA (O-12);
 called by the `load_results_export` worker through `db.execute_procedure`,
-or by a person in SQL Server Management Studio. `@use_peril` adds `Peril =
-manifest.peril_code` to the lookup join for single-peril analyses; it stays
-`0` until O-11 confirms the lookup's codes, after which the worker passes
-`1` and the default flips.
+or by a person in SQL Server Management Studio. The lookup join is on
+`EventID` and `ModelVersion` only (R4).
 
 ### Preconditions (checked by the procedure, each raising before any write)
 
@@ -20,7 +18,7 @@ manifest.peril_code` to the lookup join for single-peril analyses; it stays
 | `@@TRANCOUNT > 0` on entry | `50000` "usp_load_elt_result must be called outside a transaction" |
 | Claim `UPDATE … SET load_status = 'loading', error_message = NULL WHERE manifest_id = @manifest_id AND stage_status = 'staged' AND load_status IN ('pending','failed')` affected 0 rows | `50001` with the reason read from the row: "manifest {id} not found", "manifest {id} is not staged (stage_status {s})", "manifest {id} is loading", or "manifest {id} already loaded as data ID {data_id}" |
 | No `dbo.Lookup_RMS_HistoricalRDS` row with `ModelVersion = manifest.data_model_version` | `50002` "Lookup_RMS_HistoricalRDS has no rows for model version {v}" |
-| Any stage `event_id` matches more than one lookup row (join on `EventID`, `ModelVersion`, and `Peril` when `@use_peril = 1` and `peril_code <> 'YY'`) | `50003` "event {event_id} matches {n} historical lookup rows for model version {v}" |
+| Any stage `event_id` matches more than one lookup row (join on `EventID` and `ModelVersion`) | `50003` "event {event_id} matches {n} historical lookup rows for model version {v}" |
 
 ### Effects, in one transaction after the claim
 

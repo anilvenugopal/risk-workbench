@@ -4,7 +4,7 @@
 
 ## Status
 
-**Phase:** Draft · **Blocking:** Nothing for the spec. End-to-end verification waits on CIC loading the repository tables and creating the Workbench login (plan O-05).
+**Phase:** Tasks generated · **Blocking:** Nothing for the spec. End-to-end verification waits on CIC loading the repository tables and creating the Workbench login (plan O-05).
 
 ## Outcome
 
@@ -13,8 +13,8 @@ An analyst exports the event loss table of one or more finished analyses into CI
 ## In scope
 
 - Export form on a submission's analyses page: one or more finished analyses (own, broker, or group), one financial perspective from a configured set (first set GU, GR, RL, RP), a client, treaty inception, CRM ID, optional data name per analysis, optional data vintage.
-- Automatic processing per analysis with no review step: request the loss table from Risk Modeler, download it, stage it, classify each event as historical or stochastic, correct exposure below loss and negative standard deviation, load the header row and the two loss tables. The historical table is always written.
-- An exports table on the submission page, one row per export, and an export detail page showing each analysis's progress, the loaded data ID, row counts, how many rows each correction changed, and Retry for a failed analysis (O-06).
+- Automatic processing per analysis with no review step: request the loss table from Risk Modeler, download it, stage it, classify each event as historical or stochastic, correct exposure below loss and negative standard deviation, load the header row and the two loss tables. Every analysis's historical rows go to the historical table, even when there are none.
+- An exports section on the submission page, one row per export, and an export detail page showing each analysis's progress, the loaded data ID, row counts, how many rows each correction changed, and Retry for a failed analysis (O-06).
 - The downloaded archive kept permanently on a shared drive as the record of what was loaded.
 
 ## Out of scope
@@ -45,7 +45,7 @@ An analyst exports the event loss table of one or more finished analyses into CI
 | P-13 | The Workbench never times out a Risk Modeler export request. An analysis stays "requested from Risk Modeler" until Risk Modeler reports a terminal status; Retry is offered only after a failure. A stuck row is cleared under O-01. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-09 |
 | P-14 | No cancel. Once Export is clicked each analysis processes to loaded or failed; there is no confirmation step and no cancel action. A wrong client or date is corrected by CIC under O-01, like any other reload. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-10 |
 | P-15 | Treaty inception and CRM ID edited on the export form are recorded on the export only. The submission's inception date and CRM IDs are unchanged, and the form pre-fills from them the next time. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-10 |
-| P-16 | An export belongs to the submission it was requested from, recorded on the export. Only that submission's exports table lists it. Another submission that reaches the same analysis shows it as exported on its export form, with a link to the export. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-10 |
+| P-16 | An export belongs to the submission it was requested from, recorded on the export. Only that submission's exports section lists it. Another submission that reaches the same analysis shows it as exported on its export form, with a link to the export. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-10 |
 
 ---
 
@@ -69,7 +69,7 @@ From a submission's analyses page the analyst opens Export, ticks the finished a
 
 ### 2. Follow an export and read the post-load summary (P1)
 
-On the submission page, below the analyses, an exports table lists every export made from that submission, one row per export. The analyst opens one and each analysis in it shows how far it has got. Once loaded it shows the data ID CIC will use, the rows loaded, how many were stochastic and how many historical, and how many rows each correction changed. A failed analysis shows why.
+On the submission page, below the analyses, an exports section lists every export made from that submission, one row per export. The analyst opens one and each analysis in it shows how far it has got. Once loaded it shows the data ID CIC will use, the rows loaded, how many were stochastic and how many historical, and how many rows each correction changed. A failed analysis shows why.
 
 **Acceptance**
 
@@ -77,8 +77,8 @@ On the submission page, below the analyses, an exports table lists every export 
 2. **Given** a loaded analysis, **Then** the page shows its data ID, rows staged, stochastic rows, historical rows, rows with exposure raised to loss, and rows with a standard deviation zeroed, and the stochastic plus historical counts equal the rows staged.
 3. **Given** a failed analysis, **Then** the page shows the error message and a Retry action; the other analyses show their own status.
 4. **Given** a loaded analysis, **Then** the page shows the path of the archive file kept on the shared drive.
-5. **Given** the submission page, **Then** its exports table lists the exports requested from that submission, and no export requested from another submission, newest first with perspective, requester, request time, client, analysis count, and how many analyses are loaded or failed, and each row opens the export detail page.
-6. **Given** an analysis exported for GR and again for RL, **Then** the exports table shows two rows, one per perspective, and the analyses grid row for that analysis is unchanged.
+5. **Given** the submission page, **Then** its exports section lists the exports requested from that submission, and no export requested from another submission, newest first with perspective, requester, request time, client, analysis count, and how many analyses are loaded or failed, and each row opens the export detail page.
+6. **Given** an analysis exported for GR and again for RL, **Then** the exports section shows two rows, one per perspective, and the analyses grid row for that analysis is unchanged.
 
 ### 3. Retry a failed analysis (P2)
 
@@ -95,29 +95,29 @@ One analysis in an export failed: Risk Modeler rejected the request, the shared 
 ## Requirements
 
 - **FR-001**: The export form is reached from a submission's analyses page and offers every finished analysis related to that submission, own, broker, and group alike (P-10).
-- **FR-002**: The form takes one or more analyses, exactly one perspective, a required client chosen from the repository's client list, treaty inception and CRM ID pre-filled from the submission and editable, an optional data name per analysis (O-07), and an optional data vintage. An edited treaty inception or CRM ID is recorded on the export only and never written back to the submission (P-15).
+- **FR-002**: The form takes one or more analyses, exactly one perspective, a required client chosen from the repository's active clients (`ActiveFlag = 'Y'`), treaty inception and CRM ID pre-filled from the submission and editable, an optional data name per analysis (O-07), and an optional data vintage. An edited treaty inception or CRM ID is recorded on the export only and never written back to the submission (P-15).
 - **FR-003**: The perspective choices are the configured exportable codes that every selected analysis has results for (P-02). The first configured set is GU, GR, RL, RP.
 - **FR-004**: An analysis that has an export for the chosen perspective, in any status, is shown as exported with that export's date, requester, and status, and cannot be selected; a submission that names such an analysis is rejected whole, naming the analysis (P-09). Concurrent submissions of the same analysis and perspective produce exactly one export.
-- **FR-005**: An analysis whose Risk Modeler application analysis ID is not a whole number, or whose settings carry no peril code, cannot be exported; the form says why.
+- **FR-005**: An analysis whose Risk Modeler application analysis ID is not a whole number cannot be exported; the form says why.
 - **FR-006**: Submitting an export records, per analysis: requester email, request time, the submission it was requested from (P-16), analysis identifiers and name, perspective, client, treaty inception, treaty year, CRM ID, data name, data vintage, currency, and model vendor. The recorded values are what gets loaded; nothing is recomputed later.
 - **FR-007**: For each analysis the Workbench requests a portfolio-level event loss table export for the chosen perspective from Risk Modeler, downloads the result when Risk Modeler finishes, and keeps the archive permanently on a configured shared drive under the export and analysis identifiers.
 - **FR-008**: The downloaded archive is checked against the analysis: analysis ID and currency must match, the archive must carry its metadata file, and the loss table type must be known. A mismatch fails that analysis with the specific reason and loads nothing.
 - **FR-009**: Loss table type, engine type, and model version are read from the archive and recorded on the export for that analysis. Model version is stored in the decimal form the repository expects (`25.0`), never the engine label.
 - **FR-010**: Every loss row is staged in the repository before load, with the staged row count recorded per file and per analysis. An analysis whose archive holds zero loss rows for the chosen perspective fails at stage with a message naming the perspective and loads nothing; a header row with no loss rows is never written (P-12).
-- **FR-011**: Each staged event is classified historical when the historical event lookup has a row for its event ID, the analysis's model version, and the analysis's peril; otherwise stochastic. A multi-peril group matches on event ID and model version only.
+- **FR-011**: Each staged event is classified historical when the historical event lookup has a row for its event ID and the analysis's model version; otherwise stochastic. Peril is not part of the match: Risk Modeler never reuses an event ID across perils within a model version (research R4).
 - **FR-012**: A load fails, writing nothing, when the lookup holds no rows for the analysis's model version, or when any event matches more than one lookup row; the error names the model version or event ID.
 - **FR-013**: Where loss exceeds exposure value, exposure value is set to the loss and the row is counted (P-03). Where independent or correlated standard deviation is negative on a stochastic row, it is set to 0 and the row is counted (P-04). Loss values are never changed. Historical rows get no standard deviation correction.
 - **FR-014**: The load writes one header row per analysis, all stochastic rows to the stochastic table and all historical rows to the historical table under that header's data ID, as one unit: all committed or none. The data ID is generated by the repository at load and recorded on the export.
 - **FR-015**: Header row values follow the design overview §4.4: client, treaty inception, data vintage, data name, model vendor `RMS`, model version, currency, server, analysis ID, name, description, perspective, CRM ID. Historical rows also carry client, peril, model version, treaty year, treaty inception, data in-force date, event type, event name, and PCS number from the lookup.
 - **FR-016**: Each analysis in an export is processed and committed independently; a failure in one leaves the others unaffected (non-negotiable 4).
-- **FR-017**: The submission page has an exports table listing the exports requested from that submission (P-16) newest first with perspective, requester, request time, client, analysis count, and loaded and failed counts; each row opens the export detail page, which shows the export's perspective, client, treaty inception, CRM ID, requester, and date, and per analysis: status, last change time, archive path, data ID, and the counts in FR-018 (O-06).
+- **FR-017**: The submission page has an exports section listing the exports requested from that submission (P-16) newest first with perspective, requester, request time, client, analysis count, and loaded and failed counts; each row opens the export detail page, which shows the export's ID, perspective, client, treaty inception, CRM ID, data vintage, requester, and date, and per analysis: status, last change time, archive path, data ID, and the counts in FR-018 (O-06).
 - **FR-018**: After load the detail page shows, per analysis: rows staged, stochastic rows, historical rows, rows with exposure raised, rows with standard deviation zeroed. A failed analysis shows its error message.
-- **FR-019**: Retry is offered per failed analysis and resumes from the last completed step: an existing archive is reused, a staged analysis is loaded without re-staging, and an analysis with no usable Risk Modeler export gets a new one. Retry is the only way to re-run an analysis; a second export of it is blocked (FR-004). The Workbench never times out a Risk Modeler export request: an analysis waiting on Risk Modeler is not failed and offers no Retry (P-13).
+- **FR-019**: Retry is offered per failed analysis and resumes from the last completed step: an existing archive is reused, a staged analysis is loaded without re-staging, and an analysis with no usable Risk Modeler export gets a new one. Retry is the only way to re-run an analysis (FR-004, FR-021). An analysis waiting on Risk Modeler is not failed and offers no Retry (P-13).
 - **FR-020**: A processing step interrupted by a crash or restart is re-run automatically from its last completed step, with the same guarantees as Retry; an interrupted load never leaves a partial data set.
 - **FR-021**: A load that has already completed is never repeated: any re-run of a loaded analysis writes nothing and reports success.
 - **FR-022**: The client team can run the load step for a staged analysis themselves, from the repository, without the Workbench; a load run that way is visible to the Workbench as loaded.
 - **FR-023**: Each export's analyses, Risk Modeler jobs, and Workbench jobs are traceable from one export identifier, and the request records carry requester email and time so a repository DBA can trace a data set without a Workbench login.
-- **FR-024**: The Workbench never deletes a downloaded archive, a staged row, or a loaded repository row; retention is decided separately (plan O-03).
+- **FR-024**: The Workbench never deletes a downloaded archive, a row of a staged or loaded analysis, or a loaded repository row; the file and loss rows of an interrupted stage are replaced when that stage re-runs. Retention of staged rows is decided separately (plan O-03).
 
 ## Key Entities
 
@@ -127,7 +127,7 @@ One analysis in an export failed: Risk Modeler rejected the request, the shared 
 - **Staged loss row**: one event from a loss result file with its loss, exposure value, standard deviations, classification, and correction flags.
 - **Data header row** (`Data`): CIC's record of one loaded data set, identified by data ID.
 - **Stochastic loss rows** (`RMSELT`) and **historical loss rows** (`RMS_HistoricalRDS`): CIC's loss tables, both keyed to a data ID.
-- **Historical event lookup** (`Lookup_RMS_HistoricalRDS`): CIC's list of historical events per model version and peril; read-only for the Workbench.
+- **Historical event lookup** (`Lookup_RMS_HistoricalRDS`): CIC's list of historical events per model version, matched on event ID and model version; read-only for the Workbench.
 - **Client**: CIC's client list in the repository; read-only for the Workbench.
 
 ## Success Criteria

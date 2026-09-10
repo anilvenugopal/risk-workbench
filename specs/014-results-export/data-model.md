@@ -93,7 +93,7 @@ AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 | `loss_table_type` | `VARCHAR(3)` NULL, CHECK `('ELT','PLT')` | Stage worker, archive folder name | Stage table and procedure selection |
 | `engine_type` | `VARCHAR(3)` NULL, CHECK `('DLM','HD')` | Stage worker, `metadata.csv` `Engine Type` | Detail page; O-08 |
 | `data_model_version` | `NVARCHAR(10)` NULL | Stage worker, `metadata.csv` `ModelVersion` | `Data.DataModelVersion`; lookup join and assertion |
-| `peril_code` | `NVARCHAR(10)` NOT NULL | `settings_metadata` `perilCode` on submit (form rejects absence) | Lookup join `Peril` (single-peril, when O-11 enables it); `'YY'` skips the term |
+| `peril_code` | `NVARCHAR(10)` NULL | `settings_metadata` `perilCode` on submit | Detail page; traceability (not part of the lookup join, R4) |
 | `region_code` | `NVARCHAR(10)` NULL | `settings_metadata` `regionCode` | Detail page; traceability |
 | `zip_file` | `NVARCHAR(1024)` NULL | Stage worker after download: `{export_id}/{irp_analysis_id}/{filename}` relative to `EXPORT_ARCHIVE_DIR` | Detail page; stage worker reuse; Retry |
 | `stage_status` | `VARCHAR(10)` NOT NULL, CHECK `('pending','failed','staged')` | Route (`pending`), submit worker (`failed`), stage worker (`staged`/`failed`), Retry (`pending`) | Detail page; submit worker row selection; stage/load entry checks |
@@ -148,7 +148,7 @@ Constraints: `UNIQUE (irp_app_analysis_id, perspective_code)` (T-09);
 | `std_dev_zeroed` | `BIT` NOT NULL DEFAULT 0 | Procedure | `manifest.std_dev_zeroed_count` |
 | `inserted_at` | `DATETIME2` DEFAULT `SYSUTCDATETIME()` | — | Audit |
 
-Clustered index on (`manifest_id`, `event_id`). Rows stay after load; a CIC-side purge (O-03) may delete from this table only, never from the manifest or file tables.
+Clustered index on (`manifest_id`, `event_id`). Rows stay after load; a CIC-side purge (O-03) may delete from this table only, never from the manifest or file tables. The one Workbench-side deletion is the stage worker's restart branch (contracts/jobs.md §4), which removes the file and loss rows of an interrupted stage before staging again (spec FR-024).
 
 ### 4.4 `stage.rwb_loss_result_plt_data` — designed, not built (T-13, O-08)
 
@@ -163,7 +163,7 @@ Until built, the stage worker fails an archive whose loss-table folder is
 
 ### 4.5 Procedure
 
-`stage.usp_load_elt_result @manifest_id INT, @use_peril BIT = 0` — contract in
+`stage.usp_load_elt_result @manifest_id INT` — contract in
 [contracts/load-procedure.md](contracts/load-procedure.md). Reads
 `dbo.Lookup_RMS_HistoricalRDS` by two-part name (T-21).
 
@@ -236,7 +236,7 @@ script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 | `id`, `name`, `origin` | `list_comparable_analyses(submission_id=…)` | Only rows whose results state is ready |
 | `irp_id`, `irp_app_analysis_id` | `irp_analysis` | `irp_app_analysis_id` must parse as `int`, else the row is listed disabled with the reason (FR-005) |
 | `perspectives` | `loss_results.perspectives` keys | Intersection input |
-| `peril_code`, `region_code`, `currency` | `_parse_settings(settings_metadata)` | Missing `peril_code` → disabled with the reason |
+| `peril_code`, `region_code`, `currency` | `_parse_settings(settings_metadata)` | Recorded on the manifest; `currency` is checked against the archive at stage |
 | `exported` | Manifest row for (`irp_app_analysis_id`, chosen perspective), from any submission | When set: `requested_at`, `requested_by_email`, derived status, and `export_id` + `requested_from_submission_id` for the link to that export's detail page; row not tickable |
 
 ### ExportSummary — one exports-section row
@@ -249,7 +249,7 @@ first.
 
 ### ExportAnalysisDetail — one detail-page row
 
-Manifest columns plus a derived `status`, evaluated top-down:
+Manifest columns, plus `origin` (own, broker, or group) read from `irp_analysis` over `WORKBENCH` by `manifest.irp_analysis_id`, plus a derived `status`, evaluated top-down:
 
 | Condition | Displayed status |
 |---|---|
@@ -258,6 +258,7 @@ Manifest columns plus a derived `status`, evaluated top-down:
 | `load_status = loading` | loading |
 | `stage_status = staged` | staged |
 | `irp_export_job_id IS NULL` | pending |
+| `export` `irp_job.status` terminal and not `FINISHED` | failed (the stage worker stamps `stage_status = failed` moments later) |
 | `export` `irp_job.status` not terminal | requested from Risk Modeler |
 | `export` `irp_job.status = FINISHED` | downloading and staging |
 

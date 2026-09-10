@@ -194,21 +194,16 @@ WHERE type IN ('S', 'U', 'G') AND name NOT LIKE '##%' ORDER BY name;
    7. LOOKUP CONTENT CHECKS — run only where section 5 found the table.
    Replace <DB> with the database that holds it.
    GOOD: peril_len <= 5 and pcs_len <= 5 (targets are varchar(5));
-         Peril values are Risk Modeler codes (EQ, WS, TY, ...), not words;
          repeats query returns 0 rows.
    ASK : peril_len or pcs_len > 5: "PCS/Peril values wider than the
          RMS_HistoricalRDS columns — how does the workflow tool load them?"
-         (plan O-04). Peril values are display names: tell PremiumIQ (O-11,
-         the join needs a code mapping). Repeats > 0: tell PremiumIQ (O-11,
-         group exports of those events will be refused).
+         (plan O-04). Repeats > 0: tell PremiumIQ (O-11: the load procedure
+         joins the lookup on EventID and ModelVersion only, so an analysis
+         holding one of those events fails its load).
    --------------------------------------------------------------------------- */
 -- SELECT MAX(LEN(Peril)) AS peril_len, MAX(LEN([PCS#])) AS pcs_len,
 --        COUNT(*) AS rows_total, COUNT(DISTINCT ModelVersion) AS model_versions
 -- FROM <DB>.dbo.Lookup_RMS_HistoricalRDS;
---
--- SELECT ModelVersion, Peril, COUNT(*) AS events
--- FROM <DB>.dbo.Lookup_RMS_HistoricalRDS
--- GROUP BY ModelVersion, Peril ORDER BY ModelVersion, Peril;
 --
 -- SELECT EventID, ModelVersion, COUNT(*) AS n
 -- FROM <DB>.dbo.Lookup_RMS_HistoricalRDS
@@ -265,7 +260,7 @@ WHERE type IN ('S', 'U', 'G') AND name NOT LIKE '##%' ORDER BY name;
          with READUNCOMMITTED.
 
    E. Section 7/8 findings (only once data exists)
-      -> Widths > 5, non-code perils, repeated event IDs, unexpected
+      -> Widths > 5, repeated event IDs, unexpected
          DataInforce or Perspective forms: quote the rows and ask how the
          workflow tool handles them.
    ============================================================================ */

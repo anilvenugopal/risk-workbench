@@ -26,12 +26,12 @@ submission). Renders `pages/submission_export_new.html` with:
 - The submission's exportable analyses (data-model.md §7
   `ExportableAnalysis`), own and group rows first, then broker rows grouped by
   RDM name, each a checkbox. A row that cannot be exported (non-integer
-  `irp_app_analysis_id`, missing `perilCode`, no results) is listed disabled
+  `irp_app_analysis_id`, no results) is listed disabled
   with the reason.
 - The §3 fragment rendered once with no selection: perspective select
   disabled, no data-name fields.
-- Client `<select>` from `dbo.Client` (`ActiveFlag = 'Y'` first, then the
-  rest), required.
+- Client `<select>` from `dbo.Client` where `ActiveFlag = 'Y'`, ordered by
+  name, required. Inactive clients are not offered.
 - Treaty inception (date, default `submission.inception_date`), CRM ID (text,
   default the submission's first `submission_crm_id.crm_id`), data vintage
   (date, blank).

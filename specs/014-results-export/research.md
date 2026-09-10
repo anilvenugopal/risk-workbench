@@ -136,14 +136,12 @@ nothing when the row already reads `loaded`.
   connection; the SQLAlchemy execution option is the supported way and the
   one `bootstrap_db.py` already uses. Rejected.
 
-## R4 — Historical classification is a join to CIC's lookup with a one-match assertion first (T-04, T-16)
+## R4 — Historical classification is a join to CIC's lookup with a one-match assertion first (T-04)
 
 **Decision**: An event is `historical` when
 `dbo.Lookup_RMS_HistoricalRDS` in the repository has a row matching
-`EventID`, `ModelVersion = manifest.data_model_version`, and (for a
-single-peril analysis) `Peril = manifest.peril_code`; otherwise `stochastic`.
-A group with `peril_code = 'YY'` joins on event ID and model version only.
-The procedure fails when the lookup has no rows for the model version, and
+`EventID` and `ModelVersion = manifest.data_model_version`; otherwise
+`stochastic`. Peril is not part of the join. The procedure fails when the lookup has no rows for the model version, and
 fails when any stage `event_id` matches more than one lookup row, before the
 classification `UPDATE` runs. The procedure names the lookup by its two-part
 name `dbo.Lookup_RMS_HistoricalRDS` (R15).
@@ -169,9 +167,20 @@ name `dbo.Lookup_RMS_HistoricalRDS` (R15).
 
 - *Moody's event reference API* (note 24 D16) — APIs out; CIC's table is the
   source. Rejected.
+- *A peril term in the join (`Peril = manifest.peril_code` for single-peril
+  analyses, skipped for `YY` groups), held behind a procedure flag
+  `@use_peril` defaulting to off until O-11 confirmed the lookup's peril
+  codes* — dropped 2026-09-10 (user). Moody's `EVENT.csv.gz` reference
+  export (6,099,671 rows, 5,729,443 distinct `EVENTID` + `MODELVERSIONCODE`
+  keys, 2,754 of them `HIST`) has no key under more than one `PERILCODE`, so
+  the term never discriminates against Risk Modeler's numbering. A duplicate
+  typed into CIC's lookup is caught by the one-match assertion. Turning the
+  term on before O-11 was the dangerous choice: a lookup holding display
+  names such as `Windstorm` would match nothing and load every event as
+  stochastic while the model-version assertion still passed. Dropping it
+  removes the flag, the `YY` special case, and the former T-16.
 - *Fetch the group's member perils from `get_regions` and join
-  `Peril IN (...)`* — not built unless O-11 finds repeated event IDs within
-  one model version. Deferred.
+  `Peril IN (...)`* — moot once the join has no peril term. Rejected.
 - *Env var `MSSQL_LOSS_LOOKUP_DATABASE`* — a stored procedure cannot read an
   env var, and the var never existed in code. Rejected.
 - *A synonym `stage.Lookup_RMS_HistoricalRDS` pointing at
@@ -180,13 +189,12 @@ name `dbo.Lookup_RMS_HistoricalRDS` (R15).
   the user confirmed the same day that the lookup lives in the repository
   database; see R15. Rejected.
 
-**Open evidence (O-04, O-11)**: whether the lookup's `Peril` values are Risk
-Modeler codes (`EQ`, `WS`, `TY`) and whether `MAX(LEN(Peril))` and
-`MAX(LEN([PCS#]))` fit the targets' `varchar(5)`. The user planned to run
-both checks on the CIC server on 2026-09-10. Until then the peril term is
-held back behind a procedure-level flag defaulting to off, and `PCS`/`Peril`
-are copied without truncation so an overflow fails the load rather than
-storing a cut value (T-20).
+**Open evidence (O-04, O-11)**: whether `MAX(LEN(Peril))` and
+`MAX(LEN([PCS#]))` in the live lookup fit the targets' `varchar(5)`, and
+whether any `EventID` repeats within one `ModelVersion`. Until the CIC server
+check runs, `PCS`/`Peril` are copied without truncation so an overflow fails
+the load rather than storing a cut value (T-20), and a repeated event ID
+fails the load through the one-match assertion.
 
 ## R5 — Two corrections, both automatic, both counted (spec P-03, P-04)
 
@@ -501,7 +509,7 @@ SQL uses on SQL Server works unchanged over SQLite.
   tables, seeds lookup rows, stages rows through `upload_parquet`, and
   calls `stage.usp_load_elt_result` through `db.execute_procedure`. It
   covers: lookup missing for the model version, one event matching two
-  lookup rows, both corrections and their counts, `YY` join, historical
+  lookup rows, both corrections and their counts, historical
   column mapping and conversions, the claim raising on a second call, the
   `@@TRANCOUNT` guard, `CATCH` writing `failed`, and `loaded` set only on
   commit.

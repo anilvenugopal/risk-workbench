@@ -109,8 +109,8 @@ data ID. Inside `BEGIN TRAN`: raises 50000, nothing written.
 Open [`cic-reference/validate_loss_repo_server.sql`](cic-reference/validate_loss_repo_server.sql)
 in SQL Server Management Studio and run it section by section. Each section
 states the good result and the ask to send CIC when the result is not good;
-section 9 collects the asks. Section 7 (lookup widths, peril codes, repeated
-event IDs) and section 8 (how the workflow tool writes `DataInforce` and
+section 9 collects the asks. Section 7 (lookup widths, repeated event IDs)
+and section 8 (how the workflow tool writes `DataInforce` and
 `Perspective`) run only once CIC has loaded the five tables.
 
 Status 2026-09-09: `CRE_Trial_ELT_Repository` on the CIC server is empty
