@@ -82,6 +82,22 @@ def test_non_integer_app_id_and_missing_results_are_disabled_with_a_reason(deal)
     assert rows[pending].disabled_reason == "results not retrieved yet"
 
 
+def test_a_broker_row_takes_its_app_analysis_id_from_the_metadata_snapshot(deal):
+    rdm_id = seed_rdm_for(deal["submission_id"], "GC RDM")
+    broker = seed_analysis(rdm_id=rdm_id, name="GC_HU", irp_id="38812",
+                           irp_app_analysis_id="38812", perspectives=("GR",),
+                           write_app_column=False)
+    no_id = seed_analysis(rdm_id=rdm_id, name="GC_EQ", irp_id="38813",
+                          irp_app_analysis_id=None, perspectives=("GR",),
+                          write_app_column=False)
+
+    rows = {r.id: r for r in svc.list_exportable_analyses(deal["submission_id"])}
+
+    assert rows[broker].exportable and rows[broker].irp_app_analysis_id == 38812
+    assert rows[no_id].disabled_reason == (
+        "the analysis has no Risk Modeler application analysis ID")
+
+
 def test_unknown_submission_is_none(deal):
     assert svc.list_exportable_analyses(str(uuid.uuid4())) is None
 
@@ -347,3 +363,15 @@ def test_list_exports_groups_this_submissions_exports_newest_first(deal):
     assert (exports[1].analysis_count, exports[1].loaded_count, exports[1].failed_count) == (2, 1, 1)
     assert exports[1].client_name == "Example Re" and not exports[1].in_progress
     assert exports[0].in_progress
+    assert exports[1].progress == "1 loaded · 1 failed"
+    assert exports[0].progress == "1 in progress"
+
+
+def test_list_exports_carries_the_analyses_the_detail_page_shows(deal):
+    export_id = _create(deal, [deal["a"], deal["b"]])
+
+    [summary] = svc.list_exports(deal["submission_id"])
+    detail = svc.get_export_detail(deal["submission_id"], export_id)
+
+    assert ([(a.irp_analysis_id, a.analysis_name, a.status, a.origin) for a in summary.analyses]
+            == [(a.irp_analysis_id, a.analysis_name, a.status, a.origin) for a in detail.analyses])

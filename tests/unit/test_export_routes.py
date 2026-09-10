@@ -148,6 +148,16 @@ def test_fragment_intersection_and_data_name_fields(client, deal):
     assert "hx-swap-oob" not in frag.text
 
 
+def test_fragment_keeps_a_data_name_typed_before_the_next_tick(client, deal):
+    frag = client.get(f"/submissions/{deal['submission_id']}/exports/new/fields",
+                      params=[("analysis_ids", deal["a"]), ("analysis_ids", deal["b"]),
+                              ("perspective", "RL"),
+                              (f"data_name[{deal['a']}]", "AmFam HU GR 2026")])
+    assert 'value="AmFam HU GR 2026"' in frag.text
+    kept = frag.text.split(f'name="data_name[{deal["a"]}]"')[1].split(">")[0]
+    assert 'value="AmFam HU GR 2026"' in kept
+
+
 def test_fragment_empty_intersection_message(client, deal):
     only_gu = seed_analysis(edm_id=deal["edm_id"], name="GU only", irp_app_analysis_id="7",
                             perspectives=("GU",))
@@ -167,7 +177,7 @@ def test_fragment_marks_an_analysis_exported_from_another_submission(client, dea
                               ("perspective", "GR")])
     assert f'href="/submissions/{other}/exports/{row["export_id"]}"' in frag.text
     assert "r.patel@example.com" in frag.text and "loaded" in frag.text
-    oob = re.search(rf'<div class="drow-static" id="export-row-{deal["a"]}" hx-swap-oob="true">(.*?)</div>\s*</div>',
+    oob = re.search(rf'id="export-row-{deal["a"]}"[^>]*hx-swap-oob="true">(.*?)</div>\s*</div>',
                     frag.text, re.S)
     assert oob is not None and "disabled" in oob.group(1) and "checked" not in oob.group(1)
     assert f'name="data_name[{deal["a"]}]"' not in frag.text
@@ -283,6 +293,20 @@ def test_detail_page_renders_pending_rows_and_header(client, export):
     assert "Retry" not in page.text
 
 
+def test_detail_rows_show_the_recorded_attributes(client, export):
+    execute_command(
+        "UPDATE stage.rwb_loss_result_manifest SET data_name = 'AmFam HU GR 2026', "
+        "data_model_version = '25.0', engine_type = 'DLM' WHERE irp_analysis_id = :a",
+        {"a": export["a"]}, connection="LOSS")
+
+    frag = client.get(f"{export['url']}/analyses")
+
+    row = next(chunk for chunk in frag.text.split('id="export-analysis-row-')
+               if chunk.startswith(export["a"]))
+    for value in ("AmFam HU GR 2026", "41958", "USD", "25.0", "DLM", "EQ", "NAEQ"):
+        assert f">{value}<" in row
+
+
 def test_detail_page_404s_for_another_submissions_export(client, export):
     other = seed_submission(client.db.user_a, name="Other")
     page = client.get(f"/submissions/{other}/exports/{export['export_id']}")
@@ -326,14 +350,14 @@ def test_exports_section_lists_this_submissions_exports_newest_first(client, exp
 
     section = client.get(f"/submissions/{export['submission_id']}/exports")
     assert section.status_code == 200
-    links = re.findall(r'/exports/([0-9a-f-]{36})">(\w+)</a>', section.text)
+    links = re.findall(r'/exports/([0-9a-f-]{36})"[^>]*>(\w+)</a>', section.text)
     assert links == [(export["export_id"], "GR"), (older["export_id"], "RL")]
     assert "RP" not in section.text
     assert 'hx-trigger="every 10s"' in section.text  # the GR export is still in progress
     row = section.text.split(f'/exports/{older["export_id"]}')[1]
     assert "r.patel@x.com" in row and "Example Re" in row
-    assert re.search(r"<span>1</span>\s*<span>1</span>\s*<span>0</span>", row)
-    assert section.text.count('<div class="drow-static">') == 2
+    assert re.search(r"<span>1</span>\s*<span class=\"l\">1 loaded</span>", row)
+    assert section.text.count('<details class="drow"') == 2
 
 
 def test_exports_section_empty_state_without_polling(client, deal):
@@ -347,7 +371,7 @@ def test_exports_section_stops_polling_when_every_analysis_is_terminal(client, e
                     connection="LOSS")
     section = client.get(f"/submissions/{export['submission_id']}/exports")
     assert "hx-trigger" not in section.text
-    assert re.search(r"<span>2</span>\s*<span>0</span>\s*<span>2</span>", section.text)
+    assert re.search(r"<span>2</span>\s*<span class=\"l\">2 failed</span>", section.text)
 
 
 def test_submission_page_keeps_the_analyses_grid_and_loads_the_exports_section(client, export):

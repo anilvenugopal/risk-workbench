@@ -67,7 +67,11 @@ def seed_analysis(*, edm_id: str | None = None, rdm_id: str | None = None,
                   irp_id: str | None = "41958", irp_app_analysis_id: str | None = "41958",
                   perspectives: tuple[str, ...] | None = ("GU", "GR", "RL"),
                   currency: str | None = "USD", peril: str = "EQ", region: str = "NAEQ",
-                  is_group: int = 0, inserted_at: str = NOW) -> str:
+                  is_group: int = 0, inserted_at: str = NOW,
+                  write_app_column: bool = True) -> str:
+    """``write_app_column=False`` is the RDM-backfilled broker row: only the
+    own-executed finalize path writes ``irp_app_analysis_id``, so a broker row
+    carries the id in its metadata snapshot alone (spec 012 FR-023)."""
     analysis_id = str(uuid.uuid4())
     settings = {"perilCode": peril, "regionCode": region, "engineType": "DLM",
                 "engineVersion": "RL25", "appAnalysisId": irp_app_analysis_id}
@@ -79,7 +83,8 @@ def seed_analysis(*, edm_id: str | None = None, rdm_id: str | None = None,
         "updated_at) VALUES (:id, :edm, :rdm, :irp, :app, :n, :f, 'ready', :settings, :g, "
         ":results, :at, :at)",
         {"id": analysis_id, "edm": edm_id, "rdm": rdm_id, "irp": irp_id,
-         "app": irp_app_analysis_id, "n": name, "f": full_name,
+         "app": (irp_app_analysis_id if write_app_column else None),
+         "n": name, "f": full_name,
          "settings": json.dumps(settings), "g": is_group,
          "results": (json.dumps(loss_results(*perspectives)) if perspectives else None),
          "at": inserted_at}, connection="WORKBENCH")
