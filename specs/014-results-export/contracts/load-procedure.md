@@ -41,11 +41,13 @@ The `@@TRANCOUNT` check runs before `SET XACT_ABORT ON`: `THROW` honours
 6. `UPDATE manifest SET load_status = 'loaded', loaded_at = SYSUTCDATETIME(),
    updated_at = SYSUTCDATETIME()`; `COMMIT`.
 
-`CATCH`: `IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;` then
-`UPDATE manifest SET load_status = 'failed', error_message = ERROR_MESSAGE(),
-updated_at = SYSUTCDATETIME() WHERE manifest_id = @manifest_id AND load_status = 'loading';`
-then `THROW;`. The stamp reaches only the row this call claimed: a refused
-claim (50001) leaves a row that is still staging, or already loaded, alone.
+`CATCH`: `IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;` then, only when the
+claim in step 1 affected a row, `UPDATE manifest SET load_status = 'failed',
+error_message = ERROR_MESSAGE(), updated_at = SYSUTCDATETIME() WHERE
+manifest_id = @manifest_id;` then `THROW;`. The claim is remembered in a
+local variable because the rollback has already reverted the row's
+`loading` value. A refused claim (50001) leaves a row that is still
+staging, or already loaded, alone.
 
 Guarantees: exactly one `Data` row per successful call; zero target rows on
 failure; `loaded` and `data_id` visible only after commit; the row never

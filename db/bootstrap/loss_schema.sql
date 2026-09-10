@@ -151,6 +151,7 @@ BEGIN
 
     SET XACT_ABORT ON;
     DECLARE @msg NVARCHAR(2048);
+    DECLARE @claimed BIT = 0;
 
     BEGIN TRY
         BEGIN TRANSACTION;
@@ -162,8 +163,9 @@ BEGIN
         WHERE manifest_id = @manifest_id
           AND stage_status = 'staged'
           AND load_status IN ('pending', 'failed');
+        IF @@ROWCOUNT = 1 SET @claimed = 1;
 
-        IF @@ROWCOUNT = 0
+        IF @claimed = 0
         BEGIN
             DECLARE @stage_status VARCHAR(10), @load_status VARCHAR(10), @loaded_data_id INT;
             SELECT @stage_status = stage_status, @load_status = load_status,
@@ -287,11 +289,13 @@ BEGIN
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
 
         -- Only the row this call claimed: a 50001 on a row that is still staging
-        -- or already loaded leaves that row's status alone.
+        -- or already loaded leaves that row's status alone. The rollback has
+        -- already undone the 'loading' claim, so the row itself cannot say so.
         DECLARE @error NVARCHAR(4000) = ERROR_MESSAGE();
-        UPDATE stage.rwb_loss_result_manifest
-        SET load_status = 'failed', error_message = @error, updated_at = SYSUTCDATETIME()
-        WHERE manifest_id = @manifest_id AND load_status = 'loading';
+        IF @claimed = 1
+            UPDATE stage.rwb_loss_result_manifest
+            SET load_status = 'failed', error_message = @error, updated_at = SYSUTCDATETIME()
+            WHERE manifest_id = @manifest_id;
 
         THROW;
     END CATCH;
