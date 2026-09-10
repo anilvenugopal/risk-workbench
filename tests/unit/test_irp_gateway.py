@@ -686,3 +686,39 @@ def test_lob_lists_over_the_free_text_cap_are_not_stored():
     # breakout enumerates from breakout_values, so lob must not survive it.
     assert "lob" not in summary["1"]["breakout_values"]
     assert "lob" in summary["2"]["breakout_values"]
+
+
+# ── resolve_app_analysis_id (#101) ──────────────────────────────────────────────
+
+def _search_gw(rows):
+    calls = []
+
+    def search_analyses_paginated(filter=""):
+        calls.append(filter)
+        return rows
+
+    gw = _gw(analysis=SimpleNamespace(
+        search_analyses_paginated=search_analyses_paginated))
+    return gw, calls
+
+
+def test_resolve_app_analysis_id_returns_the_platform_id_on_one_match():
+    gw, calls = _search_gw([{"analysisId": 90001, "appAnalysisId": 35774}])
+
+    assert gw.resolve_app_analysis_id(app_analysis_id=35774) == "90001"
+    assert calls == ["appAnalysisId=35774"]
+
+
+def test_resolve_app_analysis_id_raises_on_no_match():
+    gw, _ = _search_gw([])
+    with pytest.raises(LookupError):
+        gw.resolve_app_analysis_id(app_analysis_id=99999)
+
+
+def test_resolve_app_analysis_id_raises_on_two_matches():
+    # The wheel's get_analysis_by_app_analysis_id would take results[0]. A
+    # DISTINCT type from the no-match LookupError: the id the analyst typed is
+    # correct, so the dialog must not send them back to re-check it.
+    gw, _ = _search_gw([{"analysisId": 1}, {"analysisId": 2}])
+    with pytest.raises(irp_gateway.AmbiguousAnalysisId):
+        gw.resolve_app_analysis_id(app_analysis_id=35774)
