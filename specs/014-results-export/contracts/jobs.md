@@ -107,7 +107,7 @@ re-raises after stamping).
    `{root}/{zip_file}` exists, skip the download. Else
    `irp_gateway.download_export_results(job_id, output_dir=f"{root}/{export_id}/{irp_analysis_id}")`
    and `UPDATE` `zip_file` to the returned path relative to the root.
-3. Unzip into `{settings.submission_outputs_base}/exports/{export_id}/{irp_analysis_id}/`.
+3. Unzip into `{settings.export_staging_dir}/{export_id}/{irp_analysis_id}/`.
    A file that is not a zip archive fails the analysis and clears `zip_file`,
    so Retry downloads it again instead of reusing it.
 4. Locate exactly one top-level folder containing one loss-table folder

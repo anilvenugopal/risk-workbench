@@ -120,7 +120,7 @@ def submit_results_export(rwb_job_id: str) -> None:
 
 
 def _working_dir(export_id: str, irp_analysis_id: str) -> Path:
-    return Path(settings.submission_outputs_base) / "exports" / export_id / irp_analysis_id
+    return Path(settings.export_staging_dir) / export_id / irp_analysis_id
 
 
 def _remove_dir(path: Path) -> None:
@@ -243,6 +243,9 @@ def _stage(manifest: dict, irp_job_id: str) -> None:
     root = Path(settings.export_archive_dir or "")
     if not settings.export_archive_dir or not root.is_dir():
         raise StageFailure(f"Archive root {settings.export_archive_dir or '(unset)'} "
+                           "is not available")
+    if not settings.export_staging_dir or not Path(settings.export_staging_dir).is_dir():
+        raise StageFailure(f"Staging root {settings.export_staging_dir or '(unset)'} "
                            "is not available")
     archive = _archive_path(manifest, job, root)
 

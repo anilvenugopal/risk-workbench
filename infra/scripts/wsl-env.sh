@@ -27,7 +27,3 @@ set +a
 export MSSQL_WORKBENCH_SERVER=localhost
 export MSSQL_EXPOSURE_SERVER=localhost
 export MSSQL_LOSS_SERVER=localhost
-
-# Loss results export (spec 014): dev archive root under the rwb-data volume path.
-export EXPORT_PERSPECTIVE_CODES="${EXPORT_PERSPECTIVE_CODES:-GU,GR,RL,RP}"
-export EXPORT_ARCHIVE_DIR="${EXPORT_ARCHIVE_DIR:-/workspace/data/export_archive}"

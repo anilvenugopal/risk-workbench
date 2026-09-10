@@ -58,8 +58,6 @@ class Settings(BaseSettings):
     redis_url: str = "redis://127.0.0.1:6379/0"
 
     # ── Paths ─────────────────────────────────────────────────────────────────
-    submission_outputs_base: str = "/workspace/data/outputs"
-
     # Read-only shared drive the broker files are browsed from (FR-008/FR-009/R11).
     # The app never writes/moves/deletes under this root — browsing is a live
     # directory listing. Empty in dev without a mounted drive.
@@ -135,6 +133,11 @@ class Settings(BaseSettings):
     # worker fails an analysis when it is empty or not a directory; it never
     # creates the directory (an unmounted share would otherwise fill local disk).
     export_archive_dir: str = ""
+    # Local disk the archives are unzipped into, under
+    # {export_id}/{irp_analysis_id}/, and removed from once the analysis is
+    # staged (T-15). Created by whoever runs the app; the stage worker fails an
+    # analysis when it is empty or not a directory, and never creates the root.
+    export_staging_dir: str = ""
 
     @field_validator("export_perspective_codes", mode="before")
     @classmethod

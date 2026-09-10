@@ -57,7 +57,7 @@ No schema change.
 |---|---|---|---|
 | `export_perspective_codes` | `EXPORT_PERSPECTIVE_CODES` | `GU,GR,RL,RP` | Codes the form may offer (T-10) |
 | `export_archive_dir` | `EXPORT_ARCHIVE_DIR` | `""` (stage worker fails when empty or missing) | Root for permanent archives (T-15). Production: the share mount; dev: `/workspace/data/export_archive` under the `rwb-data` volume |
-| `submission_outputs_base` (existing) | — | `/workspace/data/outputs` | Transient extraction under `exports/{export_id}/{irp_analysis_id}/` |
+| `EXPORT_STAGING_DIR` | `export_staging_dir` | — (unset) | Transient extraction under `{export_id}/{irp_analysis_id}/`; the stage worker fails the analysis when it is not a directory and never creates it |
 | `risk_modeler_base_url` (existing) | `RISK_MODELER_BASE_URL` | — | `manifest.server` → `Data.Server` |
 
 ## 4. Loss repository `stage` schema

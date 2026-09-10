@@ -29,12 +29,14 @@ from tests.unit.export_rows import (
 @pytest.fixture()
 def staging(iteration2_db, loss_db, fake_irp, tmp_path, monkeypatch):
     """An export whose Risk Modeler job has FINISHED and whose stage job is
-    pending; the archive root and the outputs base point at tmp_path."""
+    pending; the archive root and the staging root point at tmp_path."""
     monkeypatch.setattr(elt, "upload_parquet", sqlite_upload_parquet)
     root = tmp_path / "archive"
     root.mkdir()
     monkeypatch.setattr(settings, "export_archive_dir", str(root))
-    monkeypatch.setattr(settings, "submission_outputs_base", str(tmp_path / "outputs"))
+    staging_root = tmp_path / "staging"
+    staging_root.mkdir()
+    monkeypatch.setattr(settings, "export_staging_dir", str(staging_root))
     fake_irp.export_archive_path = build_archive(tmp_path / "fixture")
 
     submission_id = seed_submission(iteration2_db.user_a)
@@ -121,8 +123,7 @@ def test_happy_path_stages_files_and_rows_and_enqueues_the_load(staging, fake_ir
     assert json.loads(load[0]["input_data"]) == {
         "export_id": staging["export_id"], "irp_analysis_id": staging["analysis_id"],
         "manifest_id": m["manifest_id"]}
-    assert not (Path(settings.submission_outputs_base) / "exports").exists() or not any(
-        (Path(settings.submission_outputs_base) / "exports").rglob("*.parquet"))
+    assert not any(Path(settings.export_staging_dir).rglob("*.parquet"))
 
 
 def test_several_chunks_stage_in_order(staging, fake_irp):
@@ -151,6 +152,11 @@ def test_export_job_failed_without_detail_names_job_and_status(staging):
 
 def test_missing_archive_root_fails_before_any_download(staging, fake_irp, monkeypatch):
     monkeypatch.setattr(settings, "export_archive_dir", str(staging["tmp"] / "missing"))
+    _fail(staging, "is not available")
+
+
+def test_missing_staging_root_fails_before_any_download(staging, fake_irp, monkeypatch):
+    monkeypatch.setattr(settings, "export_staging_dir", str(staging["tmp"] / "missing"))
     _fail(staging, "is not available")
     assert fake_irp.export_downloads == []
 
