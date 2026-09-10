@@ -214,31 +214,77 @@ class TestRwbJobsPage:
 
 
 class TestRwbJobsSort:
-    def test_sort_header_selects_only_the_table(self, iteration2_db):
-        # The header links back to the full page route, so without hx-select
-        # htmx swaps the whole document into #rwb-jobs-live.
-        resp = TestClient(_make_app()).get("/workflows/rwb-jobs")
-        header = resp.text.split('class="sort-th', 1)[1]
-        assert 'hx-select="#rwb-jobs-live"' in header.split("</a>", 1)[0]
+    def test_request_naming_the_table_gets_the_table_alone(self, iteration2_db):
+        # Naming #rwb-jobs-live as the HTMX target returns the fragment without
+        # the nav shell, and pushes the list's own URL.
+        resp = TestClient(_make_app()).get(
+            "/workflows/rwb-jobs?owner=any&sort=elapsed&dir=desc",
+            headers={"HX-Target": "rwb-jobs-live"})
 
-    def test_poll_and_action_urls_carry_the_active_sort(self, iteration2_db):
-        # The 3s poll and the cancel/resubmit posts each re-render the table
-        # from their own request, so their URLs have to carry sort/dir.
+        assert "<html" not in resp.text
+        assert 'id="rwb-jobs-live"' in resp.text
+        assert resp.headers["HX-Push-Url"] == (
+            "/workflows/rwb-jobs?owner=any&sort=elapsed&dir=desc")
+
+    def test_no_sort_param_leaves_the_query_order_in_place(self, iteration2_db):
+        # Without an explicit sort the rows keep list_rwb_jobs_for_monitoring's
+        # own ORDER BY (job type, then status), so no header renders as sorted.
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+
+        assert 'aria-sort="none"' in resp.text
+        assert 'aria-sort="ascending"' not in resp.text
+        assert 'aria-sort="descending"' not in resp.text
+        assert "is-sorted" not in resp.text
+
+    def test_poll_url_carries_the_active_sort(self, iteration2_db):
+        # The 3s poll re-renders the table from its own request, so its URL has
+        # to carry sort/dir. Cancel and resubmit do not: they swap one row,
+        # re-read by id.
         job_id = enqueue_rwb_job(requestor_type="analyst_request",
                                  requestor_id=str(uuid.uuid4()),
                                  rwb_job_type="dummy_wait", **_NO_LINK)
         claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
-        sorted_query = "owner=any&amp;sort=elapsed&amp;dir=desc"
 
         resp = TestClient(_make_app()).get(
             "/workflows/rwb-jobs?owner=any&sort=elapsed&dir=desc")
-        assert f"/workflows/rwb-jobs/table?{sorted_query}" in resp.text
 
+        assert ("/workflows/rwb-jobs/table?owner=any&amp;sort=elapsed&amp;dir=desc"
+                in resp.text)
+
+    def test_a_queued_only_page_still_polls(self, iteration2_db):
+        # pending is non-terminal: without polling, a queued job starting would
+        # not show until the analyst reloaded.
+        enqueue_rwb_job(requestor_type="analyst_request",
+                        requestor_id=str(uuid.uuid4()),
+                        rwb_job_type="dummy_wait", **_NO_LINK)
+
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+
+        assert 'hx-trigger="every 3s"' in resp.text
+
+    def test_an_all_terminal_page_stops_polling(self, iteration2_db):
+        job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                 requestor_id=str(uuid.uuid4()),
+                                 rwb_job_type="dummy_wait", **_NO_LINK)
+        claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+        complete_rwb_job(rwb_job_id=job_id, status="succeeded")
+
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+
+        assert 'hx-trigger="every 3s"' not in resp.text
+
+    def test_cancel_and_resubmit_swap_only_their_own_row(self, iteration2_db):
+        job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                 requestor_id=str(uuid.uuid4()),
+                                 rwb_job_type="dummy_wait", **_NO_LINK)
+        claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
         complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
-        resp = TestClient(_make_app()).get(
-            "/workflows/rwb-jobs?owner=any&sort=elapsed&dir=desc")
-        assert f"/workflows/rwb-jobs/{job_id}/cancel?{sorted_query}" in resp.text
-        assert f"/workflows/rwb-jobs/{job_id}/resubmit?{sorted_query}" in resp.text
+
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+
+        assert f'hx-post="/workflows/rwb-jobs/{job_id}/cancel"' in resp.text
+        assert f'hx-post="/workflows/rwb-jobs/{job_id}/resubmit"' in resp.text
+        assert 'hx-target="closest tr"' in resp.text
 
 
 class TestRwbJobsCancel:
@@ -257,6 +303,20 @@ class TestRwbJobsCancel:
                           {"id": job_id}, connection="WORKBENCH")
         assert row["status_code"] == "cancelled"
 
+    def test_cancel_returns_only_the_changed_row(self, iteration2_db):
+        from app.auth.csrf import generate_csrf_token
+
+        job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                 requestor_id=str(uuid.uuid4()),
+                                 rwb_job_type="dummy_wait", **_NO_LINK)
+        resp = TestClient(_make_app()).post(
+            f"/workflows/rwb-jobs/{job_id}/cancel",
+            data={"csrf_token": generate_csrf_token()})
+
+        assert "<table" not in resp.text
+        assert resp.text.strip().startswith("<tr")
+        assert "status-chip--job-cancelled" in resp.text
+
     def test_cancel_rejects_invalid_csrf(self, iteration2_db):
         from db import execute_one
 
@@ -264,10 +324,16 @@ class TestRwbJobsCancel:
                                  requestor_id=str(uuid.uuid4()),
                                  rwb_job_type="dummy_wait", **_NO_LINK)
         client = TestClient(_make_app())
-        client.post(f"/workflows/rwb-jobs/{job_id}/cancel", data={"csrf_token": "bad"})
+        resp = client.post(f"/workflows/rwb-jobs/{job_id}/cancel",
+                           data={"csrf_token": "bad"})
+
+        # 204 + HX-Refresh, the same answer every other fragment-swapping POST
+        # gives — a rejected token must not read as a successful cancel.
+        assert resp.status_code == 204
+        assert resp.headers["HX-Refresh"] == "true"
         row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
                           {"id": job_id}, connection="WORKBENCH")
-        assert row["status_code"] == "pending"  # unchanged — CSRF rejected the write
+        assert row["status_code"] == "pending"
 
 
 class TestRwbJobsResubmit:
