@@ -302,7 +302,8 @@ class TestMonitoringRead:
 
         rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
 
-        assert [r["id"] for r in rows] == [job_id]
+        # SQL Server hands UNIQUEIDENTIFIER back uppercase.
+        assert [str(r["id"]).lower() for r in rows] == [job_id.lower()]
         assert rows[0]["is_dead"] == 0
 
     def test_owner_filter_excludes_a_job_with_no_submission(self, cleanup_rwb):
@@ -328,6 +329,7 @@ class TestMonitoringRead:
         job_id, _ = _queued(cleanup_rwb)
         claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated
 
-        ids = {r["id"] for r in list_rwb_jobs_for_monitoring(status_codes=["dead"])}
+        ids = {str(r["id"]).lower()
+               for r in list_rwb_jobs_for_monitoring(status_codes=["dead"])}
 
-        assert job_id in ids
+        assert job_id.lower() in ids
