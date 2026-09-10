@@ -135,6 +135,13 @@ class ExportAnalysisDetail:
     updated_at: Any
     irp_export_job_id: str | None
     zip_file: str | None
+    data_name: str | None
+    irp_app_analysis_id: int | None
+    data_currency: str | None
+    data_model_version: str | None
+    engine_type: str | None
+    peril_code: str | None
+    region_code: str | None
     data_id: int | None
     staged_row_count: int | None
     stochastic_row_count: int | None
@@ -185,13 +192,31 @@ class ExportSummary:
     requested_by_email: str
     requested_at: Any
     client_name: str | None
-    analysis_count: int
-    loaded_count: int
-    failed_count: int
+    analyses: list[ExportAnalysisDetail] = field(default_factory=list)
+
+    @property
+    def analysis_count(self) -> int:
+        return len(self.analyses)
+
+    @property
+    def loaded_count(self) -> int:
+        return sum(1 for a in self.analyses if a.status == LOADED)
+
+    @property
+    def failed_count(self) -> int:
+        return sum(1 for a in self.analyses if a.status == FAILED)
 
     @property
     def in_progress(self) -> bool:
-        return self.analysis_count > self.loaded_count + self.failed_count
+        return any(not a.is_terminal for a in self.analyses)
+
+    @property
+    def progress(self) -> str:
+        """The roll-up the exports section shows in place of a status column."""
+        counts = ((self.loaded_count, "loaded"), (self.failed_count, "failed"),
+                  (self.analysis_count - self.loaded_count - self.failed_count,
+                   "in progress"))
+        return " · ".join(f"{n} {label}" for n, label in counts if n)
 
 
 # ── status derivation ────────────────────────────────────────────────────────
@@ -269,7 +294,11 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         loss_results = _parse_json_dict(d.get("loss_results"), "loss_results") or {}
         perspectives = [code for code, data in (loss_results.get("perspectives") or {}).items()
                         if data]
-        app_id, reason = _app_analysis_id(d.get("irp_app_analysis_id"))
+        # The column, else the metadata snapshot's appAnalysisId (spec 012
+        # FR-023): only the own-executed finalize path writes the column, so
+        # every RDM-backfilled broker row carries the id in its snapshot alone.
+        app_id, reason = _app_analysis_id(
+            d.get("irp_app_analysis_id") or (parsed or {}).get("appAnalysisId"))
         if r.results_state == "failed":
             reason = "results retrieval failed"
         elif r.results_state != "ready" or not perspectives:
@@ -459,15 +488,22 @@ def _raise_if_exported(selected: list[ExportableAnalysis], perspective_code: str
 
 
 def list_exports(submission_id: Any) -> list[ExportSummary]:
-    """One row per export requested from this submission, newest first (P-16)."""
-    rows = execute(
-        "SELECT m.export_id, m.perspective_code, m.requested_by_email, m.requested_at, "
-        "m.stage_status, m.load_status, c.ClientName AS client_name "
+    """One row per export requested from this submission, newest first (P-16),
+    each carrying its analyses so the section can expand to them. The analyses
+    are built by the same helper the detail page uses, so the two pages can
+    never disagree about a status."""
+    rows = [dict(r) for r in execute(
+        "SELECT m.*, c.ClientName AS client_name "
         f"FROM stage.rwb_loss_result_manifest m {read_uncommitted_hint('LOSS')} "
         "LEFT JOIN dbo.Client c ON c.ClientID = m.client_id "
         "WHERE m.requested_from_submission_id = :s "
-        "ORDER BY m.requested_at DESC, m.export_id, m.manifest_id",
-        {"s": _uid(submission_id)}, connection="LOSS")
+        "ORDER BY m.requested_at DESC, m.export_id, "
+        "m.analysis_description, m.analysis_name, m.manifest_id",
+        {"s": _uid(submission_id)}, connection="LOSS")]
+    if not rows:
+        return []
+    jobs = _export_jobs(rows)
+    origins = _origins([_uid(r["irp_analysis_id"]) for r in rows])
     summaries: dict[str, ExportSummary] = {}
     for r in rows:
         key = _uid(r["export_id"])
@@ -476,13 +512,8 @@ def list_exports(submission_id: Any) -> list[ExportSummary]:
             summary = summaries[key] = ExportSummary(
                 export_id=key, perspective_code=r["perspective_code"],
                 requested_by_email=r["requested_by_email"], requested_at=r["requested_at"],
-                client_name=r["client_name"], analysis_count=0, loaded_count=0,
-                failed_count=0)
-        summary.analysis_count += 1
-        if r["load_status"] == "loaded":
-            summary.loaded_count += 1
-        elif r["stage_status"] == "failed" or r["load_status"] == "failed":
-            summary.failed_count += 1
+                client_name=r["client_name"])
+        summary.analyses.append(_analysis_detail(r, jobs, origins))
     return list(summaries.values())
 
 
@@ -506,6 +537,10 @@ def _analysis_detail(row: dict, jobs: dict[str, dict], origins: dict[str, str]
         origin=origins.get(_uid(row["irp_analysis_id"]), "own"),
         status=derive_status(row, job), updated_at=row["updated_at"],
         irp_export_job_id=row["irp_export_job_id"], zip_file=row["zip_file"],
+        data_name=row["data_name"], irp_app_analysis_id=row["irp_app_analysis_id"],
+        data_currency=row["data_currency"], data_model_version=row["data_model_version"],
+        engine_type=row["engine_type"], peril_code=row["peril_code"],
+        region_code=row["region_code"],
         data_id=row["data_id"], staged_row_count=row["staged_row_count"],
         stochastic_row_count=row["stochastic_row_count"],
         historical_row_count=row["historical_row_count"],

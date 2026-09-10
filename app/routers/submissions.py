@@ -1477,6 +1477,13 @@ def _export_nav(request: Request, key: str, submission, last_label: str) -> dict
     return nav
 
 
+def _data_names(items) -> dict:
+    """The per-analysis data names out of `data_name[<analysis_id>]` keys, from a
+    submitted form or from the cart fragment's query string."""
+    return {key[len("data_name["):-1]: value for key, value in items
+            if key.startswith("data_name[") and key.endswith("]")}
+
+
 def _export_fields_context(analyses: list, selected_ids, perspective: str,
                            data_names: dict | None = None) -> dict:
     wanted = {_uid(v) for v in selected_ids}
@@ -1531,7 +1538,8 @@ def export_new_fields(request: Request, submission_id: str):
     return _partial(request, "partials/export_form_fields.html", {
         "submission_id": submission_id,
         **_export_fields_context(analyses, request.query_params.getlist("analysis_ids"),
-                                 request.query_params.get("perspective", "")),
+                                 request.query_params.get("perspective", ""),
+                                 _data_names(request.query_params.multi_items())),
     })
 
 
@@ -1545,8 +1553,7 @@ async def create_export(request: Request, submission_id: str):
     treaty_incept_raw = (form.get("treaty_incept") or "").strip()
     data_vintage_raw = (form.get("data_vintage") or "").strip()
     crm_id = form.get("crm_id") or ""
-    data_names = {key[len("data_name["):-1]: value for key, value in form.multi_items()
-                  if key.startswith("data_name[") and key.endswith("]")}
+    data_names = _data_names(form.multi_items())
     reshow = partial(
         _export_form_response, request, submission_id, selected_ids=analysis_ids,
         perspective=perspective, data_names=data_names, status_code=422,
