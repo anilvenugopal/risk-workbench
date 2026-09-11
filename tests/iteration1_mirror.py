@@ -157,7 +157,8 @@ ITERATION2_SCHEMA = [
         settings_metadata TEXT, is_group INTEGER, exposure_resource_id TEXT,
         irp_portfolio_id TEXT, analysis_template_id TEXT, execution_id TEXT,
         execution_item_no INTEGER, failure_reason TEXT,
-        loss_results TEXT, submitted_settings TEXT, deleted_at TEXT,
+        loss_results TEXT, submitted_settings TEXT, imported_at TEXT,
+        deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
         UNIQUE (rdm_id, irp_id)
     )""",

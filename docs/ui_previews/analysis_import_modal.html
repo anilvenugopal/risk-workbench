@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import Analyses Modal · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   Refresh this :root block whenever the app's tokens change.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+/* ── base ─────────────────────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+.wrap{max-width:1100px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1)}
+
+/* ── component kit (subset of components.css, built on the tokens) ──────────── */
+.badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid transparent;white-space:nowrap}
+.badge--neutral{background:var(--color-neutral-bg);color:var(--color-neutral-text);border-color:var(--color-neutral-border)}
+.badge--brand{background:var(--color-brand-wash);color:var(--color-brand);border-color:var(--color-brand-border)}
+.badge--positive{background:var(--color-positive-wash);color:var(--color-positive);border-color:var(--color-positive-border)}
+.badge--warning{background:var(--color-warning-wash);color:var(--color-warning);border-color:var(--color-warning-border)}
+.badge--negative{background:var(--color-negative-wash);color:var(--color-negative);border-color:var(--color-negative-border)}
+.badge--info{background:var(--color-info-bg);color:var(--color-info);border-color:var(--color-info-border)}
+
+.btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer;border:1px solid transparent;transition:background var(--dur-fast,120ms) ease}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn--secondary{color:var(--text-secondary);border-color:var(--border-default);background:transparent}
+.btn--secondary:hover:not(:disabled){background:var(--surface-hover)}
+.btn--primary{color:var(--btn-primary-fg);background:var(--btn-primary-bg)}
+.btn--primary:hover:not(:disabled){background:var(--color-brand-hover)}
+.btn--danger{background:var(--color-danger);color:#fff;border-color:var(--color-danger)}
+
+.card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-4)}
+.field{display:flex;flex-direction:column;gap:var(--space-1);margin-bottom:var(--space-3)}
+.field label{font-size:var(--fs-caption);letter-spacing:.04em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.field input{border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-recessed);padding:var(--space-2) var(--space-3);font:inherit;color:var(--text-primary)}
+.field input:focus{outline:none;border-color:var(--color-brand);box-shadow:var(--ring-focus)}
+
+/* mini modal (shared-kit convention: .modal-card / .modal-header / .modal-footer) */
+.modal-card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:340px;display:flex;flex-direction:column;overflow:hidden}
+.modal-header{display:flex;align-items:center;padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-faint)}
+.modal-title{flex:1;font-size:var(--fs-label);font-weight:var(--fw-semibold)}
+.modal-warning{padding:var(--space-2) var(--space-4);font-size:var(--fs-caption);color:var(--color-warning);background:var(--color-warning-wash);border-bottom:1px solid var(--color-warning-border)}
+.modal-body{padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;gap:var(--space-2);min-height:96px}
+.modal-error{padding:var(--space-2) var(--space-4);font-size:var(--fs-caption);color:var(--color-negative);background:var(--color-negative-wash);border-top:1px solid var(--color-negative-border)}
+.modal-footer{display:flex;justify-content:flex-end;gap:var(--space-2);padding:var(--space-3) var(--space-4);border-top:1px solid var(--border-faint)}
+
+.empty{color:var(--text-tertiary);font-size:var(--fs-label);text-align:center;padding:var(--space-4)}
+.spinner{width:18px;height:18px;border:2px solid var(--color-brand-border);border-top-color:var(--color-brand);border-radius:50%;animation:spin .7s linear infinite;margin:var(--space-3) auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* states board */
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:var(--space-6);margin-top:var(--space-4)}
+.tile{display:flex;flex-direction:column;gap:var(--space-2)}
+.tile__label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase}
+.kit{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
+
+/* ── Import analyses modal ────────────────────────────────────────────────── */
+.modal-card--import{width:520px}
+.import-entry{display:flex;gap:var(--space-2);align-items:flex-end}
+.import-entry .field{flex:1;margin:0}
+.import-hint{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.import-hint code{font-family:var(--font-mono);font-size:var(--fs-mono)}
+.import-check{display:flex;align-items:center;gap:var(--space-2);font-size:var(--fs-caption);color:var(--text-tertiary)}
+.import-check .spinner{width:13px;height:13px;border-width:2px;margin:0}
+.import-msg{font-size:var(--fs-caption);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3)}
+.import-msg--error{color:var(--color-negative);background:var(--color-negative-bg);border:1px solid var(--color-negative-border)}
+.import-msg--warning{color:var(--color-warning);background:var(--color-warning-bg);border:1px solid var(--color-warning-border)}
+.import-list{display:flex;flex-direction:column;border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden}
+.import-row{display:grid;grid-template-columns:64px 1fr auto auto 24px;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-top:1px solid var(--border-faint);font-size:var(--fs-label)}
+.import-row:first-child{border-top:none}
+.import-row__id{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)}
+.import-row__name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.import-row__meta{color:var(--text-tertiary);font-size:var(--fs-caption);white-space:nowrap}
+.icon-btn{border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:16px;line-height:1;padding:0;width:20px;height:20px;border-radius:var(--radius-sm)}
+.icon-btn:hover{background:var(--surface-hover);color:var(--text-primary)}
+.import-count{flex:1;font-size:var(--fs-caption);color:var(--text-tertiary)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>PREVIEW.</strong> Import analyses modal — issue #101. It opens from the <strong>Import</strong> button
+    in the submission's Results section. The analyst types one Risk Modeler analysis id at a time; each is checked
+    against Risk Modeler on Add, and <strong>Import</strong> brings the checked analyses into the deal.
+  </div>
+
+  <div class="hero">Import analyses</div>
+  <div class="sub">Submission Results section · every state</div>
+
+  <div class="eyebrow">1 · Where it opens from — the Results section header</div>
+  <div class="card">
+    <div class="kit">
+      <span style="font-size:var(--fs-h3);font-weight:var(--fw-semibold)">Results</span>
+      <span class="badge badge--neutral">4 own · 12 broker</span>
+      <span style="flex:1"></span>
+      <button class="btn btn--secondary" style="height:26px;padding:0 var(--space-3)">⋮ Copy table</button>
+      <button class="btn btn--secondary" style="height:26px;padding:0 var(--space-3)">Import</button>
+      <button class="btn btn--secondary" style="height:26px;padding:0 var(--space-3)" disabled>Delete</button>
+      <button class="btn btn--secondary" style="height:26px;padding:0 var(--space-3)" disabled>Group</button>
+      <button class="btn btn--secondary" style="height:26px;padding:0 var(--space-3)">Compare</button>
+      <button class="btn btn--primary" style="height:26px;padding:0 var(--space-3)" disabled>View ↗</button>
+    </div>
+  </div>
+
+  <div class="eyebrow">2 · The modal, state by state</div>
+  <div class="board">
+
+    <div class="tile">
+      <div class="tile__label">empty — nothing entered yet</div>
+      <div class="modal-card modal-card--import">
+        <div class="modal-header"><span class="modal-title">Import analyses · Gotham Mutual 2026 Property</span>
+          <button class="icon-btn" aria-label="Close">×</button></div>
+        <div class="modal-body">
+          <div class="import-entry">
+            <div class="field">
+              <label for="p1">Risk Modeler analysis id</label>
+              <input id="p1" type="text" inputmode="numeric" placeholder="e.g. 35810">
+            </div>
+            <button class="btn btn--secondary" disabled>Add</button>
+          </div>
+          <div class="import-hint">The id Risk Modeler shows on the analysis — a group and a single analysis both.</div>
+          <div class="empty">No analyses added yet.</div>
+        </div>
+        <div class="modal-footer">
+          <span class="import-count"></span>
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--primary" disabled>Import</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">checking — Add pressed, the Risk Modeler read in flight</div>
+      <div class="modal-card modal-card--import">
+        <div class="modal-header"><span class="modal-title">Import analyses · Gotham Mutual 2026 Property</span>
+          <button class="icon-btn" aria-label="Close">×</button></div>
+        <div class="modal-body">
+          <div class="import-entry">
+            <div class="field">
+              <label for="p2">Risk Modeler analysis id</label>
+              <input id="p2" type="text" value="35810" disabled>
+            </div>
+            <button class="btn btn--secondary" disabled>Add</button>
+          </div>
+          <div class="import-check"><span class="spinner"></span>Checking 35810 in Risk Modeler…</div>
+          <div class="import-list">
+            <div class="import-row">
+              <span class="import-row__id">35774</span>
+              <span class="import-row__name">CRE_WS_JP_COM_HD_JPWS_Stochastic</span>
+              <span class="badge badge--neutral">HD</span>
+              <span class="import-row__meta">JPY</span>
+              <button class="icon-btn" aria-label="Remove">×</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <span class="import-count">1 analysis added</span>
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--primary" disabled>Import 1</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">populated — a group and two analyses ready to import</div>
+      <div class="modal-card modal-card--import">
+        <div class="modal-header"><span class="modal-title">Import analyses · Gotham Mutual 2026 Property</span>
+          <button class="icon-btn" aria-label="Close">×</button></div>
+        <div class="modal-body">
+          <div class="import-entry">
+            <div class="field">
+              <label for="p3">Risk Modeler analysis id</label>
+              <input id="p3" type="text" placeholder="e.g. 35810">
+            </div>
+            <button class="btn btn--secondary" disabled>Add</button>
+          </div>
+          <div class="import-list">
+            <div class="import-row">
+              <span class="import-row__id">35774</span>
+              <span class="import-row__name">CRE_WS_JP_COM_HD_JPWS_Stochastic</span>
+              <span class="badge badge--neutral">HD</span>
+              <span class="import-row__meta">JPY</span>
+              <button class="icon-btn" aria-label="Remove">×</button>
+            </div>
+            <div class="import-row">
+              <span class="import-row__id">35810</span>
+              <span class="import-row__name">Gotham All Perils Rollup</span>
+              <span class="badge badge--brand">Group</span>
+              <span class="import-row__meta">USD</span>
+              <button class="icon-btn" aria-label="Remove">×</button>
+            </div>
+            <div class="import-row">
+              <span class="import-row__id">35811</span>
+              <span class="import-row__name">CRE_EQ_HI_RES_US_EQ_wFFSL_wDS_PERS_Stochastic_Losses_2026_Renewal</span>
+              <span class="badge badge--neutral">DLM</span>
+              <span class="import-row__meta">USD</span>
+              <button class="icon-btn" aria-label="Remove">×</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <span class="import-count">3 analyses added</span>
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--primary">Import 3</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">error — Risk Modeler has no such analysis</div>
+      <div class="modal-card modal-card--import">
+        <div class="modal-header"><span class="modal-title">Import analyses · Gotham Mutual 2026 Property</span>
+          <button class="icon-btn" aria-label="Close">×</button></div>
+        <div class="modal-body">
+          <div class="import-entry">
+            <div class="field">
+              <label for="p4">Risk Modeler analysis id</label>
+              <input id="p4" type="text" value="99999">
+            </div>
+            <button class="btn btn--secondary">Add</button>
+          </div>
+          <div class="import-msg import-msg--error">Risk Modeler has no analysis 99999 — use the id shown on the analysis in Risk Modeler.</div>
+          <div class="import-list">
+            <div class="import-row">
+              <span class="import-row__id">35774</span>
+              <span class="import-row__name">CRE_WS_JP_COM_HD_JPWS_Stochastic</span>
+              <span class="badge badge--neutral">HD</span>
+              <span class="import-row__meta">JPY</span>
+              <button class="icon-btn" aria-label="Remove">×</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <span class="import-count">1 analysis added</span>
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--primary">Import 1</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">error — already in this deal (the message names where: imported, RDM capture, EDM run, or a composed group), and Risk Modeler unreachable</div>
+      <div class="modal-card modal-card--import">
+        <div class="modal-header"><span class="modal-title">Import analyses · Gotham Mutual 2026 Property</span>
+          <button class="icon-btn" aria-label="Close">×</button></div>
+        <div class="modal-body">
+          <div class="import-entry">
+            <div class="field">
+              <label for="p5">Risk Modeler analysis id</label>
+              <input id="p5" type="text" value="35774">
+            </div>
+            <button class="btn btn--secondary">Add</button>
+          </div>
+          <div class="import-msg import-msg--warning">35774 is already in this deal, captured from RDM GOTHAM_2026_RDM — CRE_WS_JP_COM_HD_JPWS_Stochastic.</div>
+          <div class="import-msg import-msg--error">Risk Modeler did not answer. Try again in a moment.</div>
+          <div class="empty">No analyses added yet.</div>
+        </div>
+        <div class="modal-footer">
+          <span class="import-count"></span>
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--primary" disabled>Import</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">after Import — the modal closes, the toast fires, the rows land</div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-faint);display:flex;gap:var(--space-2);align-items:center">
+          <span class="badge badge--positive">3 analyses imported.</span>
+          <span class="import-count">the toast, then the Results grid refetches</span>
+        </div>
+        <div class="import-row" style="grid-template-columns:64px 1fr auto auto auto">
+          <span class="import-row__id">35810</span>
+          <span class="import-row__name">Gotham All Perils Rollup</span>
+          <span class="badge badge--brand">Group</span>
+          <span class="badge badge--neutral">Imported</span>
+          <span class="import-row__meta">AAL pending</span>
+        </div>
+        <div class="import-row" style="grid-template-columns:64px 1fr auto auto auto">
+          <span class="import-row__id">35774</span>
+          <span class="import-row__name">CRE_WS_JP_COM_HD_JPWS_Stochastic</span>
+          <span class="badge badge--neutral">HD</span>
+          <span class="badge badge--neutral">Imported</span>
+          <span class="import-row__meta">AAL pending</span>
+        </div>
+        <div style="padding:var(--space-3) var(--space-4);border-top:1px solid var(--border-faint);font-size:var(--fs-caption);color:var(--text-tertiary)">
+          Portfolio and Template read empty — an imported analysis names neither, the same as a group row.
+          The losses arrive when <code>retrieve_analysis_results</code> finishes, and the grid's 3s poll fills the AAL in.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

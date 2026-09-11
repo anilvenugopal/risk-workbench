@@ -1671,3 +1671,210 @@ def test_results_failed_row_offers_retry_inside_the_status_cell(client):
     assert "Results: 2000.0" in html
     assert (_summary_children(html, f"analysis-row-{failed}")
             == _summary_children(html, f"analysis-row-{ready}"))
+
+
+# ── #101: import analyses by Risk Modeler id ─────────────────────────────────────
+
+def _seed_rm_analysis(fake_irp, *, app_id="35774", platform_id="90001",
+                      name="CRE_WS_JP_COM_HD_JPWS_Stochastic",
+                      is_group=False) -> None:
+    fake_irp.add_analysis(
+        source_rdm_name="RDM", exposure_name="EDM", analysis_id=platform_id,
+        name=name, app_analysis_id=app_id, is_group=is_group,
+        exposure_resource_id="5",
+        exposure_resource_type=("GROUP" if is_group else "PORTFOLIO"),
+        metadata={"appAnalysisId": int(app_id), "analysisName": name,
+                  "engineType": "HD", "currencyCode": "JPY"})
+
+
+def _entries(html: str) -> list[str]:
+    return re.findall(r'name="entries" value="([^"]+)"', html)
+
+
+def test_results_fragment_offers_import_even_on_an_empty_deal(client):
+    created = client.post("/submissions", data=_payload(name="Empty deal"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+
+    html = client.get(f"/submissions/{submission_id}/analyses").text
+
+    assert f'hx-get="/submissions/{submission_id}/analyses/import"' in html
+    assert 'hx-target="#import-modal"' in html
+    assert "Delete</button>" not in html  # the analyses-only controls stay hidden
+
+
+def test_import_modal_renders_empty(client):
+    submission_id, _, _ = _seed_results_data(client)
+
+    response = client.get(f"/submissions/{submission_id}/analyses/import")
+
+    assert response.status_code == 200
+    assert "Import analyses &middot; Results deal" in response.text
+    assert "No analyses added yet." in response.text
+    assert f'hx-post="/submissions/{submission_id}/analyses/import/check"' in response.text
+    assert 'type="submit" disabled' in response.text
+
+
+def test_import_check_adds_the_checked_analysis_to_the_list(client, fake_irp):
+    _seed_rm_analysis(fake_irp)
+    submission_id, _, _ = _seed_results_data(client)
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/import/check",
+        data={"csrf_token": _csrf(), "entry": "35774"})
+
+    assert response.status_code == 200
+    html = response.text
+    assert "CRE_WS_JP_COM_HD_JPWS_Stochastic" in html
+    assert ">HD</span>" in html and ">JPY</span>" in html
+    assert "1 analysis added" in html
+    assert ">Import 1</button>" in html
+    [entry] = _entries(html)
+    assert json.loads(entry.replace("&#34;", '"'))["analysis_id"] == "90001"
+    assert 'name="entry" inputmode="numeric"\n             placeholder="e.g. 35810" value=""' in html
+
+
+def test_import_check_keeps_the_entry_and_shows_the_message_on_a_miss(
+        client, fake_irp):
+    _seed_rm_analysis(fake_irp)
+    submission_id, _, _ = _seed_results_data(client)
+    first = client.post(
+        f"/submissions/{submission_id}/analyses/import/check",
+        data={"csrf_token": _csrf(), "entry": "35774"}).text
+    [kept] = _entries(first)
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/import/check",
+        data={"csrf_token": _csrf(), "entry": "99999",
+              "entries": kept.replace("&#34;", '"')})
+
+    assert response.status_code == 200
+    assert "Risk Modeler has no analysis 99999" in response.text
+    assert 'import-msg--error' in response.text
+    assert 'value="99999"' in response.text            # the entry is retained
+    assert len(_entries(response.text)) == 1           # the list survives
+
+
+def test_import_check_warns_about_an_analysis_already_in_the_deal(client, fake_irp):
+    _seed_rm_analysis(fake_irp, platform_id="88215")  # the seeded broker row's id
+    submission_id, _, _ = _seed_results_data(client)
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/import/check",
+        data={"csrf_token": _csrf(), "entry": "35774"})
+
+    assert "captured from RDM Acme Broker RDM" in response.text
+    assert "import-msg--warning" in response.text
+    assert _entries(response.text) == []
+
+
+def test_import_check_refuses_the_same_id_typed_with_a_leading_zero(
+        client, fake_irp):
+    """The typed value is normalized before the list is searched, so 035774
+    does not slip past the 35774 already on it."""
+    _seed_rm_analysis(fake_irp)
+    submission_id, _, _ = _seed_results_data(client)
+    [kept] = _entries(client.post(
+        f"/submissions/{submission_id}/analyses/import/check",
+        data={"csrf_token": _csrf(), "entry": "35774"}).text)
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/import/check",
+        data={"csrf_token": _csrf(), "entry": "035774",
+              "entries": kept.replace("&#34;", '"')})
+
+    assert "35774 is already in the list." in response.text
+    assert "import-msg--warning" in response.text
+    assert len(_entries(response.text)) == 1
+
+
+def test_import_check_remove_drops_the_row(client, fake_irp):
+    _seed_rm_analysis(fake_irp)
+    submission_id, _, _ = _seed_results_data(client)
+    [kept] = _entries(client.post(
+        f"/submissions/{submission_id}/analyses/import/check",
+        data={"csrf_token": _csrf(), "entry": "35774"}).text)
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/import/check",
+        data={"csrf_token": _csrf(), "entry": "", "remove": "35774",
+              "entries": kept.replace("&#34;", '"')})
+
+    assert _entries(response.text) == []
+    assert "No analyses added yet." in response.text
+
+
+def test_import_inserts_the_rows_and_triggers_a_refetch(client, fake_irp):
+    _seed_rm_analysis(fake_irp)
+    _seed_rm_analysis(fake_irp, app_id="35810", platform_id="90002",
+                      name="Gotham All Perils Rollup", is_group=True)
+    submission_id, _, _ = _seed_results_data(client)
+    html = client.post(
+        f"/submissions/{submission_id}/analyses/import/check",
+        data={"csrf_token": _csrf(), "entry": "35774"}).text
+    html = client.post(
+        f"/submissions/{submission_id}/analyses/import/check",
+        data={"csrf_token": _csrf(), "entry": "35810",
+              "entries": [e.replace("&#34;", '"') for e in _entries(html)]}).text
+    entries = [e.replace("&#34;", '"') for e in _entries(html)]
+    assert len(entries) == 2
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/import",
+        data={"csrf_token": _csrf(), "entries": entries})
+
+    assert response.status_code == 204
+    triggered = json.loads(response.headers["HX-Trigger"])
+    assert triggered["analyses-changed"] is True
+    assert triggered["rwb:toast"] == {"message": "Imported 2 analysis(es).",
+                                      "type": "success"}
+    grid = client.get(f"/submissions/{submission_id}/analyses").text
+    assert "CRE_WS_JP_COM_HD_JPWS_Stochastic" in grid
+    assert "Gotham All Perils Rollup" in grid
+    assert grid.count(">Imported</span>") == 2
+    assert "every 3s" in grid                       # polls until the losses land
+    # the confirm sentence tells the analyst Delete only takes these off the
+    # deal; the own rows in the same grid carry no marker
+    assert grid.count("data-imported") == 2
+
+
+def test_import_where_every_entry_fails_keeps_the_dialog_open(client, fake_irp):
+    """Nothing landed, so the reasons go back into the dialog body with the
+    typed list intact — not into a toast on a closed dialog."""
+    _seed_rm_analysis(fake_irp)
+    submission_id, _, _ = _seed_results_data(client)
+    stale = json.dumps({"app_analysis_id": "35774", "analysis_id": "88215",
+                        "name": None, "is_group": False, "engine": None,
+                        "currency": None})
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/import",
+        data={"csrf_token": _csrf(), "entries": stale})
+
+    assert response.status_code == 200
+    assert response.headers["HX-Retarget"] == "#import-body"
+    assert response.headers["HX-Reswap"] == "innerHTML"
+    assert "35774 no longer matches" in response.text
+    assert "&#34;app_analysis_id&#34;: &#34;35774&#34;" in response.text
+
+
+def test_import_with_nothing_added_is_a_422_banner(client, fake_irp):
+    submission_id, _, _ = _seed_results_data(client)
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/import",
+        data={"csrf_token": _csrf()})
+
+    assert response.status_code == 422
+    assert "Add at least one analysis" in response.text
+
+
+def test_import_routes_reject_invalid_csrf(client):
+    submission_id, _, _ = _seed_results_data(client)
+
+    for path in ("import/check", "import"):
+        response = client.post(
+            f"/submissions/{submission_id}/analyses/{path}",
+            data={"csrf_token": "bad", "entry": "35774"},
+            headers={"HX-Request": "true"})
+        assert response.status_code == 204
+        assert response.headers["HX-Refresh"] == "true"

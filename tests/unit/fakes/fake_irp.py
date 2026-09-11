@@ -18,6 +18,7 @@ Name-collision hits are seeded via ``add_edm_name`` / ``add_rdm_name``.
 from __future__ import annotations
 
 from app.services.irp_gateway import (
+    AmbiguousAnalysisId,
     AnalysisHit,
     AnalysisMetadata,
     CurrencyEntry,
@@ -141,6 +142,8 @@ class FakeIRP:
         self.raise_on_submit = False
         # force search_analyses to fail (prune-safety tests)
         self.raise_on_search_analyses = False
+        # force the appAnalysisId lookup to fail (import check, #101)
+        self.raise_on_resolve_app_analysis_id = False
         # force name-collision searches to fail (fail-open tests, issue #17)
         self.raise_on_search = False
         # recorded (kind, name) collision searches — cache assertions (issue #11)
@@ -301,16 +304,21 @@ class FakeIRP:
                      exposure_resource_id: str | None = None,
                      exposure_resource_type: str | None = None,
                      is_group: bool = False,
-                     metadata: dict | None = None) -> None:
+                     metadata: dict | None = None,
+                     app_analysis_id: str | int | None = None) -> None:
         """Seed an analysis discoverable by ``search_analyses`` for this (RDM, EDM)
         pair — the backfill worker captures it as an ``irp_analysis`` row (D2).
 
         Spec 004 (R9): optionally carries RM's exposure pointer — seed
         ``exposure_resource_type="PORTFOLIO"`` for a linkable analysis, ``GROUP``/
         another type or no pointer for the group / non-portfolio / unresolvable
-        paths — plus ``is_group`` and a ``metadata`` settings payload."""
+        paths — plus ``is_group`` and a ``metadata`` settings payload.
+        ``app_analysis_id`` is the web-UI id ``resolve_app_analysis_id`` maps
+        to ``analysis_id`` (#101)."""
         self._analyses.append({
             "analysis_id": str(analysis_id), "name": name,
+            "app_analysis_id": (str(app_analysis_id)
+                                if app_analysis_id is not None else None),
             "source_rdm_name": source_rdm_name, "exposure_name": exposure_name,
             "exposure_resource_id": (str(exposure_resource_id)
                                      if exposure_resource_id is not None else None),
@@ -800,6 +808,20 @@ class FakeIRP:
         self.grouping_name_checks.append(name)
         return (len([a for a in self._analyses if a["name"] == name])
                 + (1 if name in self.duplicate_group_names else 0))
+
+    def resolve_app_analysis_id(self, *, app_analysis_id: int) -> str:
+        if self.raise_on_resolve_app_analysis_id:
+            raise RuntimeError("fake IRP: forced appAnalysisId lookup failure")
+        hits = [a for a in self._analyses
+                if a.get("app_analysis_id") == str(app_analysis_id)]
+        if len(hits) > 1:
+            raise AmbiguousAnalysisId(
+                f"expected exactly one analysis with appAnalysisId "
+                f"{app_analysis_id}, found {len(hits)}")
+        if not hits:
+            raise LookupError(
+                f"no analysis with appAnalysisId {app_analysis_id}")
+        return hits[0]["analysis_id"]
 
     def get_analysis_by_name_only(self, name: str) -> AnalysisHit:
         hits = [a for a in self._analyses if a["name"] == name]
