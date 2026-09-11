@@ -295,7 +295,7 @@ def test_load_enqueue_failure_stamps_load_failed_and_keeps_the_staged_rows(
     assert m["error_message"] == "could not queue the load: WORKBENCH is down"
     assert len(_elt_rows(m["manifest_id"])) == 3
     assert _stage_job()["status_code"] == "failed"
-    assert svc.derive_status(m, None) == svc.FAILED
+    assert svc.derive_status(m) == svc.FAILED
     assert svc.retry_decision(m, None, str(staging["root"]), svc._utcnow()) == "load"
 
 

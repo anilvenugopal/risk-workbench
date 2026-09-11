@@ -107,7 +107,7 @@ def test_409_for_a_row_waiting_on_risk_modeler(failed):
     f = failed(job_status="RUNNING")
     with pytest.raises(svc.ExportRetryRefused) as exc:
         svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"])
-    assert "requested from Risk Modeler" in str(exc.value)
+    assert str(exc.value) == "the analysis is in progress, not failed"
 
 
 def test_409_while_the_stage_worker_has_not_stamped_a_failed_risk_modeler_job(failed):
@@ -115,7 +115,7 @@ def test_409_while_the_stage_worker_has_not_stamped_a_failed_risk_modeler_job(fa
     f = failed(job_status="FAILED", stage_status="pending")
     with pytest.raises(svc.ExportRetryRefused) as exc:
         svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"])
-    assert str(exc.value) == "the analysis is downloading and staging, not failed"
+    assert str(exc.value) == "the analysis is in progress, not failed"
     assert rwb_jobs("submit_results_export") == []
     assert manifest_row(f["manifest_id"])["irp_export_job_id"] == "500"
 
@@ -139,7 +139,7 @@ def test_load_branch_rearms_the_load_job_keyed_by_the_stage_job(failed):
     assert json.loads(jobs[0]["input_data"]) == {
         "export_id": f["export_id"], "irp_analysis_id": f["analysis_id"],
         "manifest_id": f["manifest_id"]}
-    # the row is back in progress: it reads staged and a second Retry is refused
+    # the row is back in progress and a second Retry is refused
     row = manifest_row(f["manifest_id"])
     assert row["load_status"] == "pending" and row["error_message"] is None
     with pytest.raises(svc.ExportRetryRefused):

@@ -17,10 +17,7 @@
 </div>
 {%- endmacro %}
 
-{# The derived status chip. Waiting statuses share one colour; staged, loaded,
-   and failed each have their own. #}
+{# The derived status chip: one colour per status. #}
 {% macro status_chip(status) -%}
-{% set variant = 'loaded' if status == 'loaded' else 'failed' if status == 'failed'
-                 else 'staged' if status in ('staged', 'loading') else 'waiting' %}
-<span class="status-chip status-chip--export-{{ variant }}">{{ status }}</span>
+<span class="status-chip status-chip--export-{{ status|replace(' ', '-') }}">{{ status }}</span>
 {%- endmacro %}
