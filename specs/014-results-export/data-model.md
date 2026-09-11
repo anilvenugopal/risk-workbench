@@ -253,17 +253,14 @@ first.
 
 ### ExportAnalysisDetail — one detail-page row
 
-Manifest columns, plus `origin` (own, broker, or group) read from `irp_analysis` over `WORKBENCH` by `manifest.irp_analysis_id`, plus a derived `status`, evaluated top-down:
+Manifest columns, plus `origin` (own, broker, or group) read from `irp_analysis` over `WORKBENCH` by `manifest.irp_analysis_id`, plus a derived `status`. The manifest row decides it alone; the `export` `irp_job` is not read:
 
 | Condition | Displayed status |
 |---|---|
 | `load_status = loaded` | loaded |
 | `stage_status = failed` or `load_status = failed` | failed |
-| `load_status = loading` | loading |
-| `stage_status = staged` | staged |
-| `irp_export_job_id IS NULL` | pending |
-| `export` `irp_job.status` terminal, any outcome | downloading and staging (the poller has handed the row to the stage worker, which stamps `stage_status = failed` itself when the job did not finish) |
-| otherwise | requested from Risk Modeler |
+| `irp_export_job_id IS NULL` | queued |
+| otherwise | in progress (a Risk Modeler export that ended FAILED reads as in progress until the stage worker stamps `stage_status = failed`) |
 
 Last change time is `manifest.updated_at`. Retry is offered when the status
-is failed, which the manifest row alone decides. Comparison pairs and the export form selection are not persisted.
+is failed. Comparison pairs and the export form selection are not persisted.

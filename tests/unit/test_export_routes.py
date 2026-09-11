@@ -297,10 +297,10 @@ def export(client, deal):
             "url": f"/submissions/{deal['submission_id']}/exports/{export_id}"}
 
 
-def test_detail_page_renders_pending_rows_and_header(client, export):
+def test_detail_page_renders_queued_rows_and_header(client, export):
     page = client.get(export["url"])
     assert page.status_code == 200
-    assert page.text.count(">pending</span>") == 2
+    assert page.text.count(">queued</span>") == 2
     assert "A long" in page.text and "B long" in page.text
     assert "Example Re" in page.text and "CRM-1" in page.text and "2026-04-01" in page.text
     assert export["export_id"] in page.text
@@ -419,7 +419,7 @@ def test_retry_on_a_failed_row_rearms_submit_and_rerenders_the_polling_table(cli
     assert response.status_code == 200
     assert 'id="export-analyses"' in response.text and 'hx-trigger="every 5s"' in response.text
     assert f'id="export-analysis-row-{export["b"]}"' in response.text
-    assert ">pending</span>" in response.text and "Retry</button>" not in response.text
+    assert ">queued</span>" in response.text and "Retry</button>" not in response.text
     assert rwb_jobs("submit_results_export")[0]["status_code"] == "pending"
     row = manifest_row(manifest_id=execute_one(
         "SELECT manifest_id FROM stage.rwb_loss_result_manifest WHERE irp_analysis_id = :a",
@@ -445,8 +445,8 @@ def test_retry_on_a_staged_row_enqueues_the_load_only(client, export):
     load = rwb_jobs("load_results_export")
     assert len(load) == 1 and load[0]["requestor_id"] == stage_job
     assert rwb_jobs("stage_results_export")[0]["status_code"] == "pending"  # untouched
-    # the row is back to staged, so the table polls until the load worker stamps it
-    assert ">staged</span>" in response.text and "lookup missing" not in response.text
+    # the row is back in progress, so the table polls until the load worker stamps it
+    assert ">in progress</span>" in response.text and "lookup missing" not in response.text
     assert 'hx-trigger="every 5s"' in response.text
 
 
@@ -477,6 +477,6 @@ def test_no_retry_button_on_a_waiting_row(client, export):
     execute_command("UPDATE stage.rwb_loss_result_manifest SET irp_export_job_id = '500' "
                     "WHERE irp_analysis_id = :a", {"a": export["a"]}, connection="LOSS")
     frag = client.get(f"{export['url']}/analyses")
-    assert ">requested from Risk Modeler</span>" in frag.text
+    assert ">in progress</span>" in frag.text
     assert "Retry" not in frag.text
     assert 'hx-trigger="every 5s"' in frag.text

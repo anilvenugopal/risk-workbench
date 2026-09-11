@@ -42,7 +42,7 @@ An analyst exports the event loss table of one or more finished analyses into CI
 | O-06 | Exports live in their own table on the submission page, one row per export, each opening an export detail page. The analyses grid shows no export status, no link, and no modal; the analysis status vocabulary is unchanged. | Approved | user, 2026-09-09 |
 | O-07 | The per-analysis data name field (P-06: one optional field per analysis, never required) ships in story 1. | Approved | user, 2026-09-09 |
 | P-12 | An analysis whose Risk Modeler export yields zero loss rows fails at stage with a message naming the perspective; nothing is loaded. A header row with no loss rows is never written. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-09 |
-| P-13 | The Workbench never times out a Risk Modeler export request. An analysis stays "requested from Risk Modeler" until Risk Modeler reports a terminal status; Retry is offered only after a failure. A stuck row is cleared under O-01. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-09 |
+| P-13 | The Workbench never times out a Risk Modeler export request. An analysis stays in progress until Risk Modeler reports a terminal status; Retry is offered only after a failure. A stuck row is cleared under O-01. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-09 |
 | P-14 | No cancel. Once Export is clicked each analysis processes to loaded or failed; there is no confirmation step and no cancel action. A wrong client or date is corrected by CIC under O-01, like any other reload. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-10 |
 | P-15 | Treaty inception and CRM ID edited on the export form are recorded on the export only. The submission's inception date and CRM IDs are unchanged, and the form pre-fills from them the next time. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-10 |
 | P-16 | An export belongs to the submission it was requested from, recorded on the export. Only that submission's exports section lists it. Another submission that reaches the same analysis shows it as exported on its export form, with a link to the export. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-10 |
@@ -65,7 +65,7 @@ From a submission's analyses page the analyst opens Export, ticks the finished a
 6. **Given** an accepted export, **When** processing finishes, **Then** the repository holds exactly one header row per analysis, its stochastic events in the stochastic table, its historical events in the historical table, and every loss value equals the value Risk Modeler produced.
 7. **Given** an analysis whose model version has no rows in the historical event lookup, **When** its load runs, **Then** that analysis fails with a message naming the model version and nothing for it reaches the repository tables; the other analyses in the export load normally.
 8. **Given** an analysis whose downloaded loss table holds no loss rows for the chosen perspective, **When** its staging runs, **Then** that analysis fails with a message naming the perspective, nothing for it reaches the repository tables, and Retry is offered; the other analyses in the export load normally.
-9. **Given** an accepted export whose analyses are pending, requested, or staged, **Then** no cancel action is offered on the export or any analysis; each analysis processes to loaded or failed (P-14).
+9. **Given** an accepted export whose analyses are queued or in progress, **Then** no cancel action is offered on the export or any analysis; each analysis processes to loaded or failed (P-14).
 
 ### 2. Follow an export and read the post-load summary (P1)
 
@@ -73,7 +73,7 @@ On the submission page, below the analyses, an exports section lists every expor
 
 **Acceptance**
 
-1. **Given** an export in progress, **When** the analyst opens its detail page, **Then** each analysis shows one of: pending, requested from Risk Modeler, downloading and staging, staged, loading, loaded, or failed, with the time of the last change.
+1. **Given** an export in progress, **When** the analyst opens its detail page, **Then** each analysis shows one of: queued, in progress, loaded, or failed, with the time of the last change.
 2. **Given** a loaded analysis, **Then** the page shows its data ID, rows staged, stochastic rows, historical rows, rows with exposure raised to loss, and rows with a standard deviation zeroed, and the stochastic plus historical counts equal the rows staged.
 3. **Given** a failed analysis, **Then** the page shows the error message and a Retry action; the other analyses show their own status.
 4. **Given** a loaded analysis, **Then** the page shows the path of the archive file kept on the shared drive.
@@ -90,7 +90,7 @@ One analysis in an export failed: Risk Modeler rejected the request, the shared 
 2. **Given** an analysis whose Risk Modeler export was rejected or whose download link has expired, **When** the analyst clicks Retry, **Then** a new Risk Modeler export is requested for that analysis only.
 3. **Given** an analysis that already shows loaded, **Then** no Retry action is offered, and a re-run of its processing for any reason writes nothing new to the repository.
 4. **Given** an analysis whose downloaded archive does not match the analysis (different analysis ID or currency), **When** the analyst retries, **Then** it fails again with the same specific message and nothing reaches the repository tables.
-5. **Given** an analysis whose Risk Modeler export request was accepted but has not reached a terminal status, **Then** it shows "requested from Risk Modeler" with the time of the request, no Retry action is offered, and the Workbench keeps checking until Risk Modeler reports finished or failed.
+5. **Given** an analysis whose Risk Modeler export request was accepted but has not reached a terminal status, **Then** it shows in progress with the time of the last change, no Retry action is offered, and the Workbench keeps checking until Risk Modeler reports finished or failed.
 
 ## Requirements
 

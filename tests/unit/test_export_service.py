@@ -130,7 +130,7 @@ def test_find_exported_sees_another_submissions_export(deal):
     assert set(marks) == {41958}
     mark = marks[41958]
     assert mark.requested_by_email == "r.patel@example.com"
-    assert mark.status == svc.PENDING
+    assert mark.status == svc.QUEUED
     assert mark.detail_url == f"/submissions/{other_submission}/exports/{row['export_id']}"
     assert svc.find_exported([41958], "RL") == {}
 
@@ -278,7 +278,7 @@ def test_enqueue_failure_after_commit_fails_the_rows_so_retry_applies(deal, monk
     assert all(r["stage_status"] == "failed" for r in rows)
     assert all(r["error_message"] == "could not queue the Risk Modeler request: queue down"
                for r in rows)
-    assert all(svc.derive_status(r, None) == svc.FAILED for r in rows)
+    assert all(svc.derive_status(r) == svc.FAILED for r in rows)
     assert all(svc.retry_decision(r, None, "", svc._utcnow()) == "submit" for r in rows)
 
 
@@ -290,23 +290,18 @@ def _m(**kw):
     return base
 
 
-@pytest.mark.parametrize("manifest, job, expected", [
-    (_m(load_status="loaded"), None, svc.LOADED),
-    (_m(stage_status="failed"), None, svc.FAILED),
-    (_m(stage_status="staged", load_status="failed"), None, svc.FAILED),
-    (_m(stage_status="staged", load_status="loading"), None, svc.LOADING),
-    (_m(stage_status="staged"), None, svc.STAGED),
-    (_m(), None, svc.PENDING),
-    # a terminal job of any outcome is with the stage worker, which stamps failed itself
-    (_m(irp_export_job_id="1"), {"status": "FAILED"}, svc.STAGING),
-    (_m(irp_export_job_id="1"), {"status": "CANCELLED"}, svc.STAGING),
-    (_m(irp_export_job_id="1"), {"status": "QUEUED"}, svc.REQUESTED),
-    (_m(irp_export_job_id="1"), {"status": "RUNNING"}, svc.REQUESTED),
-    (_m(irp_export_job_id="1"), None, svc.REQUESTED),
-    (_m(irp_export_job_id="1"), {"status": "FINISHED"}, svc.STAGING),
+@pytest.mark.parametrize("manifest, expected", [
+    (_m(load_status="loaded"), svc.LOADED),
+    (_m(stage_status="failed"), svc.FAILED),
+    (_m(stage_status="staged", load_status="failed"), svc.FAILED),
+    (_m(), svc.QUEUED),
+    (_m(irp_export_job_id="1"), svc.IN_PROGRESS),
+    (_m(irp_export_job_id="1", stage_status="staged"), svc.IN_PROGRESS),
+    (_m(irp_export_job_id="1", stage_status="staged", load_status="loading"),
+     svc.IN_PROGRESS),
 ])
-def test_derive_status(manifest, job, expected):
-    assert svc.derive_status(manifest, job) == expected
+def test_derive_status(manifest, expected):
+    assert svc.derive_status(manifest) == expected
 
 
 # ── get_export_detail / list_exports ─────────────────────────────────────────
@@ -327,7 +322,7 @@ def test_export_detail_header_rows_and_origins(deal):
     assert str(detail.data_vintage) == "2025-12-31"
     assert detail.requested_by_email == "analyst.a@example.com"
     assert [a.analysis_name for a in detail.analyses] == ["A long", "B long"]
-    assert [a.status for a in detail.analyses] == [svc.PENDING, svc.REQUESTED]
+    assert [a.status for a in detail.analyses] == [svc.QUEUED, svc.IN_PROGRESS]
     assert [a.origin for a in detail.analyses] == ["own", "own"]
     assert detail.in_progress and not detail.analyses[0].can_retry
     assert svc.get_export_detail(str(uuid.uuid4()), export_id) is None

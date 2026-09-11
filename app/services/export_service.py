@@ -21,7 +21,7 @@ from typing import Any, Literal
 from sqlalchemy import text
 
 from app.config import settings
-from app.services import analysis_service, irp_job_service, rwb_job_service, submission_service
+from app.services import analysis_service, rwb_job_service, submission_service
 from app.services._common import _parse_json_dict, _uid, _utcnow
 from app.workers import dispatch
 from db import (
@@ -35,12 +35,9 @@ from db import (
 
 logger = logging.getLogger(__name__)
 
-# Displayed analysis statuses (data-model.md §7), derived top-down in derive_status.
-PENDING = "pending"
-REQUESTED = "requested from Risk Modeler"
-STAGING = "downloading and staging"
-STAGED = "staged"
-LOADING = "loading"
+# Displayed analysis statuses (data-model.md §7), derived in derive_status.
+QUEUED = "queued"
+IN_PROGRESS = "in progress"
 LOADED = "loaded"
 FAILED = "failed"
 TERMINAL_STATUSES = frozenset({LOADED, FAILED})
@@ -213,48 +210,37 @@ class ExportSummary:
     @property
     def progress(self) -> str:
         """The roll-up the exports section shows in place of a status column."""
-        counts = ((self.loaded_count, "loaded"), (self.failed_count, "failed"),
+        counts = ((self.loaded_count, LOADED), (self.failed_count, FAILED),
                   (self.analysis_count - self.loaded_count - self.failed_count,
-                   "in progress"))
+                   IN_PROGRESS))
         return " · ".join(f"{n} {label}" for n, label in counts if n)
 
 
 # ── status derivation ────────────────────────────────────────────────────────
 
 
-def derive_status(manifest: dict, export_job: dict | None) -> str:
-    """The displayed status of one analysis (data-model.md §7), evaluated
-    top-down from the manifest row and its ``export`` irp_job, if any."""
+def derive_status(manifest: dict) -> str:
+    """The displayed status of one analysis (data-model.md §7). The manifest
+    row decides it alone: a Risk Modeler export that ended FAILED reads as in
+    progress until the stage worker stamps ``stage_status = failed``."""
     if manifest["load_status"] == "loaded":
         return LOADED
     if manifest["stage_status"] == "failed" or manifest["load_status"] == "failed":
         return FAILED
-    if manifest["load_status"] == "loading":
-        return LOADING
-    if manifest["stage_status"] == "staged":
-        return STAGED
     if manifest["irp_export_job_id"] is None:
-        return PENDING
-    # A terminal Risk Modeler job of any outcome hands the row to the stage
-    # worker, which stamps failed itself when the job did not finish.
-    if (export_job or {}).get("status") in irp_job_service.TERMINAL:
-        return STAGING
-    return REQUESTED
+        return QUEUED
+    return IN_PROGRESS
 
 
-def _export_jobs(manifests: list[dict]) -> dict[str, dict]:
-    """The ``export`` irp_job of each manifest row, keyed by Risk Modeler job id."""
-    irp_ids = sorted({str(m["irp_export_job_id"]) for m in manifests
-                      if m.get("irp_export_job_id") is not None})
-    if not irp_ids:
-        return {}
-    params = {f"j{i}": v for i, v in enumerate(irp_ids)}
-    rows = execute(
-        "SELECT id, irp_id, status, completed_at "
-        "FROM irp_job WHERE irp_job_type = 'export' "
-        f"AND irp_id IN ({', '.join(':' + k for k in params)})",
-        params, connection="WORKBENCH")
-    return {str(r["irp_id"]): dict(r) for r in rows}
+def _export_job(irp_id: Any) -> dict | None:
+    """The ``export`` irp_job the submit worker recorded for a manifest row."""
+    if irp_id is None:
+        return None
+    row = execute_one(
+        "SELECT id, irp_id, status, completed_at FROM irp_job "
+        "WHERE irp_job_type = 'export' AND irp_id = :j",
+        {"j": str(irp_id)}, connection="WORKBENCH")
+    return dict(row) if row else None
 
 
 # ── the form ─────────────────────────────────────────────────────────────────
@@ -344,13 +330,12 @@ def find_exported(irp_app_analysis_ids: list[int],
         f"WHERE perspective_code = :p AND irp_app_analysis_id IN "
         f"({', '.join(':' + k for k in params if k != 'p')})",
         params, connection="LOSS")
-    jobs = _export_jobs(rows)
     return {int(r["irp_app_analysis_id"]): ExportedMark(
         irp_app_analysis_id=int(r["irp_app_analysis_id"]),
         perspective_code=r["perspective_code"], export_id=_uid(r["export_id"]),
         requested_from_submission_id=_uid(r["requested_from_submission_id"]),
         requested_at=r["requested_at"], requested_by_email=r["requested_by_email"],
-        status=derive_status(r, jobs.get(str(r["irp_export_job_id"]))),
+        status=derive_status(r),
     ) for r in rows}
 
 
@@ -502,7 +487,6 @@ def list_exports(submission_id: Any) -> list[ExportSummary]:
         {"s": _uid(submission_id)}, connection="LOSS")]
     if not rows:
         return []
-    jobs = _export_jobs(rows)
     origins = _origins([_uid(r["irp_analysis_id"]) for r in rows])
     summaries: dict[str, ExportSummary] = {}
     for r in rows:
@@ -513,7 +497,7 @@ def list_exports(submission_id: Any) -> list[ExportSummary]:
                 export_id=key, perspective_code=r["perspective_code"],
                 requested_by_email=r["requested_by_email"], requested_at=r["requested_at"],
                 client_name=r["client_name"])
-        summary.analyses.append(_analysis_detail(r, jobs, origins))
+        summary.analyses.append(_analysis_detail(r, origins))
     return list(summaries.values())
 
 
@@ -528,14 +512,12 @@ def _origins(irp_analysis_ids: list[str]) -> dict[str, str]:
                 params, connection="WORKBENCH")}
 
 
-def _analysis_detail(row: dict, jobs: dict[str, dict], origins: dict[str, str]
-                     ) -> ExportAnalysisDetail:
-    job = jobs.get(str(row["irp_export_job_id"])) if row["irp_export_job_id"] else None
+def _analysis_detail(row: dict, origins: dict[str, str]) -> ExportAnalysisDetail:
     return ExportAnalysisDetail(
         manifest_id=row["manifest_id"], irp_analysis_id=_uid(row["irp_analysis_id"]),
         analysis_name=row["analysis_description"] or row["analysis_name"],
         origin=origins.get(_uid(row["irp_analysis_id"]), "own"),
-        status=derive_status(row, job), updated_at=row["updated_at"],
+        status=derive_status(row), updated_at=row["updated_at"],
         irp_export_job_id=row["irp_export_job_id"], zip_file=row["zip_file"],
         data_name=row["data_name"], irp_app_analysis_id=row["irp_app_analysis_id"],
         data_currency=row["data_currency"], data_model_version=row["data_model_version"],
@@ -561,7 +543,6 @@ def get_export_detail(submission_id: Any, export_id: Any) -> ExportDetail | None
         {"e": _uid(export_id), "s": _uid(submission_id)}, connection="LOSS")
     if not rows:
         return None
-    jobs = _export_jobs(rows)
     origins = _origins([_uid(r["irp_analysis_id"]) for r in rows])
     first = rows[0]
     return ExportDetail(
@@ -570,7 +551,7 @@ def get_export_detail(submission_id: Any, export_id: Any) -> ExportDetail | None
         client_name=first["client_name"], treaty_incept=first["treaty_incept"],
         crm_id=first["crm_id"], data_vintage=first["data_vintage"],
         requested_by_email=first["requested_by_email"], requested_at=first["requested_at"],
-        analyses=[_analysis_detail(r, jobs, origins) for r in rows])
+        analyses=[_analysis_detail(r, origins) for r in rows])
 
 
 # ── retry ────────────────────────────────────────────────────────────────────
@@ -621,8 +602,8 @@ def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> Ret
         connection="LOSS")
     if manifest is None:
         raise ExportNotFound("That analysis is not part of this export.")
-    job = _export_jobs([manifest]).get(str(manifest["irp_export_job_id"]))
-    status = derive_status(manifest, job)
+    job = _export_job(manifest["irp_export_job_id"])
+    status = derive_status(manifest)
     if status == LOADED:
         raise ExportRetryRefused(f"already loaded as data ID {manifest['data_id']}")
     if status != FAILED:
@@ -686,7 +667,7 @@ def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> Ret
 
 
 __all__ = [
-    "PENDING", "REQUESTED", "STAGING", "STAGED", "LOADING", "LOADED", "FAILED",
+    "QUEUED", "IN_PROGRESS", "LOADED", "FAILED",
     "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN",
     "ExportError", "ExportValidationError", "DuplicateExportError", "ExportNotFound",
     "ExportRetryRefused",

@@ -54,10 +54,10 @@
 .status-chip.status-chip--job-failed     { background: var(--color-danger-bg);    color: var(--color-danger);    border-color: var(--color-danger-border); }
 .status-chip.status-chip--job-cancelled  { background: var(--surface-recessed);   color: var(--text-tertiary);   border-color: var(--border-default); }
 /* Loss results export (spec 014): the derived analysis status. */
-.status-chip.status-chip--export-waiting { background: var(--c-navy-050);         color: var(--c-navy-600);      border-color: var(--c-navy-200); }
-.status-chip.status-chip--export-staged  { background: var(--c-amber-050);        color: var(--c-amber-700);     border-color: var(--c-amber-200); }
-.status-chip.status-chip--export-loaded  { background: var(--c-green-050);        color: var(--c-green-700);     border-color: var(--c-green-200); }
-.status-chip.status-chip--export-failed  { background: var(--c-red-050);          color: var(--c-red-700);       border-color: var(--c-red-200); }
+.status-chip.status-chip--export-queued      { background: var(--c-navy-050);     color: var(--c-navy-600);      border-color: var(--c-navy-200); }
+.status-chip.status-chip--export-in-progress { background: var(--c-amber-050);    color: var(--c-amber-700);     border-color: var(--c-amber-200); }
+.status-chip.status-chip--export-loaded      { background: var(--c-green-050);    color: var(--c-green-700);     border-color: var(--c-green-200); }
+.status-chip.status-chip--export-failed      { background: var(--c-red-050);      color: var(--c-red-700);       border-color: var(--c-red-200); }
 
 /* ── Icon button (icon-only, 28×28) ─────────────────────────────────────── */
 .icon-btn {
