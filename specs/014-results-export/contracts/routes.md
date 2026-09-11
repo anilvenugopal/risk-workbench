@@ -11,13 +11,15 @@ them (spec P-11). Manifest reads append `db.read_uncommitted_hint("LOSS")`
 
 `partials/analyses_merged_section.html` gains **Export** beside Compare and
 View in the `<summary>` bar of the submission-scoped section only
-(`analyses_base` starts with `/submissions/`): a plain link to §2. No row
+(`analyses_base` starts with `/submissions/`): a plain link to §2 carrying the
+ticked analyses as `?analysis_ids=<uuid>[&analysis_ids=<uuid>…]`. No row
 selection is required; the form does its own.
 
 ## 2. Export form page
 
 ```
 GET /submissions/{submission_id}/exports/new
+    [?analysis_ids=<uuid>[&analysis_ids=<uuid>…]]
 ```
 
 Nav node `submissions.export_new` (hidden; crumb "Export" under the
@@ -28,8 +30,10 @@ submission). Renders `pages/submission_export_new.html` with:
   RDM name, each a checkbox. A row that cannot be exported (non-integer
   `irp_app_analysis_id`, no results) is listed disabled
   with the reason.
-- The §3 fragment rendered once with no selection: perspective select
-  disabled, no data-name fields.
+  An `analysis_ids` carried from §1 arrives ticked; an id that is not an
+  exportable analysis of this submission is ignored.
+- The §3 fragment rendered once for the carried selection, or with no
+  selection: perspective select disabled, no data-name fields.
 - Client `<select>` from `dbo.Client` where `ActiveFlag = 'Y'`, ordered by
   name, required. Inactive clients are not offered.
 - Treaty inception (date, default `submission.inception_date`), CRM ID (text,

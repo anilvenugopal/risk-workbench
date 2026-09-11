@@ -121,6 +121,16 @@ def test_exports_section_has_no_export_link(client, deal):
     assert "/exports/new" not in section.text
 
 
+def test_form_ticks_the_analyses_carried_from_the_link(client, deal):
+    page = client.get(f"/submissions/{deal['submission_id']}/exports/new",
+                      params={"analysis_ids": [deal["a"], str(uuid.uuid4())]})
+    assert page.status_code == 200
+    assert re.search(rf'value="{deal["a"]}"[^>]*checked', page.text)
+    assert not re.search(rf'value="{deal["b"]}"[^>]*checked', page.text)
+    assert "Selected analyses (1)" in page.text
+    assert 'value="GU"' in page.text
+
+
 # ── form and fragment ────────────────────────────────────────────────────────
 
 def test_form_renders_defaults_rows_and_disabled_reason(client, deal):

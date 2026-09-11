@@ -1527,7 +1527,9 @@ def _export_form_response(request: Request, submission_id: str, *, selected_ids=
 
 @router.get("/submissions/{submission_id}/exports/new", response_class=HTMLResponse)
 def export_new(request: Request, submission_id: str):
-    return _export_form_response(request, submission_id)
+    return _export_form_response(
+        request, submission_id,
+        selected_ids=request.query_params.getlist("analysis_ids"))
 
 
 @router.get("/submissions/{submission_id}/exports/new/fields", response_class=HTMLResponse)

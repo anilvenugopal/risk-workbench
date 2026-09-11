@@ -122,7 +122,11 @@
             hx-get="{{ analyses_base }}/compare"
             hx-target="#compare-modal-mount" hx-swap="innerHTML">Compare</button>
     {% if analyses_base.startswith('/submissions/') and source_submission is defined and source_submission %}
+    {# The ticked analyses ride the href so the export form opens with the same
+       selection; Alpine rewrites the href as boxes are ticked. #}
     <a class="btn-sm" href="/submissions/{{ source_submission.id }}/exports/new"
+       :href="'/submissions/{{ source_submission.id }}/exports/new'
+              + (picked.length ? '?analysis_ids=' + picked.join('&amp;analysis_ids=') : '')"
        onclick="event.stopPropagation()"
        title="Export finished analyses to the loss repository">Export</a>
     {% endif %}

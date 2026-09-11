@@ -813,6 +813,7 @@ document.addEventListener('alpine:init', () => {
     count: 0,
     total: 0,
     brokerCount: 0,
+    picked: [],
     term: '',
     shown: 0,
     rowCount: 0,
@@ -833,6 +834,7 @@ document.addEventListener('alpine:init', () => {
       this.total = boxes.length;
       const checked = boxes.filter((box) => box.checked);
       this.count = checked.length;
+      this.picked = checked.map((box) => box.value);
       this.brokerCount = checked.filter(
         (box) => box.dataset.broker !== undefined).length;
       const selectAll = this.$refs.selectAll;
