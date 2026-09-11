@@ -1,0 +1,54 @@
+{# rwb_job monitor table (CR-04a). Inputs come from app/routers/rwb_jobs.py's
+   _list_context(): rows (each carrying entity_name, submissions, is_dead),
+   sort_links and live. This is the swap unit: the filter form and every
+   sortable header target #rwb-jobs-live.
+
+   While any listed row is still pending or running, this wrapper polls its own
+   render every 3s and swaps itself — mirrors partials/irp_jobs_table.html — so
+   a queued job starting, a job finishing, or a dead-vs-reclaimed race shows up
+   without a reload. Once every row is terminal the server stops emitting the
+   trigger and the poll ends on its own. #}
+
+{# One sortable header cell (D15). The route builds the href, carrying the
+   applied filters and the direction this click asks for. A real href as well as
+   an hx-get, so the header still sorts with JavaScript off. #}
+{% macro sort_th(link, title) %}
+<th aria-sort="{{ link.aria }}">
+  <a class="sort-th{{ ' is-sorted' if link.active }}" href="{{ link.href }}"
+     hx-get="{{ link.href }}" hx-target="#rwb-jobs-live" hx-swap="outerHTML"
+     hx-push-url="true">{{ title
+    }}<span class="sort-th__caret" aria-hidden="true">{{ link.caret }}</span></a>
+</th>
+{% endmacro %}
+
+<div id="rwb-jobs-live"
+  {%- if live %}
+  hx-get="/workflows/rwb-jobs/table?{{ list_query }}" hx-trigger="every 3s"
+  hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+
+  <div class="jobs-note">A running job that's still heartbeating can't be stopped from this page —
+    an operator has to kill its queue's worker process.</div>
+
+  <table class="mk-table">
+    <thead>
+      <tr>
+        {{ sort_th(sort_links.rwb_job_type, "Job type") }}
+        {{ sort_th(sort_links.entity_name, "EDM / RDM") }}
+        {{ sort_th(sort_links.submission, "Submission") }}
+        {{ sort_th(sort_links.status_code, "Status") }}
+        {{ sort_th(sort_links.submitted_at, "Submitted at") }}
+        {{ sort_th(sort_links.elapsed, "Elapsed") }}
+        <th class="col-actions">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      {% include "partials/rwb_jobs_row.html" %}
+      {% else %}
+      <tr><td colspan="7" class="empty">No jobs match —
+        <a class="clear-filters" href="/workflows/rwb-jobs">reset filters</a>.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

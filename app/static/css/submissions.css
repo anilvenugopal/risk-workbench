@@ -1,4 +1,5 @@
-/* submissions.css — submission list / detail / status-chip / CRM-tag styling.
+/* submissions.css — submission list / detail / CRM-tag styling. Status chips are
+   shared across pages and live in components.css.
    ITCSS component layer. Tokens only — no hardcoded hex (Article 9). */
 
 .sub-table { margin-top: var(--space-2); }
@@ -67,28 +68,6 @@
 .pager { display: flex; align-items: center; gap: var(--space-3);
   margin-top: var(--space-3); }
 .pager__at { font-size: var(--fs-label); color: var(--text-tertiary); }
-
-/* ── Status chips ────────────────────────────────────────────────────────── */
-.status-chip {
-  display: inline-block; font-size: var(--fs-caption); font-weight: var(--fw-medium);
-  letter-spacing: .03em; text-transform: uppercase;
-  padding: 1px var(--space-2); border-radius: var(--radius-pill);
-  border: 1px solid var(--border-default); color: var(--text-secondary);
-  background: var(--surface-recessed);
-}
-/* Deal-status variants retain the doubled selector used by the shared chip rules. */
-.status-chip.status-chip--active {
-  color: var(--color-info); background: var(--color-info-bg);
-  border-color: var(--color-info-border);
-}
-.status-chip.status-chip--completed {
-  color: var(--color-positive); background: var(--color-positive-bg);
-  border-color: var(--color-positive-border);
-}
-.status-chip.status-chip--cancelled {
-  color: var(--color-negative); background: var(--color-negative-bg);
-  border-color: var(--color-negative-border);
-}
 
 /* ── Form banners ────────────────────────────────────────────────────────── */
 .form-banner {
@@ -354,14 +333,6 @@
 .exec-currency__warn { margin-top: var(--space-1); font-size: var(--fs-caption);
   color: var(--color-warning); }
 
-.status-chip--pending_import,
-.status-chip--importing { background: var(--c-navy-050); color: var(--c-navy-600);
-  border-color: var(--c-navy-200); }
-.status-chip--ready { background: var(--c-green-050); color: var(--c-green-700);
-  border-color: var(--c-green-200); }
-.status-chip--error,
-.status-chip--submission-failed { background: var(--c-red-050); color: var(--c-red-700);
-  border-color: var(--c-red-200); }
 /* Failure reason shown inline in the collapsed executed-analysis row (spec 010
    US2, FR-011) — visible without expanding the row. */
 .exec-reason { display: block; margin-top: 2px; font-size: var(--fs-caption);

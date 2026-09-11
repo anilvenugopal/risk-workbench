@@ -36,6 +36,7 @@ from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.services import (
     analysis_execution_service,
     analysis_service,
+    auth_service,
     edm_service,
     grouping_service,
     rdm_service,
@@ -53,7 +54,6 @@ from app.services.errors import (
     UnknownLinkError,
 )
 from app.services.grouping_view import build_inspection_screen
-from db import execute
 
 router = APIRouter()
 
@@ -197,16 +197,6 @@ def _reshow_form(
                       links_to=links_to, errors=errors,
                       field_errors=field_errors, warnings=warnings),
         status_code=status_code)
-
-
-def _active_analysts() -> list[dict]:
-    """Every active user, for the detail page's reassign picker and the list's
-    Owner filter."""
-    return execute(
-        "SELECT id, display_name FROM app_user WHERE is_active = 1 "
-        "ORDER BY display_name",
-        {}, connection="WORKBENCH",
-    )
 
 
 # One place per kind for the router-level operations that differ between EDM
@@ -589,7 +579,7 @@ def _detail_context(request: Request, submission_id: str) -> dict | None:
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return None
-    analysts = _active_analysts()
+    analysts = auth_service.list_active_analysts()
     sort_state = _entity_sort_state(request)
     edm_sort, edm_descending = sort_state["edm"]
     rdm_sort, rdm_descending = sort_state["rdm"]
@@ -922,7 +912,7 @@ def list_submissions_page(request: Request):
         "treaty_types": TREATY_TYPES,
         "statuses": submission_service.status_kinds(),
         "owner_options": [(analyst["id"], analyst["display_name"])
-                          for analyst in _active_analysts()],
+                          for analyst in auth_service.list_active_analysts()],
         "filter_values": filter_values,
         "min_treaty_year": MIN_TREATY_YEAR,
         "max_treaty_year": MAX_TREATY_YEAR,

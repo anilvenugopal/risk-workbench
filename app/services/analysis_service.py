@@ -297,7 +297,7 @@ class ExecutedAnalysis:
     @property
     def status_chip(self) -> str:
         """The ``status-chip--*`` modifier for ``run_state``. Analyses reuse the
-        EDM/RDM import chip variants in submissions.css rather than adding a
+        EDM/RDM import chip variants in components.css rather than adding a
         second set of colors, so the class names do not match the states."""
         return _CHIP_BY_RUN_STATE[self.run_state]
 

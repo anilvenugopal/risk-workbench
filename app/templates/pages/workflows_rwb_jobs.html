@@ -1,7 +1,42 @@
 {% extends "base/shell.html" %}
+{% import "partials/form_macros.html" as forms %}
 {% block title %}RWB Jobs{% endblock %}
+
+
 {% block main %}
 <div class="page-pad">
-  <p class="mk-empty">RWB jobs will appear here.</p>
+
+  {# GET, no CSRF — mirrors pages/submissions.html's filter form. Naming
+     #rwb-jobs-live as the target is what gets the table back on its own: the
+     route reads HX-Target and skips the nav shell and the pickers. The form
+     sits outside the swap, so fields keep focus. #}
+  <form class="filters" method="get" action="/workflows/rwb-jobs"
+        hx-get="/workflows/rwb-jobs" hx-trigger="input delay:300ms, submit, filter-picked"
+        hx-target="#rwb-jobs-live" hx-swap="outerHTML"
+        hx-push-url="true">
+    <div class="filters__row">
+      <label>Submission / cedant
+        <input class="wf-field__input" type="text" name="q"
+               value="{{ filter_values.q }}" autocomplete="off" maxlength="100">
+      </label>
+      {{ forms.multi_picker("submission_status", "Submission status", submission_statuses,
+                            filter_values.submission_status) }}
+      {{ forms.multi_picker("owner", "Owner", owner_options, filter_values.owner,
+                            any_label="Any owner", empty_value="any",
+                            search_placeholder="Narrow this list") }}
+    </div>
+    <div class="filters__row">
+      {{ forms.multi_picker("job_type", "Job type", job_types, filter_values.job_type) }}
+      {{ forms.multi_picker("job_status", "Job status", job_statuses, filter_values.job_status) }}
+      {# Unlike pages/submissions.html's own "Clear filters" (?owner=any, which
+         switches owner to everyone's), this goes to the bare URL — no query
+         string at all — so Owner lands back on the actual default (the
+         current analyst), not "any owner." #}
+      <a class="btn-sm" href="/workflows/rwb-jobs">Reset filters</a>
+    </div>
+    <button type="submit" hidden>Filter</button>
+  </form>
+
+  {% include "partials/rwb_jobs_table.html" %}
 </div>
 {% endblock %}
