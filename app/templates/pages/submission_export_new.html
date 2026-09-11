@@ -1,5 +1,6 @@
 {% extends "base/shell.html" %}
 {% import "partials/export_row_macros.html" as rows %}
+{% import "partials/form_macros.html" as forms %}
 {% block title %}Export · {{ submission.name if submission else 'Submission' }}{% endblock %}
 
 {% block page_actions %}
@@ -81,12 +82,12 @@
 
       <div class="wf-field">
         <label>CLIENT <span class="wf-field__req" title="Required">*</span></label>
-        <select class="wf-field__input" name="client_id" required>
+        {% call forms.typeahead_select('client_id', required=true) %}
           <option value="">Select…</option>
           {% for c in clients %}
           <option value="{{ c.id }}" {% if values.client_id|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>
           {% endfor %}
-        </select>
+        {% endcall %}
         {% if not clients %}<div class="wf-field__msg wf-field__error">The loss repository lists no active clients.</div>{% endif %}
       </div>
 
