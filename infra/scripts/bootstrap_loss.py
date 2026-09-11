@@ -4,7 +4,11 @@ Applies db/bootstrap/loss_dev_mirror.sql (CIC's five tables) and
 db/bootstrap/loss_schema.sql (the Workbench's stage schema and load procedure)
 over the LOSS connection, then seeds dbo.Client with three made-up clients and
 dbo.Lookup_RMS_HistoricalRDS from db/bootstrap/seed/lookup_rms_historical_rds.csv.
-Idempotent: a second run leaves every row count unchanged.
+Idempotent: a second run leaves every row count unchanged. ``--reset-stage``
+drops the three stage tables first, so a changed column definition in
+loss_schema.sql takes effect; every manifest, file, and staged loss row in
+rwb_loss is lost. At CIC the DBA applies loss_schema.sql by hand and the
+tables are never dropped (contracts/load-procedure.md §4).
 
 Refuses to run unless MSSQL_LOSS_DATABASE is rwb_loss: at CIC the five tables
 are theirs and the DBA installs loss_schema.sql by hand.
@@ -68,6 +72,12 @@ def _seed_lookup(conn) -> int:
     return len(rows)
 
 
+def _drop_stage_tables(conn) -> None:
+    for table in ("rwb_loss_result_elt_data", "rwb_loss_result_file",
+                  "rwb_loss_result_manifest"):
+        conn.execute(text(f"DROP TABLE IF EXISTS stage.{table}"))
+
+
 def main() -> int:
     database = os.environ.get("MSSQL_LOSS_DATABASE")
     if database != "rwb_loss":
@@ -77,6 +87,11 @@ def main() -> int:
 
     from db import get_connection  # noqa: PLC0415
     from db.scripts import execute_script_file  # noqa: PLC0415 — trusted DDL, dev only
+
+    if "--reset-stage" in sys.argv[1:]:
+        print("bootstrap-loss: dropping the stage tables")
+        with get_connection("LOSS") as conn, conn.begin():
+            _drop_stage_tables(conn)
 
     print("bootstrap-loss: applying loss_dev_mirror.sql")
     execute_script_file(BOOTSTRAP_DIR / "loss_dev_mirror.sql", connection="LOSS")

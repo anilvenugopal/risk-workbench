@@ -116,5 +116,14 @@ run a load by hand.
   tables into `rwb_loss`, seed rows), then
   `db/bootstrap/loss_schema.sql`, both through
   `db.scripts.execute_script_file(..., connection="LOSS")`.
-- Makefile: `bootstrap-loss` (Docker) and `wsl-bootstrap-loss`; `db-rebuild`
-  and `wsl-db-rebuild` call them after `alembic upgrade head`.
+- `--reset-stage` drops `stage.rwb_loss_result_elt_data`,
+  `stage.rwb_loss_result_file`, and `stage.rwb_loss_result_manifest` before
+  applying the two files, so a changed column definition in
+  `loss_schema.sql` takes effect without a full `db-rebuild`. Every manifest,
+  file, and staged loss row in `rwb_loss` is lost, and the analyses they
+  covered become exportable again. Dev only: the script's `rwb_loss` check
+  runs first, and at CIC the DBA applies `loss_schema.sql` by hand (§4).
+- Makefile: `bootstrap-loss` (Docker) and `wsl-bootstrap-loss`,
+  `bootstrap-loss-reset` and `wsl-bootstrap-loss-reset` for the drop;
+  `db-rebuild` and `wsl-db-rebuild` call the plain targets after
+  `alembic upgrade head`.
