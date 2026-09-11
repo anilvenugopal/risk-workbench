@@ -40,7 +40,7 @@
           <div class="export-summary__analysis">
             <span title="{{ a.analysis_name }}">{{ a.analysis_name }}</span>
             <span>{{ rows.status_chip(a.status) }}</span>
-            <span class="export-summary__dataid">{{ a.data_id if a.data_id is not none else '—' }}</span>
+            <span class="export-summary__dataid">Data ID: {{ a.data_id if a.data_id is not none else '—' }}</span>
           </div>
           {% endfor %}
         </div>
