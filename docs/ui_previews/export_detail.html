@@ -77,8 +77,8 @@ h2{margin:var(--space-6) 0 var(--space-2);font-size:15px}
 .export-summary__dataid{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-tertiary)}
 /* status chips (components.css) */
 .status-chip{display:inline-flex;align-items:center;padding:1px 8px;border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium)}
-.status-chip--export-waiting{background:var(--c-navy-050);color:var(--c-navy-600);border:1px solid var(--c-navy-200)}
-.status-chip--export-staged{background:var(--c-amber-050);color:var(--c-amber-700);border:1px solid var(--c-amber-200)}
+.status-chip--export-queued{background:var(--c-navy-050);color:var(--c-navy-600);border:1px solid var(--c-navy-200)}
+.status-chip--export-in-progress{background:var(--c-amber-050);color:var(--c-amber-700);border:1px solid var(--c-amber-200)}
 .status-chip--export-loaded{background:var(--c-green-050);color:var(--c-green-700);border:1px solid var(--c-green-200)}
 .status-chip--export-failed{background:var(--c-red-050);color:var(--c-red-700);border:1px solid var(--c-red-200)}
 </style>
@@ -113,31 +113,21 @@ h2{margin:var(--space-6) 0 var(--space-2);font-size:15px}
         <span>Staged</span><span>Stochastic</span><span>Historical</span><span>Exposure raised</span><span>Std dev zeroed</span><span class="l"></span>
       </div>
       <div class="drow-static"><span class="l"><span class="dt-title">CRE_US Southeast Wind_US HU DLM v25</span></span><span class="l">own</span>
-        <span class="l"><span class="status-chip status-chip--export-waiting">pending</span></span><span class="l">08:14:02</span>
+        <span class="l"><span class="status-chip status-chip--export-queued">queued</span></span><span class="l">08:14:02</span>
         <span class="l">AmFam HU GR 2026</span><span>—</span><span>41958</span><span>USD</span>
         <span>—</span><span>—</span><span>WS</span><span>NA</span>
         <span>—</span><span>—</span><span>—</span><span>—</span><span>—</span><span></span></div>
       <div class="drow-static"><span class="l"><span class="dt-title">CRE_US Southeast Wind_US EQ DLM v25</span></span><span class="l">own</span>
-        <span class="l"><span class="status-chip status-chip--export-waiting">requested from Risk Modeler</span></span><span class="l">08:14:09</span>
+        <span class="l"><span class="status-chip status-chip--export-in-progress">in progress</span></span><span class="l">08:14:09</span>
         <span class="l">—</span><span>—</span><span>41959</span><span>USD</span>
         <span>—</span><span>—</span><span>EQ</span><span>NA</span>
         <span>—</span><span>—</span><span>—</span><span>—</span><span>—</span><span></span></div>
-      <div class="drow-static"><span class="l"><span class="dt-title">CRE_Group_All perils combined for the 2026 renewal</span></span><span class="l">group</span>
-        <span class="l"><span class="status-chip status-chip--export-waiting">downloading and staging</span></span><span class="l">08:19:41</span>
-        <span class="l">—</span><span>—</span><span>41990</span><span>USD</span>
-        <span>—</span><span>—</span><span>WS</span><span>NA</span>
-        <span>—</span><span>—</span><span>—</span><span>—</span><span>—</span><span></span></div>
       <div class="drow-static"><span class="l"><span class="dt-title">CRE_US Midwest_US WT DLM v25</span></span><span class="l">own</span>
-        <span class="l"><span class="status-chip status-chip--export-staged">staged</span></span><span class="l">08:21:55</span>
+        <span class="l"><span class="status-chip status-chip--export-in-progress">in progress</span></span><span class="l">08:21:55</span>
         <span class="l">AmFam WT GR 2026</span><span>—</span><span>41971</span><span>USD</span>
         <span>25.0</span><span>DLM</span><span>WT</span><span>NA</span>
         <span>15,689</span><span>—</span><span>—</span><span>—</span><span>—</span><span></span>
         <div class="export-detail__path">/mnt/cic-share/exports/3f1c2a7e-…/8a4d…/25437617_CRE_US Midwest_US WT DLM v25_Losses.zip</div></div>
-      <div class="drow-static"><span class="l"><span class="dt-title">CRE_US Midwest_US EQ DLM v25</span></span><span class="l">own</span>
-        <span class="l"><span class="status-chip status-chip--export-staged">loading</span></span><span class="l">08:22:10</span>
-        <span class="l">—</span><span>—</span><span>41972</span><span>USD</span>
-        <span>25.0</span><span>DLM</span><span>EQ</span><span>NA</span>
-        <span>15,689</span><span>—</span><span>—</span><span>—</span><span>—</span><span></span></div>
       <div class="drow-static"><span class="l"><span class="dt-title">GC_AmFam_HU_2026</span></span><span class="l">broker</span>
         <span class="l"><span class="status-chip status-chip--export-loaded">loaded</span></span><span class="l">08:23:47</span>
         <span class="l">GC AmFam HU GR</span><span>4127</span><span>38812</span><span>USD</span>
@@ -162,14 +152,12 @@ h2{margin:var(--space-6) 0 var(--space-2);font-size:15px}
         <summary>
           <span class="l"><span class="dt-name"><span class="dt-caret">&#9656;</span><a class="link" href="#">GR</a></span></span>
           <span class="l">b.bailey@premiumiq.com</span><span class="l">2026-09-10 08:14</span><span class="l">Example Re</span>
-          <span>7</span><span class="l">1 loaded · 1 failed · 5 in progress</span>
+          <span>5</span><span class="l">1 loaded · 1 failed · 3 in progress</span>
         </summary>
         <div class="drow__body">
-          <div class="export-summary__analysis"><span>CRE_US Southeast Wind_US HU DLM v25</span><span><span class="status-chip status-chip--export-waiting">pending</span></span><span class="export-summary__dataid">—</span></div>
-          <div class="export-summary__analysis"><span>CRE_US Southeast Wind_US EQ DLM v25</span><span><span class="status-chip status-chip--export-waiting">requested from Risk Modeler</span></span><span class="export-summary__dataid">—</span></div>
-          <div class="export-summary__analysis"><span>CRE_Group_All perils combined for the 2026 renewal</span><span><span class="status-chip status-chip--export-waiting">downloading and staging</span></span><span class="export-summary__dataid">—</span></div>
-          <div class="export-summary__analysis"><span>CRE_US Midwest_US WT DLM v25</span><span><span class="status-chip status-chip--export-staged">staged</span></span><span class="export-summary__dataid">—</span></div>
-          <div class="export-summary__analysis"><span>CRE_US Midwest_US EQ DLM v25</span><span><span class="status-chip status-chip--export-staged">loading</span></span><span class="export-summary__dataid">—</span></div>
+          <div class="export-summary__analysis"><span>CRE_US Southeast Wind_US HU DLM v25</span><span><span class="status-chip status-chip--export-queued">queued</span></span><span class="export-summary__dataid">—</span></div>
+          <div class="export-summary__analysis"><span>CRE_US Southeast Wind_US EQ DLM v25</span><span><span class="status-chip status-chip--export-in-progress">in progress</span></span><span class="export-summary__dataid">—</span></div>
+          <div class="export-summary__analysis"><span>CRE_US Midwest_US WT DLM v25</span><span><span class="status-chip status-chip--export-in-progress">in progress</span></span><span class="export-summary__dataid">—</span></div>
           <div class="export-summary__analysis"><span>GC_AmFam_HU_2026</span><span><span class="status-chip status-chip--export-loaded">loaded</span></span><span class="export-summary__dataid">4127</span></div>
           <div class="export-summary__analysis"><span>CRE_US Southeast Wind_US HU HD v3</span><span><span class="status-chip status-chip--export-failed">failed</span></span><span class="export-summary__dataid">—</span></div>
         </div>

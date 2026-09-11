@@ -29,10 +29,9 @@
    the submission; client is required; data vintage is blank (story 1
    acceptance 2).
 3. Pick GR and a client, click **Export**. You land on the export detail page
-   with both analyses **pending** (acceptance 1).
-4. Watch the statuses move: requested from Risk Modeler → downloading and
-   staging → staged → loading → loaded. Expect several minutes per analysis
-   for a real ELT.
+   with both analyses **queued** (acceptance 1).
+4. Watch the statuses move: in progress → loaded. Expect several minutes per
+   analysis for a real ELT.
 5. In `rwb_loss`: one `dbo.Data` row per analysis with `AnalysisID`,
    `Perspective = 'GR'`, `DataModelVersion = '25.0'`, `Name`, `Description`,
    `Server`, `CRMID`; `dbo.RMSELT` rows plus `dbo.RMS_HistoricalRDS` rows
@@ -90,7 +89,7 @@
 ## Crash recovery (FR-020)
 
 Kill the stage worker mid-download (`docker kill` the worker container while
-the row reads downloading and staging). After `RWB_HEARTBEAT_STALE_SECS` the
+the row reads in progress). After `RWB_HEARTBEAT_STALE_SECS` the
 poller's reconciler resets the job; the next attempt reuses the archive if
 the download completed, else downloads again; no duplicate stage rows.
 
