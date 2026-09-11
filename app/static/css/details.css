@@ -369,7 +369,6 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .bo-row-error strong { font-weight: var(--fw-semibold); }
 
 /* ── loss results export (spec 014): form and detail rows on the .dtable grid ── */
-.export-mark { grid-column: 1 / -1; padding: 0 var(--space-3) var(--space-2); font-size: var(--fs-caption); color: var(--color-warning); white-space: normal; }
 .export-analysis { flex-wrap: wrap; }
 /* the form's picker: analyses table on the left, the cart on the right */
 .export-pick { display: flex; gap: var(--space-4); align-items: flex-start; margin-bottom: var(--space-4); }

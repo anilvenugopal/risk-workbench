@@ -177,11 +177,24 @@ def test_fragment_marks_an_analysis_exported_from_another_submission(client, dea
                               ("perspective", "GR")])
     assert f'href="/submissions/{other}/exports/{row["export_id"]}"' in frag.text
     assert "r.patel@example.com" in frag.text and "loaded" in frag.text
-    oob = re.search(rf'id="export-row-{deal["a"]}"[^>]*hx-swap-oob="true">(.*?)</div>\s*</div>',
-                    frag.text, re.S)
-    assert oob is not None and "disabled" in oob.group(1) and "checked" not in oob.group(1)
+    assert "data-export-conflict" in frag.text
+    assert "Already exported for GR" in frag.text
     assert f'name="data_name[{deal["a"]}]"' not in frag.text
     assert f'name="data_name[{deal["b"]}]"' in frag.text
+
+
+def test_fragment_leaves_every_row_and_the_perspective_select_usable(client, deal):
+    """An already-exported analysis must stay unticking-able: the row keeps its
+    live checkbox and the select keeps the selection's shared perspectives, so
+    the analyst is never left with a form that has no working control."""
+    seed_manifest(submission_id=str(uuid.uuid4()), irp_app_analysis_id=41958,
+                  perspective_code="GR")
+    frag = client.get(f"/submissions/{deal['submission_id']}/exports/new/fields",
+                      params=[("analysis_ids", deal["a"]), ("perspective", "GR")])
+    assert "hx-swap-oob" not in frag.text
+    assert "disabled" not in frag.text
+    assert re.findall(r'<option value="(\w+)"', frag.text) == ["GU", "GR", "RL"]
+    assert f"untick('{deal['a']}')" in frag.text
 
 
 # ── POST ─────────────────────────────────────────────────────────────────────
@@ -208,7 +221,7 @@ def test_form_posts_plainly_so_a_422_rerender_is_shown(client, deal):
     tag = re.search(r'<form[^>]*id="export-form"[^>]*>', page.text).group(0)
     assert "hx-post" not in tag and 'method="post"' in tag
     assert 'x-data="analysisPicks()"' in tag
-    assert ':disabled="!count"' in page.text
+    assert ':disabled="!count || conflicts"' in page.text
 
 
 def test_post_with_a_blocked_analysis_answers_422_naming_it(client, deal):
@@ -218,7 +231,9 @@ def test_post_with_a_blocked_analysis_answers_422_naming_it(client, deal):
     assert response.status_code == 422
     assert "B long was already exported for GR" in response.text
     assert "r.patel@example.com" in response.text
-    assert f'value="{deal["a"]}" @change="onChange()"\n           checked' in response.text
+    for analysis_id in (deal["a"], deal["b"]):
+        assert (f'value="{analysis_id}" @change="onChange()"\n           checked>'
+                in response.text)
     assert len(execute("SELECT 1 FROM stage.rwb_loss_result_manifest", {},
                        connection="LOSS")) == 1
 

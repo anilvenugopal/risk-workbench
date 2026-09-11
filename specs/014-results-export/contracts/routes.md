@@ -36,7 +36,8 @@ submission). Renders `pages/submission_export_new.html` with:
   default the submission's first `submission_crm_id.crm_id`), data vintage
   (date, blank).
 - Export button, disabled until at least one analysis is ticked and a
-  perspective and client are chosen.
+  perspective and client are chosen, and while a selected analysis is already
+  exported for the chosen perspective (§3).
 
 A submission that does not resolve renders the gone-notice partial.
 
@@ -63,8 +64,9 @@ Triggered by `hx-get` on the analysis list (`hx-trigger="change"`,
   submission, is rendered as "Exported {requested_at} by
   {requested_by_email} · {status}" linking to that export's §6 page under
   its own submission (`/submissions/{requested_from_submission_id}/exports/{export_id}`,
-  spec P-16), and its checkbox is unticked and disabled by the fragment's
-  out-of-band swap (`hx-swap-oob` on the row).
+  spec P-16). Its analysis row and its cart row stay live so the analyst can
+  untick it or choose another perspective; the fragment carries
+  `data-export-conflict`, which turns the Export button off.
 
 ## 4. Submit
 

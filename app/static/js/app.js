@@ -779,6 +779,9 @@ document.addEventListener('alpine:init', () => {
       const boxes = this.boxes();
       this.total = boxes.length;
       this.count = Array.from(boxes).filter((box) => box.checked).length;
+      // The export cart marks an analysis already exported for the chosen
+      // perspective; the Export button stays off until it is removed (spec 014).
+      this.conflicts = this.$root.querySelector('[data-export-conflict]') !== null;
       const selectAll = this.$refs.selectAll;
       if (!selectAll) return;
       selectAll.checked = this.total > 0 && this.count === this.total;
@@ -813,6 +816,7 @@ document.addEventListener('alpine:init', () => {
     term: '',
     shown: 0,
     rowCount: 0,
+    conflicts: false,
     observer: null,
     init() {
       this.onChange();

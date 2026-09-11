@@ -27,11 +27,10 @@
 
   {# A plain form post: htmx does not swap a 422 response, so the re-rendered
      validation message would never show over hx-post. analysisPicks() counts the
-     ticked rows for the Export button and drives the name search; after each
-     fragment swap the search is re-applied, because an out-of-band row swap
-     rebuilds the row without its hidden state. #}
+     ticked rows for the Export button, watches the cart for an already-exported
+     analysis, and drives the name search. #}
   <form method="post" action="/submissions/{{ submission.id }}/exports" id="export-form"
-        x-data="analysisPicks()" @htmx:after-settle="filter(term)">
+        x-data="analysisPicks()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
 
     <div class="export-pick">
@@ -42,8 +41,8 @@
                  aria-label="Search analyses by name" @input="filter($event.target.value)">
           <span class="export-pick__count" x-text="filterLabel"></span>
         </div>
-        {# Ticking re-renders the perspective select, the cart, and the exported
-           marks (contracts/routes.md §3). The data-name inputs travel with the
+        {# Ticking re-renders the perspective select and the cart
+           (contracts/routes.md §3). The data-name inputs travel with the
            request so a name typed before the next tick is not lost. #}
         <div class="dtable-shell"
              hx-get="/submissions/{{ submission.id }}/exports/new/fields" hx-trigger="change"
@@ -114,7 +113,7 @@
 
     <div class="status-controls">
       <button class="btn-sm btn-sm--primary" type="submit" id="export-submit"
-              :disabled="!count">Export</button>
+              :disabled="!count || conflicts">Export</button>
       <a href="/submissions/{{ submission.id }}" class="btn-sm">Cancel</a>
     </div>
   </form>

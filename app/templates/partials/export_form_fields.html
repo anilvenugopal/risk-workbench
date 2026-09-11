@@ -1,8 +1,9 @@
 {# The export cart (contracts/routes.md §3): the perspective every selected
-   analysis shares, one cart row per selected analysis carrying its optional data
-   name, and — once a perspective is chosen — the exported marks, each swapping
-   its row in the analyses table out-of-band to unticked and disabled. #}
-{% import "partials/export_row_macros.html" as rows %}
+   analysis shares, and one cart row per selected analysis carrying its optional
+   data name. An analysis already exported for the chosen perspective keeps its
+   cart row — with the export named in place of the data name — and
+   data-export-conflict turns the Export button off until the analyst removes it
+   or picks another perspective (FR-004). #}
 <div id="export-fields" class="export-cart">
   <div class="wf-field">
     <label>PERSPECTIVE <span class="wf-field__req" title="Required">*</span></label>
@@ -23,21 +24,24 @@
     {% endif %}
   </div>
 
-  {% set carted = selected|rejectattr('exported')|list %}
   <div class="bo-cart">
-    <div class="bo-cart__head">Selected analyses ({{ carted|length }})</div>
-    {% if carted %}
+    <div class="bo-cart__head">Selected analyses ({{ selected|length }})</div>
+    {% if selected %}
     <div class="export-cart__rows">
-      {% for a in carted %}
+      {% for a in selected %}
       <div class="bo-cart-row">
         <div class="bo-cart-row__top">
           <span class="bo-cart-row__label">{{ a.name }}</span>
           <button type="button" class="bo-cart-row__remove" @click="untick('{{ a.id }}')">remove</button>
         </div>
+        {% if a.exported %}
+        <div class="wf-field__msg wf-field__error">Already exported for {{ perspective }}</div>
+        {% else %}
         <label class="export-cart-row__name">Data name
           <input class="wf-field__input" type="text" name="data_name[{{ a.id }}]"
                  maxlength="{{ data_name_max }}" placeholder="Optional"
                  value="{{ data_names.get(a.id, '') if data_names is defined else '' }}"></label>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
@@ -48,13 +52,12 @@
 
   {% set exported = selected|selectattr('exported')|list %}
   {% if exported %}
-  <div class="form-banner form-banner--error">
+  <div class="form-banner form-banner--error" data-export-conflict>
     {% for a in exported %}
     <div>{{ a.name }}: exported {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
       · {{ a.exported.status }} — <a href="{{ a.exported.detail_url }}">open that export</a>.
-      It cannot be exported again for {{ perspective }}.</div>
+      Remove it from the selection, or choose another perspective, to export.</div>
     {% endfor %}
   </div>
-  {% for a in exported %}{{ rows.analysis_row(a, checked=false, oob=true) }}{% endfor %}
   {% endif %}
 </div>
