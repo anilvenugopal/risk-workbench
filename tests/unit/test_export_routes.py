@@ -115,6 +115,12 @@ def test_export_link_on_the_submission_results_section_only(client, deal):
     assert "/exports/new" not in edm_scoped
 
 
+def test_exports_section_has_no_export_link(client, deal):
+    section = client.get(f"/submissions/{deal['submission_id']}/exports")
+    assert section.status_code == 200
+    assert "/exports/new" not in section.text
+
+
 # ── form and fragment ────────────────────────────────────────────────────────
 
 def test_form_renders_defaults_rows_and_disabled_reason(client, deal):

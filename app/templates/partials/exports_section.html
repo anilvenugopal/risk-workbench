@@ -12,8 +12,6 @@
     <span class="sec__caret">▸</span>
     <span class="sec__title">Exports</span>
     {% if exports %}<span class="badge badge--neutral">{{ exports|length }}</span>{% endif %}
-    <span class="sec__spacer"></span>
-    <a class="btn-sm" href="/submissions/{{ submission_id }}/exports/new" onclick="event.stopPropagation()">Export</a>
   </summary>
   {% if exports %}
   <div class="dtable-shell">
