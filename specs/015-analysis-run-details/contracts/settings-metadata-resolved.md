@@ -29,7 +29,14 @@ expanded row and the Compare modal's metadata line. Evidence:
       }
     ],
     "treaties": [                       // the treaties the analysis applied; [] when none
-      { "id": 33833, "number": "PR1", "name": "PR1" }
+      {
+        "id": 33833, "number": "PR1", "name": "PR1",
+        "currency": "CAD",              // currency.code as the run applied it, not irp_treaty's
+        "occurrence_limit": 10000000.0, // occurrenceLimit
+        "risk_limit": 5000000.0,        // riskLimit
+        "attachment_point": 5000000.0,  // attachmentPoint
+        "retention_amount": 0.0         // retentionAmount; each term null when RM omits it
+      }
     ],
     "captured_at": "2026-09-11T14:03:22Z"
   }
@@ -63,18 +70,24 @@ Rules:
     property is a group for this purpose, whatever `isGroup` says.
 - **Display** (`analysis_results_inline.html`):
   - a single ELT partition → `Event rate scheme: <name>`;
-  - a single PLT partition → `Simulation set: <name> (<periods:,> periods)`;
-  - several partitions, group or not (P-08) → one wide list entry per partition,
+  - a single PLT partition → `Simulation set: <name> (<periods:,> periods)`,
+    `PET <id>` in place of a null `name`;
+  - several partitions, group or not (P-08) → a wide list labelled
+    **Run details**, one entry per partition,
     `<region_code> · <peril_code> — <scheme name> — <set name> (<periods> periods)`,
     omitting whichever half is null;
-  - `treaties` non-empty → wide list `<number> · <name>`; `[]` → no Treaties
-    entry at all (FR-012); absent (read failed) → a Treaties label reading
-    *not returned* (P-04).
-  - An absent `resolved`, or an absent half, renders that label blank
-    (*not returned*), never an error.
+  - `treaties` non-empty → wide list `<number> · <name> · <currency>`; the
+    stored limits, attachment point and retention are not rendered (P-02);
+    `[]` → no Treaties entry at all (FR-012); absent (read failed) → a
+    Treaties label reading *not returned* (P-04).
+  - `partitions` absent (whole `resolved` absent, or that half failed) → a
+    single **Run details** entry reading *not returned*, since the framework
+    is unknown; never an Event rate scheme or Simulation set label, never an
+    error.
   - The Compare modal's metadata line (`compare_modal.html` `row_meta`) shows
     the same summary: the single field's value, or the partition entries
-    joined, in place of today's event-rate-scheme-only part (P-05, FR-017).
+    joined, in place of today's event-rate-scheme-only part; `run details
+    not returned` when blank (P-05, FR-017).
 
 Captured payloads the fixtures are built from: [captures/](captures/) —
 `own_dlm`, `own_hd`, `broker_dlm`, `broker_dlm_no_treaties`,

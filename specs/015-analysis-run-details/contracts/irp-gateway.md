@@ -65,6 +65,11 @@ class AppliedTreaty:
     treaty_id: int | None
     number: str
     name: str | None
+    currency: str | None           # currency.code as the run applied it (T-05)
+    occurrence_limit: float | None
+    risk_limit: float | None
+    attachment_point: float | None
+    retention_amount: float | None
 
 @dataclass(frozen=True)
 class ResolvedRun:
@@ -72,13 +77,12 @@ class ResolvedRun:
     treaties: tuple[AppliedTreaty, ...]         # one per treaty_id, sorted by number (P-06, P-07)
 ```
 
-The group branch does not call the gateway for partitions: the worker builds
+The group branch does not read the gateway's partitions: the worker builds
 them from the detail's property
 ([settings-metadata-resolved.md](settings-metadata-resolved.md)) and calls
-`describe_analysis_run` for the treaties only. If the package method proves
-expensive for that use, a treaty-only wrapper over
-`search_analysis_treaties_paginated` is the fallback — decided at
-implementation, not here.
+`describe_analysis_run` for the treaties, ignoring the `partitions` it
+returns. One gateway method serves every origin; the region and reference
+reads a group's describe call makes are accepted (research T-06).
 
 ## FakeIRP
 

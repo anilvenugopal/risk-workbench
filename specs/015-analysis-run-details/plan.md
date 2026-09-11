@@ -32,8 +32,9 @@ TestPyPI wheel exists and is re-confirmed.
   from reference data (T-02, T-04). **Groups** get `partitions` from the
   detail's `additionalProperties` entry keyed `eventRateSchemes` or
   `simulationSets`, which Risk Modeler writes per region and peril with names
-  (T-03); no region call for a group. Every origin gets `treaties` from the
-  describe method (T-05).
+  (T-03); the describe call a group makes for its treaties has its region
+  facts ignored. Every origin gets `treaties` from the describe method, stored
+  with currency, limits, attachment point and retention (T-05).
 - `finalize_analysis` (own analyses and groups) writes `resolved` in the
   same UPDATE that stores the metadata. `backfill_rdm_analyses` writes it per
   broker analysis in its existing per-analysis loop. A failed describe read
@@ -49,13 +50,16 @@ TestPyPI wheel exists and is re-confirmed.
   loses its six unrendered fields and `_to_display` its dead key alternates
   (T-08, research audit).
 - The expanded row's settings grid shows Event rate scheme for an ELT row,
-  Simulation set `name (N periods)` for a PLT row, a wide per-partition list
-  when a run has two or more partitions (P-08), and a wide Treaties list
-  `number · name` — omitted when the read returned none, *not returned* when
-  the read failed (P-04). Partitions sort by region then peril, treaties by
+  Simulation set `name (N periods)` for a PLT row (`PET <id>` when the name
+  did not resolve), a wide Run details list when a run has two or more
+  partitions or a Run details entry reading *not returned* when partitions
+  were not captured (P-08), and a wide Treaties list `number · name ·
+  currency` — omitted when the read returned none, *not returned* when the
+  read failed (P-04). Partitions sort by region then peril, treaties by
   number with one entry per treaty id (P-06, P-07). The Compare modal's
-  metadata line shows the same summary (P-05). Blank stays *not returned*. No
-  preview: derivative additions to a styled component (T-09).
+  metadata line shows the same summary, `run details not returned` when
+  blank (P-05). No preview: derivative additions to a styled component
+  (T-09).
 - Unit fixtures for own DLM, own HD, broker DLM, broker group and three
   group shapes come from the live captures in
   [contracts/captures/](contracts/captures/); the knowledge-base fixtures
@@ -72,7 +76,7 @@ TestPyPI wheel exists and is re-confirmed.
 | Worker | `finalize_analysis` and `backfill_rdm_analyses` call `describe_analysis_run` and write `resolved`; `_claim_analysis` stores `treaty_names`. |
 | UI | `analysis_results_inline.html` settings grid: conditional Event rate scheme / Simulation set entry, group partition list, Treaties list. Compare modal metadata line reads the same field. |
 | Library | irp-integration: new `describe_run` (name Assumed) on `AnalysisManager`, TestPyPI release; workbench `irp_gateway` + `FakeIRP` gain `describe_analysis_run`. |
-| Docs | `docs/DATA_MODEL.md` §6 column semantics; spec P-01/FR-004 wording (simulation periods). |
+| Docs | `docs/DATA_MODEL.md` §6 column semantics. |
 
 ## High-risk technical decisions
 
@@ -84,7 +88,7 @@ TestPyPI wheel exists and is re-confirmed.
 | T-02 | Own and broker rows collapse region rows to one scheme or PET per region and peril, named from reference data, the way `_inspect` does; the detail's `eventRateSchemeNames` is retired as a source | Approved | [research](research.md#t-02--non-group-rows-the-scheme-and-simulation-set-collapse-from-region-rows-the-way-irp-integration-already-does-it) |
 | T-03 | Group rows read the detail's `eventRateSchemes` / `simulationSets` property; `get_regions` is not used for groups; source selection is by payload content | Approved | [research](research.md#t-03--group-rows-the-details-additionalproperties-are-the-source) |
 | T-04 | Simulation set label is PET name plus simulation periods; PET named through model version + `get_pet_metadata_exact` | Approved | [research](research.md#t-04--simulation-set-label-pet-name-and-simulation-periods-spec-wording-amended) |
-| T-05 | Applied treaties from `search_analysis_treaties_paginated` stored as id/number/name; the plan item gains `treaty_names` | Approved | [research](research.md#t-05--treaties-applied-treaties-from-the-analysis-treaty-search-the-plan-item-records-the-requested-names) |
+| T-05 | Applied treaties from `search_analysis_treaties_paginated` stored as id, number, name, currency, occurrence limit, risk limit, attachment point and retention; the row shows number, name and currency; the plan item gains `treaty_names` | Approved | [research](research.md#t-05--treaties-applied-treaties-from-the-analysis-treaty-search-the-plan-item-records-the-requested-names) |
 | T-06 | The single-analysis collapse lives in irp-integration as a describe method; the gateway wraps one call | Approved (placement) · method signature **Assumed** until the wheel exists | [research](research.md#t-06--the-single-analysis-collapse-lives-in-irp-integration) |
 | T-07 | Capture in `finalize_analysis` and `backfill_rdm_analyses`; a failed describe read blanks and continues, never fails the job | Approved | [research](research.md#t-07--capture-points-and-the-failure-rule) |
 | T-08 | One reader for `resolved` serves the expanded row and the Compare line; `_event_rate_scheme` and six dead display fields deleted | Approved | [research](research.md#t-08--one-reader-dead-fields-deleted) |
@@ -164,7 +168,8 @@ Not needed — no violation to justify.
   that leaves the metadata write intact and the job successful; the plan item
   carrying `treaty_names`; the reader over every capture (ELT row shows
   scheme and no simulation set, PLT row the reverse, group lists both, no
-  treaties → no Treaties entry, absent `resolved` → blank); the Compare modal
+  treaties → no Treaties entry, absent `resolved` → a Run details entry
+  reading *not returned*, unnamed PET → `PET <id>`); the Compare modal
   line reading the same value as the expanded row; zero gateway calls on
   render.
 - **SQL Server integration**: none added — no schema or SQL change. The

@@ -68,7 +68,7 @@ list entry per region and peril, each naming its scheme and the simulation
 set chosen on the compose screen. Group two DLM analyses: schemes only.
 
 **Story 4 — treaties.** Run a template with two treaties selected; expand the
-finished row: two entries, `number · name`. Expand broker 5689560's row: its
+finished row: two entries, `number · name · currency`. Expand broker 5689560's row: its
 two treaties. Expand an analysis run with no treaties: no Treaties entry.
 
 **FR-016 check.** Open the Compare modal on the same table: the metadata line

@@ -122,11 +122,15 @@ model_region_code="NZEQ")` returns the 3.0 row.
 
 **Decision.** `analysis.search_analysis_treaties_paginated(analysis_id)`
 supplies the applied treaties for own, broker and group rows; the workbench
-stores `treatyId`, `treatyNumber`, `treatyName`. The execution plan item
+stores `treatyId`, `treatyNumber`, `treatyName`, `currency.code`,
+`occurrenceLimit`, `riskLimit`, `attachmentPoint` and `retentionAmount` as
+the run applied them. The row shows number, name and currency; the other
+terms are stored now so that showing them later needs no recapture
+(re-decided 2026-09-11, `/speckit-analyze`). The execution plan item
 written to `submitted_settings` by `_claim_analysis` gains `treaty_names`
 (today `treaty_names` sits on the batch plan only,
 `analysis_execution_service.py:279`). The expanded row shows the applied
-list as `<number> · <name>` (P-02).
+list as `<number> · <name> · <currency>` (P-02).
 
 **Evidence.** Every own analysis read carried treaties (PR1/PR2 in USD or
 CAD, QS_JP in JPY); broker 5689560 carried two (XPR_1_100_Fld), broker
@@ -154,7 +158,10 @@ checkout at `../irp-integration` is at the PR 33 merge that released 0.8.0.
 **Alternatives.** A workbench module reimplementing the collapse over thin
 gateway reads: no package release needed, but the same shape logic in two
 repos drifts. Calling `inspect` with a dummy second id: the second analysis's
-reads and problems pollute the result.
+reads and problems pollute the result. A treaty-only gateway wrapper over
+`search_analysis_treaties_paginated` for groups: one fewer region read per
+group, but a second gateway method and fake to keep in step; rejected
+2026-09-11 — groups call the describe method and ignore its region facts.
 
 **Cost.** A package change, tag and TestPyPI release precede the worker task;
 `make irp-testpypi` then pins it. The method name and signature in the
@@ -162,8 +169,8 @@ contract are Assumed until the wheel exists.
 
 ## T-07 — Capture points and the failure rule
 
-**Decision.** `finalize_analysis` captures for own and group rows after the
-metadata write; `backfill_rdm_analyses` captures per broker analysis
+**Decision.** `finalize_analysis` captures for own and group rows in the same
+UPDATE as the metadata write; `backfill_rdm_analyses` captures per broker analysis
 alongside the existing per-analysis metadata read. A failed describe read
 leaves `resolved` absent (or its failed half absent) for that analysis, logs a
 warning, and never fails the job — the rule the metadata read in the backfill
@@ -177,8 +184,9 @@ broker row.
 metadata before opening the transaction, and `_UPDATE_ANALYSIS_DETAIL` writes
 the snapshot only when the read succeeded. Groups reach `finalize_analysis`
 through `_handle_grouping_terminal` (`poller/run.py:186`) with `is_group` 1.
-A group's `resolved.partitions` come from the detail already in hand, so a
-group costs one treaty call; an own analysis costs one describe call; an RDM
+A group's `resolved.partitions` come from the detail already in hand; the
+group still makes one describe call for its treaties and ignores the region
+facts it returns; an own analysis costs one describe call; an RDM
 capture costs one describe call per analysis plus reference lists fetched
 once per job inside the package method.
 
@@ -312,3 +320,15 @@ Implementation replaces the first two with the captures in
 - Q: Does a one-partition group render as a single field or a per-partition
   list? → A: By partition count, not origin: one partition is a single field,
   two or more are the list, group or not (P-08).
+- Q: When a PLT partition's PET name did not resolve, blank or the id?
+  → A: `PET <id> (<periods> periods)`, the compose screen's fallback label
+  (T-04); *not returned* is reserved for partitions that were not captured.
+- Q: Which label does a row show when `resolved.partitions` is absent, since
+  the framework is then unknown? → A: A neutral **Run details** entry reading
+  *not returned*; the same label heads the per-partition list (P-08).
+- Q: Store treaty terms, or number and name only? → A: Store currency,
+  occurrence limit, risk limit, attachment point and retention with each
+  applied treaty; show number, name and currency (P-02, T-05).
+- Q: For a group's treaties, the describe method or a treaty-only wrapper?
+  → A: The describe method, one gateway method for every origin; its region
+  facts are ignored for a group (T-06, T-07).

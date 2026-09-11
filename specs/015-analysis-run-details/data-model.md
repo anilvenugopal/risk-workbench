@@ -12,7 +12,7 @@ workbench-owned top-level key:
 
 | Key | Written by | Content |
 |---|---|---|
-| `resolved` | `finalize_analysis` (own analyses and groups), `backfill_rdm_analyses` (broker analyses), in the same UPDATE as the response | `partitions[]` — one entry per region and peril the run resolved on, each with `region_code`, `peril_code`, `framework`, `event_rate_scheme {id, name}`, `simulation_set {id, name, periods}`; `treaties[]` — `{id, number, name}` per applied treaty; `captured_at` |
+| `resolved` | `finalize_analysis` (own analyses and groups), `backfill_rdm_analyses` (broker analyses), in the same UPDATE as the response | `partitions[]` — one entry per region and peril the run resolved on, each with `region_code`, `peril_code`, `framework`, `event_rate_scheme {id, name}`, `simulation_set {id, name, periods}`; `treaties[]` — `{id, number, name, currency, occurrence_limit, risk_limit, attachment_point, retention_amount}` per applied treaty; `captured_at` |
 
 Full shape and rules:
 [contracts/settings-metadata-resolved.md](contracts/settings-metadata-resolved.md).
