@@ -34,7 +34,7 @@ LOSS_STAGE_SCHEMA = [
         server TEXT,
         irp_export_job_id TEXT,
         loss_table_type TEXT CHECK (loss_table_type IN ('ELT', 'PLT')),
-        engine_type TEXT CHECK (engine_type IN ('DLM', 'HD')),
+        engine_type TEXT CHECK (engine_type IN ('DLM', 'HD', 'GROUP')),
         data_model_version TEXT,
         peril_code TEXT,
         region_code TEXT,

@@ -137,6 +137,14 @@ def test_several_chunks_stage_in_order(staging, fake_irp):
     assert m["staged_row_count"] == 3
 
 
+def test_group_engine_type_and_build_number_version_are_recorded(staging, fake_irp):
+    fake_irp.export_archive_path = build_archive(
+        staging["tmp"] / "group", engine_type="GROUP", model_version="25.0.2450.0")
+    _run_stage()
+    m = _manifest(staging)
+    assert (m["engine_type"], m["data_model_version"]) == ("GROUP", "25.0")
+
+
 def test_export_job_not_finished_fails_with_the_jobs_reason(staging):
     execute_command(
         "UPDATE irp_job SET status = 'FAILED', last_completion_result = :r",

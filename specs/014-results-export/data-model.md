@@ -91,8 +91,8 @@ AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 | `server` | `VARCHAR(255)` | `settings.risk_modeler_base_url` | `Data.Server` |
 | `irp_export_job_id` | `NVARCHAR(64)` NULL | Submit worker | Retry decision; traceability |
 | `loss_table_type` | `VARCHAR(3)` NULL, CHECK `('ELT','PLT')` | Stage worker, archive folder name | Stage table and procedure selection |
-| `engine_type` | `VARCHAR(3)` NULL, CHECK `('DLM','HD')` | Stage worker, `metadata.csv` `Engine Type` | Detail page; O-08 |
-| `data_model_version` | `NVARCHAR(10)` NULL | Stage worker, `metadata.csv` `ModelVersion` | `Data.DataModelVersion`; lookup join and assertion |
+| `engine_type` | `VARCHAR(5)` NULL, CHECK `('DLM','HD','GROUP')` | Stage worker, `metadata.csv` `Engine Type` | Detail page; O-08 |
+| `data_model_version` | `NVARCHAR(10)` NULL | Stage worker, `metadata.csv` `ModelVersion`, reduced to the decimal form when Risk Modeler writes a build number (`23.0.2250.1` → `23.0`) | `Data.DataModelVersion`; lookup join and assertion |
 | `peril_code` | `NVARCHAR(10)` NULL | `settings_metadata` `perilCode` on submit | Detail page; traceability (not part of the lookup join, R4) |
 | `region_code` | `NVARCHAR(10)` NULL | `settings_metadata` `regionCode` | Detail page; traceability |
 | `zip_file` | `NVARCHAR(1024)` NULL | Stage worker after download: `{export_id}/{irp_analysis_id}/{filename}` relative to `EXPORT_ARCHIVE_DIR` | Detail page; stage worker reuse; Retry |

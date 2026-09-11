@@ -37,9 +37,9 @@ CREATE TABLE stage.rwb_loss_result_manifest (
     loss_table_type              VARCHAR(3)       NULL
         CONSTRAINT ck_rwb_loss_result_manifest_loss_table_type
         CHECK (loss_table_type IN ('ELT', 'PLT')),
-    engine_type                  VARCHAR(3)       NULL
+    engine_type                  VARCHAR(5)       NULL
         CONSTRAINT ck_rwb_loss_result_manifest_engine_type
-        CHECK (engine_type IN ('DLM', 'HD')),
+        CHECK (engine_type IN ('DLM', 'HD', 'GROUP')),
     data_model_version           NVARCHAR(10)     NULL,
     peril_code                   NVARCHAR(10)     NULL,
     region_code                  NVARCHAR(10)     NULL,
