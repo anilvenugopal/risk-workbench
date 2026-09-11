@@ -1,0 +1,234 @@
+{
+ "_captured": "2026-09-11 via irp-integration 0.8.0 against the sandbox tenant",
+ "_analysis_id": 5745731,
+ "get_analysis_by_id": {
+  "analysisId": 5745731,
+  "appAnalysisId": 42342,
+  "analysisName": "Test_Export_Group",
+  "createDate": "2026-09-11T02:47:54",
+  "sourceRdmName": "",
+  "exposureName": "",
+  "exposureResourceId": 0,
+  "exposureResourceType": "PORTFOLIO",
+  "engineType": "Group",
+  "engineVersion": "RL25",
+  "analysisFramework": "ELT",
+  "analysisType": "Exceedance Probability",
+  "analysisMode": "Distributed",
+  "isGroup": true,
+  "groupType": "CDGP",
+  "peril": "Multi-Peril",
+  "perilCode": "YY",
+  "subPeril": "Multi-SubPeril",
+  "region": "North America",
+  "regionCode": "NA",
+  "currency": {
+   "currencyName": "US Dollar",
+   "currencyCode": "USD",
+   "currencyScheme": "RMS",
+   "currencyAsOfDate": "2025-05-28T00:00:00Z",
+   "currencyVintage": "RL25"
+  },
+  "lossAmplification": "Building, Contents, BI",
+  "eventRateSchemeNames": [],
+  "simulationSetId": 0,
+  "simulationPeriods": 0,
+  "modelProfile": {
+   "id": 0,
+   "code": "",
+   "name": ""
+  },
+  "additionalProperties": [
+   {
+    "key": "groupedAnalysisIds",
+    "properties": [
+     {
+      "id": 42334,
+      "name": "CRE_EQ_HI_RES_US EQ wFFSL wDS - COM Stochastic",
+      "value": ""
+     },
+     {
+      "id": 42335,
+      "name": "CRE_HU_US_US HU wSS wDS - PROP Historical",
+      "value": ""
+     },
+     {
+      "id": 42336,
+      "name": "CRE_HU_US_US HU wSS wDS - PROP Stochastic",
+      "value": ""
+     }
+    ]
+   },
+   {
+    "key": "propagateDetailedOutput",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": "Yes"
+     }
+    ]
+   },
+   {
+    "key": "eventRateSchemes",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": {
+       "regionCode": "NA",
+       "perilCode": "EQ",
+       "framework": "ELT",
+       "eventRateSchemeId": 163,
+       "eventRateSchemeName": "RMS 17.0 NA   Stochastic Event Rates",
+       "simulationSetId": 0,
+       "simulationSetName": "",
+       "simulationPeriods": 0
+      }
+     },
+     {
+      "id": 0,
+      "name": "",
+      "value": {
+       "regionCode": "NA",
+       "perilCode": "WS",
+       "framework": "ELT",
+       "eventRateSchemeId": 739,
+       "eventRateSchemeName": "RMS 2025 Stochastic Event Rates",
+       "simulationSetId": 0,
+       "simulationSetName": "",
+       "simulationPeriods": 0
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "get_regions": [
+  {
+   "_note": "23 rows in the live response, one per subRegion ['AL', 'CT', 'D1', 'DC', 'FL', 'GA']\u2026; identical otherwise",
+   "region": "NA",
+   "subRegion": "FL",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 738,
+   "framework": "ELT",
+   "analysisId": 5745731,
+   "modelProfileId": 5250,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL25"
+  },
+  {
+   "_note": "23 rows in the live response, one per subRegion ['AL', 'CT', 'D1', 'DC', 'FL', 'GA']\u2026; identical otherwise",
+   "region": "NA",
+   "subRegion": "P1",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 739,
+   "framework": "ELT",
+   "analysisId": 5745731,
+   "modelProfileId": 5250,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL25"
+  },
+  {
+   "_note": "51 rows in the live response, one per subRegion ['A1', 'AK', 'AL', 'AZ', 'C2', 'CA']\u2026; identical otherwise",
+   "region": "NA",
+   "subRegion": "P1",
+   "peril": "Earthquake",
+   "eventRateSchemeId": 163,
+   "framework": "ELT",
+   "analysisId": 5745731,
+   "modelProfileId": 5247,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL25"
+  },
+  {
+   "_note": "1 rows in the live response, one per subRegion ['NA']; identical otherwise",
+   "region": "NA",
+   "subRegion": "NA",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 739,
+   "framework": "ELT",
+   "analysisId": 5745731,
+   "modelProfileId": 0,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL25"
+  },
+  {
+   "_note": "1 rows in the live response, one per subRegion ['NA']; identical otherwise",
+   "region": "NA",
+   "subRegion": "NA",
+   "peril": "Earthquake",
+   "eventRateSchemeId": 163,
+   "framework": "ELT",
+   "analysisId": 5745731,
+   "modelProfileId": 0,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL25"
+  }
+ ],
+ "search_analysis_treaties_paginated": [
+  {
+   "treatyId": 33835,
+   "treatyNumber": "PR1",
+   "treatyName": "PR1",
+   "treatyType": "WORK",
+   "currency": {
+    "id": 0,
+    "code": "USD",
+    "name": "US Dollar"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 1000000.0,
+   "attachmentPoint": 250000.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 250000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2026-01-01T00:00:00.000Z",
+   "expirationDate": "2026-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 0,
+   "uri": "/platform/riskdata/v1/analyses/5745731/treaties"
+  },
+  {
+   "treatyId": 33834,
+   "treatyNumber": "PR2",
+   "treatyName": "PR2",
+   "treatyType": "WORK",
+   "currency": {
+    "id": 0,
+    "code": "USD",
+    "name": "US Dollar"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 1000000.0,
+   "attachmentPoint": 500000.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 500000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2026-01-01T00:00:00.000Z",
+   "expirationDate": "2026-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 0,
+   "uri": "/platform/riskdata/v1/analyses/5745731/treaties"
+  }
+ ]
+}

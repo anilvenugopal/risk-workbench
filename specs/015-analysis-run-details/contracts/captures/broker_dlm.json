@@ -1,0 +1,158 @@
+{
+ "_captured": "2026-09-11 via irp-integration 0.8.0 against the sandbox tenant",
+ "_analysis_id": 5689560,
+ "get_analysis_by_id": {
+  "analysisId": 5689560,
+  "appAnalysisId": 42086,
+  "analysisName": "USFL_Commercial_LT",
+  "createDate": "2026-01-15T20:30:53",
+  "sourceRdmName": "usfl_broker_results",
+  "exposureName": "",
+  "exposureResourceId": 3,
+  "exposureResourceType": "PORTFOLIO",
+  "engineType": "DLM",
+  "engineVersion": "RL23",
+  "analysisFramework": "ELT",
+  "analysisType": "Exceedance Probability",
+  "analysisMode": "Distributed",
+  "isGroup": false,
+  "groupType": "ANLS",
+  "peril": "Windstorm",
+  "perilCode": "WS",
+  "subPeril": "Surge Only",
+  "region": "North Atlantic (including Hawaii)",
+  "regionCode": "NA",
+  "currency": {
+   "currencyName": "US Dollar",
+   "currencyCode": "USD"
+  },
+  "lossAmplification": "Building, Contents, BI",
+  "eventRateSchemeNames": [],
+  "simulationSetId": 0,
+  "simulationPeriods": 0,
+  "modelProfile": {
+   "id": 0,
+   "code": "",
+   "name": ""
+  },
+  "additionalProperties": [
+   {
+    "key": "exposure",
+    "properties": [
+     {
+      "id": 3,
+      "name": "",
+      "value": "RM_EDM_202503_Test_USFL_USFL"
+     }
+    ]
+   },
+   {
+    "key": "minimumLossThreshold",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": ""
+     }
+    ]
+   },
+   {
+    "key": "franchiseDeductible",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": ""
+     }
+    ]
+   },
+   {
+    "key": "unrecognizedConstructionOccupancyTypes",
+    "properties": [
+     {
+      "id": 0,
+      "name": "Treat As Unknown",
+      "value": 1
+     }
+    ]
+   },
+   {
+    "key": "dataVersion",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": ""
+     }
+    ]
+   }
+  ]
+ },
+ "get_regions": [
+  {
+   "_note": "23 rows in the live response, one per subRegion ['AL', 'CT', 'D1', 'DC', 'FL', 'GA']\u2026; identical otherwise",
+   "region": "NA",
+   "subRegion": "HI",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 577,
+   "framework": "ELT",
+   "analysisId": 5689560,
+   "modelProfileId": 0,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL23"
+  }
+ ],
+ "search_analysis_treaties_paginated": [
+  {
+   "treatyId": 31482,
+   "treatyNumber": "XPR_1_100_Fld",
+   "treatyName": "XPR_1_100_Fld",
+   "treatyType": "WORK",
+   "currency": {
+    "id": 0,
+    "code": "USD",
+    "name": "US Dollar"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 10000000.0,
+   "attachmentPoint": 5000000.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 5000000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2000-01-01T00:00:00.000Z",
+   "expirationDate": "2030-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 5689560,
+   "uri": "/platform/riskdata/v1/analyses/5689560/treaties/31482"
+  },
+  {
+   "treatyId": 31481,
+   "treatyNumber": "XPR_1_95_Fld",
+   "treatyName": "XPR_1_95_Fld",
+   "treatyType": "WORK",
+   "currency": {
+    "id": 0,
+    "code": "USD",
+    "name": "US Dollar"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 9000000.0,
+   "attachmentPoint": 2000000.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 3000000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 95.0,
+   "effectiveDate": "2000-01-01T00:00:00.000Z",
+   "expirationDate": "2030-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 5689560,
+   "uri": "/platform/riskdata/v1/analyses/5689560/treaties/31481"
+  }
+ ]
+}

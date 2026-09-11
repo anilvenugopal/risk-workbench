@@ -1,0 +1,130 @@
+{
+ "_captured": "2026-09-11 via irp-integration 0.8.0 against the sandbox tenant",
+ "_analysis_id": 5733173,
+ "get_analysis_by_id": {
+  "analysisId": 5733173,
+  "appAnalysisId": 42306,
+  "analysisName": "CRE_EQ_NZ_COM_HD_NZ_3-0_Time-Independent",
+  "createDate": "2026-09-09T16:05:04",
+  "sourceRdmName": "",
+  "exposureName": "TY2608_SampleCo_0825_25EDM",
+  "exposureResourceId": 1,
+  "exposureResourceType": "PORTFOLIO",
+  "engineType": "HD",
+  "engineVersion": "HDv3.0",
+  "analysisFramework": "PLT",
+  "analysisType": "Exceedance Probability",
+  "analysisMode": "Simulated",
+  "isGroup": false,
+  "peril": "Earthquake",
+  "perilCode": "EQ",
+  "subPeril": "Multi-SubPeril",
+  "region": "New Zealand",
+  "regionCode": "NZ",
+  "currency": {
+   "currencyName": "US Dollar",
+   "currencyCode": "USD",
+   "currencyScheme": "RMS",
+   "currencyAsOfDate": "2025-05-28T00:00:00Z",
+   "currencyVintage": "RL25"
+  },
+  "lossAmplification": "Building, Contents, BI",
+  "eventRateSchemeNames": [],
+  "simulationSetId": 0,
+  "simulationPeriods": 0,
+  "modelProfile": {
+   "id": 5328,
+   "code": "",
+   "name": "HD_NZ_3.0_Time-Independent"
+  },
+  "additionalProperties": [
+   {
+    "key": "dataVersion",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": "22.0.0"
+     }
+    ]
+   },
+   {
+    "key": "exposure",
+    "properties": [
+     {
+      "id": 1,
+      "name": "EQ_NZ_COM",
+      "value": "TY2608_SampleCo_0825_25EDM"
+     }
+    ]
+   }
+  ]
+ },
+ "get_regions": [
+  {
+   "_note": "1 rows in the live response, one per subRegion ['NZ']; identical otherwise",
+   "region": "NZ",
+   "subRegion": "NZ",
+   "peril": "Earthquake",
+   "eventRateSchemeId": 0,
+   "framework": "PLT",
+   "analysisId": 5733173,
+   "modelProfileId": 5328,
+   "petId": 12,
+   "numSamples": 1,
+   "periods": 1978459,
+   "applyContractFlag": false,
+   "engineVersion": "HDv3.0"
+  }
+ ],
+ "search_analysis_treaties_paginated": [
+  {
+   "treatyId": 33808,
+   "treatyNumber": "PR2",
+   "treatyName": "PR2",
+   "treatyType": "WORK",
+   "currency": {
+    "id": 0,
+    "code": "USD",
+    "name": "US Dollar"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 1000000.0,
+   "attachmentPoint": 500000.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 500000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2026-01-01T00:00:00.000Z",
+   "expirationDate": "2026-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 5733173,
+   "uri": "/platform/riskdata/v1/analyses/5733173/treaties/33808"
+  },
+  {
+   "treatyId": 33806,
+   "treatyNumber": "PR1",
+   "treatyName": "PR1",
+   "treatyType": "WORK",
+   "currency": {
+    "id": 0,
+    "code": "USD",
+    "name": "US Dollar"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 1000000.0,
+   "attachmentPoint": 250000.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 250000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2026-01-01T00:00:00.000Z",
+   "expirationDate": "2026-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 5733173,
+   "uri": "/platform/riskdata/v1/analyses/5733173/treaties/33806"
+  }
+ ]
+}

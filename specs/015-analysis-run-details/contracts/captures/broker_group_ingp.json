@@ -1,0 +1,88 @@
+{
+ "_captured": "2026-09-11 via irp-integration 0.8.0 against the sandbox tenant",
+ "_analysis_id": 5723350,
+ "get_analysis_by_id": {
+  "analysisId": 5723350,
+  "appAnalysisId": 42166,
+  "analysisName": "HU_US",
+  "createDate": "2024-04-12T09:52:01",
+  "sourceRdmName": "Broker-RDM",
+  "exposureName": "",
+  "exposureResourceId": 0,
+  "exposureResourceType": "PORTFOLIO",
+  "engineType": "Group",
+  "engineVersion": "RL25",
+  "analysisFramework": "ELT",
+  "analysisType": "Exceedance Probability",
+  "analysisMode": "Distributed",
+  "isGroup": false,
+  "groupType": "INGP",
+  "peril": "Windstorm",
+  "perilCode": "WS",
+  "subPeril": "Wind Only",
+  "region": "North Atlantic (including Hawaii)",
+  "regionCode": "NA",
+  "currency": {
+   "currencyName": "US Dollar",
+   "currencyCode": "USD"
+  },
+  "lossAmplification": "Building, Contents, BI",
+  "eventRateSchemeNames": [],
+  "simulationSetId": 0,
+  "simulationPeriods": 0,
+  "modelProfile": {
+   "id": 0,
+   "code": "",
+   "name": ""
+  },
+  "additionalProperties": [
+   {
+    "key": "propagateDetailedOutput",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": "Yes"
+     }
+    ]
+   },
+   {
+    "key": "eventRateSchemes",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": {
+       "regionCode": "NA",
+       "perilCode": "WS",
+       "framework": "ELT",
+       "eventRateSchemeId": 578,
+       "eventRateSchemeName": "RMS 2023 Stochastic Event Rates",
+       "simulationSetId": 0,
+       "simulationSetName": "",
+       "simulationPeriods": 0
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "get_regions": [
+  {
+   "_note": "23 rows in the live response, one per subRegion ['AL', 'CT', 'D1', 'DC', 'FL', 'GA']\u2026; identical otherwise",
+   "region": "NA",
+   "subRegion": "DC",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 578,
+   "framework": "ELT",
+   "analysisId": 5723350,
+   "modelProfileId": 0,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL25"
+  }
+ ],
+ "search_analysis_treaties_paginated": []
+}

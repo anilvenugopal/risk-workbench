@@ -1,0 +1,270 @@
+{
+ "_captured": "2026-09-11 via irp-integration 0.8.0 against the sandbox tenant",
+ "_analysis_id": 5684003,
+ "get_analysis_by_id": {
+  "analysisId": 5684003,
+  "appAnalysisId": 42077,
+  "analysisName": "DLM-HD-Group_RM_Group2",
+  "createDate": "2026-09-03T23:10:48",
+  "sourceRdmName": "",
+  "exposureName": "",
+  "exposureResourceId": 0,
+  "exposureResourceType": "PORTFOLIO",
+  "engineType": "Group",
+  "engineVersion": "PLTGroup1.0",
+  "analysisFramework": "PLT",
+  "analysisType": "Exceedance Probability",
+  "analysisMode": "Distributed",
+  "isGroup": true,
+  "peril": "Multi-Peril",
+  "perilCode": "YY",
+  "subPeril": "Multi-SubPeril",
+  "region": "Multiple regions",
+  "regionCode": "YY",
+  "currency": {
+   "currencyName": "US Dollar",
+   "currencyCode": "USD",
+   "currencyScheme": "RMS",
+   "currencyAsOfDate": "2025-05-28T00:00:00Z",
+   "currencyVintage": "RL25"
+  },
+  "lossAmplification": "None",
+  "eventRateSchemeNames": [],
+  "simulationSetId": 0,
+  "simulationPeriods": 0,
+  "modelProfile": {
+   "id": 0,
+   "code": "",
+   "name": ""
+  },
+  "additionalProperties": [
+   {
+    "key": "groupedAnalysisIds",
+    "properties": [
+     {
+      "id": 41964,
+      "name": "CRE_EQ_HI_RES_US EQ wFFSL wDS - PERS Stochastic",
+      "value": ""
+     },
+     {
+      "id": 41977,
+      "name": "CRE_HU_US_DLM USFL 85pct SS v23 Stochastic",
+      "value": ""
+     },
+     {
+      "id": 41978,
+      "name": "CRE_HU_US_DLM USFL 85pct SS v23 Historical",
+      "value": ""
+     },
+     {
+      "id": 42044,
+      "name": "CRE_WS_JP_COM_HD_JPWS_Stochastic_Typhoon-Only",
+      "value": ""
+     }
+    ]
+   },
+   {
+    "key": "propagateDetailedOutput",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": "No"
+     }
+    ]
+   },
+   {
+    "key": "simulationSets",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": {
+       "regionCode": "JP",
+       "perilCode": "WS",
+       "framework": "PLT",
+       "eventRateSchemeId": 0,
+       "simulationSetId": 15,
+       "simulationSetName": "RMS V2.0 Stochastic Event Rates - Typhoon Events Only",
+       "simulationPeriods": 50000
+      }
+     },
+     {
+      "id": 0,
+      "name": "",
+      "value": {
+       "regionCode": "NA",
+       "perilCode": "EQ",
+       "framework": "ELT",
+       "eventRateSchemeId": 163,
+       "eventRateSchemeName": "RMS 17.0 NA   Stochastic Event Rates",
+       "simulationSetId": 87,
+       "simulationSetName": "North America Earthquake, RMS 17.0 NA Stochastic Event Rates",
+       "simulationPeriods": 50000
+      }
+     },
+     {
+      "id": 0,
+      "name": "",
+      "value": {
+       "regionCode": "NA",
+       "perilCode": "WS",
+       "framework": "ELT",
+       "eventRateSchemeId": 738,
+       "eventRateSchemeName": "RMS 2025 Historical Event Rates",
+       "simulationSetId": 146,
+       "simulationSetName": "North Atlantic Hurricane, 2025 Historical Event Rates-v2",
+       "simulationPeriods": 50000
+      }
+     }
+    ]
+   },
+   {
+    "key": "groupSimulationPeriod",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": 50000
+     }
+    ]
+   }
+  ]
+ },
+ "get_regions": [
+  {
+   "_note": "23 rows in the live response, one per subRegion ['AL', 'CT', 'D1', 'DC', 'FL', 'GA']\u2026; identical otherwise",
+   "region": "NA",
+   "subRegion": "SC",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 739,
+   "framework": "ELT",
+   "analysisId": 5684003,
+   "modelProfileId": 4521,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL23"
+  },
+  {
+   "_note": "51 rows in the live response, one per subRegion ['A1', 'AK', 'AL', 'AZ', 'C2', 'CA']\u2026; identical otherwise",
+   "region": "NA",
+   "subRegion": "AZ",
+   "peril": "Earthquake",
+   "eventRateSchemeId": 163,
+   "framework": "ELT",
+   "analysisId": 5684003,
+   "modelProfileId": 5248,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL25"
+  },
+  {
+   "_note": "23 rows in the live response, one per subRegion ['AL', 'CT', 'D1', 'DC', 'FL', 'GA']\u2026; identical otherwise",
+   "region": "NA",
+   "subRegion": "HI",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 738,
+   "framework": "ELT",
+   "analysisId": 5684003,
+   "modelProfileId": 4521,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL23"
+  },
+  {
+   "_note": "1 rows in the live response, one per subRegion ['JP']; identical otherwise",
+   "region": "JP",
+   "subRegion": "JP",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 0,
+   "framework": "PLT",
+   "analysisId": 5684003,
+   "modelProfileId": 5295,
+   "petId": 15,
+   "numSamples": 1,
+   "periods": 50000,
+   "applyContractFlag": false,
+   "engineVersion": "HDv2.1"
+  }
+ ],
+ "search_analysis_treaties_paginated": [
+  {
+   "treatyId": 31436,
+   "treatyNumber": "PR1",
+   "treatyName": "PR1",
+   "treatyType": "WORK",
+   "currency": {
+    "id": 0,
+    "code": "USD",
+    "name": "US Dollar"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 1000000.0,
+   "attachmentPoint": 250000.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 250000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2026-01-01T00:00:00.000Z",
+   "expirationDate": "2026-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 0,
+   "uri": "/platform/riskdata/v1/analyses/5684003/treaties"
+  },
+  {
+   "treatyId": 31411,
+   "treatyNumber": "QS_JP",
+   "treatyName": "QS_JP",
+   "treatyType": "QUOT",
+   "currency": {
+    "id": 0,
+    "code": "JPY",
+    "name": "Japanese Yen"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 20000000.0,
+   "attachmentPoint": 0.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 1000000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2026-01-01T00:00:00.000Z",
+   "expirationDate": "2026-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 5676657,
+   "uri": "/platform/riskdata/v1/analyses/5676657/treaties/31411"
+  },
+  {
+   "treatyId": 31380,
+   "treatyNumber": "PR2",
+   "treatyName": "PR2",
+   "treatyType": "WORK",
+   "currency": {
+    "id": 0,
+    "code": "USD",
+    "name": "US Dollar"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 1000000.0,
+   "attachmentPoint": 500000.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 500000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2026-01-01T00:00:00.000Z",
+   "expirationDate": "2026-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 5627699,
+   "uri": "/platform/riskdata/v1/analyses/5627699/treaties/31380"
+  }
+ ]
+}
