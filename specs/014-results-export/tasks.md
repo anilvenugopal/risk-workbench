@@ -142,6 +142,10 @@ the unit-tier `LOSS` fixture every story's code and tests depend on.
 - [ ] T044 [P] [T-23] Create `tests/irp/test_export_download.py` (opt-in, `--run-irp`): submit an export for a finished sandbox analysis through `irp_gateway.submit_analysis_export_job`, poll `get_export_job` with bounded sleeps, download through `download_export_results`, and assert the research R6 archive layout and `metadata.csv` columns. Record the result in `plan.md` T-23 (Assumed → Approved) and `research.md` R7.
   - Proof: `make shell`, then `uv run pytest tests/irp --run-irp -k export` passes (unverified until run)
 - [ ] T045 [P] Extend `tests/unit/test_architecture_guards.py`: `app/routers/` never imports or calls `download_export_results`, `get_export_job`, or `submit_analysis_export_job`; `app/poller/` never calls a `poll_*` method; `app/services/export_service.py` and `app/workers/export_jobs.py` reach SQL only through `db.execute`, `db.execute_command`, `db.execute_procedure`, `get_connection`, and `db.elt.upload_parquet`.
+- [ ] T048 [O-12] Define how a CIC DBA applies a stage-schema change once the repository holds real manifests (decided 2026-09-11: `db/bootstrap/loss_schema.sql` stays the definitive schema and each release that alters an installed table ships one numbered change script). Create `db/bootstrap/changes/` and its first script, `001-engine-type-varchar5.sql`: widen `stage.rwb_loss_result_manifest.engine_type` to `VARCHAR(5)` and recreate `ck_rwb_loss_result_manifest_engine_type` with `'GROUP'`. Every change script is re-runnable (drop a constraint only `IF EXISTS`, guard on `COL_LENGTH`) so T049 can apply it over a current database. Add `stage.rwb_loss_schema_version (version INT PRIMARY KEY, applied_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(), description NVARCHAR(200) NOT NULL)` to `loss_schema.sql`, stamped by a fresh install with the release's version and by each change script with its own number, so `MAX(version)` names what is installed; drop it beside the three stage tables in `bootstrap_loss.py --reset-stage`. Correct the two places that promise the old mechanism — the `loss_schema.sql` header comment and contracts/load-procedure.md §4, which both say a later release ships "an explicit `ALTER TABLE` block in the same file" — and state in §4 what the DBA runs for a fresh install (`loss_schema.sql` alone, no change scripts) versus an upgrade (the change scripts above `MAX(version)`, in order, then re-check `MAX(version)`).
+- [ ] T049 [O-12] Create `tests/sqlserver/test_loss_schema_changes.py`: apply `loss_schema.sql` to a fresh `stage` schema, snapshot `sys.columns` (name, type, `max_length`, `is_nullable`) and `sys.check_constraints` (`definition`) for the three stage tables, apply every file in `db/bootstrap/changes/` in name order, and assert the snapshot is unchanged and `MAX(version)` still equals the version `loss_schema.sql` stamped. A change script that disagrees with the definitive file — `VARCHAR(4)` against the file's `VARCHAR(5)`, a forgotten constraint, a version number out of step — fails here rather than at CIC. This is the drift check; the DBA's own check is `SELECT MAX(version) FROM stage.rwb_loss_schema_version`, and neither embeds a second copy of the schema.
+  - Proof: `make test-sql` passes (unverified until run inside `linux-box`)
+- [ ] T050 [O-12] Fail an export before it writes when CIC's repository is behind the running release: the stage actor in `app/workers/export_jobs.py` reads `SELECT MAX(version) FROM stage.rwb_loss_schema_version` once and fails the job with "loss repository is at stage schema version {n}; this release needs {m} — apply db/bootstrap/changes/ through {m}" when it is below the module's `REQUIRED_LOSS_SCHEMA_VERSION`. A version above it passes: CIC may be a release ahead. Unit cases in `tests/unit/test_export_stage_worker.py` for behind, equal, and ahead. The 2026-09-10 failures on manifests 7 and 8 are what this replaces — a driver truncation error naming a column, instead of the version mismatch that caused it.
 - [ ] T046 Review the whole diff for subtraction per AGENTS.md "Code Quality": remove comments and tests that restate the implementation, inline single-use helpers in `app/services/export_service.py` and `app/workers/export_jobs.py`, drop speculative branches and configurability, and confirm docs changes live only in the files that own the fact.
 - [ ] T047 Run the full quickstart.md on the developer's stack (stories 1–3, crash recovery, by-hand load) and report by tier: unit count, SQL Server tier count, IRP sandbox result. Update `plan.md` "Plan status" with what remains blocked on O-05 (CIC's repository load, `LOSS` login and grants) and O-10 (share mount).
 
@@ -156,7 +160,7 @@ the unit-tier `LOSS` fixture every story's code and tests depend on.
 - **Phase 3 (US1)**: after Phase 2. T016 (preview) before T024–T028. T017–T022 service tasks before T025–T028 routes. T031–T034 workers can proceed in parallel with the route work once T012–T015 exist. T030 after T025–T028.
 - **Phase 4 (US2)**: after US1 is clicked. T035 → T036; T037 → T038.
 - **Phase 5 (US3)**: after US2 is clicked. T039 → T040 → T041.
-- **Phase 6 (polish)**: after US3. T042–T045 parallel; T046 then T047 last.
+- **Phase 6 (polish)**: after US3. T042–T045 parallel; T048 → T049 → T050; T046 then T047 last.
 
 ### User story dependencies
 
@@ -172,7 +176,7 @@ Phase 2:  T010 | T011 | T012 | T013 | T014 | T015
 Phase 3:  {T017..T022 service} with {T031 submit worker, T032 poller} once T012–T015 land
           T033 stage worker with T034 load worker
           T023 nav | T024 Export link | T029 CSS
-Phase 6:  T042 | T043 | T044 | T045
+Phase 6:  T042 | T043 | T044 | T045 | T048
 ```
 
 ---

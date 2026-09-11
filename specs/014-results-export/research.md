@@ -626,6 +626,71 @@ Rejected by the user 2026-09-10. *Filter on `RDS = true`* — includes 5.2 M
 stochastic rows. Rejected. *Load the whole file and filter in SQL* — 6.1 M
 rows into every `db-rebuild` for 2,754 useful ones. Rejected.
 
+## R17 — What a broker analysis writes in `metadata.csv`, and the lookup's event IDs (O-13)
+
+**Evidence** (export job 26325658, three analyses exported 2026-09-10, Risk
+Modeler 2.55.0; the R6 archives were our own analyses on 2.54.1):
+
+| `AnlsId` | Name | `Engine Type` | `ModelVersion` |
+|---|---|---|---|
+| 42337 | EQ_HI_RES | `DLM` | `23.0.2250.1` |
+| 42338 | SS_US | `GROUP` | `25.0.2450.0` |
+| 42339 | HU_US | `GROUP` | `25.0.2450.0` |
+
+A group analysis reports `GROUP`, a third engine type (`irp_integration`
+identifies a group the same way). A broker analysis reports a build number
+where R6's archives held `25.0`; at 11 characters it does not fit
+`Data.DataModelVersion` (`nvarchar(10)`), so the stage worker keeps the first
+two parts. `EDMName`, `ExposureName`, `ModelProfile`, `Cedant`, and
+`Hazard Version` are all `Unavailable` in these archives.
+
+Each of Moody's historical storms is in `EVENT.csv.gz` twice: once typed
+`HIST`, once typed `STOC`, same `EVENTNAME` and model region. 1,443 of 1,444
+`NAWS` historical names have both. The ELT carries the `STOC` id —
+`NOTNAMED, 06/25/1851` is `2847001` in the exported analysis and `2896402` in
+the `HIST` rows the R16 seed was built from. Joining the seed to any staged
+analysis on `EventID` alone returns zero rows, so every analysis loaded so far
+classified as fully stochastic. All 15,689 event IDs in the R6 `NAEQ` archive
+resolve as `NAEQ` / `17.0` / `EP`: the version that describes an analysis's
+events is the model profile's `modelDataVersion`, not `metadata.csv`
+`ModelVersion`, `softwareVersionCode` (`RL25`), or the RiskLink release.
+
+**Decision**: the seed, the classification join, and the 50002 assertion are
+unchanged until CIC's `Lookup_RMS_HistoricalRDS` can be read (O-13). Which
+side of the pair their table holds decides whether the dev seed is rebuilt
+from the `STOC` twins or the join changes.
+
+## R18 — How a stage-schema change reaches CIC after cutover (O-12)
+
+Until CIC's repository holds a real manifest, a stage-schema change needs
+nothing: `loss_schema.sql` creates each table only when it is absent, and the
+tables can be dropped and recreated. From the first loaded analysis onward the
+manifest rows are permanent (O-03, FR-024), so the file's `IF OBJECT_ID(...)
+IS NULL` guard silently skips a changed table and leaves the database a
+release behind — which is how the 2026-09-10 `engine_type` and
+`data_model_version` truncation errors would reach CIC.
+
+Four mechanisms were weighed on 2026-09-11.
+
+| Mechanism | Why it was not chosen |
+|---|---|
+| One numbered change script per release beside the definitive file | **Chosen.** Costs one small file per change; the column definition then exists in two places, closed by T049 |
+| The DBA diffs the file against the database with Redgate SQL Compare or SSDT Schema Compare | Neither tool reads a loose `.sql` file — SSDT needs a database project, Redgate a scripts folder — so `loss_schema.sql` becomes a directory of one object per file with the `IF OBJECT_ID` guards removed, which also ends `bootstrap_loss.py`'s re-runnability. And CIC would have to own one of the tools; their DBA tooling is unknown while O-05 is open |
+| Ship a `.dacpac` and have the DBA run `sqlpackage /Action:Script` then `/Action:Publish` | Strongest guarantee, because the tool refuses on drift rather than skipping, but it adds a `.sqlproj` and a build step here and `sqlpackage` at CIC, for three tables and one procedure |
+| Converge logic inside `loss_schema.sql` (`IF COL_LENGTH(...) <> 5 ALTER ...`) | Turns the definitive schema into an append-only migration log. Rejected by the approver on 2026-09-10, and the same objection removed the block added that day |
+
+The two tool-driven mechanisms stay available: both read a live database, so
+adopting either later needs no change to what is installed. If CIC's DBAs
+already run SQL Compare or SSDT, the compare mechanism is better than the
+chosen one and removes the second copy of each column definition — a question
+for CIC before cutover, not one to guess at.
+
+**Decision**: `db/bootstrap/loss_schema.sql` stays the definitive schema and
+installs a fresh repository by itself; a release that alters an installed
+table ships one numbered script in `db/bootstrap/changes/`;
+`stage.rwb_loss_schema_version` records what has been applied, so both the DBA
+and the stage worker can tell which version a repository is at (T048–T050).
+
 ## Clarifications
 
 ### Session 2026-09-09
