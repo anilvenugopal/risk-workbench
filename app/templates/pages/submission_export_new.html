@@ -1,0 +1,123 @@
+{% extends "base/shell.html" %}
+{% import "partials/export_row_macros.html" as rows %}
+{% import "partials/form_macros.html" as forms %}
+{% block title %}Export · {{ submission.name if submission else 'Submission' }}{% endblock %}
+
+{% block page_actions %}
+{% if submission %}
+<a href="/submissions/{{ submission.id }}" class="btn-sm">← Back to deal</a>
+{% endif %}
+{% endblock %}
+
+{% block main %}
+<div class="page-pad">
+  <div class="detail-head">
+    <h1>Export loss results</h1>
+    {% if submission %}
+    <div class="deal-head__created">{{ submission.name }} · {{ submission.cedant_name }}</div>
+    {% endif %}
+  </div>
+
+  {% if gone %}
+  <div class="state-box state-box--warn">This submission no longer exists.</div>
+  {% else %}
+
+  {% if error %}
+  <div class="form-banner form-banner--error">{{ error }}</div>
+  {% endif %}
+
+  {# A plain form post: htmx does not swap a 422 response, so the re-rendered
+     validation message would never show over hx-post. analysisPicks() counts the
+     ticked rows for the Export button, watches the cart for an already-exported
+     analysis, and drives the name search. #}
+  <form method="post" action="/submissions/{{ submission.id }}/exports" id="export-form"
+        x-data="analysisPicks()">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+
+    <div class="export-pick">
+      <div class="export-pick__list">
+        {% if analyses %}
+        <div class="export-pick__search">
+          <input class="wf-field__input" type="search" placeholder="Search analyses by name"
+                 aria-label="Search analyses by name" @input="filter($event.target.value)">
+          <span class="export-pick__count" x-text="filterLabel"></span>
+        </div>
+        {# Ticking re-renders the perspective select and the cart
+           (contracts/routes.md §3). The data-name inputs travel with the
+           request so a name typed before the next tick is not lost. #}
+        <div class="dtable-shell"
+             hx-get="/submissions/{{ submission.id }}/exports/new/fields" hx-trigger="change"
+             hx-include="[name='analysis_ids'], [name='perspective'], [name^='data_name']"
+             hx-target="#export-fields" hx-swap="outerHTML">
+          <div class="dtable dtable--selectable dtable--wraphead"
+               style="--cols: var(--pick-w) minmax(360px,2fr) 70px 90px 80px 130px minmax(200px,1.5fr); min-width: 1010px">
+            <div class="dtable__head">
+              <span class="l"></span><span class="l">Analysis</span><span class="l">Origin</span>
+              <span class="l">RM id</span><span class="l">Currency</span><span class="l">Perspectives</span>
+              <span class="l"></span>
+            </div>
+            {% set ns = namespace(group=none) %}
+            {% for a in analyses %}
+            {% if a.origin == 'broker' and a.rdm_name != ns.group %}
+            {% set ns.group = a.rdm_name %}
+            <div class="dtable__group"><span class="kind">Broker</span><span class="name">{{ a.rdm_name }}</span></div>
+            {% endif %}
+            {{ rows.analysis_row(a, checked=(a.id in selected_ids)) }}
+            {% endfor %}
+          </div>
+        </div>
+        <div class="state-box" x-cloak x-show="term && !shown">No analysis matches
+          “<span x-text="term"></span>”.</div>
+        {% else %}
+        <div class="state-box">No finished analyses to export. Run a suite or template,
+          or import a broker RDM, and retrieve the results first.</div>
+        {% endif %}
+      </div>
+
+      {% if analyses %}{% include "partials/export_form_fields.html" %}{% endif %}
+    </div>
+
+    <div class="wf-fields">
+      <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
+
+      <div class="wf-field">
+        <label>CLIENT <span class="wf-field__req" title="Required">*</span></label>
+        {% call forms.typeahead_select('client_id', required=true) %}
+          <option value="">Select…</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}" {% if values.client_id|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        {% endcall %}
+        {% if not clients %}<div class="wf-field__msg wf-field__error">The loss repository lists no active clients.</div>{% endif %}
+      </div>
+
+      <div class="wf-field">
+        <label>TREATY INCEPTION <span class="wf-field__req" title="Required">*</span></label>
+        <input class="wf-field__input" type="date" name="treaty_incept" required
+               value="{{ values.treaty_incept or '' }}">
+        <div class="wf-field__msg wf-field__hint">Pre-filled from the submission; a change is recorded on this export only.</div>
+      </div>
+
+      <div class="wf-field">
+        <label>CRM ID</label>
+        <input class="wf-field__input" type="text" name="crm_id" maxlength="30"
+               value="{{ values.crm_id or '' }}">
+        <div class="wf-field__msg wf-field__hint">Pre-filled from the submission's first CRM ID; a change is recorded on this export only.</div>
+      </div>
+
+      <div class="wf-field">
+        <label>DATA VINTAGE</label>
+        <input class="wf-field__input" type="date" name="data_vintage"
+               value="{{ values.data_vintage or '' }}">
+      </div>
+    </div>
+
+    <div class="status-controls">
+      <button class="btn-sm btn-sm--primary" type="submit" id="export-submit"
+              :disabled="!count || conflicts">Export</button>
+      <a href="/submissions/{{ submission.id }}" class="btn-sm">Cancel</a>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

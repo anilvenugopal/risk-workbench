@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Export detail · UI preview · Risk Workbench</title>
+<!-- Revised 2026-09-10 (b): the detail row carries every recorded attribute behind a
+     frozen analysis name; the Exports section expands to its analyses. -->
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05);
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B;
+  --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-200:#B8CCF0; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-200:#A8D9BE; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-200:#F0B8C0; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD;
+  --color-brand:var(--c-navy-700); --color-brand-faint:var(--c-navy-050);
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500);
+  --color-danger:var(--c-red-700);
+  --font-ui:"IBM Plex Sans",system-ui,sans-serif; --font-mono:"IBM Plex Mono",monospace;
+  --fs-title:20px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-6:24px; --space-7:32px;
+  --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-pill:999px;
+  --dur-fast:120ms;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5}
+.wrap{padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--c-amber-100);border:1px solid var(--c-amber-200);color:var(--c-amber-700);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+h1{margin:0;font-size:var(--fs-title);font-weight:var(--fw-semibold);display:flex;gap:var(--space-2);align-items:center}
+h2{margin:var(--space-6) 0 var(--space-2);font-size:15px}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid var(--c-gray-border);background:var(--c-gray-bg);color:var(--c-gray-text)}
+.deal-head__created{color:var(--text-tertiary);font-size:var(--fs-label)}
+.mono{font-family:var(--font-mono);font-size:var(--fs-mono)}
+.deal-facts{display:flex;flex-wrap:wrap;gap:var(--space-4);margin-top:var(--space-2);font-size:var(--fs-label)}
+.deal-fact__label{color:var(--text-tertiary)}
+.btn-sm{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:var(--radius-md);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid var(--border-default);background:transparent;color:var(--text-secondary);cursor:pointer}
+.link{color:var(--c-navy-600)}
+/* the app's .dtable grid (details.css) */
+.dtable-shell{overflow:auto;container-type:inline-size;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.dtable{width:100%;font-size:var(--fs-label)}
+.dtable__head,.drow>summary,.drow-static{display:grid;grid-template-columns:var(--cols);align-items:center}
+.dtable__head{position:sticky;top:0;z-index:6;background:var(--surface-recessed);border-bottom:1px solid var(--border-default)}
+.dtable__head>span{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);padding:var(--space-2) var(--space-3);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtable__head>span.l,.drow>summary>span.l,.drow-static>span.l{text-align:left}
+.drow,.drow-static{border-bottom:1px solid var(--c-border-faint)}
+.drow:last-child,.drow-static:last-child{border-bottom:none}
+.drow>summary{list-style:none;cursor:pointer}
+.drow>summary::-webkit-details-marker{display:none}
+.drow>summary:hover{background:var(--surface-recessed)}
+.drow>summary>span,.drow-static>span{padding:var(--space-2) var(--space-3);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtable__head>:first-child,.drow>summary>:first-child,.drow-static>:first-child{position:sticky;left:0;z-index:1;background:var(--surface-panel);box-shadow:1px 0 0 var(--border-default)}
+.dtable__head>:first-child{z-index:7;background:var(--surface-recessed)}
+.drow>summary:hover>:first-child{background:var(--surface-recessed)}
+.drow[open]>summary,.drow[open]>summary>:first-child{background:var(--color-brand-faint)}
+.drow__body{border-top:1px solid var(--border-faint);border-left:3px solid var(--color-brand);background:var(--surface-panel);padding:var(--space-3) var(--space-4);position:sticky;left:0;width:100cqw}
+.dt-name{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.dt-caret{color:var(--text-tertiary);font-size:10px;transition:transform var(--dur-fast) ease;flex:none}
+.drow[open]>summary .dt-caret{transform:rotate(90deg)}
+.dt-title{font-weight:var(--fw-semibold);color:var(--text-primary);line-height:1.2;overflow:hidden;text-overflow:ellipsis}
+.state-box{padding:var(--space-3);border:1px dashed var(--border-default);border-radius:var(--radius-md);color:var(--text-tertiary);font-size:var(--fs-label)}
+/* NEW in details.css */
+.dtable--wraphead .dtable__head>span{white-space:normal;line-height:1.15}
+.export-analyses .drow-static>:first-child{white-space:normal}
+.export-analyses .dt-title{white-space:normal;overflow:visible}
+.export-detail__error{grid-column:1/-1;padding:0 var(--space-3) var(--space-2);font-size:var(--fs-caption);color:var(--color-danger);white-space:normal}
+.export-detail__path{grid-column:1/-1;padding:0 var(--space-3) var(--space-2);font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-tertiary);white-space:normal;word-break:break-all}
+.export-summary__analysis{display:grid;grid-template-columns:minmax(0,1fr) 170px 110px;gap:var(--space-3);align-items:center;padding:var(--space-1) 0;font-size:var(--fs-label)}
+.export-summary__analysis + .export-summary__analysis{border-top:1px solid var(--border-faint)}
+.export-summary__dataid{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-tertiary)}
+/* status chips (components.css) */
+.status-chip{display:inline-flex;align-items:center;padding:1px 8px;border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium)}
+.status-chip--export-queued{background:var(--c-navy-050);color:var(--c-navy-600);border:1px solid var(--c-navy-200)}
+.status-chip--export-in-progress{background:var(--c-amber-050);color:var(--c-amber-700);border:1px solid var(--c-amber-200)}
+.status-chip--export-loaded{background:var(--c-green-050);color:var(--c-green-700);border:1px solid var(--c-green-200)}
+.status-chip--export-failed{background:var(--c-red-050);color:var(--c-red-700);border:1px solid var(--c-red-200)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="scaffold-note"><strong>UI PREVIEW — spec 014 export detail</strong> (/submissions/{id}/exports/{export_id})
+    and the submission page's Exports section. The detail row now carries every value recorded on the manifest —
+    data name, RM id, currency, model version, engine, peril, region — behind a frozen, wrapping analysis name;
+    the table scrolls sideways under it. The Exports section rows expand to the analyses in that export.</div>
+
+  <div class="eyebrow">Export detail — every row state</div>
+  <h1>Export GR <span class="badge">7 analyses</span></h1>
+  <div class="deal-head__created">Requested 2026-09-10 08:14 UTC by b.bailey@premiumiq.com · <span class="mono">3f1c2a7e-9d0b-4c11-8e4a-5b6d7c8e9f01</span></div>
+  <div class="deal-facts">
+    <span><span class="deal-fact__label">Submission:</span> <a class="link" href="#">TY2604_AmericanFamily</a></span>
+    <span><span class="deal-fact__label">Perspective:</span> GR</span>
+    <span><span class="deal-fact__label">Client:</span> Example Re</span>
+    <span><span class="deal-fact__label">Treaty inception:</span> 2026-04-01</span>
+    <span><span class="deal-fact__label">CRM ID:</span> CRM-77812</span>
+    <span><span class="deal-fact__label">Data vintage:</span> —</span>
+  </div>
+
+  <h2>Analyses</h2>
+  <div class="dtable-shell">
+    <div class="dtable dtable--wraphead export-analyses"
+         style="--cols: minmax(360px,2fr) 70px 170px 150px minmax(140px,1fr) 80px 80px 80px 90px 70px 70px 70px 90px 90px 90px 100px 100px 90px; min-width:2000px">
+      <div class="dtable__head">
+        <span class="l">Analysis</span><span class="l">Origin</span><span class="l">Status</span><span class="l">Last change</span>
+        <span class="l">Data name</span><span>Data ID</span><span>RM id</span><span>Currency</span>
+        <span>Model version</span><span>Engine</span><span>Peril</span><span>Region</span>
+        <span>Staged</span><span>Stochastic</span><span>Historical</span><span>Exposure raised</span><span>Std dev zeroed</span><span class="l"></span>
+      </div>
+      <div class="drow-static"><span class="l"><span class="dt-title">CRE_US Southeast Wind_US HU DLM v25</span></span><span class="l">own</span>
+        <span class="l"><span class="status-chip status-chip--export-queued">queued</span></span><span class="l">08:14:02</span>
+        <span class="l">AmFam HU GR 2026</span><span>—</span><span>41958</span><span>USD</span>
+        <span>—</span><span>—</span><span>WS</span><span>NA</span>
+        <span>—</span><span>—</span><span>—</span><span>—</span><span>—</span><span></span></div>
+      <div class="drow-static"><span class="l"><span class="dt-title">CRE_US Southeast Wind_US EQ DLM v25</span></span><span class="l">own</span>
+        <span class="l"><span class="status-chip status-chip--export-in-progress">in progress</span></span><span class="l">08:14:09</span>
+        <span class="l">—</span><span>—</span><span>41959</span><span>USD</span>
+        <span>—</span><span>—</span><span>EQ</span><span>NA</span>
+        <span>—</span><span>—</span><span>—</span><span>—</span><span>—</span><span></span></div>
+      <div class="drow-static"><span class="l"><span class="dt-title">CRE_US Midwest_US WT DLM v25</span></span><span class="l">own</span>
+        <span class="l"><span class="status-chip status-chip--export-in-progress">in progress</span></span><span class="l">08:21:55</span>
+        <span class="l">AmFam WT GR 2026</span><span>—</span><span>41971</span><span>USD</span>
+        <span>25.0</span><span>DLM</span><span>WT</span><span>NA</span>
+        <span>15,689</span><span>—</span><span>—</span><span>—</span><span>—</span><span></span>
+        <div class="export-detail__path">/mnt/cic-share/exports/3f1c2a7e-…/8a4d…/25437617_CRE_US Midwest_US WT DLM v25_Losses.zip</div></div>
+      <div class="drow-static"><span class="l"><span class="dt-title">GC_AmFam_HU_2026</span></span><span class="l">broker</span>
+        <span class="l"><span class="status-chip status-chip--export-loaded">loaded</span></span><span class="l">08:23:47</span>
+        <span class="l">GC AmFam HU GR</span><span>4127</span><span>38812</span><span>USD</span>
+        <span>25.0</span><span>DLM</span><span>WS</span><span>NA</span>
+        <span>15,689</span><span>15,401</span><span>288</span><span>12</span><span>3</span><span></span>
+        <div class="export-detail__path">/mnt/cic-share/exports/3f1c2a7e-…/c19e…/25437618_GC_AmFam_HU_2026_Losses.zip</div></div>
+      <div class="drow-static"><span class="l"><span class="dt-title">CRE_US Southeast Wind_US HU HD v3</span></span><span class="l">own</span>
+        <span class="l"><span class="status-chip status-chip--export-failed">failed</span></span><span class="l">08:20:30</span>
+        <span class="l">—</span><span>—</span><span>41961</span><span>USD</span>
+        <span>HDv3.0</span><span>HD</span><span>WS</span><span>NA</span>
+        <span>—</span><span>—</span><span>—</span><span>—</span><span>—</span><span class="l"><button class="btn-sm">Retry</button></span>
+        <div class="export-detail__error">Lookup_RMS_HistoricalRDS has no rows for model version HDv3.0</div></div>
+    </div>
+  </div>
+
+  <div class="eyebrow">Submission page — Exports section, one row expanded</div>
+  <div class="dtable-shell" style="max-width:1100px">
+    <div class="dtable dtable--wraphead" style="--cols: 140px minmax(200px,1.4fr) 170px minmax(160px,1fr) 90px minmax(200px,1.2fr); min-width:1000px">
+      <div class="dtable__head"><span class="l">Perspective</span><span class="l">Requested by</span><span class="l">Requested</span>
+        <span class="l">Client</span><span>Analyses</span><span class="l">Progress</span></div>
+      <details class="drow" open>
+        <summary>
+          <span class="l"><span class="dt-name"><span class="dt-caret">&#9656;</span><a class="link" href="#">GR</a></span></span>
+          <span class="l">b.bailey@premiumiq.com</span><span class="l">2026-09-10 08:14</span><span class="l">Example Re</span>
+          <span>5</span><span class="l">1 loaded · 1 failed · 3 in progress</span>
+        </summary>
+        <div class="drow__body">
+          <div class="export-summary__analysis"><span>CRE_US Southeast Wind_US HU DLM v25</span><span><span class="status-chip status-chip--export-queued">queued</span></span><span class="export-summary__dataid">—</span></div>
+          <div class="export-summary__analysis"><span>CRE_US Southeast Wind_US EQ DLM v25</span><span><span class="status-chip status-chip--export-in-progress">in progress</span></span><span class="export-summary__dataid">—</span></div>
+          <div class="export-summary__analysis"><span>CRE_US Midwest_US WT DLM v25</span><span><span class="status-chip status-chip--export-in-progress">in progress</span></span><span class="export-summary__dataid">—</span></div>
+          <div class="export-summary__analysis"><span>GC_AmFam_HU_2026</span><span><span class="status-chip status-chip--export-loaded">loaded</span></span><span class="export-summary__dataid">4127</span></div>
+          <div class="export-summary__analysis"><span>CRE_US Southeast Wind_US HU HD v3</span><span><span class="status-chip status-chip--export-failed">failed</span></span><span class="export-summary__dataid">—</span></div>
+        </div>
+      </details>
+      <details class="drow">
+        <summary>
+          <span class="l"><span class="dt-name"><span class="dt-caret">&#9656;</span><a class="link" href="#">RL</a></span></span>
+          <span class="l">r.patel@premiumiq.com</span><span class="l">2026-09-08 14:02</span><span class="l">Example Re</span>
+          <span>2</span><span class="l">2 loaded</span>
+        </summary>
+        <div class="drow__body">
+          <div class="export-summary__analysis"><span>CRE_US Midwest_US WT DLM v25</span><span><span class="status-chip status-chip--export-loaded">loaded</span></span><span class="export-summary__dataid">4101</span></div>
+          <div class="export-summary__analysis"><span>CRE_US Midwest_US EQ DLM v25</span><span><span class="status-chip status-chip--export-loaded">loaded</span></span><span class="export-summary__dataid">4102</span></div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="eyebrow">Exports section — empty</div>
+  <div class="state-box" style="max-width:1100px">No exports yet</div>
+</div>
+</body>
+</html>

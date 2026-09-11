@@ -1,0 +1,63 @@
+{# The export cart (contracts/routes.md §3): the perspective every selected
+   analysis shares, and one cart row per selected analysis carrying its optional
+   data name. An analysis already exported for the chosen perspective keeps its
+   cart row — with the export named in place of the data name — and
+   data-export-conflict turns the Export button off until the analyst removes it
+   or picks another perspective (FR-004). #}
+<div id="export-fields" class="export-cart">
+  <div class="wf-field">
+    <label>PERSPECTIVE <span class="wf-field__req" title="Required">*</span></label>
+    <select class="wf-field__input" name="perspective" required
+            {% if not choices %}disabled{% endif %}
+            hx-get="/submissions/{{ submission_id }}/exports/new/fields" hx-trigger="change"
+            hx-include="[name='analysis_ids'], [name^='data_name']"
+            hx-target="#export-fields" hx-swap="outerHTML">
+      <option value="">{% if selected and not choices %}No shared perspective{% else %}Select…{% endif %}</option>
+      {% for code in choices %}
+      <option value="{{ code }}" {% if code == perspective %}selected{% endif %}>{{ code }}</option>
+      {% endfor %}
+    </select>
+    {% if selected and not choices %}
+    <div class="wf-field__msg wf-field__error">The selected analyses share no exportable perspective</div>
+    {% elif not selected %}
+    <div class="wf-field__msg wf-field__hint">Tick at least one analysis to choose a perspective.</div>
+    {% endif %}
+  </div>
+
+  <div class="bo-cart">
+    <div class="bo-cart__head">Selected analyses ({{ selected|length }})</div>
+    {% if selected %}
+    <div class="export-cart__rows">
+      {% for a in selected %}
+      <div class="bo-cart-row">
+        <div class="bo-cart-row__top">
+          <span class="bo-cart-row__label">{{ a.name }}</span>
+          <button type="button" class="bo-cart-row__remove" @click="untick('{{ a.id }}')">remove</button>
+        </div>
+        {% if a.exported %}
+        <div class="wf-field__msg wf-field__error">Already exported for {{ perspective }}</div>
+        {% else %}
+        <label class="export-cart-row__name">Data name
+          <input class="wf-field__input" type="text" name="data_name[{{ a.id }}]"
+                 maxlength="{{ data_name_max }}" placeholder="Optional"
+                 value="{{ data_names.get(a.id, '') if data_names is defined else '' }}"></label>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="bo-cart__empty">Tick analyses on the left.</div>
+    {% endif %}
+  </div>
+
+  {% set exported = selected|selectattr('exported')|list %}
+  {% if exported %}
+  <div class="form-banner form-banner--error" data-export-conflict>
+    {% for a in exported %}
+    <div>{{ a.name }}: exported {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
+      · {{ a.exported.status }} — <a href="{{ a.exported.detail_url }}">open that export</a>.
+      Remove it from the selection, or choose another perspective, to export.</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

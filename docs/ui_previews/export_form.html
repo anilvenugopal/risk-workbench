@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Export form · UI preview · Risk Workbench</title>
+<!-- Revised 2026-09-10 (b): full-width page, searchable analysis table with a frozen
+     name column, and the selection as a cart carrying one Data name per analysis. -->
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05);
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-200:#A8D9BE; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-200:#F0B8C0; --c-red-050:#FCECEE;
+  --color-brand:var(--c-navy-700); --color-brand-faint:var(--c-navy-050); --color-brand-border:var(--c-navy-200);
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+  --color-danger:var(--c-red-700); --color-warning:var(--c-amber-700);
+  --font-ui:"IBM Plex Sans",system-ui,sans-serif; --font-mono:"IBM Plex Mono",monospace;
+  --fs-title:20px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-6:24px; --space-7:32px;
+  --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-pill:999px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5}
+.wrap{padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--c-amber-100);border:1px solid var(--c-amber-200);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+h1{margin:0;font-size:var(--fs-title);font-weight:var(--fw-semibold)}
+.deal-head__created{color:var(--text-secondary);font-size:var(--fs-label)}
+.detail-head{margin-bottom:var(--space-4)}
+/* the app's form kit (app.css / submissions.css) */
+.wf-fields{display:flex;flex-direction:column;gap:10px;margin-bottom:18px;max-width:620px}
+.wf-fields__legend{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.wf-field{display:grid;grid-template-columns:120px 1fr;align-items:center}
+.wf-field label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);min-width:240px;font:inherit}
+.wf-field__req{color:var(--color-danger);margin-left:2px}
+.wf-field__msg{grid-column:2;font-size:var(--fs-caption);margin-top:3px}
+.wf-field__error{color:var(--color-danger)} .wf-field__hint{color:var(--text-tertiary)}
+.form-banner{border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-size:var(--fs-label);margin-bottom:var(--space-3)}
+.form-banner--error{background:var(--c-red-050);border:1px solid var(--c-red-200);color:var(--c-red-700)}
+.btn-sm{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);border:1px solid var(--border-default);background:transparent;color:var(--text-secondary);text-decoration:none;cursor:pointer}
+.btn-sm--primary{background:var(--c-navy-700);border-color:var(--c-navy-700);color:#fff}
+.btn-sm:disabled{opacity:.5;cursor:not-allowed}
+.state-box{padding:var(--space-3);border:1px dashed var(--border-default);border-radius:var(--radius-md);color:var(--text-tertiary);font-size:var(--fs-label)}
+.status-controls{display:flex;gap:var(--space-2)}
+/* the shared .dtable grid (details.css) */
+.dtable-shell{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);overflow:auto;container-type:inline-size}
+.dtable{width:100%;font-size:var(--fs-label)}
+.dtable__head,.drow-static{display:grid;grid-template-columns:var(--cols);align-items:center}
+.dtable__head{position:sticky;top:0;z-index:6;background:var(--surface-recessed);border-bottom:1px solid var(--border-default)}
+.dtable__head>span{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);padding:var(--space-2) var(--space-3);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtable__head>span.l,.drow-static>span.l{text-align:left}
+.drow-static{border-bottom:1px solid var(--c-border-faint)}
+.drow-static:last-child{border-bottom:none}
+.drow-static>span{padding:var(--space-2) var(--space-3);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtable__head>:first-child,.drow-static>:first-child{position:sticky;left:0;z-index:1;background:var(--surface-panel);box-shadow:1px 0 0 var(--border-default)}
+.dtable__head>:first-child{z-index:7;background:var(--surface-recessed)}
+.dtable--selectable{--pick-w:42px}
+.dtable--selectable .dtable__head>:nth-child(2),
+.dtable--selectable .drow-static>:nth-child(2){position:sticky;left:var(--pick-w);z-index:1;background:var(--surface-panel);box-shadow:1px 0 0 var(--border-default)}
+.dtable--selectable .dtable__head>:nth-child(2){z-index:7;background:var(--surface-recessed)}
+.dt-title{font-weight:var(--fw-semibold);color:var(--text-primary);line-height:1.2;overflow:hidden;text-overflow:ellipsis}
+.na{color:var(--text-tertiary)}
+.geohaz-pick{display:flex;justify-content:center;align-items:center}
+.geohaz-pick input{margin:0}
+.dtable__group{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);background:var(--surface-recessed);border-top:1px solid var(--border-faint);border-bottom:1px solid var(--border-faint);position:sticky;left:0;width:100cqw}
+.dtable__group .kind{font-size:.65rem;font-weight:var(--fw-bold);color:var(--text-tertiary);letter-spacing:.04em}
+.dtable__group .name{font-weight:var(--fw-semibold);color:var(--text-primary)}
+/* NEW in details.css — headers wrap instead of clipping; hidden rows really hide */
+.dtable--wraphead .dtable__head>span{white-space:normal;line-height:1.15}
+.drow-static[hidden],.dtable__group[hidden]{display:none}
+/* NEW in details.css — spec 014 picker + cart */
+.export-pick{display:flex;gap:var(--space-4);align-items:flex-start;margin-bottom:var(--space-4)}
+.export-pick__list{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:var(--space-2)}
+.export-pick__search{display:flex;align-items:center;gap:var(--space-3)}
+.export-pick__search input{flex:1 1 auto;max-width:340px}
+.export-pick__count{font-size:var(--fs-caption);color:var(--text-tertiary);font-variant-numeric:tabular-nums}
+.export-pick .drow-static>:nth-child(2){white-space:normal}
+.export-pick .dt-title{white-space:normal;overflow:visible}
+.export-cart{flex:0 0 360px;display:flex;flex-direction:column;gap:var(--space-2)}
+.bo-cart{border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden;background:var(--surface-panel)}
+.bo-cart__head{background:var(--surface-recessed);border-bottom:1px solid var(--border-default);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);padding:var(--space-2) var(--space-3)}
+.bo-cart__empty{padding:var(--space-3);font-size:var(--fs-caption);color:var(--text-tertiary);text-align:center}
+.export-cart__rows{max-height:min(46vh,420px);overflow-y:auto}
+.bo-cart-row{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-faint);display:flex;flex-direction:column;gap:2px}
+.bo-cart-row:last-child{border-bottom:none}
+.bo-cart-row__top{display:flex;align-items:baseline;gap:var(--space-2)}
+.bo-cart-row__label{font-size:var(--fs-label);font-weight:var(--fw-semibold)}
+.bo-cart-row__remove{margin-left:auto;font:inherit;font-size:var(--fs-caption);color:var(--text-tertiary);background:none;border:none;cursor:pointer;flex:none}
+.export-cart-row__name{display:flex;flex-direction:column;gap:2px;font-size:var(--fs-caption);color:var(--text-tertiary)}
+.export-cart-row__name input{width:100%;min-width:0}
+.export-mark{grid-column:1 / -1;padding:0 var(--space-3) var(--space-2);font-size:var(--fs-caption);color:var(--color-warning);white-space:normal}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="scaffold-note"><strong>UI PREVIEW — spec 014 export form</strong> (/submissions/{id}/exports/new).
+    Full-width page: the analyses table takes the left column with the checkbox and Analysis columns frozen, the
+    cart takes 360px on the right and holds the perspective plus one Data name per selected analysis. Client,
+    treaty inception, CRM ID and data vintage stay in the 620px field stack below. Broker rows are now tickable —
+    their RM id comes from the RDM metadata snapshot, as everywhere else in the app.</div>
+
+  <div class="eyebrow">State 1 — nothing selected: perspective disabled, cart empty</div>
+  <div class="detail-head">
+    <h1>Export loss results</h1>
+    <div class="deal-head__created">TY2604_AmericanFamily · American Family</div>
+  </div>
+  <div class="export-pick">
+    <div class="export-pick__list">
+      <div class="export-pick__search">
+        <input class="wf-field__input" type="search" placeholder="Search analyses by name">
+        <span class="export-pick__count">6 analyses</span>
+      </div>
+      <div class="dtable-shell"><div class="dtable dtable--selectable dtable--wraphead"
+           style="--cols: var(--pick-w) minmax(360px,2fr) 70px 90px 80px 130px minmax(200px,1.5fr); min-width:1010px">
+        <div class="dtable__head"><span class="l"></span><span class="l">Analysis</span><span class="l">Origin</span><span class="l">RM id</span><span class="l">Currency</span><span class="l">Perspectives</span><span class="l"></span></div>
+        <div class="drow-static"><span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span><span class="l"><span class="dt-title">CRE_US Southeast Wind_US HU DLM v25</span></span><span class="l">own</span><span class="l">#41958</span><span class="l">USD</span><span class="l">GU, GR, RL</span><span class="l"></span></div>
+        <div class="drow-static"><span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span><span class="l"><span class="dt-title">CRE_US Southeast Wind_US EQ DLM v25</span></span><span class="l">own</span><span class="l">#41959</span><span class="l">USD</span><span class="l">GU, GR, RL, RP</span><span class="l"></span></div>
+        <div class="drow-static"><span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span><span class="l"><span class="dt-title">CRE_Group_All perils combined for the 2026 renewal</span></span><span class="l">group</span><span class="l">#41990</span><span class="l">USD</span><span class="l">GU, GR</span><span class="l"></span></div>
+        <div class="drow-static"><span class="l"><span class="geohaz-pick"><input type="checkbox" disabled></span></span><span class="l"><span class="dt-title na">CRE_US Southeast Wind_US WT HD v3</span></span><span class="l">own</span><span class="l">#41961</span><span class="l">USD</span><span class="l"></span><span class="l"><span class="na">Cannot be exported: results not retrieved yet.</span></span></div>
+        <div class="dtable__group"><span class="kind">Broker</span><span class="name">Guy Carpenter RDM 2026</span></div>
+        <div class="drow-static"><span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span><span class="l"><span class="dt-title">GC_AmFam_HU_2026</span></span><span class="l">broker</span><span class="l">#38812</span><span class="l">USD</span><span class="l">GU, GR, RL</span><span class="l"></span></div>
+        <div class="drow-static"><span class="l"><span class="geohaz-pick"><input type="checkbox" disabled></span></span><span class="l"><span class="dt-title na">GC_AmFam_EQ_2026</span></span><span class="l">broker</span><span class="l"><span class="na">&mdash;</span></span><span class="l">USD</span><span class="l">GR</span><span class="l"><span class="na">Cannot be exported: the analysis has no Risk Modeler application analysis ID.</span></span></div>
+      </div></div>
+    </div>
+    <div class="export-cart">
+      <div class="wf-field" style="grid-template-columns:1fr"><label>PERSPECTIVE <span class="wf-field__req">*</span></label>
+        <select class="wf-field__input" disabled style="min-width:0;width:100%"><option>Select…</option></select>
+        <div class="wf-field__msg wf-field__hint" style="grid-column:1">Tick at least one analysis to choose a perspective.</div></div>
+      <div class="bo-cart">
+        <div class="bo-cart__head">Selected analyses (0)</div>
+        <div class="bo-cart__empty">Tick analyses on the left.</div>
+      </div>
+    </div>
+  </div>
+  <div class="wf-fields">
+    <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
+    <div class="wf-field"><label>CLIENT <span class="wf-field__req">*</span></label>
+      <select class="wf-field__input"><option>Select…</option><option>Example Re</option><option>Sample Mutual Insurance</option></select></div>
+    <div class="wf-field"><label>TREATY INCEPTION <span class="wf-field__req">*</span></label>
+      <input class="wf-field__input" type="date" value="2026-04-01">
+      <div class="wf-field__msg wf-field__hint">Pre-filled from the submission; a change is recorded on this export only.</div></div>
+    <div class="wf-field"><label>CRM ID</label><input class="wf-field__input" type="text" value="CRM-77812">
+      <div class="wf-field__msg wf-field__hint">Pre-filled from the submission's first CRM ID; a change is recorded on this export only.</div></div>
+    <div class="wf-field"><label>DATA VINTAGE</label><input class="wf-field__input" type="date"></div>
+  </div>
+  <div class="status-controls"><button class="btn-sm btn-sm--primary" disabled>Export</button> <a class="btn-sm" href="#">Cancel</a></div>
+
+  <div class="eyebrow">State 2 — two ticked, GR chosen, one data name typed; a third analysis already exported for GR</div>
+  <div class="export-pick">
+    <div class="export-pick__list">
+      <div class="export-pick__search">
+        <input class="wf-field__input" type="search" placeholder="Search analyses by name">
+        <span class="export-pick__count">6 analyses</span>
+      </div>
+      <div class="dtable-shell"><div class="dtable dtable--selectable dtable--wraphead"
+           style="--cols: var(--pick-w) minmax(360px,2fr) 70px 90px 80px 130px minmax(200px,1.5fr); min-width:1010px">
+        <div class="dtable__head"><span class="l"></span><span class="l">Analysis</span><span class="l">Origin</span><span class="l">RM id</span><span class="l">Currency</span><span class="l">Perspectives</span><span class="l"></span></div>
+        <div class="drow-static"><span class="l"><span class="geohaz-pick"><input type="checkbox" checked></span></span><span class="l"><span class="dt-title">CRE_US Southeast Wind_US HU DLM v25</span></span><span class="l">own</span><span class="l">#41958</span><span class="l">USD</span><span class="l">GU, GR, RL</span><span class="l"></span></div>
+        <div class="drow-static"><span class="l"><span class="geohaz-pick"><input type="checkbox" checked></span></span><span class="l"><span class="dt-title">CRE_US Southeast Wind_US EQ DLM v25</span></span><span class="l">own</span><span class="l">#41959</span><span class="l">USD</span><span class="l">GU, GR, RL, RP</span><span class="l"></span></div>
+        <div class="drow-static"><span class="l"><span class="geohaz-pick"><input type="checkbox" disabled></span></span><span class="l"><span class="dt-title na">CRE_Group_All perils combined for the 2026 renewal</span></span><span class="l">group</span><span class="l">#41990</span><span class="l">USD</span><span class="l">GU, GR</span><span class="l"></span>
+          <div class="export-mark">Exported 2026-09-08 14:02 by r.patel@premiumiq.com · loaded · <a href="#">open export</a></div></div>
+        <div class="dtable__group"><span class="kind">Broker</span><span class="name">Guy Carpenter RDM 2026</span></div>
+        <div class="drow-static"><span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span><span class="l"><span class="dt-title">GC_AmFam_HU_2026</span></span><span class="l">broker</span><span class="l">#38812</span><span class="l">USD</span><span class="l">GU, GR, RL</span><span class="l"></span></div>
+      </div></div>
+    </div>
+    <div class="export-cart">
+      <div class="wf-field" style="grid-template-columns:1fr"><label>PERSPECTIVE <span class="wf-field__req">*</span></label>
+        <select class="wf-field__input" style="min-width:0;width:100%"><option>GU</option><option selected>GR</option><option>RL</option></select></div>
+      <div class="bo-cart">
+        <div class="bo-cart__head">Selected analyses (2)</div>
+        <div class="export-cart__rows">
+          <div class="bo-cart-row">
+            <div class="bo-cart-row__top"><span class="bo-cart-row__label">CRE_US Southeast Wind_US HU DLM v25</span>
+              <button type="button" class="bo-cart-row__remove">remove</button></div>
+            <label class="export-cart-row__name">Data name
+              <input class="wf-field__input" type="text" maxlength="150" value="AmFam HU GR 2026"></label>
+          </div>
+          <div class="bo-cart-row">
+            <div class="bo-cart-row__top"><span class="bo-cart-row__label">CRE_US Southeast Wind_US EQ DLM v25</span>
+              <button type="button" class="bo-cart-row__remove">remove</button></div>
+            <label class="export-cart-row__name">Data name
+              <input class="wf-field__input" type="text" maxlength="150" placeholder="Optional"></label>
+          </div>
+        </div>
+      </div>
+      <div class="form-banner form-banner--error" style="margin:0">CRE_Group_All perils combined for the 2026 renewal:
+        exported 2026-09-08 14:02 by r.patel@premiumiq.com · loaded — <a href="#">open that export</a>.
+        It cannot be exported again for GR.</div>
+    </div>
+  </div>
+  <div class="wf-fields">
+    <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
+    <div class="wf-field"><label>CLIENT <span class="wf-field__req">*</span></label>
+      <select class="wf-field__input"><option>Select…</option><option selected>Example Re</option></select></div>
+    <div class="wf-field"><label>TREATY INCEPTION <span class="wf-field__req">*</span></label><input class="wf-field__input" type="date" value="2026-04-01"></div>
+    <div class="wf-field"><label>CRM ID</label><input class="wf-field__input" type="text" value="CRM-77812"></div>
+    <div class="wf-field"><label>DATA VINTAGE</label><input class="wf-field__input" type="date"></div>
+  </div>
+  <div class="status-controls"><button class="btn-sm btn-sm--primary">Export</button> <a class="btn-sm" href="#">Cancel</a></div>
+
+  <div class="eyebrow">State 3 — search matches nothing (the two ticked analyses stay ticked and stay in the cart)</div>
+  <div class="export-pick">
+    <div class="export-pick__list">
+      <div class="export-pick__search">
+        <input class="wf-field__input" type="search" placeholder="Search analyses by name" value="typhoon">
+        <span class="export-pick__count">0 of 6 analyses</span>
+      </div>
+      <div class="dtable-shell"><div class="dtable dtable--selectable dtable--wraphead"
+           style="--cols: var(--pick-w) minmax(360px,2fr) 70px 90px 80px 130px minmax(200px,1.5fr); min-width:1010px">
+        <div class="dtable__head"><span class="l"></span><span class="l">Analysis</span><span class="l">Origin</span><span class="l">RM id</span><span class="l">Currency</span><span class="l">Perspectives</span><span class="l"></span></div>
+      </div></div>
+      <div class="state-box">No analysis matches “typhoon”.</div>
+    </div>
+    <div class="export-cart">
+      <div class="wf-field" style="grid-template-columns:1fr"><label>PERSPECTIVE <span class="wf-field__req">*</span></label>
+        <select class="wf-field__input" style="min-width:0;width:100%"><option selected>GR</option></select></div>
+      <div class="bo-cart">
+        <div class="bo-cart__head">Selected analyses (2)</div>
+        <div class="export-cart__rows">
+          <div class="bo-cart-row"><div class="bo-cart-row__top"><span class="bo-cart-row__label">CRE_US Southeast Wind_US HU DLM v25</span><button type="button" class="bo-cart-row__remove">remove</button></div>
+            <label class="export-cart-row__name">Data name <input class="wf-field__input" type="text" value="AmFam HU GR 2026"></label></div>
+          <div class="bo-cart-row"><div class="bo-cart-row__top"><span class="bo-cart-row__label">CRE_US Southeast Wind_US EQ DLM v25</span><button type="button" class="bo-cart-row__remove">remove</button></div>
+            <label class="export-cart-row__name">Data name <input class="wf-field__input" type="text" placeholder="Optional"></label></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="eyebrow">State 4 — the selected analyses share no perspective</div>
+  <div class="export-cart" style="flex:none;width:360px">
+    <div class="wf-field" style="grid-template-columns:1fr"><label>PERSPECTIVE <span class="wf-field__req">*</span></label>
+      <select class="wf-field__input" disabled style="min-width:0;width:100%"><option>No shared perspective</option></select>
+      <div class="wf-field__msg wf-field__error" style="grid-column:1">The selected analyses share no exportable perspective</div></div>
+  </div>
+
+  <div class="eyebrow">State 5 — no finished analyses</div>
+  <div class="state-box" style="max-width:620px">No finished analyses to export. Run a suite or template, or import a broker RDM, and retrieve the results first.</div>
+</div>
+</body>
+</html>

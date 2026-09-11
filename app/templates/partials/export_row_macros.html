@@ -1,0 +1,23 @@
+{# One analysis row of the export form, on the shared .dtable grid. Only an
+   analysis the Workbench cannot export at all is disabled; one already exported
+   for the chosen perspective stays ticked and enabled so the analyst can untick
+   it or pick another perspective (FR-004), and the export cart carries the
+   message. The form's --cols list must match the seven cells. #}
+{% macro analysis_row(a, checked=false) -%}
+<div class="drow-static" id="export-row-{{ a.id }}" data-name="{{ a.name|lower }}">
+  <span class="l"><span class="geohaz-pick">
+    <input type="checkbox" name="analysis_ids" value="{{ a.id }}" @change="onChange()"
+           {% if checked %}checked{% endif %}{% if a.disabled_reason %} disabled{% endif %}></span></span>
+  <span class="l"><span class="dt-title{% if a.disabled_reason %} na{% endif %}" title="{{ a.name }}">{{ a.name }}</span></span>
+  <span class="l">{{ a.origin }}</span>
+  <span class="l">{% if a.irp_app_analysis_id %}#{{ a.irp_app_analysis_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</span>
+  <span class="l">{{ a.currency or '' }}</span>
+  <span class="l">{{ a.perspectives|join(', ') }}</span>
+  <span class="l">{% if a.disabled_reason %}<span class="na" title="Cannot be exported: {{ a.disabled_reason }}.">Cannot be exported: {{ a.disabled_reason }}.</span>{% endif %}</span>
+</div>
+{%- endmacro %}
+
+{# The derived status chip: one colour per status. #}
+{% macro status_chip(status) -%}
+<span class="status-chip status-chip--export-{{ status|replace(' ', '-') }}">{{ status }}</span>
+{%- endmacro %}

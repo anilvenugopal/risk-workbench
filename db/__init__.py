@@ -39,7 +39,7 @@ from .connection import (get_engine, get_connection, test_connection,
 from .kerberos import (check_kerberos_status, init_kerberos, is_ticket_valid,
                        ensure_valid_kerberos_ticket)
 from .execute import (execute, execute_one, execute_scalar, execute_command,
-                      row_limit)
+                      execute_procedure, read_uncommitted_hint, row_limit)
 from .elt import upload_parquet, enrich
 
 __all__ = [
@@ -55,6 +55,7 @@ __all__ = [
     "ensure_valid_kerberos_ticket",
     # safe execution (default)
     "execute", "execute_one", "execute_scalar", "execute_command", "row_limit",
+    "execute_procedure", "read_uncommitted_hint",
     # ELT / enrichment
     "upload_parquet", "enrich",
 ]

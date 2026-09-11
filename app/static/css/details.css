@@ -59,13 +59,21 @@ a.sec__note--link:hover { text-decoration: underline; }
    overlap when the table scrolls sideways. */
 .dtable--selectable { --pick-w: 42px; }
 .dtable--selectable .dtable__head > :nth-child(2),
-.dtable--selectable .drow > summary > :nth-child(2) {
+.dtable--selectable .drow > summary > :nth-child(2),
+.dtable--selectable .drow-static > :nth-child(2) {
   position: sticky; left: var(--pick-w); z-index: 1; background: var(--surface-panel);
   box-shadow: 1px 0 0 var(--border-default);
 }
 .dtable--selectable .dtable__head > :nth-child(2) { z-index: 7; background: var(--surface-recessed); }
 .dtable--selectable .drow > summary:hover > :nth-child(2) { background: var(--surface-recessed); }
 .dtable--selectable .drow[open] > summary > :nth-child(2) { background: var(--color-brand-faint); }
+/* Header cells ellipsise by default, which clips a two-word heading over a narrow
+   column ("Perspective", "Model version"). Tables that need the whole heading
+   wrap it instead. */
+.dtable--wraphead .dtable__head > span { white-space: normal; line-height: 1.15; }
+/* .drow-static and .dtable__group set display, which beats the UA [hidden] rule;
+   the export form's name search hides rows with el.hidden. */
+.drow-static[hidden], .dtable__group[hidden] { display: none; }
 /* broker rows in the merged analyses grid have one name where own rows have
    Portfolio + Template, so their name cell takes both tracks. */
 .dtable .dt-span2 { grid-column: span 2; }
@@ -359,3 +367,30 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .bo-banner--partial { background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); color: var(--color-warning); }
 .bo-row-error { font-size: var(--fs-caption); color: var(--color-negative); background: var(--color-negative-bg); border-top: 1px solid var(--color-negative-border); padding: var(--space-1) var(--space-3); position: sticky; left: 0; width: 100cqw; }
 .bo-row-error strong { font-weight: var(--fw-semibold); }
+
+/* ── loss results export (spec 014): form and detail rows on the .dtable grid ── */
+.export-analysis { flex-wrap: wrap; }
+/* the form's picker: analyses table on the left, the cart on the right */
+.export-pick { display: flex; gap: var(--space-4); align-items: flex-start; margin-bottom: var(--space-4); }
+.export-pick__list { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.export-pick__search { display: flex; align-items: center; gap: var(--space-3); }
+.export-pick__search input { flex: 1 1 auto; max-width: 340px; }
+.export-pick__count { font-size: var(--fs-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+/* the analysis name is the reason the analyst is here — wrap it rather than clip it */
+.export-pick .drow-static > :nth-child(2), .export-analyses .drow-static > :first-child { white-space: normal; }
+.export-pick .dt-title, .export-analyses .dt-title { white-space: normal; overflow: visible; }
+.export-cart { flex: 0 0 360px; display: flex; flex-direction: column; gap: var(--space-2); }
+/* the cart panel stacks its label over its control instead of the 120px label grid */
+.export-cart .wf-field { grid-template-columns: 1fr; }
+.export-cart .wf-field__input { min-width: 0; width: 100%; }
+.export-cart .wf-field__msg { grid-column: 1; }
+.export-cart .bo-cart { background: var(--surface-panel); }
+.export-cart__rows { max-height: min(46vh, 420px); overflow-y: auto; }
+.export-cart-row__name { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-caption); color: var(--text-tertiary); }
+.export-cart-row__name input { width: 100%; min-width: 0; }
+/* one analysis inside an expanded Exports-section row */
+.export-summary__analysis { display: grid; grid-template-columns: minmax(0, 1fr) 170px 110px; gap: var(--space-3); align-items: center; padding: var(--space-1) 0; font-size: var(--fs-label); }
+.export-summary__analysis + .export-summary__analysis { border-top: 1px solid var(--border-faint); }
+.export-summary__dataid { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-tertiary); }
+.export-detail__error { grid-column: 1 / -1; padding: 0 var(--space-3) var(--space-2); font-size: var(--fs-caption); color: var(--color-danger); white-space: normal; }
+.export-detail__path { grid-column: 1 / -1; padding: 0 var(--space-3) var(--space-2); font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-tertiary); white-space: normal; word-break: break-all; }
