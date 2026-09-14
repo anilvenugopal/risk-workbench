@@ -26,7 +26,7 @@ def submitted(iteration2_db, loss_db, fake_irp):
     export_id = svc.create_export(
         submission_id=submission_id, user_email="analyst.a@example.com", analysis_ids=[a],
         perspective_code="GR", client_id=1, treaty_incept=date(2026, 4, 1), crm_id=None,
-        data_vintage=None)
+        data_vintage=date(2025, 12, 31))
     export_jobs.run_pending(worker_id="w1")
     job = execute_one("SELECT id, irp_id FROM irp_job WHERE irp_job_type = 'export'", {},
                       connection="WORKBENCH")

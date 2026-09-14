@@ -1,9 +1,8 @@
 {# The export cart (contracts/routes.md §3): the perspective every selected
-   analysis shares, and one cart row per selected analysis carrying its optional
-   data name. An analysis already exported for the chosen perspective keeps its
-   cart row — with the export named in place of the data name — and
-   data-export-conflict turns the Export button off until the analyst removes it
-   or picks another perspective (FR-004). #}
+   analysis shares, and one cart row per selected analysis carrying its AAL at
+   that perspective and its optional data name. An analysis already exported for
+   the chosen perspective is warned about, in the cart row and in the banner, and
+   still exports — the repeat writes a second data set (FR-004). #}
 <div id="export-fields" class="export-cart">
   <div class="wf-field">
     <label>PERSPECTIVE <span class="wf-field__req" title="Required">*</span></label>
@@ -34,13 +33,18 @@
           <span class="bo-cart-row__label">{{ a.name }}</span>
           <button type="button" class="bo-cart-row__remove" @click="untick('{{ a.id }}')">remove</button>
         </div>
-        {% if a.exported %}
-        <div class="wf-field__msg wf-field__error">Already exported for {{ perspective }}</div>
-        {% else %}
+        {% if perspective %}
+        <div class="bo-cart-row__meta" title="{{ a.aal.get(perspective) }}">AAL {{ a.aal_display(perspective) }}</div>
+        {% endif %}
         <label class="export-cart-row__name">Data name
           <input class="wf-field__input" type="text" name="data_name[{{ a.id }}]"
                  maxlength="{{ data_name_max }}" placeholder="Optional"
                  value="{{ data_names.get(a.id, '') if data_names is defined else '' }}"></label>
+        {% if a.exported %}
+        <div class="wf-field__msg wf-field__hint wf-field__hint--warn">Already exported for {{ perspective }}
+          ({{ a.exported.earlier_count }} time{{ 's' if a.exported.earlier_count != 1 }}),
+          last {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
+          · {{ a.exported.status }} — <a href="{{ a.exported.detail_url }}">open that export</a>.</div>
         {% endif %}
       </div>
       {% endfor %}
@@ -52,11 +56,13 @@
 
   {% set exported = selected|selectattr('exported')|list %}
   {% if exported %}
-  <div class="form-banner form-banner--error" data-export-conflict>
+  <div class="form-banner form-banner--warning">
     {% for a in exported %}
-    <div>{{ a.name }}: exported {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
+    <div>{{ a.name }}: already exported for {{ perspective }}
+      ({{ a.exported.earlier_count }} time{{ 's' if a.exported.earlier_count != 1 }}),
+      last {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
       · {{ a.exported.status }} — <a href="{{ a.exported.detail_url }}">open that export</a>.
-      Remove it from the selection, or choose another perspective, to export.</div>
+      Exporting again creates a new data set.</div>
     {% endfor %}
   </div>
   {% endif %}

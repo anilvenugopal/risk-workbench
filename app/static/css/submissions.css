@@ -83,7 +83,7 @@
   color: var(--color-positive); background: var(--color-positive-bg);
   border-color: var(--color-positive-border);
 }
-.form-banner--readonly {
+.form-banner--readonly, .form-banner--warning {
   color: var(--color-warning); background: var(--color-warning-bg);
   border-color: var(--color-warning-border);
 }

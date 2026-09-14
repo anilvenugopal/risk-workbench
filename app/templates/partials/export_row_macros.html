@@ -1,8 +1,8 @@
 {# One analysis row of the export form, on the shared .dtable grid. Only an
    analysis the Workbench cannot export at all is disabled; one already exported
-   for the chosen perspective stays ticked and enabled so the analyst can untick
-   it or pick another perspective (FR-004), and the export cart carries the
-   message. The form's --cols list must match the seven cells. #}
+   for the chosen perspective stays ticked and enabled, and the export cart
+   warns that exporting again creates a new data set (FR-004). The form's --cols
+   list must match the seven cells. #}
 {% macro analysis_row(a, checked=false) -%}
 <div class="drow-static" id="export-row-{{ a.id }}" data-name="{{ a.name|lower }}">
   <span class="l"><span class="geohaz-pick">

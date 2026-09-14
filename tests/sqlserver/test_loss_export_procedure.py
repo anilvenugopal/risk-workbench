@@ -204,16 +204,16 @@ def test_load_classifies_corrects_and_writes_the_three_targets(tmp_path):
     assert staged[1001]["std_dev_zeroed"] is True
 
 
-def test_blank_vintage_and_year_load_as_null(tmp_path):
+def test_blank_treaty_year_loads_as_null(tmp_path):
     _seed_lookup((3001, "WS", "Storm", MODEL_VERSION))
-    manifest_id = _manifest(data_vintage=None, treaty_year=None)
+    manifest_id = _manifest(treaty_year=None)
     _stage(tmp_path, manifest_id, [(3001, 1.0, 0.0, 0.0, 1.0)])
 
     _load(manifest_id)
 
     hist = execute_one("SELECT TreatyYear, DataInforce FROM dbo.RMS_HistoricalRDS",
                        {}, connection="LOSS")
-    assert hist["TreatyYear"] is None and hist["DataInforce"] is None
+    assert hist["TreatyYear"] is None and hist["DataInforce"] == "2025-12-31"
 
 
 # ── preconditions ─────────────────────────────────────────────────────────────

@@ -27,7 +27,8 @@ def export(iteration2_db, loss_db, fake_irp):
     export_id = svc.create_export(
         submission_id=submission_id, user_email="analyst.a@example.com",
         analysis_ids=[a, b], perspective_code="GR", client_id=1,
-        treaty_incept=date(2026, 4, 1), crm_id="CRM-1", data_vintage=None)
+        treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
+        data_vintage=date(2025, 12, 31))
     return {"export_id": export_id, "submission_id": submission_id, "edm_id": edm_id,
             "a": a, "b": b}
 

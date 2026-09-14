@@ -18,7 +18,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
 from app.config import settings
-from app.services import export_service as svc
 from app.services import rwb_job_service
 from db import execute, execute_command, execute_one
 from tests.unit.export_rows import (
@@ -93,7 +92,8 @@ def _csrf() -> str:
 
 def _post(client, deal, analysis_ids, perspective="GR", htmx=False, **fields):
     data = {"csrf_token": _csrf(), "perspective": perspective, "client_id": "1",
-            "treaty_incept": "2026-04-01", "crm_id": "CRM-1", "data_vintage": "",
+            "treaty_incept": "2026-04-01", "crm_id": "CRM-1",
+            "data_vintage": "2025-12-31",
             "analysis_ids": list(analysis_ids), **fields}
     headers = {"HX-Request": "true"} if htmx else {}
     return client.post(f"/submissions/{deal['submission_id']}/exports", data=data,
@@ -139,7 +139,7 @@ def test_form_renders_defaults_rows_and_disabled_reason(client, deal):
     assert 'name="treaty_incept" required\n               value="2026-04-01"' in page.text
     assert 'name="crm_id" maxlength="30"\n               value="CRM-1"' in page.text
     assert '<option value="1" >Example Re</option>' in page.text
-    assert "Retired" not in page.text
+    assert '<option value="2" >Retired</option>' in page.text
     assert "Cannot be exported: Risk Modeler application analysis ID &#39;A-388&#39;" in page.text
     assert page.text.count('name="analysis_ids"') == 3
     assert 'name="perspective" required\n            disabled' in page.text
@@ -161,6 +161,7 @@ def test_fragment_intersection_and_data_name_fields(client, deal):
     assert '<option value="RL" selected>' in frag.text
     assert f'name="data_name[{deal["a"]}]"' in frag.text
     assert f'name="data_name[{deal["b"]}]"' in frag.text
+    assert frag.text.count("AAL 100") == 2
     assert "hx-swap-oob" not in frag.text
 
 
@@ -183,9 +184,12 @@ def test_fragment_empty_intersection_message(client, deal):
     assert "No shared perspective" in frag.text
 
 
-def test_fragment_marks_an_analysis_exported_from_another_submission(client, deal):
+def test_fragment_warns_about_an_analysis_exported_from_another_submission(client, deal):
     other = str(uuid.uuid4())
+    seed_manifest(submission_id=other, irp_app_analysis_id=41958, perspective_code="GR",
+                  requested_at="2026-08-01 08:00:00", requested_by_email="d.owens@example.com")
     row = seed_manifest(submission_id=other, irp_app_analysis_id=41958, perspective_code="GR",
+                        requested_at="2026-09-01 08:00:00",
                         requested_by_email="r.patel@example.com", load_status="loaded",
                         stage_status="staged", data_id=7)
     frag = client.get(f"/submissions/{deal['submission_id']}/exports/new/fields",
@@ -193,9 +197,10 @@ def test_fragment_marks_an_analysis_exported_from_another_submission(client, dea
                               ("perspective", "GR")])
     assert f'href="/submissions/{other}/exports/{row["export_id"]}"' in frag.text
     assert "r.patel@example.com" in frag.text and "loaded" in frag.text
-    assert "data-export-conflict" in frag.text
-    assert "Already exported for GR" in frag.text
-    assert f'name="data_name[{deal["a"]}]"' not in frag.text
+    assert "d.owens@example.com" not in frag.text
+    assert "(2 times)" in frag.text
+    assert "Exporting again creates a new data set." in frag.text
+    assert f'name="data_name[{deal["a"]}]"' in frag.text
     assert f'name="data_name[{deal["b"]}]"' in frag.text
 
 
@@ -237,40 +242,16 @@ def test_form_posts_plainly_so_a_422_rerender_is_shown(client, deal):
     tag = re.search(r'<form[^>]*id="export-form"[^>]*>', page.text).group(0)
     assert "hx-post" not in tag and 'method="post"' in tag
     assert 'x-data="analysisPicks()"' in tag
-    assert ':disabled="!count || conflicts"' in page.text
+    assert ':disabled="!count"' in page.text
 
 
-def test_post_with_a_blocked_analysis_answers_422_naming_it(client, deal):
+def test_post_over_an_earlier_export_creates_a_second_one(client, deal):
     seed_manifest(submission_id=str(uuid.uuid4()), irp_app_analysis_id=41959,
                   perspective_code="GR", requested_by_email="r.patel@example.com")
     response = _post(client, deal, [deal["a"], deal["b"]])
-    assert response.status_code == 422
-    assert "B long was already exported for GR" in response.text
-    assert "r.patel@example.com" in response.text
-    for analysis_id in (deal["a"], deal["b"]):
-        assert (f'value="{analysis_id}" @change="onChange()"\n           checked>'
-                in response.text)
+    assert response.status_code == 303
     assert len(execute("SELECT 1 FROM stage.rwb_loss_result_manifest", {},
-                       connection="LOSS")) == 1
-
-
-def test_post_after_a_unique_index_race_answers_422_the_same_way(client, deal, monkeypatch):
-    original = svc._raise_if_exported
-    calls = {"n": 0}
-
-    def racing(selected, perspective_code):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            seed_manifest(submission_id=str(uuid.uuid4()), irp_app_analysis_id=41958,
-                          perspective_code="GR", requested_by_email="r.patel@example.com")
-            return None
-        return original(selected, perspective_code)
-    monkeypatch.setattr(svc, "_raise_if_exported", racing)
-
-    response = _post(client, deal, [deal["a"]])
-    assert response.status_code == 422
-    assert "A long was already exported for GR" in response.text
-    assert rwb_jobs("submit_results_export") == []
+                       connection="LOSS")) == 3
 
 
 def test_post_validation_message_keeps_the_analysts_values(client, deal):

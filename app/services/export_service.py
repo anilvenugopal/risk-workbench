@@ -29,7 +29,6 @@ from db import (
     execute_command,
     execute_one,
     get_connection,
-    is_unique_violation,
     read_uncommitted_hint,
 )
 
@@ -55,17 +54,6 @@ class ExportValidationError(ExportError):
     pass
 
 
-class DuplicateExportError(ExportValidationError):
-    """One or more selected analyses already have an export for the perspective."""
-
-    def __init__(self, blocked: list[tuple["ExportableAnalysis", "ExportedMark"]]) -> None:
-        self.blocked = blocked
-        super().__init__("; ".join(
-            f"{analysis.name} was already exported for {mark.perspective_code} "
-            f"on {mark.requested_at} by {mark.requested_by_email}"
-            for analysis, mark in blocked))
-
-
 class ExportNotFound(ExportError):
     pass
 
@@ -79,8 +67,9 @@ class ExportRetryRefused(ExportError):
 
 @dataclass
 class ExportedMark:
-    """An existing manifest row for (irp_app_analysis_id, perspective), from any
-    submission — the block and the link the form shows (FR-004, P-16)."""
+    """The newest existing manifest row for (irp_app_analysis_id, perspective),
+    from any submission — the warning and the link the form shows (FR-004,
+    P-16). ``earlier_count`` counts every such row, this one included."""
     irp_app_analysis_id: int
     perspective_code: str
     export_id: str
@@ -88,6 +77,7 @@ class ExportedMark:
     requested_at: Any
     requested_by_email: str
     status: str
+    earlier_count: int = 1
 
     @property
     def detail_url(self) -> str:
@@ -108,12 +98,16 @@ class ExportableAnalysis:
     peril_code: str | None
     region_code: str | None
     currency: str | None
+    aal: dict[str, float | None] = field(default_factory=dict)
     disabled_reason: str | None = None
     exported: ExportedMark | None = None
 
     @property
     def exportable(self) -> bool:
-        return self.disabled_reason is None and self.exported is None
+        return self.disabled_reason is None
+
+    def aal_display(self, perspective_code: str) -> str:
+        return analysis_service.fmt_loss(self.aal.get(perspective_code))
 
 
 @dataclass
@@ -278,8 +272,9 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         parsed = _parse_json_dict(d.get("settings_metadata"), "settings_metadata")
         display = analysis_service._to_display(parsed)
         loss_results = _parse_json_dict(d.get("loss_results"), "loss_results") or {}
-        perspectives = [code for code, data in (loss_results.get("perspectives") or {}).items()
-                        if data]
+        produced = {code: data for code, data
+                    in (loss_results.get("perspectives") or {}).items() if data}
+        perspectives = list(produced)
         # The column, else the metadata snapshot's appAnalysisId (spec 012
         # FR-023): only the own-executed finalize path writes the column, so
         # every RDM-backfilled broker row carries the id in its snapshot alone.
@@ -300,6 +295,7 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
             analysis_name=d.get("name"), analysis_description=d.get("full_name"),
             perspectives=perspectives, peril_code=display.peril,
             region_code=display.region, currency=display.currency,
+            aal={code: data.get("aal") for code, data in produced.items()},
             disabled_reason=reason))
     return out
 
@@ -315,8 +311,9 @@ def perspective_choices(selected: list[ExportableAnalysis]) -> list[str]:
 
 def find_exported(irp_app_analysis_ids: list[int],
                   perspective_code: str) -> dict[int, ExportedMark]:
-    """Existing manifest rows for the analyses at this perspective, from any
-    submission, keyed by ``irp_app_analysis_id`` (FR-004)."""
+    """The newest existing manifest row for each of the analyses at this
+    perspective, from any submission, keyed by ``irp_app_analysis_id``, with
+    ``earlier_count`` counting all of that analysis's rows (FR-004)."""
     ids = sorted({int(v) for v in irp_app_analysis_ids if v is not None})
     if not ids:
         return {}
@@ -328,15 +325,24 @@ def find_exported(irp_app_analysis_ids: list[int],
         "stage_status, load_status "
         f"FROM stage.rwb_loss_result_manifest {read_uncommitted_hint('LOSS')} "
         f"WHERE perspective_code = :p AND irp_app_analysis_id IN "
-        f"({', '.join(':' + k for k in params if k != 'p')})",
+        f"({', '.join(':' + k for k in params if k != 'p')}) "
+        "ORDER BY irp_app_analysis_id, requested_at DESC, manifest_id DESC",
         params, connection="LOSS")
-    return {int(r["irp_app_analysis_id"]): ExportedMark(
-        irp_app_analysis_id=int(r["irp_app_analysis_id"]),
-        perspective_code=r["perspective_code"], export_id=_uid(r["export_id"]),
-        requested_from_submission_id=_uid(r["requested_from_submission_id"]),
-        requested_at=r["requested_at"], requested_by_email=r["requested_by_email"],
-        status=derive_status(r),
-    ) for r in rows}
+    marks: dict[int, ExportedMark] = {}
+    for r in rows:
+        app_id = int(r["irp_app_analysis_id"])
+        mark = marks.get(app_id)
+        if mark is None:
+            marks[app_id] = ExportedMark(
+                irp_app_analysis_id=app_id,
+                perspective_code=r["perspective_code"], export_id=_uid(r["export_id"]),
+                requested_from_submission_id=_uid(r["requested_from_submission_id"]),
+                requested_at=r["requested_at"],
+                requested_by_email=r["requested_by_email"],
+                status=derive_status(r))
+        else:
+            mark.earlier_count += 1
+    return marks
 
 
 def mark_exported(selected: list[ExportableAnalysis], perspective_code: str) -> None:
@@ -348,7 +354,7 @@ def mark_exported(selected: list[ExportableAnalysis], perspective_code: str) -> 
 
 def list_clients() -> list[Client]:
     return [Client(id=int(r["ClientID"]), name=r["ClientName"]) for r in execute(
-        "SELECT ClientID, ClientName FROM dbo.Client WHERE ActiveFlag = 'Y' "
+        "SELECT ClientID, ClientName FROM dbo.Client "
         "ORDER BY ClientName, ClientID", {}, connection="LOSS")]
 
 
@@ -401,11 +407,13 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
             raise ExportValidationError(
                 f"{analysis.name} has no {perspective_code} results.")
     if client_id is None or execute_one(
-            "SELECT 1 AS x FROM dbo.Client WHERE ClientID = :c AND ActiveFlag = 'Y'",
+            "SELECT 1 AS x FROM dbo.Client WHERE ClientID = :c",
             {"c": client_id}, connection="LOSS") is None:
-        raise ExportValidationError("Choose an active client.")
+        raise ExportValidationError("Choose a client.")
     if treaty_incept is None:
         raise ExportValidationError("Treaty inception is required.")
+    if data_vintage is None:
+        raise ExportValidationError("Data vintage is required.")
     crm_id = (crm_id or "").strip() or None
     if crm_id and len(crm_id) > CRM_ID_MAX_LEN:
         raise ExportValidationError(f"CRM ID is longer than {CRM_ID_MAX_LEN} characters.")
@@ -415,32 +423,25 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
             raise ExportValidationError(
                 f"Data name for {analysis.name} is longer than {DATA_NAME_MAX_LEN} "
                 "characters.")
-    _raise_if_exported(selected, perspective_code)
-
     export_id = str(uuid.uuid4())
     now = _utcnow()
-    try:
-        with get_connection("LOSS") as conn, conn.begin():
-            for analysis in selected:
-                conn.execute(text(_MANIFEST_INSERT), {
-                    "export_id": export_id, "requested_by_email": user_email, "now": now,
-                    "submission_id": _uid(submission_id),
-                    "irp_analysis_id": analysis.id, "irp_analysis_irp_id": analysis.irp_id,
-                    "irp_app_analysis_id": analysis.irp_app_analysis_id,
-                    "analysis_name": analysis.analysis_name,
-                    "analysis_description": analysis.analysis_description,
-                    "perspective_code": perspective_code, "client_id": int(client_id),
-                    "treaty_incept": treaty_incept,
-                    "treaty_year": submission.treaty_year,
-                    "crm_id": crm_id, "data_name": names.get(analysis.id) or None,
-                    "data_vintage": data_vintage, "data_currency": analysis.currency,
-                    "server": settings.risk_modeler_base_url or None,
-                    "peril_code": analysis.peril_code, "region_code": analysis.region_code,
-                })
-    except Exception as exc:  # noqa: BLE001 — a concurrent submit won the unique index
-        if is_unique_violation(exc):
-            _raise_if_exported(selected, perspective_code)
-        raise
+    with get_connection("LOSS") as conn, conn.begin():
+        for analysis in selected:
+            conn.execute(text(_MANIFEST_INSERT), {
+                "export_id": export_id, "requested_by_email": user_email, "now": now,
+                "submission_id": _uid(submission_id),
+                "irp_analysis_id": analysis.id, "irp_analysis_irp_id": analysis.irp_id,
+                "irp_app_analysis_id": analysis.irp_app_analysis_id,
+                "analysis_name": analysis.analysis_name,
+                "analysis_description": analysis.analysis_description,
+                "perspective_code": perspective_code, "client_id": int(client_id),
+                "treaty_incept": treaty_incept,
+                "treaty_year": submission.treaty_year,
+                "crm_id": crm_id, "data_name": names.get(analysis.id) or None,
+                "data_vintage": data_vintage, "data_currency": analysis.currency,
+                "server": settings.risk_modeler_base_url or None,
+                "peril_code": analysis.peril_code, "region_code": analysis.region_code,
+            })
     try:
         job_id = rwb_job_service.enqueue_rwb_job(
             requestor_type="analyst_request", requestor_id=export_id,
@@ -459,14 +460,6 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
         return export_id
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="submit_results_export")
     return export_id
-
-
-def _raise_if_exported(selected: list[ExportableAnalysis], perspective_code: str) -> None:
-    marks = find_exported([a.irp_app_analysis_id for a in selected], perspective_code)
-    blocked = [(a, marks[a.irp_app_analysis_id]) for a in selected
-               if a.irp_app_analysis_id in marks]
-    if blocked:
-        raise DuplicateExportError(blocked)
 
 
 # ── exports section and detail page ──────────────────────────────────────────
@@ -669,8 +662,7 @@ def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> Ret
 __all__ = [
     "QUEUED", "IN_PROGRESS", "LOADED", "FAILED",
     "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN",
-    "ExportError", "ExportValidationError", "DuplicateExportError", "ExportNotFound",
-    "ExportRetryRefused",
+    "ExportError", "ExportValidationError", "ExportNotFound", "ExportRetryRefused",
     "ExportedMark", "ExportableAnalysis", "Client",
     "ExportAnalysisDetail", "ExportDetail", "ExportSummary",
     "derive_status", "list_exportable_analyses", "perspective_choices", "find_exported",

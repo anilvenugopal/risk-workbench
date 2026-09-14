@@ -42,8 +42,8 @@ def deal(iteration2_db, loss_db):
 def _create(deal, analysis_ids, perspective="GR", **overrides):
     kwargs = dict(submission_id=deal["submission_id"], user_email="analyst.a@example.com",
                   analysis_ids=analysis_ids, perspective_code=perspective, client_id=1,
-                  treaty_incept=date(2026, 4, 1), crm_id="CRM-1", data_vintage=None,
-                  data_names=None)
+                  treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
+                  data_vintage=date(2025, 12, 31), data_names=None)
     kwargs.update(overrides)
     return svc.create_export(**kwargs)
 
@@ -120,25 +120,30 @@ def test_perspective_choices_empty_when_nothing_is_shared(deal):
 
 # ── find_exported / clients / defaults ────────────────────────────────────────
 
-def test_find_exported_sees_another_submissions_export(deal):
+def test_find_exported_names_the_newest_export_and_counts_the_earlier_ones(deal):
     other_submission = str(uuid.uuid4())
-    row = seed_manifest(submission_id=other_submission, irp_app_analysis_id=41958,
-                        perspective_code="GR", requested_by_email="r.patel@example.com")
+    seed_manifest(submission_id=other_submission, irp_app_analysis_id=41958,
+                  perspective_code="GR", requested_at="2026-08-01 08:00:00",
+                  requested_by_email="d.owens@example.com")
+    newest = seed_manifest(submission_id=other_submission, irp_app_analysis_id=41958,
+                           perspective_code="GR", requested_at="2026-09-01 08:00:00",
+                           requested_by_email="r.patel@example.com")
 
     marks = svc.find_exported([41958, 41959], "GR")
 
     assert set(marks) == {41958}
     mark = marks[41958]
     assert mark.requested_by_email == "r.patel@example.com"
+    assert mark.earlier_count == 2
     assert mark.status == svc.QUEUED
-    assert mark.detail_url == f"/submissions/{other_submission}/exports/{row['export_id']}"
+    assert mark.detail_url == f"/submissions/{other_submission}/exports/{newest['export_id']}"
     assert svc.find_exported([41958], "RL") == {}
 
 
-def test_list_clients_is_active_only_by_name(deal):
+def test_list_clients_is_every_client_by_name(deal):
     seed_client(2, "Alpha Mutual", "Y")
     seed_client(3, "Retired", "N")
-    assert [c.name for c in svc.list_clients()] == ["Alpha Mutual", "Example Re"]
+    assert [c.name for c in svc.list_clients()] == ["Alpha Mutual", "Example Re", "Retired"]
 
 
 # ── create_export ────────────────────────────────────────────────────────────
@@ -189,8 +194,9 @@ def test_create_export_never_writes_back_to_the_submission(deal):
     ({"analysis_ids": []}, "Select at least one analysis"),
     ({"perspective_code": "RP"}, "A long has no RP results"),
     ({"perspective_code": "TY"}, "Choose a perspective"),
-    ({"client_id": 99}, "Choose an active client"),
+    ({"client_id": 99}, "Choose a client"),
     ({"treaty_incept": None}, "Treaty inception is required"),
+    ({"data_vintage": None}, "Data vintage is required"),
     ({"crm_id": "x" * 31}, "longer than 30"),
 ])
 def test_create_export_validation_messages(deal, overrides, message):
@@ -200,13 +206,6 @@ def test_create_export_validation_messages(deal, overrides, message):
         _create(deal, **kwargs)
     assert message in str(exc.value)
     assert execute("SELECT 1 FROM stage.rwb_loss_result_manifest", {}, connection="LOSS") == []
-
-
-def test_create_export_refuses_an_inactive_client(deal):
-    seed_client(3, "Retired", "N")
-    with pytest.raises(svc.ExportValidationError) as exc:
-        _create(deal, [deal["a"]], client_id=3)
-    assert "Choose an active client" in str(exc.value)
 
 
 def test_create_export_dedupes_a_repeated_analysis_id(deal):
@@ -226,44 +225,16 @@ def test_create_export_refuses_a_disabled_and_an_unknown_analysis(deal):
     assert "is not part of this submission" in str(exc.value)
 
 
-def test_duplicate_is_refused_whole_naming_the_earlier_export(deal):
+def test_a_repeat_export_is_created_alongside_the_earlier_one(deal):
     seed_manifest(submission_id=str(uuid.uuid4()), irp_app_analysis_id=41959,
                   perspective_code="GR", requested_by_email="r.patel@example.com")
 
-    with pytest.raises(svc.DuplicateExportError) as exc:
-        _create(deal, [deal["a"], deal["b"]])
+    _create(deal, [deal["a"], deal["b"]])
 
-    assert "B long was already exported for GR" in str(exc.value)
-    assert "r.patel@example.com" in str(exc.value)
     assert len(execute("SELECT 1 FROM stage.rwb_loss_result_manifest", {},
-                       connection="LOSS")) == 1  # only the pre-existing row
-    assert execute("SELECT 1 FROM rwb_job", {}, connection="WORKBENCH") == []
-
-
-def test_concurrent_submit_loses_on_the_unique_index_and_is_named(deal, monkeypatch):
-    # The pre-check passes (nothing exported yet); the other analyst's row lands
-    # between the check and the insert, so the unique index rejects ours.
-    original = svc._raise_if_exported
-    calls = {"n": 0}
-
-    def racing(selected, perspective_code):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            seed_manifest(submission_id=str(uuid.uuid4()), irp_app_analysis_id=41958,
-                          perspective_code="GR", requested_by_email="r.patel@example.com")
-            return None
-        return original(selected, perspective_code)
-
-    monkeypatch.setattr(svc, "_raise_if_exported", racing)
-    with pytest.raises(svc.DuplicateExportError) as exc:
-        _create(deal, [deal["a"], deal["b"]])
-
-    assert "A long was already exported for GR" in str(exc.value)
-    assert "r.patel@example.com" in str(exc.value)
-    rows = execute("SELECT requested_by_email FROM stage.rwb_loss_result_manifest", {},
-                   connection="LOSS")
-    assert [r["requested_by_email"] for r in rows] == ["r.patel@example.com"]  # ours rolled back
-    assert execute("SELECT 1 FROM rwb_job", {}, connection="WORKBENCH") == []
+                       connection="LOSS")) == 3
+    assert len(execute("SELECT 1 FROM rwb_job WHERE rwb_job_type = "
+                       "'submit_results_export'", {}, connection="WORKBENCH")) == 1
 
 
 def test_enqueue_failure_after_commit_fails_the_rows_so_retry_applies(deal, monkeypatch):

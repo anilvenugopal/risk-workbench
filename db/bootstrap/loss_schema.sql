@@ -29,10 +29,11 @@ CREATE TABLE stage.rwb_loss_result_manifest (
     treaty_year                  INT              NULL,
     crm_id                       VARCHAR(30)      NULL,
     data_name                    NVARCHAR(150)    NULL,
-    data_vintage                 DATE             NULL,
+    data_vintage                 DATE             NOT NULL,
     data_currency                NVARCHAR(5)      NOT NULL,
     data_model_vendor            NVARCHAR(10)     NOT NULL,
     [server]                     VARCHAR(255)     NULL,
+    [database]                   NVARCHAR(128)    NULL,
     irp_export_job_id            NVARCHAR(64)     NULL,
     loss_table_type              VARCHAR(3)       NULL
         CONSTRAINT ck_rwb_loss_result_manifest_loss_table_type
@@ -59,12 +60,12 @@ CREATE TABLE stage.rwb_loss_result_manifest (
     historical_row_count         INT              NULL,
     exp_value_raised_count       INT              NULL,
     std_dev_zeroed_count         INT              NULL,
+    closed_at                    DATETIME2        NULL,
+    closed_by                    NVARCHAR(255)    NULL,
     inserted_at                  DATETIME2        NOT NULL
         CONSTRAINT df_rwb_loss_result_manifest_inserted_at DEFAULT SYSUTCDATETIME(),
     updated_at                   DATETIME2        NOT NULL
         CONSTRAINT df_rwb_loss_result_manifest_updated_at DEFAULT SYSUTCDATETIME(),
-    CONSTRAINT uq_rwb_loss_result_manifest_analysis_perspective
-        UNIQUE (irp_app_analysis_id, perspective_code),
     CONSTRAINT uq_rwb_loss_result_manifest_export_analysis
         UNIQUE (export_id, irp_analysis_id)
 );
@@ -82,6 +83,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
                  AND object_id = OBJECT_ID('stage.rwb_loss_result_manifest'))
     CREATE INDEX ix_rwb_loss_result_manifest_requested_from_submission_id
         ON stage.rwb_loss_result_manifest (requested_from_submission_id);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes
+               WHERE name = 'ix_rwb_loss_result_manifest_analysis_perspective'
+                 AND object_id = OBJECT_ID('stage.rwb_loss_result_manifest'))
+    CREATE INDEX ix_rwb_loss_result_manifest_analysis_perspective
+        ON stage.rwb_loss_result_manifest (irp_app_analysis_id, perspective_code);
 GO
 
 IF OBJECT_ID('stage.rwb_loss_result_file') IS NULL
