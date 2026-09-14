@@ -130,7 +130,8 @@ export whose `requested_from_submission_id` is this submission (spec P-16),
 newest first (data-model.md §7 `ExportSummary`): perspective,
 requester, request time, client, analysis count, loaded / failed counts. Each
 row links to §6. Empty state: "No exports yet". An expanded row lists that
-export's analyses: name, status chip, AAL, `data_id`.
+export's analyses: name, status chip, AAL, `data_id`, and **Close** (§8) on a
+failed analysis.
 
 `?status=failed|loaded` narrows the listing to the exports holding such an
 analysis; any other value is no filter. The value rides on the poll URL and is
@@ -152,7 +153,8 @@ Nav node `submissions.export_detail` (hidden; crumb "Export {perspective} ·
 - One row per analysis (data-model.md §7 `ExportAnalysisDetail`): analysis
   name, origin, derived status, last change (`updated_at`), `data_id`, AAL,
   rows staged, stochastic rows, historical rows, exposure raised, standard
-  deviation zeroed, error message (when failed), **Retry** (when failed).
+  deviation zeroed, error message (when failed), who closed it and when (when
+  closed), **Retry** and **Close** (when failed).
 - The analysis table is a fragment (`GET …/exports/{export_id}/analyses`)
   that polls every 5 seconds while any row is not loaded or failed. It holds
   the same `?status=failed|loaded` filter as §5, narrowing the analyses
@@ -188,8 +190,29 @@ Decision (T-28), evaluated top-down, exactly one branch runs:
 Each branch first puts the row back into the state its job runs from, so
 the detail page reads it as in progress and polls until the job stamps it.
 
-Then `dispatch.dispatch` for the re-armed job. HTMX: re-render §6's analysis
-table (200), so its polling trigger returns; a refusal answers 409 with the
-same table and the reason above it, and the Retry form's
-`hx-on::before-swap` lets htmx swap the 409 in. Plain request: 303 to §6, or
-the 409 error page.
+Then `dispatch.dispatch` for the re-armed job. HTMX: re-render the fragment
+the click came from — §5's section when `HX-Target` is `submission-exports`,
+§6's analysis table otherwise (200), so its polling trigger returns; a refusal
+answers 409 with that same fragment and "Retry refused: {reason}." above it,
+and the form's `hx-on::before-swap` lets htmx swap the 409 in. The `?status=`
+filter in force rides on the URL and is rendered back. Plain request: 303 to
+§6, or the 409 error page.
+
+## 8. Close
+
+```
+POST /submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/close
+```
+
+Offered wherever Retry is: on the detail page's row (§6) and in the exports
+section's expanded row (§5). Same preconditions and refusal reasons as §7 —
+the row must be this submission's (else 404) and failed (else 409, "Close
+refused: {reason}."), so a closed analysis cannot be closed or retried again.
+
+Sets `closed_at` and `closed_by` (the session user's email) on the manifest
+row and nothing else: no job is enqueued, no repository row changes, and the
+error message stays on the row. The analysis then reads closed (data-model.md
+§7), which drops it from the failed count and from the Failed filter.
+
+Renders back exactly as §7: the section or the analysis table, whichever the
+request targeted, under the `?status=` filter in force.

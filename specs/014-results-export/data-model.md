@@ -253,10 +253,10 @@ script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 
 `export_id`, `perspective_code`, `requested_by_email`, `requested_at`,
 `client_name` (join `dbo.Client`), `analysis_count`, `loaded_count`,
-`failed_count` — grouped from the manifest rows whose
+`failed_count`, `closed_count` — grouped from the manifest rows whose
 `requested_from_submission_id` is the page's submission (spec P-16), newest
 first. `loaded_count` and `failed_count` are also what the section's status
-filter selects on (spec P-21).
+filter selects on (spec P-21); a closed analysis counts in neither.
 
 ### ExportAnalysisDetail — one detail-page row
 
@@ -264,10 +264,13 @@ Manifest columns, plus `origin` (own, broker, or group) and `aal` — both read 
 
 | Condition | Displayed status |
 |---|---|
+| `closed_at` set | closed (spec P-22) |
 | `load_status = loaded` | loaded |
 | `stage_status = failed` or `load_status = failed` | failed |
 | `irp_export_job_id IS NULL` | queued |
 | otherwise | in progress (a Risk Modeler export that ended FAILED reads as in progress until the stage worker stamps `stage_status = failed`) |
 
-Last change time is `manifest.updated_at`. Retry is offered when the status
-is failed. Comparison pairs and the export form selection are not persisted.
+Last change time is `manifest.updated_at`. Retry and Close are both offered
+when the status is failed, and a closed row shows `closed_by` and `closed_at`
+under its error message. Comparison pairs and the export form selection are not
+persisted.

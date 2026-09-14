@@ -92,6 +92,12 @@
 4. Archive mismatch: replace the archive on the share with the DLM example
    archive for a different analysis, delete the stage rows, Retry → fails
    naming the `AnlsId` mismatch; nothing reaches the targets (acceptance 4).
+5. Close: on a failed row click **Close** → the row reads closed with your
+   email and the time, offers neither Retry nor Close, keeps its error
+   message, and leaves the export's failed count. Close the same analysis
+   from the exports section's expanded row instead: the section comes back
+   with the filter still applied. Retry a closed row (POST by hand) → 409
+   "the analysis is closed, not failed" (acceptance 6).
 
 ## Crash recovery (FR-020)
 
