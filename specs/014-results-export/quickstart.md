@@ -61,12 +61,16 @@
    unchanged (acceptance 6). A group analysis exported from another
    submission is not listed here, but this submission's export form shows it
    as exported with a link to that export (story 1 acceptance 4, P-16).
-2. Detail page, loaded row: data ID, rows staged, stochastic, historical,
-   exposure raised, standard deviation zeroed, archive path; stochastic +
-   historical = staged (acceptance 2, 4).
+2. Detail page, loaded row: data ID, AAL, rows staged, stochastic, historical,
+   exposure raised, standard deviation zeroed; stochastic + historical = staged
+   (acceptance 2, 6).
 3. Failed row: the error message and **Retry**; sibling rows show their own
    status (acceptance 3).
 4. Every row shows its last change time (acceptance 1).
+5. Pick **Failed** in the exports section: only the exports holding a failed
+   analysis stay listed, and expanding one still shows all of its analyses.
+   The same choice on the detail page keeps only the failed analyses; Retry
+   from there comes back under the filter (acceptance 7).
 
 ## Story 3 — Retry
 

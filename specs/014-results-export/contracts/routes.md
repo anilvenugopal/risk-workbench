@@ -129,7 +129,13 @@ page below the analyses section (`hx-get` on load, and `hx-trigger="every
 export whose `requested_from_submission_id` is this submission (spec P-16),
 newest first (data-model.md §7 `ExportSummary`): perspective,
 requester, request time, client, analysis count, loaded / failed counts. Each
-row links to §6. Empty state: "No exports yet".
+row links to §6. Empty state: "No exports yet". An expanded row lists that
+export's analyses: name, status chip, AAL, `data_id`.
+
+`?status=failed|loaded` narrows the listing to the exports holding such an
+analysis; any other value is no filter. The value rides on the poll URL and is
+re-selected in the `<select>`, which reloads the section. An expanded row is
+never filtered. Nothing matches: "No exports match this filter." (spec P-21).
 
 ## 6. Export detail page
 
@@ -144,12 +150,14 @@ Nav node `submissions.export_detail` (hidden; crumb "Export {perspective} ·
 - Header: perspective, client name, treaty inception, CRM ID, data vintage,
   requester, request time, `export_id`.
 - One row per analysis (data-model.md §7 `ExportAnalysisDetail`): analysis
-  name, origin, derived status, last change (`updated_at`), archive path
-  (`EXPORT_ARCHIVE_DIR` joined with `zip_file`, when set), `data_id`, rows
-  staged, stochastic rows, historical rows, exposure raised, standard
+  name, origin, derived status, last change (`updated_at`), `data_id`, AAL,
+  rows staged, stochastic rows, historical rows, exposure raised, standard
   deviation zeroed, error message (when failed), **Retry** (when failed).
 - The analysis table is a fragment (`GET …/exports/{export_id}/analyses`)
-  that polls every 5 seconds while any row is not loaded or failed.
+  that polls every 5 seconds while any row is not loaded or failed. It holds
+  the same `?status=failed|loaded` filter as §5, narrowing the analyses
+  listed; "No analyses match this filter." when none pass. The filter rides on
+  the poll URL and on each row's Retry URL, so a Retry re-render keeps it.
 
 An `export_id` with no manifest rows whose `requested_from_submission_id` is
 this submission → 404 page.

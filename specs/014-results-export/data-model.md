@@ -96,7 +96,7 @@ AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 | `data_model_version` | `NVARCHAR(10)` NULL | Stage worker, `metadata.csv` `ModelVersion`, reduced to the decimal form when Risk Modeler writes a build number (`23.0.2250.1` → `23.0`) | `Data.DataModelVersion`; lookup join and assertion |
 | `peril_code` | `NVARCHAR(10)` NULL | `settings_metadata` `perilCode` on submit | Detail page; traceability (not part of the lookup join, R4) |
 | `region_code` | `NVARCHAR(10)` NULL | `settings_metadata` `regionCode` | Detail page; traceability |
-| `zip_file` | `NVARCHAR(1024)` NULL | Stage worker after download: `{export_id}/{irp_analysis_id}/{filename}` relative to `EXPORT_ARCHIVE_DIR` | Detail page; stage worker reuse; Retry |
+| `zip_file` | `NVARCHAR(1024)` NULL | Stage worker after download: `{export_id}/{irp_analysis_id}/{filename}` relative to `EXPORT_ARCHIVE_DIR` | Stage worker reuse; Retry |
 | `stage_status` | `VARCHAR(10)` NOT NULL, CHECK `('pending','failed','staged')` | Route (`pending`), submit worker (`failed`), stage worker (`staged`/`failed`), Retry (`pending`) | Detail page; submit worker row selection; stage/load entry checks |
 | `staged_at` | `DATETIME2` NULL | Stage worker | Detail page |
 | `load_status` | `VARCHAR(10)` NOT NULL, CHECK `('pending','loading','loaded','failed')` | Route (`pending`); procedure (`loading` claim, `loaded` at commit, `failed` in CATCH); load worker (`failed` when the call raises early) | Detail page; procedure claim; load entry check |
@@ -255,11 +255,12 @@ script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 `client_name` (join `dbo.Client`), `analysis_count`, `loaded_count`,
 `failed_count` — grouped from the manifest rows whose
 `requested_from_submission_id` is the page's submission (spec P-16), newest
-first.
+first. `loaded_count` and `failed_count` are also what the section's status
+filter selects on (spec P-21).
 
 ### ExportAnalysisDetail — one detail-page row
 
-Manifest columns, plus `origin` (own, broker, or group) read from `irp_analysis` over `WORKBENCH` by `manifest.irp_analysis_id`, plus a derived `status`. The manifest row decides it alone; the `export` `irp_job` is not read:
+Manifest columns, plus `origin` (own, broker, or group) and `aal` — both read from the `irp_analysis` row over `WORKBENCH` by `manifest.irp_analysis_id`, `aal` from `loss_results.perspectives[manifest.perspective_code].aal` at render time and formatted by `aal_display` (spec P-20) — plus a derived `status`. The manifest row decides it alone; the `export` `irp_job` is not read:
 
 | Condition | Displayed status |
 |---|---|

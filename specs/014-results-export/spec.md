@@ -14,8 +14,8 @@ An analyst exports the event loss table of one or more finished analyses into CI
 
 - Export form on a submission's analyses page: one or more finished analyses (own, broker, or group), one financial perspective from a configured set (first set GU, GR, RL, RP), a client, treaty inception, CRM ID, optional data name per analysis, data vintage.
 - Automatic processing per analysis with no review step: request the loss table from Risk Modeler, download it, stage it, classify each event as historical or stochastic, correct exposure below loss and negative standard deviation, load the header row and the two loss tables. Every analysis's historical rows go to the historical table, even when there are none.
-- An exports section on the submission page, one row per export, and an export detail page showing each analysis's progress, the loaded data ID, row counts, how many rows each correction changed, and Retry for a failed analysis (O-06).
-- The downloaded archive kept permanently on a shared drive as the record of what was loaded.
+- An exports section on the submission page, one row per export, and an export detail page showing each analysis's progress, AAL, the loaded data ID, row counts, how many rows each correction changed, and Retry for a failed analysis (O-06). Both screens narrow to failed or loaded analyses (P-21).
+- The downloaded archive kept permanently on a shared drive as the record of what was loaded. Neither screen shows its path (P-21).
 
 ## Out of scope
 
@@ -50,6 +50,7 @@ An analyst exports the event loss table of one or more finished analyses into CI
 | P-18 | The client list is every row of `dbo.Client`, active and retired alike. `ActiveFlag` is hand-maintained at CIC and is not a filter. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-14 |
 | P-19 | Data vintage is required on the form. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-14 |
 | P-20 | Every place that names an analysis and a perspective together shows that analysis's AAL: the export form's cart, the exports section's expanded row, and the export detail page. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-14 |
+| P-21 | The exports section and the export detail page each carry a status filter of all, failed, or loaded, and neither shows the archive path. | Approved | [research.md#clarifications](research.md#clarifications), 2026-09-14 |
 
 ---
 
@@ -80,9 +81,10 @@ On the submission page, below the analyses, an exports section lists every expor
 1. **Given** an export in progress, **When** the analyst opens its detail page, **Then** each analysis shows one of: queued, in progress, loaded, or failed, with the time of the last change.
 2. **Given** a loaded analysis, **Then** the page shows its data ID, rows staged, stochastic rows, historical rows, rows with exposure raised to loss, and rows with a standard deviation zeroed, and the stochastic plus historical counts equal the rows staged.
 3. **Given** a failed analysis, **Then** the page shows the error message and a Retry action; the other analyses show their own status.
-4. **Given** a loaded analysis, **Then** the page shows the path of the archive file kept on the shared drive.
-5. **Given** the submission page, **Then** its exports section lists the exports requested from that submission, and no export requested from another submission, newest first with perspective, requester, request time, client, analysis count, and how many analyses are loaded or failed, and each row opens the export detail page.
-6. **Given** an analysis exported for GR and again for RL, **Then** the exports section shows two rows, one per perspective, and the analyses grid row for that analysis is unchanged.
+4. **Given** the submission page, **Then** its exports section lists the exports requested from that submission, and no export requested from another submission, newest first with perspective, requester, request time, client, analysis count, and how many analyses are loaded or failed, and each row opens the export detail page.
+5. **Given** an analysis exported for GR and again for RL, **Then** the exports section shows two rows, one per perspective, and the analyses grid row for that analysis is unchanged.
+6. **Given** an export in progress, **Then** the exports section's expanded row and the detail page both show each analysis's AAL at the export's perspective (P-20).
+7. **Given** exports with failed and with loaded analyses, **When** the analyst picks Failed in the exports section, **Then** only the exports holding a failed analysis are listed, an expanded row still shows all of its analyses, and the same filter on the detail page keeps only the failed analyses (P-21).
 
 ### 3. Retry a failed analysis (P2)
 
@@ -114,7 +116,7 @@ One analysis in an export failed: Risk Modeler rejected the request, the shared 
 - **FR-014**: The load writes one header row per analysis, all stochastic rows to the stochastic table and all historical rows to the historical table under that header's data ID, as one unit: all committed or none. The data ID is generated by the repository at load and recorded on the export.
 - **FR-015**: Header row values follow the design overview §4.4: client, treaty inception, data vintage, data name, model vendor `RMS`, model version, currency, server, analysis ID, name, description, perspective, CRM ID. Historical rows also carry client, peril, model version, treaty year, treaty inception, data in-force date, event type, event name, and PCS number from the lookup.
 - **FR-016**: Each analysis in an export is processed and committed independently; a failure in one leaves the others unaffected (non-negotiable 4).
-- **FR-017**: The submission page has an exports section listing the exports requested from that submission (P-16) newest first with perspective, requester, request time, client, analysis count, and loaded and failed counts; each row opens the export detail page, which shows the export's ID, perspective, client, treaty inception, CRM ID, data vintage, requester, and date, and per analysis: status, last change time, archive path, data ID, and the counts in FR-018 (O-06).
+- **FR-017**: The submission page has an exports section listing the exports requested from that submission (P-16) newest first with perspective, requester, request time, client, analysis count, and loaded and failed counts; each row opens the export detail page, which shows the export's ID, perspective, client, treaty inception, CRM ID, data vintage, requester, and date, and per analysis: status, last change time, AAL at the export's perspective (P-20), data ID, and the counts in FR-018 (O-06). Both screens offer a status filter of all, failed, or loaded; it narrows the exports listed in the section and the analyses listed on the detail page, never the analyses inside an expanded export row (P-21).
 - **FR-018**: After load the detail page shows, per analysis: rows staged, stochastic rows, historical rows, rows with exposure raised, rows with standard deviation zeroed. A failed analysis shows its error message.
 - **FR-019**: Retry is offered per failed analysis and resumes from the last completed step: an existing archive is reused, a staged analysis is loaded without re-staging, and an analysis with no usable Risk Modeler export gets a new one. An analysis waiting on Risk Modeler is not failed and offers no Retry (P-13).
 - **FR-020**: A processing step interrupted by a crash or restart is re-run automatically from its last completed step, with the same guarantees as Retry; an interrupted load never leaves a partial data set.
