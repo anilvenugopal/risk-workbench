@@ -34,14 +34,14 @@ submission). Renders `pages/submission_export_new.html` with:
   exportable analysis of this submission is ignored.
 - The §3 fragment rendered once for the carried selection, or with no
   selection: perspective select disabled, no data-name fields.
-- Client `<select>` from `dbo.Client` where `ActiveFlag = 'Y'`, ordered by
-  name, required. Inactive clients are not offered.
+- Client `<select>` from `dbo.Client`, ordered by name, required. Every
+  client is offered, active and retired alike (spec P-18).
 - Treaty inception (date, default `submission.inception_date`), CRM ID (text,
   default the submission's first `submission_crm_id.crm_id`), data vintage
-  (date, blank).
+  (date, blank, required — spec P-19).
 - Export button, disabled until at least one analysis is ticked and a
-  perspective and client are chosen, and while a selected analysis is already
-  exported for the chosen perspective (§3).
+  perspective and client are chosen. An analysis already exported for the
+  chosen perspective never turns it off (§3).
 
 A submission that does not resolve renders the gone-notice partial.
 
@@ -63,14 +63,17 @@ Triggered by `hx-get` on the analysis list (`hx-trigger="change"`,
   message "The selected analyses share no exportable perspective".
 - One optional text input `data_name[<analysis_id>]` (max 150) per selected
   analysis, labelled with the analysis name (O-07).
+- When a perspective is chosen: each cart row shows that analysis's AAL at
+  that perspective, formatted by `analysis_service.fmt_loss`, with the stored
+  number in `title` (spec P-20).
 - When a perspective is chosen: the exported marks. Each selected analysis
   with a manifest row for that perspective, requested from this or any other
-  submission, is rendered as "Exported {requested_at} by
-  {requested_by_email} · {status}" linking to that export's §6 page under
-  its own submission (`/submissions/{requested_from_submission_id}/exports/{export_id}`,
-  spec P-16). Its analysis row and its cart row stay live so the analyst can
-  untick it or choose another perspective; the fragment carries
-  `data-export-conflict`, which turns the Export button off.
+  submission, is warned about — the newest such export's `requested_at`,
+  `requested_by_email`, and status, how many there are, and a link to that
+  export's §6 page under its own submission
+  (`/submissions/{requested_from_submission_id}/exports/{export_id}`, spec
+  P-16) — in the cart row and again in a warning banner that closes with
+  "Exporting again creates a new data set." Nothing is disabled (spec P-17).
 
 ## 4. Submit
 
@@ -78,7 +81,7 @@ Triggered by `hx-get` on the analysis list (`hx-trigger="change"`,
 POST /submissions/{submission_id}/exports
 Form fields: analysis_ids[] (uuid, ≥1), perspective (code), client_id (int),
              treaty_incept (date), crm_id (text ≤30, optional),
-             data_vintage (date, optional), data_name[<uuid>] (text ≤150, optional)
+             data_vintage (date), data_name[<uuid>] (text ≤150, optional)
 ```
 
 The form is a plain POST, not `hx-post`: htmx does not swap a 422 response,
@@ -91,21 +94,17 @@ the analyst's values, HTTP 422:
    analysis of this submission (T-24); the reason names the analysis otherwise.
 2. `perspective` is in `EXPORT_PERSPECTIVE_CODES` and in every selected
    analysis's perspectives.
-3. `client_id` is an active client (`dbo.Client.ActiveFlag = 'Y'`, FR-002).
-4. `treaty_incept` parses; `data_vintage` parses when present.
-5. **Duplicate check**: no manifest row exists for any (`irp_app_analysis_id`,
-   `perspective`). Failure names each blocked analysis and its existing
-   export's `requested_at` and `requested_by_email` (FR-004).
+3. `client_id` is a row of `dbo.Client` (spec P-18, FR-002).
+4. `treaty_incept` and `data_vintage` are present and parse (spec P-19).
 
 On success:
 
 1. `export_id = uuid4()`.
 2. One `LOSS` transaction inserts every manifest row (data-model.md §4.1
    values; `requested_from_submission_id = submission_id`;
-   `stage_status = pending`, `load_status = pending`). An
-   `IntegrityError` on the unique index rolls the transaction back; the
-   route re-runs the duplicate check to name the analysis and answers as in
-   validation step 5 (concurrent submit, FR-004).
+   `stage_status = pending`, `load_status = pending`). A manifest row for the
+   same analysis and perspective from an earlier export is left alone: this
+   export gets its own rows and, once loaded, its own `Data` row (spec P-17).
 3. `rwb_job_service.enqueue_rwb_job` for `submit_results_export`
    ([jobs.md](jobs.md) §1), then `dispatch.dispatch`. If the enqueue fails
    after the manifest commit, every row of the export is stamped

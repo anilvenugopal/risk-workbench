@@ -53,6 +53,16 @@ that reference `export_id` (`rwb_job.requestor_id` of the submit job, the new
 
 ## R2 — One data set per analysis per perspective, enforced by a unique index (T-09)
 
+**Reversed 2026-09-14** (spec P-17, design session 9/11 D13–D14): a repeat
+export is allowed and creates a second data set under a new data ID. The
+unique index is dropped for a plain index on the same pair, which now serves
+the form's warning; the form and the route no longer block, and the load
+procedure's claim on the manifest row (R3) remains the guard against one row
+loading twice. The 2026-09-03 alternative below is what CIC chose, and it is
+what `docs/PRD.md` §16.3 has said all along: "A repeated export creates a new
+data set under a fresh data ID." The decision as it stood on 2026-09-09
+follows.
+
 **Decision**: `stage.rwb_loss_result_manifest` is unique on
 (`irp_app_analysis_id`, `perspective_code`). The form marks an analysis
 exported when a row exists for the chosen perspective in any status; the
@@ -699,6 +709,14 @@ and the stage worker can tell which version a repository is at (T048–T050).
 - Q: Risk Modeler accepts an export request but never reports FINISHED or FAILED. No Workbench timeout, automatic failure after a fixed wait, or analyst-driven restart of a waiting analysis? → A: No Workbench timeout (spec P-13). The analysis stays "requested from Risk Modeler" until Risk Modeler reports a terminal status, matching how analysis jobs already wait; Retry is offered only after a failure. A stuck row is cleared under O-01. Rejected: a fixed-wait failure (no observed hang justifies the branch) and restart of a waiting analysis (abandons a live Risk Modeler job).
 - Q (user-raised): Dev replicas of `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` need data. Where does it come from? → A: `Client` is seeded with made-up rows. The lookup is seeded from Moody's `EVENT.csv.gz` (user-downloaded, `../EVENT.csv.gz`), which mixes stochastic and historical events; only the historical events (`EVENTTYPECODE = HIST`, 2,754 of 6,099,671 rows) are loaded (plan T-30, R16).
 - Q (user-raised): Where does database setup sit in the work order? → A: First. The dev mirror with both seeds, the `stage` schema and procedure, `bootstrap_loss.py`, and the SQL Server tier test of the procedure come before any route, worker, or template (plan T-31).
+
+### Session 2026-09-14
+
+- Q: The form blocks an analyst who exports an analysis and perspective a second time (P-09). Keep the block, warn and allow, or allow silently? → A: Warn and allow (spec P-17, design session 9/11 D13–D14). The warning names the newest earlier export — its date, requester, status, and a link — and how many there are, and closes with "Exporting again creates a new data set." `dbo.Data` has no unique constraint, so the repeat lands as a second row under a new data ID, which is the behaviour CIC wants for a reload. This closes plan O-01: there is no manifest row to clear. Rejected: allowing silently (the analyst cannot tell a reload from a mistake).
+- Q: The client dropdown lists only `ActiveFlag = 'Y'`. Keep the filter? → A: No filter; every `dbo.Client` row is offered (spec P-18, 9/11 D1). The flag is maintained by hand off the system (FUNCTIONAL_REQUIREMENTS §7 Delivery — client selection), so a retired client that a treaty still names would be unreachable.
+- Q: Data vintage is optional on the form and nullable on the manifest. Keep it optional? → A: Required on the form and `NOT NULL` on the manifest (spec P-19, 9/11 D2). Every loaded `Data` row carries a vintage, and `RMS_HistoricalRDS.DataInforce` is never null.
+- Q: Where does the analyst see an analysis's AAL while exporting? → A: Everywhere an analysis and a perspective appear together — the form's cart row, the exports section's expanded row, and the export detail page (spec P-20, 9/11 D6). It is read at render time from `irp_analysis.loss_results`, never copied onto the manifest: the manifest records what is loaded, and the AAL is not loaded.
+- Q: How does the manifest DDL change reach dev and CIC? → A: By editing `db/bootstrap/loss_schema.sql` in place. CIC has no stage tables installed yet, so there is nothing to migrate; dev reruns `infra/scripts/bootstrap_loss.py --reset-stage`. The numbered change scripts of O-12 (T048–T050) start at the first release after CIC's install.
 
 ### Session 2026-09-10
 

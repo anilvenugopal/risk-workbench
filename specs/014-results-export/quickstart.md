@@ -26,8 +26,12 @@
 2. Tick two finished analyses. The perspective select now lists only the
    configured codes both analyses have (FR-003); one data-name field appears
    per ticked analysis (O-07). Treaty inception and CRM ID are pre-filled from
-   the submission; client is required; data vintage is blank (story 1
-   acceptance 2).
+   the submission; client and data vintage are required and the vintage is
+   blank (story 1 acceptance 2). Pick GR: each cart row shows that analysis's
+   AAL (P-20). Clear the vintage and submit: the form comes back with "Data
+   vintage is required."
+   The client list includes a retired client (`ActiveFlag = 'N'`, seeded by
+   `bootstrap-loss`) — P-18.
 3. Pick GR and a client, click **Export**. You land on the export detail page
    with both analyses **queued** (acceptance 1).
 4. Watch the statuses move: in progress → loaded. Expect several minutes per
@@ -38,16 +42,15 @@
    equal to `staged_row_count`; every `Loss` equals the Parquet value
    (acceptance 6; SC-002, SC-003). The archive is under
    `EXPORT_ARCHIVE_DIR/{export_id}/{irp_analysis_id}/`.
-6. Reopen the form, tick the same analysis, pick GR: it shows "Exported … by
-   … · loaded" and cannot be ticked (acceptance 4). Pick RL: it is tickable.
+6. Reopen the form, tick the same analysis, pick GR: the cart and a warning
+   banner name the earlier export — date, requester, status, a link, and how
+   many there are — and the Export button stays on (acceptance 4, P-17).
+   Export again: a second `dbo.Data` row lands under a new data ID.
 7. Lookup miss: export an analysis whose `ModelVersion` has no lookup rows
    (delete the seeded rows first). Its load fails with a message naming the
    model version; nothing for it reaches `Data`, `RMSELT`, or
    `RMS_HistoricalRDS`; the other analysis loads (acceptance 7,
    non-negotiable 3 and 4).
-8. Concurrent submit: open the form in two tabs with the same analysis and
-   GR, submit both. One export is created; the other tab shows the blocked
-   analysis with the first export's requester and time (acceptance 5).
 
 ## Story 2 — Follow an export
 

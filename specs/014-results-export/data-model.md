@@ -65,7 +65,7 @@ No schema change.
 All DDL in `db/bootstrap/loss_schema.sql`, idempotent, `CREATE SCHEMA stage
 AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 
-### 4.1 `stage.rwb_loss_result_manifest` — one row per analysis per perspective, grouped by export
+### 4.1 `stage.rwb_loss_result_manifest` — one row per analysis, grouped by export
 
 | Column | Type | Source | Read by |
 |---|---|---|---|
@@ -76,19 +76,20 @@ AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 | `requested_from_submission_id` | `UNIQUEIDENTIFIER` NOT NULL, no FK (the submission lives in `WORKBENCH`, T-29) | Route: the submission whose export form was submitted (spec P-16) | Exports section filter; detail page and Retry (404 when the export was not requested from the page's submission); the exported mark's link on another submission's form |
 | `irp_analysis_id` | `UNIQUEIDENTIFIER` NOT NULL | `irp_analysis.id` | Detail page; worker row lookup with `export_id` |
 | `irp_analysis_irp_id` | `NVARCHAR(64)` | `irp_analysis.irp_id` | Traceability to Risk Modeler; the submit worker's `analysis_id` argument |
-| `irp_app_analysis_id` | `INT` NOT NULL | `irp_analysis.irp_app_analysis_id` cast on submit (form rejects non-integers) | `Data.AnalysisID`; duplicate key; checked against `metadata.csv` `AnlsId` |
+| `irp_app_analysis_id` | `INT` NOT NULL | `irp_analysis.irp_app_analysis_id` cast on submit (form rejects non-integers) | `Data.AnalysisID`; the form's repeat-export warning; checked against `metadata.csv` `AnlsId` |
 | `analysis_name` | `NVARCHAR(256)` | `irp_analysis.name` | `Data.Name` |
 | `analysis_description` | `NVARCHAR(512)` NULL | `irp_analysis.full_name` (T-24) | `Data.Description` |
-| `perspective_code` | `VARCHAR(5)` NOT NULL | Form | `Data.Perspective`, `RMS_HistoricalRDS.Perspective`; duplicate key; stage folder selection |
+| `perspective_code` | `VARCHAR(5)` NOT NULL | Form | `Data.Perspective`, `RMS_HistoricalRDS.Perspective`; the form's repeat-export warning; stage folder selection |
 | `client_id` | `INT` NOT NULL | Form, from `dbo.Client` | `Data.ClientID`, `RMS_HistoricalRDS.ClientID`; exports section joins `dbo.Client` for the name |
 | `treaty_incept` | `DATE` NOT NULL | Form, default `submission.inception_date` | `Data.TreatyIncept`; `RMS_HistoricalRDS.TreatyIncept` (widened to `datetime`) |
 | `treaty_year` | `INT` NULL | `submission.treaty_year` | `RMS_HistoricalRDS.TreatyYear` via `CONVERT(varchar(4))` |
 | `crm_id` | `VARCHAR(30)` NULL | Form, default first `submission_crm_id.crm_id` | `Data.CRMID` |
 | `data_name` | `NVARCHAR(150)` NULL | Form, per analysis | `Data.DataName` |
-| `data_vintage` | `DATE` NULL | Form | `Data.DataVintage`; `RMS_HistoricalRDS.DataInforce` as `CONVERT(varchar(15), …, 23)` |
+| `data_vintage` | `DATE` NOT NULL | Form, required (spec P-19) | `Data.DataVintage`; `RMS_HistoricalRDS.DataInforce` as `CONVERT(varchar(15), …, 23)` |
 | `data_currency` | `NVARCHAR(5)` NOT NULL | `settings_metadata` currency code (`_parse_settings`) | `Data.DataCurrency`; checked against `metadata.csv` `AnalysisCurrency` |
 | `data_model_vendor` | `NVARCHAR(10)` NOT NULL | Constant `RMS` | `Data.DataModelVendor` |
 | `server` | `VARCHAR(255)` | `settings.risk_modeler_base_url` | `Data.Server` |
+| `database` | `NVARCHAR(128)` NULL | Route on submit, the `WORKBENCH` connection's database name | `Data.Database` |
 | `irp_export_job_id` | `NVARCHAR(64)` NULL | Submit worker | Retry decision; traceability |
 | `loss_table_type` | `VARCHAR(3)` NULL, CHECK `('ELT','PLT')` | Stage worker, archive folder name | Stage table and procedure selection |
 | `engine_type` | `VARCHAR(5)` NULL, CHECK `('DLM','HD','GROUP')` | Stage worker, `metadata.csv` `Engine Type` | Detail page; O-08 |
@@ -107,11 +108,15 @@ AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 | `historical_row_count` | `INT` NULL | Procedure | Detail page |
 | `exp_value_raised_count` | `INT` NULL | Procedure | Detail page |
 | `std_dev_zeroed_count` | `INT` NULL | Procedure | Detail page |
+| `closed_at` | `DATETIME2` NULL | Close route | Derived status (`closed` wins over every other, §7) |
+| `closed_by` | `NVARCHAR(255)` NULL | Close route, `app_user.email` of the session user | Detail page |
 | `inserted_at`, `updated_at` | `DATETIME2` | Route; worker or procedure | Detail page "last change" reads `updated_at` |
 
-Constraints: `UNIQUE (irp_app_analysis_id, perspective_code)` (T-09);
-`UNIQUE (export_id, irp_analysis_id)`; index on `export_id`; index on
-`requested_from_submission_id` (the exports section's filter, T-32).
+Constraints: `UNIQUE (export_id, irp_analysis_id)`; index on `export_id`;
+index on `requested_from_submission_id` (the exports section's filter, T-32);
+index on (`irp_app_analysis_id`, `perspective_code`) for the form's
+repeat-export warning. The pair is not unique: a repeat export is allowed and
+writes a second row (spec P-17).
 
 ### 4.2 `stage.rwb_loss_result_file` — one row per Parquet file
 
@@ -208,7 +213,7 @@ server's code page arrives as `?` with no error. CIC owns those columns.
 | `ModelVersion` | lookup `ModelVersion` |
 | `TreatyYear` | `CONVERT(varchar(4), manifest.treaty_year)` |
 | `TreatyIncept` | `manifest.treaty_incept` |
-| `DataInforce` | `CONVERT(varchar(15), manifest.data_vintage, 23)`; null when blank |
+| `DataInforce` | `CONVERT(varchar(15), manifest.data_vintage, 23)` |
 | `EventID` | stage `event_id` |
 | `Type` | lookup `Type` |
 | `Event_Name` | lookup `Name` |
@@ -241,7 +246,8 @@ script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 | `irp_id`, `irp_app_analysis_id` | `irp_analysis` | `irp_app_analysis_id` must parse as `int`, else the row is listed disabled with the reason (FR-005) |
 | `perspectives` | `loss_results.perspectives` keys | Intersection input |
 | `peril_code`, `region_code`, `currency` | `_parse_settings(settings_metadata)` | Recorded on the manifest; `currency` is checked against the archive at stage |
-| `exported` | Manifest row for (`irp_app_analysis_id`, chosen perspective), from any submission | When set: `requested_at`, `requested_by_email`, derived status, and `export_id` + `requested_from_submission_id` for the link to that export's detail page; row not tickable |
+| `aal` | `loss_results.perspectives[code].aal` | `aal_display(code)` formats it with `analysis_service.fmt_loss`; shown on the cart row once a perspective is chosen (spec P-20) |
+| `exported` | The newest manifest row for (`irp_app_analysis_id`, chosen perspective), from any submission | When set: `requested_at`, `requested_by_email`, derived status, `earlier_count` (every such row), and `export_id` + `requested_from_submission_id` for the link to that export's detail page. A warning only — the row stays tickable and the export proceeds (spec P-17) |
 
 ### ExportSummary — one exports-section row
 

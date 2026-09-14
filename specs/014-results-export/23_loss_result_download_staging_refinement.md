@@ -116,51 +116,31 @@ The export form takes:
 
 | Field | Rule |
 |---|---|
-| Analyses | One or more finished analyses. Own, broker, and group analyses all qualify. An analysis that already has a manifest row for the chosen perspective is shown as exported, with the existing export's date, requester, and status, and cannot be selected (rule below). |
+| Analyses | One or more finished analyses. Own, broker, and group analyses all qualify. An analysis that already has a manifest row for the chosen perspective is warned about, with the newest earlier export's date, requester, status, a link, and how many there are, and is still exportable (rule below). |
 | Perspective | One code. The codes the Workbench can export are listed in the env var `EXPORT_PERSPECTIVE_CODES` (first value `GU,GR,RL,RP`). The form offers the codes in that list that every selected analysis has data for, read from `irp_analysis.loss_results`. |
-| Client | Selected from the read-only `dbo.Client` table in the loss repository (`ClientID`, `ClientName`, `ActiveFlag`). Required. |
+| Client | Selected from the read-only `dbo.Client` table in the loss repository (`ClientID`, `ClientName`, `ActiveFlag`). Required. Every row is offered: `ActiveFlag` is maintained by hand off the system, so it is not a filter (9/11 D1). |
 | Treaty inception | Defaults to `submission.inception_date`. Editable. |
 | CRM ID | Defaults from `submission_crm_id`. Editable. |
 | Data name | Optional, one text field per selected analysis, never required (note 23 D12; Cheryl and Wendy agreed). A blank field leaves `Data.DataName` null for the analyst to fill in later through the workflow tool. |
-| Data vintage | Optional, blank by default. Entered later through the workflow tool if left blank. |
+| Data vintage | Required, blank by default (9/11 D2). Editable later through the workflow tool. |
 
-One manifest row exists per analysis per perspective, ever. The duplicate
-key is (`irp_app_analysis_id`, `perspective_code`): the Risk Modeler
-application analysis ID and the perspective code, which are what land in
-`Data.AnalysisID` and `Data.Perspective`, so the rule is stated in the
-columns CIC can see. The Workbench UUID `irp_analysis_id` is not the key,
-because the same Risk Modeler analysis registered twice in the Workbench
-would otherwise load twice. The status of the existing row does not matter:
-`pending`, `staged`, `loading`, `loaded`, and `failed` all block. A failed
-export is fixed with Retry on the export detail page (§4.7), never by
-exporting the analysis again, so no analysis ever has two rows for one
-perspective and a second `Data` row cannot arise from the form.
+**Reversed 9/11 (D13, D14).** An analyst may export the same analysis and
+perspective again; the form warns first. The warning reads from the manifest
+rows whose `irp_app_analysis_id` is among the selected analyses and whose
+`perspective_code` matches, and names the newest one — `requested_at`,
+`requested_by_email`, the derived status, a link to that export — plus how
+many there are, and closes with "Exporting again creates a new data set."
+Nothing on the form is disabled. The export inserts its own manifest rows and
+its own `Data` row under a new data ID, which is how CIC reloads: the earlier
+data set stays, and the analyst renames one of the two through the workflow
+tool. This closes O-01 — there is no manifest row for anyone to clear.
 
-The rule is enforced in three places, each catching what the one before it
-cannot:
-
-1. **Form render.** When the analyst picks a perspective, the form reads
-   the manifest rows whose `irp_app_analysis_id` is among the selected
-   analyses and whose `perspective_code` matches, and marks each such
-   analysis as exported, showing `requested_at`, `requested_by_email`,
-   `stage_status`, `load_status`, and `data_id`. A marked analysis cannot
-   be submitted.
-2. **Route on submit.** The route runs the same query again before it
-   inserts anything and rejects the whole submission, naming the analysis
-   and the existing export, if any selected analysis now has a row. This
-   catches an export another analyst submitted while the form was open.
-3. **Unique index.** `stage.rwb_loss_result_manifest` is unique on
-   (`irp_app_analysis_id`, `perspective_code`). The route inserts all of an
-   export's manifest rows in one transaction, so when two analysts submit
-   the same analysis in the same second, the second insert fails on the
-   index, the transaction rolls back with none of that export's rows
-   written, and the route reports the analysis by name. The index is the
-   guarantee; the two checks before it exist so the analyst learns about
-   the block before, not after, filling in the form.
-
-There is no override. Whether CIC ever needs the same analysis and
-perspective loaded a second time, and who would clear the manifest row to
-allow it, is O-01.
+The pair (`irp_app_analysis_id`, `perspective_code`) keeps a plain index, for
+that warning. What still cannot happen is one manifest row loading twice: the
+load procedure claims the row as the first statement of its transaction
+(§4.4), and a re-run of a loaded row writes nothing. A failed export is still
+fixed with Retry on the export detail page (§4.7), which is cheaper than a
+second export and reuses the archive already on the share.
 
 Every page read of the manifest table (the duplicate check, the export
 list, the export detail page) uses `WITH (READUNCOMMITTED)` until O-05
@@ -867,9 +847,7 @@ loaded` inside it. Staging an analysis again costs a stream of rows, and a
 download only when the archive is not already on the share; loading it twice
 would cost a duplicate `Data` row that nothing in CIC's tables would reject
 (§4.4), which is why the second rule is the one that is never relaxed. Two
-constraints on the manifest back the rule: the unique index on
-(`irp_app_analysis_id`, `perspective_code`) means one row per analysis per
-perspective (§4.1), and the procedure's claim means one load per row
+the procedure's claim means one load per row
 (§4.4).
 
 ### 4.8 Kind table seeds, configuration, grants
@@ -946,7 +924,7 @@ row and never wait on the load; `0` means they do (O-05).
 | T-05 | Enrich, correct, and load run as the stored procedure `stage.usp_load_elt_result @manifest_id`, authored in `db/bootstrap/loss_schema.sql` and installed on the loss repository server by the CIC DBA, so the client team can run a load without the Workbench. Replaces the 9/3 decision for a repo-owned SQL script run by the worker. | Approved | User, 9/7 |
 | T-07 | Stage tables at three grains (manifest, file, loss row); several Parquet files per perspective is confirmed. | Approved | User, 9/3 |
 | T-08 | `export_id`, a UUID generated on submit, is the batch ID on every manifest row, with `requested_by_email` and `requested_at` beside it. | Proposed | Note 25 D7 |
-| T-09 | One `Data` row per analysis per perspective, ever. The form and the route block an export of an analysis that has a manifest row for the chosen perspective in any status, and a unique index on (`irp_app_analysis_id`, `perspective_code`) enforces it; a failed export is fixed with Retry. No override. Replaces the 9/3 assumption that a duplicate warns and a repeat export creates a new `Data` row. | Approved | User, 9/9 |
+| T-09 | A repeat export of an analysis and perspective is allowed. The form warns, naming the newest earlier export and counting them; the pair keeps a plain index for that read; the procedure's claim on the manifest row is what stops one row loading twice. A failed export is still fixed with Retry. Reinstates the 9/3 assumption the 9/9 decision replaced. | Approved | User, 9/11 (D13, D14) |
 | T-10 | Exportable perspective codes come from `EXPORT_PERSPECTIVE_CODES`. | Approved | User, 9/3 |
 | T-11 | `loss_table_type` and `engine_type` are stored on the manifest from the first build so an HD path adds tables without altering existing ones. | Proposed | §2, O-08 |
 | T-12 | The manifest row is inserted when the analyst submits the form, before any job runs; workers update it. | Proposed | §4.1, AGENTS.md rule 8 |
@@ -965,7 +943,7 @@ row and never wait on the load; `0` means they do (O-05).
 
 | ID | Question | Owner |
 |---|---|---|
-| O-01 | Whether CIC ever needs the same analysis and perspective loaded a second time (a `Data` row deleted or corrected in the workflow tool), and if so who clears the manifest row so the block in T-09 lifts. Until decided, a repeat export is blocked with no override. | Ben, Cheryl |
+| O-01 | ~~Whether CIC ever needs the same analysis and perspective loaded a second time, and who clears the manifest row.~~ Closed 9/11 (D13, D14): CIC reloads by exporting again; the repeat creates a second `Data` row and the analyst renames one through the workflow tool. Nothing is cleared. | Closed |
 | O-02 | TY: how Risk Modeler exports treaty-level results, what the archive contains, and what `Data` row it maps to. Separate user story. | Ben, Cheryl |
 | O-03 | Retention of manifest, result file, and stage data rows after load. Nagi offered database-side retention rules. Until decided, nothing is deleted. | Ben, Nagi |
 | O-04 | Check live `Lookup_RMS_HistoricalRDS` values for `Peril` and `[PCS#]` against the `RMS_HistoricalRDS` column widths, confirm `Data.Perspective` holds the perspective code, and confirm the form the workflow tool writes into `RMS_HistoricalRDS.DataInforce` (the procedure writes ISO `yyyy-mm-dd`, §4.4). | Ben |
