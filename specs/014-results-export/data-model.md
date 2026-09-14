@@ -58,7 +58,8 @@ No schema change.
 | `export_perspective_codes` | `EXPORT_PERSPECTIVE_CODES` | `GU,GR,RL,RP` | Codes the form may offer (T-10) |
 | `export_archive_dir` | `EXPORT_ARCHIVE_DIR` | `""` (stage worker fails when empty or missing) | Root for permanent archives (T-15). Production: the share mount; dev: `/workspace/data/export_archive` under the `rwb-data` volume |
 | `EXPORT_STAGING_DIR` | `export_staging_dir` | — (unset) | Transient extraction under `{export_id}/{irp_analysis_id}/`; the stage worker fails the analysis when it is not a directory and never creates it |
-| `risk_modeler_base_url` (existing) | `RISK_MODELER_BASE_URL` | — | `manifest.server` → `Data.Server` |
+| `risk_modeler_base_url`, `risk_modeler_tenant_name` (existing) | `RISK_MODELER_BASE_URL`, `RISK_MODELER_TENANT_NAME` | — | `_rm_ui_root()` → `manifest.server` → `Data.Server` |
+| `MSSQL_WORKBENCH_DATABASE` (existing) | — | — | `manifest.database` → `Data.Database` |
 
 ## 4. Loss repository `stage` schema
 
@@ -88,8 +89,8 @@ AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 | `data_vintage` | `DATE` NOT NULL | Form, required (spec P-19) | `Data.DataVintage`; `RMS_HistoricalRDS.DataInforce` as `CONVERT(varchar(15), …, 23)` |
 | `data_currency` | `NVARCHAR(5)` NOT NULL | `settings_metadata` currency code (`_parse_settings`) | `Data.DataCurrency`; checked against `metadata.csv` `AnalysisCurrency` |
 | `data_model_vendor` | `NVARCHAR(10)` NOT NULL | Constant `RMS` | `Data.DataModelVendor` |
-| `server` | `VARCHAR(255)` | `settings.risk_modeler_base_url` | `Data.Server` |
-| `database` | `NVARCHAR(128)` NULL | Route on submit, the `WORKBENCH` connection's database name | `Data.Database` |
+| `server` | `VARCHAR(255)` | `_rm_ui_root()`: the Risk Modeler web UI origin `https://<tenant>.<domain>`, not the API host (P-23) | `Data.Server` |
+| `database` | `NVARCHAR(128)` NULL | `get_connection_config("WORKBENCH")["database"]` on submit (P-23) | `Data.Database` |
 | `irp_export_job_id` | `NVARCHAR(64)` NULL | Submit worker | Retry decision; traceability |
 | `loss_table_type` | `VARCHAR(3)` NULL, CHECK `('ELT','PLT')` | Stage worker, archive folder name | Stage table and procedure selection |
 | `engine_type` | `VARCHAR(5)` NULL, CHECK `('DLM','HD','GROUP')` | Stage worker, `metadata.csv` `Engine Type` | Detail page; O-08 |
@@ -187,12 +188,13 @@ Until built, the stage worker fails an archive whose loss-table folder is
 | `DataModelVersion` | `manifest.data_model_version` (`25.0`) |
 | `DataCurrency` | `manifest.data_currency` |
 | `Server` | `manifest.server` |
+| `Database` | `manifest.database` |
 | `AnalysisID` | `manifest.irp_app_analysis_id` |
 | `Name` | `manifest.analysis_name` |
 | `Description` | `manifest.analysis_description` |
 | `Perspective` | `manifest.perspective_code` |
 | `CRMID` | `manifest.crm_id` |
-| `Database`, `ArchiveFile` (O-10), `AReLossSet`, `LOB`, `Geography` | Not populated |
+| `ArchiveFile` (O-10), `AReLossSet`, `LOB`, `Geography` | Not populated |
 
 `Name` and `Description` (and §5.3 `Event_Name`) are `VARCHAR(MAX)` at CIC
 while the manifest and lookup columns are `NVARCHAR`: a character outside the

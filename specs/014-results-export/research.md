@@ -159,17 +159,19 @@ completeness. Review finding 2026-09-10.
 **Decision**: An event is `historical` when
 `dbo.Lookup_RMS_HistoricalRDS` in the repository has a row matching
 `EventID` and `ModelVersion = manifest.data_model_version`; otherwise
-`stochastic`. Peril is not part of the join. The procedure fails when the lookup has no rows for the model version, and
-fails when any stage `event_id` matches more than one lookup row, before the
-classification `UPDATE` runs. The procedure names the lookup by its two-part
+`stochastic`. Peril is not part of the join. The procedure fails when any
+stage `event_id` matches more than one lookup row, before the classification
+`UPDATE` runs. A model version the lookup does not carry is not a failure
+(P-24, 2026-09-14): every event classifies as stochastic. The procedure names the lookup by its two-part
 name `dbo.Lookup_RMS_HistoricalRDS` (R15).
 
 **Rationale**:
 
 - Note 23 D23 (classification by absence, confirmed by Cheng): the lookup
-  holds historical events only. Note 23 D19: a model version missing from
-  the lookup must fail the load, or every event loads as stochastic (spec
-  non-negotiable 3).
+  holds historical events only. Note 23 D19 decided only that the ELT rows
+  and the join use `Data.DataModelVersion` rather than the event's own
+  version code; the empty-version failure this section first read into it
+  was never asked for, and note 29 D8 removed it.
 - `UPDATE ... FROM` with a join that matches several rows does not raise in
   SQL Server; it picks one. The step-5 join for historical columns would
   then insert two `RMS_HistoricalRDS` rows for one loss. The assertion has
@@ -195,7 +197,7 @@ name `dbo.Lookup_RMS_HistoricalRDS` (R15).
   typed into CIC's lookup is caught by the one-match assertion. Turning the
   term on before O-11 was the dangerous choice: a lookup holding display
   names such as `Windstorm` would match nothing and load every event as
-  stochastic while the model-version assertion still passed. Dropping it
+  stochastic. Dropping it
   removes the flag, the `YY` special case, and the former T-16.
 - *Fetch the group's member perils from `get_regions` and join
   `Peril IN (...)`* — moot once the join has no peril term. Rejected.
@@ -665,10 +667,12 @@ resolve as `NAEQ` / `17.0` / `EP`: the version that describes an analysis's
 events is the model profile's `modelDataVersion`, not `metadata.csv`
 `ModelVersion`, `softwareVersionCode` (`RL25`), or the RiskLink release.
 
-**Decision**: the seed, the classification join, and the 50002 assertion are
-unchanged until CIC's `Lookup_RMS_HistoricalRDS` can be read (O-13). Which
-side of the pair their table holds decides whether the dev seed is rebuilt
-from the `STOC` twins or the join changes.
+**Decision**: the seed and the classification join are unchanged until CIC's
+`Lookup_RMS_HistoricalRDS` can be read (O-13). Which side of the pair their
+table holds decides whether the dev seed is rebuilt from the `STOC` twins or
+the join changes. The empty-version failure this decision also held is gone
+(P-24, 2026-09-14): a join that returns nothing now loads every event as
+stochastic, which is exactly the state this section measured.
 
 ## R18 — How a stage-schema change reaches CIC after cutover (O-12)
 
@@ -718,6 +722,8 @@ and the stage worker can tell which version a repository is at (T048–T050).
 - Q: Where does the analyst see an analysis's AAL while exporting? → A: Everywhere an analysis and a perspective appear together — the form's cart row, the exports section's expanded row, and the export detail page (spec P-20, 9/11 D6). It is read at render time from `irp_analysis.loss_results`, never copied onto the manifest: the manifest records what is loaded, and the AAL is not loaded.
 - Q: The exports section and the detail page list everything, and each detail row ends with the archive path. What changes? → A: A quick status filter of all, failed or loaded on both screens, and the archive path comes off both (spec P-21, 9/11 D5). The filter is the `<select>` the analyses grid already uses, not a row of buttons; it narrows the exports the section lists and the analyses the detail page lists, and never the analyses inside an expanded export row — the analyst opened that row to see the whole export. The archive is still kept and still on the manifest as `zip_file`; CIC read the path as noise on a screen they use to answer "did it load". Rejected: filter chips (the grid's select is the pattern in place); filtering the expanded row too (it hides part of what the row counts).
 - Q: A failed analysis stays on the list until it is retried into success. What clears a failure the analyst has already dealt with? → A: Close, on both screens (spec P-22, 9/11 D5). Wendy: "I went, fixed whatever I need to be fixed, re-upload. I just want to click it and have it go off my list." Anil's shape: "a separate state of saying that closed, right? Instead of failed, mark it as closed, so people don't waste their time revisiting." It is a manual status and not a workflow — nothing is re-run, and a fix is a new export. `closed_at` and `closed_by` on the manifest row derive the status ahead of every other, so a closed analysis offers no Retry, leaves the failed count, and drops out of the Failed filter. Rejected: deleting the row (the failure and its message are the record CIC reads); a Close that re-runs the export (the analyst has already fixed the cause elsewhere, and P-17 makes a repeat export a new data set anyway).
+- Q: `Data.Database` was "not populated" and `Data.Server` holds the Risk Modeler API host. What goes in each? → A: `Database` carries the Workbench database name and `Server` the Risk Modeler web UI origin `https://<tenant>.<domain>` (spec P-23, 9/11 D11, D12). Wendy's reason for `Database` is the requirement, not a default: "everything that has the Workbench label on it came through the Workbench, and if we identify a problem later … we can query for that and find them" — a blast-radius query on a production table the Workbench writes to. Cheryl's caveat stands: a direct broker upload bypasses the Workbench and populates the column the old way. `Server` had drifted to the API host (`api-use1…`) against note 23's tenant URL; Cheryl waved it off — "it sort of doesn't matter … we're not working in a SQL environment anymore" — so it is settled on the tenant form the earlier decision chose, because "it doesn't matter" is not a reason to change it. Rejected: a constant `Risk Modeler` in `Database` (Cheryl's opening position; it names the tool, not the database the blast-radius query needs).
+- Q: The load fails when `Lookup_RMS_HistoricalRDS` holds no rows for the analysis's model version (error 50002). Keep the check? → A: Drop it (spec P-24, 9/11 D8). Ben, on his own code: "this is what would be considered an unnecessary validation … This is a totally invalid error." Cheryl confirmed the premise is false: "it would never not be historical data because of a mismatch of this model version." An absent version is the reference data as shipped — the Moody's lookup carries no 23.0 rows at all — so every event classifies as stochastic and the detail page's historical row count of 0 is the signal. The one-match assertion (50003) stays: a duplicate lookup row would silently write two `RMS_HistoricalRDS` rows for one loss. Rejected: keeping the check behind a flag (nobody at CIC asked for the failure, and note 23 D26 says the lookup is static, so an absent version never arrives later).
 - Q: How does the manifest DDL change reach dev and CIC? → A: By editing `db/bootstrap/loss_schema.sql` in place. CIC has no stage tables installed yet, so there is nothing to migrate; dev reruns `infra/scripts/bootstrap_loss.py --reset-stage`. The numbered change scripts of O-12 (T048–T050) start at the first release after CIC's install.
 
 ### Session 2026-09-10

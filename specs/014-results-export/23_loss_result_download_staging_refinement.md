@@ -581,7 +581,7 @@ The PLT procedure, `stage.usp_load_plt_result`, is designed with the HD path
        WHERE d.manifest_id = @manifest_id
        GROUP BY d.event_id
        HAVING COUNT(*) > 1)
-       THROW 50002, @reason, 1;  -- names the first offending event_id
+       THROW 50003, @reason, 1;  -- names the first offending event_id
    ```
 
    The order matters. `UPDATE ... FROM` with a join that matches several
@@ -660,13 +660,13 @@ DDL in `cic-reference/DataTableDDL.sql`.
 | `DataID` | `IDENTITY`; captured at insert and written to `manifest.data_id`. |
 | `ClientID` | `manifest.client_id`. |
 | `TreatyIncept` | `manifest.treaty_incept`. |
-| `DataVintage` | `manifest.data_vintage`; usually blank, entered later by the analyst. |
+| `DataVintage` | `manifest.data_vintage`; required on the form (spec P-19). |
 | `DataName` | `manifest.data_name`; optional. |
 | `DataModelVendor` | `RMS`. |
 | `DataModelVersion` | `manifest.data_model_version`: `25.0` for the DLM example. Decimal form, never `RL 25`. The HD example carries `HDv2.1`, which fits `nvarchar(10)` but is not decimal form; whether CIC accepts it is in O-08. |
 | `DataCurrency` | `manifest.data_currency`. |
-| `Server` | `manifest.server`. |
-| `Database` | Not populated. |
+| `Server` | `manifest.server`: the Risk Modeler web UI origin `https://<tenant>.<domain>`, not the API host (spec P-23). |
+| `Database` | `manifest.database`: the name of the Workbench database that requested the export. Wendy's reason is the requirement — "everything that has the Workbench label on it came through the Workbench, and if we identify a problem later … we can query for that and find them", a blast-radius query on a production table the Workbench writes to (note 29 D11). A direct broker upload bypasses the Workbench and populates the column the old way. |
 | `AnalysisID` | `manifest.irp_app_analysis_id`; both `INT`, converted on submit (§4.1). |
 | `Name` | `manifest.analysis_name`. |
 | `Description` | `manifest.analysis_description`. |
@@ -691,12 +691,12 @@ transaction before commit.
 DECLARE @inserted TABLE (data_id INT);
 
 INSERT INTO dbo.Data (ClientID, TreatyIncept, DataVintage, DataName,
-    DataModelVendor, DataModelVersion, DataCurrency, [Server], AnalysisID,
-    Name, Description, Perspective, CRMID)
+    DataModelVendor, DataModelVersion, DataCurrency, [Server], [Database],
+    AnalysisID, Name, Description, Perspective, CRMID)
 OUTPUT INSERTED.DataID INTO @inserted (data_id)
 SELECT m.client_id, m.treaty_incept, m.data_vintage, m.data_name,
        m.data_model_vendor, m.data_model_version, m.data_currency, m.server,
-       m.irp_app_analysis_id, m.analysis_name, m.analysis_description,
+       m.[database], m.irp_app_analysis_id, m.analysis_name, m.analysis_description,
        m.perspective_code, m.crm_id
 FROM stage.rwb_loss_result_manifest m
 WHERE m.manifest_id = @manifest_id;
@@ -836,7 +836,7 @@ What each failure leaves behind and how it is recovered:
 | Load procedure not installed on the server, no EXECUTE grant, or an older version than the Workbench expects (a parameter or manifest column it does not know) | Call raises. `load_status = failed` with the driver error, written by the worker when the procedure never ran and by the `CATCH` block when it ran and hit the mismatch. | The DBA installs the current `loss_schema.sql` or adds the grant (O-05, O-12), then re-run the load job. |
 | Load procedure called inside an open transaction (`BEGIN TRAN` in SQL Server Management Studio, or a caller without autocommit) | The `@@TRANCOUNT` check raises before the claim. Nothing written. | Call it again outside a transaction. |
 | Load procedure called on a row it must not load: `@manifest_id` names no row, `stage_status` is not `staged`, another load holds the row, or `load_status = loaded` (a second by-hand run, or a worker and a person at once) | The claim raises before any step runs. Nothing written; the error names the existing `data_id` when the row is already loaded. A worker re-run never reaches the procedure on a `loaded` row because of its own entry check. | None needed. The row was either loaded once already or was never ready to load. |
-| Load procedure fails (lookup not loaded for the model version, one event matching two lookup rows, missing grant, `PCS` or `Peril` width overflow, deadlock) | Transaction rolled back: no `Data`, `RMSELT`, or `RMS_HistoricalRDS` rows; stage rows back to their staged values. `load_status = failed` with the SQL error. | Re-run the load job. Lookup assertions and width overflow are deterministic and need the lookup or the mapping fixed first (O-04, O-11). |
+| Load procedure fails (one event matching two lookup rows, missing grant, `PCS` or `Peril` width overflow, deadlock) | Transaction rolled back: no `Data`, `RMSELT`, or `RMS_HistoricalRDS` rows; stage rows back to their staged values. `load_status = failed` with the SQL error. | Re-run the load job. The one-match assertion and width overflow are deterministic and need the lookup or the mapping fixed first (O-04, O-11). A model version the lookup does not carry is not a failure: every event loads as stochastic (spec P-24). |
 | Load procedure commits, load worker dies before the job completes | `load_status = loaded` (set inside the transaction). Load job `running`. | Reconciler resets the load job; the next attempt sees `loaded` and succeeds without writing. |
 | Local working directory deletion fails after staging | Extracted files left on local disk. | Logged and ignored; the extracted files duplicate the archive and the next attempt's cleanup removes them. |
 

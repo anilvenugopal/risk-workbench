@@ -38,7 +38,9 @@
    analysis for a real ELT.
 5. In `rwb_loss`: one `dbo.Data` row per analysis with `AnalysisID`,
    `Perspective = 'GR'`, `DataModelVersion = '25.0'`, `Name`, `Description`,
-   `Server`, `CRMID`; `dbo.RMSELT` rows plus `dbo.RMS_HistoricalRDS` rows
+   `CRMID`, `Server` reading `https://<tenant>.<domain>` (the Risk Modeler web
+   UI, not `api-…`), and `Database` reading the Workbench database name
+   (P-23); `dbo.RMSELT` rows plus `dbo.RMS_HistoricalRDS` rows
    equal to `staged_row_count`; every `Loss` equals the Parquet value
    (acceptance 6; SC-002, SC-003). The archive is under
    `EXPORT_ARCHIVE_DIR/{export_id}/{irp_analysis_id}/`.
@@ -47,10 +49,9 @@
    many there are — and the Export button stays on (acceptance 4, P-17).
    Export again: a second `dbo.Data` row lands under a new data ID.
 7. Lookup miss: export an analysis whose `ModelVersion` has no lookup rows
-   (delete the seeded rows first). Its load fails with a message naming the
-   model version; nothing for it reaches `Data`, `RMSELT`, or
-   `RMS_HistoricalRDS`; the other analysis loads (acceptance 7,
-   non-negotiable 3 and 4).
+   (delete the seeded rows first). It loads: every event is stochastic, the
+   detail page's historical count reads 0, and `dbo.RMS_HistoricalRDS` gets
+   no rows (acceptance 7, non-negotiable 3, P-24).
 
 ## Story 2 — Follow an export
 
@@ -75,10 +76,11 @@
 ## Story 3 — Retry
 
 1. Load failure: stop the load queue's worker, export, wait for `staged`,
-   then in SQL truncate the lookup and start the worker → the load fails.
-   Restore the lookup rows, click **Retry**: the load runs again with no new
-   download (the archive's mtime is unchanged) and the row reads loaded
-   (acceptance 1).
+   then in SQL insert a second `Lookup_RMS_HistoricalRDS` row for an event
+   the analysis carries, under the same `ModelVersion`, and start the worker
+   → the load fails "event {id} matches 2 historical lookup rows". Delete the
+   duplicate, click **Retry**: the load runs again with no new download (the
+   archive's mtime is unchanged) and the row reads loaded (acceptance 1).
 2. Rejected or expired export job: set `EXPORT_ARCHIVE_DIR` to a missing
    path, export → the stage step fails "Archive root … is not available".
    Fix the path, Retry → the stage job re-runs and downloads (the job is

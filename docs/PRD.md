@@ -1131,6 +1131,8 @@ The Loss Repository is CIC's production SQL Server holding finalized loss sets, 
 
 **Direction settled (2026-08-27, design note 21 D1, re-confirming 8/26 D18).** The workbench owns the whole export: read results from the Risk Modeler API, transform, write the repository tables — the `push_results_to_loss_repo` worker path. Reusing CIC's workflow tool was raised and rejected: it only sees analyses that live in RiskLink, which would mean exporting Risk Modeler results back to RDM and keeping RMS servers alive. DataBridge is not in the path. Treat as settled; do not reopen when the ELT-retrieval cost bites.
 
+**The export ends at the repository, and the analyst leaves (2026-09-11, design note 29 D4).** CIC pushes loss sets to their simulation engine, Analyze Re, from their own workflow tool, which is out of MVP. So after every export the analyst moves to that tool: Wendy — "I will then go over to our workflow tool, enter their parameters and upload to our simulation engine." A browser over the repository inside the Workbench was proposed the same day and deferred for the same reason (§21, Loss Repository Explorer).
+
 **Write targets** (schema screenshots received 2026-08-27, with CIC's population notes):
 
 - **`dbo.Data`** — the header row. `DataID` (int, auto-increment) identifies the export; the workbench inserts the row and reads the ID back — it never generates it. Populated: `ClientID`, `TreatyIncept`, `DataVintage` (date), `DataName`, `DataModelVendor`, `DataModelVersion`, `DataCurrency`, `Server`, `Database`, `AnalysisID`, `Name`, `Description`, `Perspective`, `CRMID`. **Not populated:** `ArchiveFile`, `AReLossSet` (the out-of-MVP Analyze Re upload), `LOB`, `Geography`.
@@ -1528,6 +1530,8 @@ This prompt applies independently to each of the three app-managed databases (`W
 **Exit:** the home page renders a useful dashboard instead of an empty page.
 
 ---
+
+> **Loss Repository Explorer — proposed 2026-09-11, not scheduled.** A page over the loss repository itself rather than over one export: what has been loaded, filtered by submission and perspective, with the editing CIC does today in their workflow tool. Cheryl depends on that view — "I'm pretty dependent on having that to be able to know what I have" — but Wendy deferred it because the workflow tool is where results reach Analyze Re anyway (§16.3), and Anil parked it as a later standalone sub-application. Wendy on the timing: "Yes. Yep, that's the vision. Probably just not by October 1st." Spec 014's export status screens carry failure triage instead.
 
 > **Phase A — Validation, profiling & Exposure Repository: out of MVP, not scheduled.** §10 (DataBridge validation/profiling/exposure modification) and §16.5 (Exposure Repository write via `push_exposure_summary`) are out of MVP per `mvp-scope.md §6`. There is nothing to build for MVP, so Phase A is intentionally **not** a build-plan iteration (it was previously Iteration 4). If it is ever picked up, it slots in as its own iteration (§10 + §16.5).
 
