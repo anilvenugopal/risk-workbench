@@ -9,6 +9,7 @@
   <span class="l"><time data-utc="{{ a.updated_at }}" title="{{ a.updated_at }} UTC">{{ a.updated_at }}</time></span>
   <span class="l" title="{{ a.data_name or '' }}">{{ a.data_name or '—' }}</span>
   <span>{{ a.data_id if a.data_id is not none else '—' }}</span>
+  <span title="{{ a.aal }}">{{ a.aal_display }}</span>
   <span>{{ a.irp_app_analysis_id if a.irp_app_analysis_id is not none else '—' }}</span>
   <span>{{ a.data_currency or '—' }}</span>
   <span>{{ a.data_model_version or '—' }}</span>
@@ -22,10 +23,10 @@
   <span>{{ '{:,}'.format(a.std_dev_zeroed_count) if a.std_dev_zeroed_count is not none else '—' }}</span>
   <span class="l">
     {% if a.can_retry %}
-    <form hx-post="/submissions/{{ submission_id }}/exports/{{ export_id }}/analyses/{{ a.irp_analysis_id }}/retry"
+    <form hx-post="/submissions/{{ submission_id }}/exports/{{ export_id }}/analyses/{{ a.irp_analysis_id }}/retry{{ query }}"
           hx-target="#export-analyses" hx-swap="outerHTML"
           hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"
-          method="post" action="/submissions/{{ submission_id }}/exports/{{ export_id }}/analyses/{{ a.irp_analysis_id }}/retry">
+          method="post" action="/submissions/{{ submission_id }}/exports/{{ export_id }}/analyses/{{ a.irp_analysis_id }}/retry{{ query }}">
       <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
       <button class="btn-sm" type="submit">Retry</button>
     </form>
@@ -33,8 +34,5 @@
   </span>
   {% if a.error_message %}
   <div class="export-detail__error">{{ a.error_message }}</div>
-  {% endif %}
-  {% if a.archive_path %}
-  <div class="export-detail__path" title="Archive on the shared drive">{{ a.archive_path }}</div>
   {% endif %}
 </div>

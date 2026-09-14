@@ -296,6 +296,14 @@ def _results_status_filter(request: Request) -> str:
     return status if status in _ANALYSES_STATUS_FILTERS else ""
 
 
+_EXPORT_STATUS_FILTERS = ("failed", "loaded")
+
+
+def _export_status_filter(request: Request) -> str:
+    status = (request.query_params.get("status") or "").strip()
+    return status if status in _EXPORT_STATUS_FILTERS else ""
+
+
 def _results_groups(submission_id: str) -> list:
     """The submission's RDM group rows with their capture liveness, so the
     Results section keeps polling while an RDM's analyses are still landing."""
@@ -1584,6 +1592,7 @@ def submission_exports(request: Request, submission_id: str):
         return _not_found(request)
     return _partial(request, "partials/exports_section.html", {
         "submission_id": submission_id,
+        "status_filter": _export_status_filter(request),
         "exports": export_service.list_exports(submission_id)})
 
 
@@ -1609,7 +1618,8 @@ def export_detail(request: Request, submission_id: str, export_id: str):
             "current_user": request.state.user,
             "nav": _export_nav(request, "submissions.export_detail", submission,
                                f"Export {export.perspective_code} · {export.requested_at}"),
-            "submission": submission, "export": export})
+            "submission": submission, "export": export,
+            "status_filter": _export_status_filter(request)})
 
 
 @router.get("/submissions/{submission_id}/exports/{export_id}/analyses",
@@ -1618,7 +1628,8 @@ def export_analyses(request: Request, submission_id: str, export_id: str):
     export = export_service.get_export_detail(submission_id, export_id)
     if export is None:
         return _export_not_found(request)
-    return _partial(request, "partials/export_analyses_table.html", {"export": export})
+    return _partial(request, "partials/export_analyses_table.html", {
+        "export": export, "status_filter": _export_status_filter(request)})
 
 
 @router.post("/submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/retry")
@@ -1646,4 +1657,6 @@ def retry_export_analysis(request: Request, submission_id: str, export_id: str,
     # runs; the Retry form's before-swap hook lets htmx swap the 409 in.
     export = export_service.get_export_detail(submission_id, export_id)
     return _partial(request, "partials/export_analyses_table.html",
-                    {"export": export, "retry_message": message}, status_code=status_code)
+                    {"export": export, "retry_message": message,
+                     "status_filter": _export_status_filter(request)},
+                    status_code=status_code)

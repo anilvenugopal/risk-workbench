@@ -134,6 +134,7 @@ class ExportAnalysisDetail:
     peril_code: str | None
     region_code: str | None
     data_id: int | None
+    aal: float | None
     staged_row_count: int | None
     stochastic_row_count: int | None
     historical_row_count: int | None
@@ -142,11 +143,8 @@ class ExportAnalysisDetail:
     error_message: str | None
 
     @property
-    def archive_path(self) -> str | None:
-        if not self.zip_file:
-            return None
-        root = settings.export_archive_dir.rstrip("/\\")
-        return f"{root}/{self.zip_file}" if root else self.zip_file
+    def aal_display(self) -> str:
+        return analysis_service.fmt_loss(self.aal)
 
     @property
     def is_terminal(self) -> bool:
@@ -480,7 +478,7 @@ def list_exports(submission_id: Any) -> list[ExportSummary]:
         {"s": _uid(submission_id)}, connection="LOSS")]
     if not rows:
         return []
-    origins = _origins([_uid(r["irp_analysis_id"]) for r in rows])
+    analyses = _analysis_rows([_uid(r["irp_analysis_id"]) for r in rows])
     summaries: dict[str, ExportSummary] = {}
     for r in rows:
         key = _uid(r["export_id"])
@@ -490,33 +488,41 @@ def list_exports(submission_id: Any) -> list[ExportSummary]:
                 export_id=key, perspective_code=r["perspective_code"],
                 requested_by_email=r["requested_by_email"], requested_at=r["requested_at"],
                 client_name=r["client_name"])
-        summary.analyses.append(_analysis_detail(r, origins))
+        summary.analyses.append(_analysis_detail(r, analyses))
     return list(summaries.values())
 
 
-def _origins(irp_analysis_ids: list[str]) -> dict[str, str]:
+def _analysis_rows(irp_analysis_ids: list[str]) -> dict[str, dict]:
+    """The ``irp_analysis`` row behind each manifest row: the origin label and
+    the AAL both screens show (P-20) are read from it at render time, never
+    copied onto the manifest."""
     if not irp_analysis_ids:
         return {}
     params = {f"i{n}": v for n, v in enumerate(irp_analysis_ids)}
-    return {_uid(r["id"]): ("broker" if r["rdm_id"] else "group" if r["is_group"] else "own")
-            for r in execute(
-                "SELECT id, is_group, rdm_id FROM irp_analysis "
-                f"WHERE id IN ({', '.join(':' + k for k in params)})",
-                params, connection="WORKBENCH")}
+    return {_uid(r["id"]): dict(r) for r in execute(
+        "SELECT id, is_group, rdm_id, loss_results FROM irp_analysis "
+        f"WHERE id IN ({', '.join(':' + k for k in params)})",
+        params, connection="WORKBENCH")}
 
 
-def _analysis_detail(row: dict, origins: dict[str, str]) -> ExportAnalysisDetail:
+def _analysis_detail(row: dict, analyses: dict[str, dict]) -> ExportAnalysisDetail:
+    analysis = analyses.get(_uid(row["irp_analysis_id"])) or {}
+    perspectives = (_parse_json_dict(analysis.get("loss_results"), "loss_results")
+                    or {}).get("perspectives") or {}
     return ExportAnalysisDetail(
         manifest_id=row["manifest_id"], irp_analysis_id=_uid(row["irp_analysis_id"]),
         analysis_name=row["analysis_description"] or row["analysis_name"],
-        origin=origins.get(_uid(row["irp_analysis_id"]), "own"),
+        origin=("broker" if analysis.get("rdm_id") else
+                "group" if analysis.get("is_group") else "own"),
         status=derive_status(row), updated_at=row["updated_at"],
         irp_export_job_id=row["irp_export_job_id"], zip_file=row["zip_file"],
         data_name=row["data_name"], irp_app_analysis_id=row["irp_app_analysis_id"],
         data_currency=row["data_currency"], data_model_version=row["data_model_version"],
         engine_type=row["engine_type"], peril_code=row["peril_code"],
         region_code=row["region_code"],
-        data_id=row["data_id"], staged_row_count=row["staged_row_count"],
+        data_id=row["data_id"],
+        aal=(perspectives.get(row["perspective_code"]) or {}).get("aal"),
+        staged_row_count=row["staged_row_count"],
         stochastic_row_count=row["stochastic_row_count"],
         historical_row_count=row["historical_row_count"],
         exp_value_raised_count=row["exp_value_raised_count"],
@@ -536,7 +542,7 @@ def get_export_detail(submission_id: Any, export_id: Any) -> ExportDetail | None
         {"e": _uid(export_id), "s": _uid(submission_id)}, connection="LOSS")
     if not rows:
         return None
-    origins = _origins([_uid(r["irp_analysis_id"]) for r in rows])
+    analyses = _analysis_rows([_uid(r["irp_analysis_id"]) for r in rows])
     first = rows[0]
     return ExportDetail(
         export_id=_uid(first["export_id"]), submission_id=_uid(submission_id),
@@ -544,7 +550,7 @@ def get_export_detail(submission_id: Any, export_id: Any) -> ExportDetail | None
         client_name=first["client_name"], treaty_incept=first["treaty_incept"],
         crm_id=first["crm_id"], data_vintage=first["data_vintage"],
         requested_by_email=first["requested_by_email"], requested_at=first["requested_at"],
-        analyses=[_analysis_detail(r, origins) for r in rows])
+        analyses=[_analysis_detail(r, analyses) for r in rows])
 
 
 # ── retry ────────────────────────────────────────────────────────────────────

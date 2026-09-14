@@ -1,17 +1,31 @@
 {# Exports requested from this submission, newest first (contracts/routes.md
-   §5). Each row expands to the analyses in that export. Polls every 10s only
-   while some export still has an analysis in progress; a terminal state renders
-   without a trigger and the polling stops. data-restore-open keeps an expanded
-   row open across those swaps. #}
+   §5). Each row expands to the analyses in that export. The status select
+   filters the exports; an expanded row always shows all of its analyses.
+   Polls every 10s only while some export still has an analysis in progress; a
+   terminal state renders without a trigger and the polling stops.
+   data-restore-open keeps an expanded row open across those swaps. #}
 {% import "partials/export_row_macros.html" as rows %}
 {% set in_progress = exports|selectattr('in_progress')|list|length > 0 %}
+{% set query = ('?status=' ~ status_filter) if status_filter else '' %}
+{% set shown = exports|selectattr(status_filter ~ '_count')|list if status_filter else exports %}
 <details class="sec" open id="submission-exports" data-restore-open
-  {% if in_progress %}hx-get="/submissions/{{ submission_id }}/exports" hx-trigger="every 10s"
+  {% if in_progress %}hx-get="/submissions/{{ submission_id }}/exports{{ query }}" hx-trigger="every 10s"
   hx-target="this" hx-swap="outerHTML"{% endif %}>
   <summary>
     <span class="sec__caret">▸</span>
     <span class="sec__title">Exports</span>
     {% if exports %}<span class="badge badge--neutral">{{ exports|length }}</span>{% endif %}
+    {% if exports %}
+    <span class="sec__spacer"></span>
+    <select name="status" class="wf-field__input" style="width:auto"
+            onclick="event.stopPropagation()"
+            hx-get="/submissions/{{ submission_id }}/exports" hx-trigger="change"
+            hx-target="#submission-exports" hx-swap="outerHTML">
+      <option value="">All statuses</option>
+      <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Failed</option>
+      <option value="loaded" {% if status_filter == 'loaded' %}selected{% endif %}>Loaded</option>
+    </select>
+    {% endif %}
   </summary>
   {% if exports %}
   <div class="dtable-shell">
@@ -21,7 +35,7 @@
         <span class="l">Perspective</span><span class="l">Requested by</span><span class="l">Requested</span>
         <span class="l">Client</span><span>Analyses</span><span class="l">Progress</span>
       </div>
-      {% for e in exports %}
+      {% for e in shown %}
       <details class="drow" id="export-summary-{{ e.export_id }}">
         <summary>
           <span class="l"><span class="dt-name"><span class="dt-caret">&#9656;</span>
@@ -36,13 +50,16 @@
         <div class="drow__body">
           {% for a in e.analyses %}
           <div class="export-summary__analysis">
-            <span title="{{ a.analysis_name }}">{{ a.analysis_name }}</span>
+            <span class="export-summary__name" title="{{ a.analysis_name }}">{{ a.analysis_name }}</span>
             <span>{{ rows.status_chip(a.status) }}</span>
+            <span class="export-summary__aal" title="{{ a.aal }}">AAL {{ a.aal_display }}</span>
             <span class="export-summary__dataid">Data ID: {{ a.data_id if a.data_id is not none else '—' }}</span>
           </div>
           {% endfor %}
         </div>
       </details>
+      {% else %}
+      <div class="dtable__groupempty">No exports match this filter.</div>
       {% endfor %}
     </div>
   </div>

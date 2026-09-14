@@ -326,9 +326,7 @@ def test_detail_page_404s_for_another_submissions_export(client, export):
     assert "not requested from this submission" in page.text
 
 
-def test_detail_rows_show_counts_archive_path_error_and_stop_polling(client, export,
-                                                                      monkeypatch):
-    monkeypatch.setattr(settings, "export_archive_dir", "/mnt/share")
+def test_detail_rows_show_counts_aal_error_and_stop_polling(client, export):
     execute_command(
         "UPDATE stage.rwb_loss_result_manifest SET stage_status = 'staged', load_status = "
         "'loaded', data_id = 4127, staged_row_count = 15689, stochastic_row_count = 15401, "
@@ -342,11 +340,11 @@ def test_detail_rows_show_counts_archive_path_error_and_stop_polling(client, exp
 
     frag = client.get(f"{export['url']}/analyses")
     assert frag.status_code == 200
-    assert "hx-trigger" not in frag.text  # every row terminal → polling stops
+    assert 'hx-trigger="every 5s"' not in frag.text  # every row terminal → polling stops
     assert ">loaded</span>" in frag.text and ">failed</span>" in frag.text
     for value in ("4127", "15,689", "15,401", "288", "12", "3"):
         assert f"<span>{value}</span>" in frag.text
-    assert "/mnt/share/e/a/x.zip" in frag.text
+    assert frag.text.count('<span title="100.0">100</span>') == 2  # AAL per row
     assert "Lookup has no rows for model version 25.0" in frag.text
     assert frag.text.count(">Retry</button>") == 1
     assert f"analyses/{export['b']}/retry" in frag.text
@@ -368,6 +366,7 @@ def test_exports_section_lists_this_submissions_exports_newest_first(client, exp
     assert 'hx-trigger="every 10s"' in section.text  # the GR export is still in progress
     row = section.text.split(f'/exports/{older["export_id"]}')[1]
     assert "r.patel@x.com" in row and "Example Re" in row
+    assert "AAL 100" in row
     assert re.search(r"<span>1</span>\s*<span class=\"l\">1 loaded</span>", row)
     assert section.text.count('<details class="drow"') == 2
 
@@ -382,8 +381,66 @@ def test_exports_section_stops_polling_when_every_analysis_is_terminal(client, e
     execute_command("UPDATE stage.rwb_loss_result_manifest SET stage_status = 'failed'", {},
                     connection="LOSS")
     section = client.get(f"/submissions/{export['submission_id']}/exports")
-    assert "hx-trigger" not in section.text
+    assert 'hx-trigger="every 10s"' not in section.text
     assert re.search(r"<span>2</span>\s*<span class=\"l\">2 failed</span>", section.text)
+
+
+def test_section_status_filter_keeps_the_matching_exports(client, export):
+    """One export has a failed analysis, the other is fully loaded (FR-017)."""
+    execute_command(
+        "UPDATE stage.rwb_loss_result_manifest SET stage_status = 'failed' "
+        "WHERE irp_analysis_id = :a", {"a": export["b"]}, connection="LOSS")
+    loaded = seed_manifest(submission_id=export["submission_id"], irp_analysis_id=export["a"],
+                           perspective_code="RL", requested_at="2026-09-01 08:00:00",
+                           stage_status="staged", load_status="loaded", data_id=5)
+    url = f"/submissions/{export['submission_id']}/exports"
+
+    failed = client.get(f"{url}?status=failed")
+    assert export["export_id"] in failed.text and loaded["export_id"] not in failed.text
+    assert '<option value="failed" selected>Failed</option>' in failed.text
+
+    only_loaded = client.get(f"{url}?status=loaded")
+    assert loaded["export_id"] in only_loaded.text and export["export_id"] not in only_loaded.text
+
+    # an unknown value is not a filter, and the poll carries the one in force
+    assert client.get(f"{url}?status=junk").text == client.get(url).text
+    assert f'hx-get="{url}?status=failed" hx-trigger="every 10s"' in failed.text
+
+
+def test_section_status_filter_matching_nothing_says_so(client, export):
+    section = client.get(f"/submissions/{export['submission_id']}/exports?status=failed")
+    assert "No exports match this filter." in section.text
+    assert '<details class="drow"' not in section.text
+
+
+def test_detail_status_filter_keeps_the_matching_analyses(client, export):
+    execute_command(
+        "UPDATE stage.rwb_loss_result_manifest SET stage_status = 'failed' "
+        "WHERE irp_analysis_id = :a", {"a": export["b"]}, connection="LOSS")
+
+    failed = client.get(f"{export['url']}/analyses?status=failed")
+    assert f'id="export-analysis-row-{export["b"]}"' in failed.text
+    assert f'id="export-analysis-row-{export["a"]}"' not in failed.text
+    assert 'retry?status=failed"' in failed.text  # Retry comes back to the same filter
+
+    empty = client.get(f"{export['url']}/analyses?status=loaded")
+    assert "No analyses match this filter." in empty.text
+
+    junk = client.get(f"{export['url']}/analyses?status=junk")  # not a filter
+    assert f'id="export-analysis-row-{export["a"]}"' in junk.text
+    assert "retry?status=" not in junk.text
+
+
+def test_retry_rerenders_the_table_under_the_filter_in_force(client, export):
+    execute_command(
+        "UPDATE stage.rwb_loss_result_manifest SET stage_status = 'failed' "
+        "WHERE irp_analysis_id = :a", {"a": export["b"]}, connection="LOSS")
+    response = client.post(f"{export['url']}/analyses/{export['b']}/retry?status=failed",
+                           data={"csrf_token": _csrf()}, headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert '<option value="failed" selected>Failed</option>' in response.text
+    # the retried row is queued again, so the Failed filter no longer holds it
+    assert "No analyses match this filter." in response.text
 
 
 def test_submission_page_keeps_the_analyses_grid_and_loads_the_exports_section(client, export):

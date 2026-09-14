@@ -295,17 +295,12 @@ def test_export_detail_header_rows_and_origins(deal):
     assert [a.analysis_name for a in detail.analyses] == ["A long", "B long"]
     assert [a.status for a in detail.analyses] == [svc.QUEUED, svc.IN_PROGRESS]
     assert [a.origin for a in detail.analyses] == ["own", "own"]
+    # AAL is read from irp_analysis.loss_results at the export's perspective (P-20)
+    assert [a.aal for a in detail.analyses] == [100.0, 100.0]
+    assert detail.analyses[0].aal_display == "100"
     assert detail.in_progress and not detail.analyses[0].can_retry
     assert svc.get_export_detail(str(uuid.uuid4()), export_id) is None
     assert svc.get_export_detail(deal["submission_id"], str(uuid.uuid4())) is None
-
-
-def test_archive_path_joins_the_configured_root(deal, monkeypatch):
-    monkeypatch.setattr(svc.settings, "export_archive_dir", "/mnt/share/")
-    row = seed_manifest(submission_id=deal["submission_id"], irp_analysis_id=deal["a"],
-                        zip_file="e/a/x.zip")
-    detail = svc.get_export_detail(deal["submission_id"], row["export_id"])
-    assert detail.analyses[0].archive_path == "/mnt/share/e/a/x.zip"
 
 
 def test_list_exports_groups_this_submissions_exports_newest_first(deal):
