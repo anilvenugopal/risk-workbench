@@ -1,6 +1,8 @@
 {# Exports requested from this submission, newest first (contracts/routes.md
-   §5). Each row expands to the analyses in that export. The status select
-   filters the exports; an expanded row always shows all of its analyses.
+   §5). Each row expands to the analyses in that export, each with Close when
+   it failed (§8); a refused Close renders `action_message` above the table.
+   The status select filters the exports; an expanded row always shows all of
+   its analyses.
    Polls every 10s only while some export still has an analysis in progress; a
    terminal state renders without a trigger and the polling stops.
    data-restore-open keeps an expanded row open across those swaps. #}
@@ -27,6 +29,9 @@
     </select>
     {% endif %}
   </summary>
+  {% if action_message|default(none) %}
+  <div class="form-banner form-banner--error">{{ action_message }}</div>
+  {% endif %}
   {% if exports %}
   <div class="dtable-shell">
     <div class="dtable dtable--wraphead"
@@ -54,6 +59,17 @@
             <span>{{ rows.status_chip(a.status) }}</span>
             <span class="export-summary__aal" title="{{ a.aal }}">AAL {{ a.aal_display }}</span>
             <span class="export-summary__dataid">Data ID: {{ a.data_id if a.data_id is not none else '—' }}</span>
+            <span>
+              {% if a.can_retry %}
+              <form hx-post="/submissions/{{ submission_id }}/exports/{{ e.export_id }}/analyses/{{ a.irp_analysis_id }}/close{{ query }}"
+                    hx-target="#submission-exports" hx-swap="outerHTML"
+                    hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"
+                    method="post" action="/submissions/{{ submission_id }}/exports/{{ e.export_id }}/analyses/{{ a.irp_analysis_id }}/close{{ query }}">
+                <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+                <button class="btn-sm" type="submit">Close</button>
+              </form>
+              {% endif %}
+            </span>
           </div>
           {% endfor %}
         </div>

@@ -256,7 +256,8 @@ def test_enqueue_failure_after_commit_fails_the_rows_so_retry_applies(deal, monk
 # ── derive_status ────────────────────────────────────────────────────────────
 
 def _m(**kw):
-    base = {"stage_status": "pending", "load_status": "pending", "irp_export_job_id": None}
+    base = {"stage_status": "pending", "load_status": "pending", "irp_export_job_id": None,
+            "closed_at": None}
     base.update(kw)
     return base
 
@@ -270,6 +271,8 @@ def _m(**kw):
     (_m(irp_export_job_id="1", stage_status="staged"), svc.IN_PROGRESS),
     (_m(irp_export_job_id="1", stage_status="staged", load_status="loading"),
      svc.IN_PROGRESS),
+    # closed wins over the failure it was set on (P-22)
+    (_m(stage_status="failed", closed_at="2026-09-11 09:00:00"), svc.CLOSED),
 ])
 def test_derive_status(manifest, expected):
     assert svc.derive_status(manifest) == expected
@@ -326,6 +329,22 @@ def test_list_exports_groups_this_submissions_exports_newest_first(deal):
     assert exports[0].in_progress
     assert exports[1].progress == "1 loaded · 1 failed"
     assert exports[0].progress == "1 in progress"
+
+
+def test_a_closed_analysis_leaves_the_failed_count_and_lands_in_the_progress(deal):
+    export_id = str(uuid.uuid4())
+    seed_manifest(export_id=export_id, submission_id=deal["submission_id"],
+                  irp_analysis_id=deal["a"], stage_status="staged", load_status="loaded",
+                  data_id=5)
+    seed_manifest(export_id=export_id, submission_id=deal["submission_id"],
+                  irp_analysis_id=deal["b"], stage_status="failed",
+                  closed_at="2026-09-11 09:00:00", closed_by="b.bailey@premiumiq.com")
+
+    [summary] = svc.list_exports(deal["submission_id"])
+
+    assert (summary.failed_count, summary.closed_count) == (0, 1)
+    assert summary.progress == "1 loaded · 1 closed"
+    assert not summary.in_progress and not summary.analyses[1].can_retry
 
 
 def test_list_exports_carries_the_analyses_the_detail_page_shows(deal):

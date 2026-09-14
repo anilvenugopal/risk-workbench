@@ -1,6 +1,6 @@
 """Loss results export (spec 014): the export form's read models, the manifest
 insert, the exports section and detail read models, status derivation, and the
-Retry decision.
+Retry and Close decisions.
 
 The export record is ``stage.rwb_loss_result_manifest`` in the loss repository
 (``LOSS``), one row per analysis per perspective. The Workbench keeps only the
@@ -39,7 +39,8 @@ QUEUED = "queued"
 IN_PROGRESS = "in progress"
 LOADED = "loaded"
 FAILED = "failed"
-TERMINAL_STATUSES = frozenset({LOADED, FAILED})
+CLOSED = "closed"
+TERMINAL_STATUSES = frozenset({LOADED, FAILED, CLOSED})
 
 DATA_NAME_MAX_LEN = 150
 CRM_ID_MAX_LEN = 30
@@ -58,7 +59,7 @@ class ExportNotFound(ExportError):
     pass
 
 
-class ExportRetryRefused(ExportError):
+class ExportActionRefused(ExportError):
     pass
 
 
@@ -141,6 +142,8 @@ class ExportAnalysisDetail:
     exp_value_raised_count: int | None
     std_dev_zeroed_count: int | None
     error_message: str | None
+    closed_at: Any
+    closed_by: str | None
 
     @property
     def aal_display(self) -> str:
@@ -196,6 +199,10 @@ class ExportSummary:
         return sum(1 for a in self.analyses if a.status == FAILED)
 
     @property
+    def closed_count(self) -> int:
+        return sum(1 for a in self.analyses if a.status == CLOSED)
+
+    @property
     def in_progress(self) -> bool:
         return any(not a.is_terminal for a in self.analyses)
 
@@ -203,8 +210,9 @@ class ExportSummary:
     def progress(self) -> str:
         """The roll-up the exports section shows in place of a status column."""
         counts = ((self.loaded_count, LOADED), (self.failed_count, FAILED),
-                  (self.analysis_count - self.loaded_count - self.failed_count,
-                   IN_PROGRESS))
+                  (self.closed_count, CLOSED),
+                  (self.analysis_count - self.loaded_count - self.failed_count
+                   - self.closed_count, IN_PROGRESS))
         return " · ".join(f"{n} {label}" for n, label in counts if n)
 
 
@@ -213,8 +221,11 @@ class ExportSummary:
 
 def derive_status(manifest: dict) -> str:
     """The displayed status of one analysis (data-model.md §7). The manifest
-    row decides it alone: a Risk Modeler export that ended FAILED reads as in
+    row decides it alone: a closed analysis reads closed whatever else the row
+    carries (P-22), and a Risk Modeler export that ended FAILED reads as in
     progress until the stage worker stamps ``stage_status = failed``."""
+    if manifest["closed_at"] is not None:
+        return CLOSED
     if manifest["load_status"] == "loaded":
         return LOADED
     if manifest["stage_status"] == "failed" or manifest["load_status"] == "failed":
@@ -320,7 +331,7 @@ def find_exported(irp_app_analysis_ids: list[int],
     rows = execute(
         "SELECT export_id, requested_from_submission_id, requested_at, "
         "requested_by_email, irp_app_analysis_id, perspective_code, irp_export_job_id, "
-        "stage_status, load_status "
+        "stage_status, load_status, closed_at "
         f"FROM stage.rwb_loss_result_manifest {read_uncommitted_hint('LOSS')} "
         f"WHERE perspective_code = :p AND irp_app_analysis_id IN "
         f"({', '.join(':' + k for k in params if k != 'p')}) "
@@ -527,7 +538,8 @@ def _analysis_detail(row: dict, analyses: dict[str, dict]) -> ExportAnalysisDeta
         historical_row_count=row["historical_row_count"],
         exp_value_raised_count=row["exp_value_raised_count"],
         std_dev_zeroed_count=row["std_dev_zeroed_count"],
-        error_message=row["error_message"])
+        error_message=row["error_message"],
+        closed_at=row["closed_at"], closed_by=row["closed_by"])
 
 
 def get_export_detail(submission_id: Any, export_id: Any) -> ExportDetail | None:
@@ -553,7 +565,7 @@ def get_export_detail(submission_id: Any, export_id: Any) -> ExportDetail | None
         analyses=[_analysis_detail(r, analyses) for r in rows])
 
 
-# ── retry ────────────────────────────────────────────────────────────────────
+# ── retry and close ──────────────────────────────────────────────────────────
 
 RetryBranch = Literal["load", "stage", "submit"]
 
@@ -589,11 +601,11 @@ def retry_decision(manifest: dict, export_job: dict | None, archive_root: str,
     return "submit"
 
 
-def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> RetryBranch:
-    """Re-arm exactly one job for a failed analysis and dispatch it. Raises
-    ``ExportNotFound`` when the manifest row is not this submission's and
-    ``ExportRetryRefused`` when the manifest row itself is not failed (a Risk
-    Modeler failure the stage worker has not stamped yet is not failed yet)."""
+def _failed_manifest(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> dict:
+    """The manifest row Retry and Close both act on. Raises ``ExportNotFound``
+    when the row is not this submission's and ``ExportActionRefused`` when the
+    row is not failed — a Risk Modeler failure the stage worker has not stamped
+    yet is not failed yet, and a closed row is no longer failed."""
     manifest = execute_one(
         f"SELECT * FROM stage.rwb_loss_result_manifest {read_uncommitted_hint('LOSS')} "
         "WHERE export_id = :e AND irp_analysis_id = :a AND requested_from_submission_id = :s",
@@ -601,13 +613,31 @@ def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> Ret
         connection="LOSS")
     if manifest is None:
         raise ExportNotFound("That analysis is not part of this export.")
-    job = _export_job(manifest["irp_export_job_id"])
     status = derive_status(manifest)
     if status == LOADED:
-        raise ExportRetryRefused(f"already loaded as data ID {manifest['data_id']}")
+        raise ExportActionRefused(f"already loaded as data ID {manifest['data_id']}")
     if status != FAILED:
-        raise ExportRetryRefused(f"the analysis is {status}, not failed")
+        raise ExportActionRefused(f"the analysis is {status}, not failed")
+    return manifest
 
+
+def apply_close(submission_id: Any, export_id: Any, irp_analysis_id: Any,
+                user_email: str) -> None:
+    """Close a failed analysis: the analyst has dealt with the failure outside
+    the Workbench and wants it off the list (P-22). Nothing is re-run — a fix
+    is a new export — and a closed analysis offers no Retry."""
+    manifest = _failed_manifest(submission_id, export_id, irp_analysis_id)
+    now = _utcnow()
+    execute_command(
+        "UPDATE stage.rwb_loss_result_manifest SET closed_at = :now, closed_by = :u, "
+        "updated_at = :now WHERE manifest_id = :m",
+        {"now": now, "u": user_email, "m": manifest["manifest_id"]}, connection="LOSS")
+
+
+def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> RetryBranch:
+    """Re-arm exactly one job for a failed analysis and dispatch it."""
+    manifest = _failed_manifest(submission_id, export_id, irp_analysis_id)
+    job = _export_job(manifest["irp_export_job_id"])
     branch = retry_decision(manifest, job, settings.export_archive_dir, _utcnow())
     analysis_id = _uid(manifest["irp_analysis_id"])
     export_key = _uid(manifest["export_id"])
@@ -624,7 +654,7 @@ def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> Ret
             "AND requestor_type = 'irp_job' AND requestor_id = :r",
             {"r": str((job or {}).get("id"))}, connection="WORKBENCH")
         if stage_job is None:
-            raise ExportRetryRefused("no stage job is recorded for this analysis")
+            raise ExportActionRefused("no stage job is recorded for this analysis")
         execute_command(
             "UPDATE stage.rwb_loss_result_manifest SET load_status = 'pending', "
             "error_message = NULL, updated_at = :now WHERE manifest_id = :m",
@@ -666,12 +696,12 @@ def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> Ret
 
 
 __all__ = [
-    "QUEUED", "IN_PROGRESS", "LOADED", "FAILED",
+    "QUEUED", "IN_PROGRESS", "LOADED", "FAILED", "CLOSED",
     "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN",
-    "ExportError", "ExportValidationError", "ExportNotFound", "ExportRetryRefused",
+    "ExportError", "ExportValidationError", "ExportNotFound", "ExportActionRefused",
     "ExportedMark", "ExportableAnalysis", "Client",
     "ExportAnalysisDetail", "ExportDetail", "ExportSummary",
     "derive_status", "list_exportable_analyses", "perspective_choices", "find_exported",
     "mark_exported", "list_clients", "create_export", "list_exports",
-    "get_export_detail", "retry_decision", "apply_retry",
+    "get_export_detail", "retry_decision", "apply_retry", "apply_close",
 ]

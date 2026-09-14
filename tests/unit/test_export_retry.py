@@ -97,7 +97,7 @@ def test_404_when_the_export_was_not_requested_from_this_submission(failed):
 
 def test_409_when_not_failed_names_the_data_id_for_a_loaded_row(failed):
     f = failed(job_status="FINISHED", stage_status="staged", load_status="loaded", data_id=4127)
-    with pytest.raises(svc.ExportRetryRefused) as exc:
+    with pytest.raises(svc.ExportActionRefused) as exc:
         svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"])
     assert str(exc.value) == "already loaded as data ID 4127"
     assert rwb_jobs("load_results_export") == []
@@ -105,7 +105,7 @@ def test_409_when_not_failed_names_the_data_id_for_a_loaded_row(failed):
 
 def test_409_for_a_row_waiting_on_risk_modeler(failed):
     f = failed(job_status="RUNNING")
-    with pytest.raises(svc.ExportRetryRefused) as exc:
+    with pytest.raises(svc.ExportActionRefused) as exc:
         svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"])
     assert str(exc.value) == "the analysis is in progress, not failed"
 
@@ -113,7 +113,7 @@ def test_409_for_a_row_waiting_on_risk_modeler(failed):
 def test_409_while_the_stage_worker_has_not_stamped_a_failed_risk_modeler_job(failed):
     # The poller has enqueued the stage job; only that job may fail the row.
     f = failed(job_status="FAILED", stage_status="pending")
-    with pytest.raises(svc.ExportRetryRefused) as exc:
+    with pytest.raises(svc.ExportActionRefused) as exc:
         svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"])
     assert str(exc.value) == "the analysis is in progress, not failed"
     assert rwb_jobs("submit_results_export") == []
@@ -142,7 +142,7 @@ def test_load_branch_rearms_the_load_job_keyed_by_the_stage_job(failed):
     # the row is back in progress and a second Retry is refused
     row = manifest_row(f["manifest_id"])
     assert row["load_status"] == "pending" and row["error_message"] is None
-    with pytest.raises(svc.ExportRetryRefused):
+    with pytest.raises(svc.ExportActionRefused):
         svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"])
     assert len(rwb_jobs("load_results_export")) == 1
 

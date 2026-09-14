@@ -12,20 +12,17 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI, Request
-from fastapi.templating import Jinja2Templates
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
-from app.config import settings
 from app.services import rwb_job_service
 from db import execute, execute_command, execute_one
+from tests.unit.export_client import csrf as _csrf
+from tests.unit.export_client import make_client, make_deal, make_export
+from tests.unit.export_client import post_export as _post
 from tests.unit.export_rows import (
     manifest_row,
     rwb_jobs,
     seed_analysis,
-    seed_client,
-    seed_edm_for,
     seed_export_job,
     seed_manifest,
     seed_submission,
@@ -34,70 +31,17 @@ from tests.unit.export_rows import (
 
 @pytest.fixture()
 def client(iteration2_db, loss_db) -> TestClient:
-    from app.auth.csrf import generate_csrf_token
-    from app.routers import submissions
-    from app.services import analysis_service
-    from app.services.auth_service import CurrentUser
-
-    user = CurrentUser(
-        id=iteration2_db.user_a, email="analyst.a@example.com",
-        display_name="Analyst A", session_id="s", role_codes=["analyst"],
-        is_admin=False, must_change_password=False, entra_oid=None, is_active=True)
-
-    class _InjectUser(BaseHTTPMiddleware):
-        async def dispatch(self, request: Request, call_next):
-            request.state.user = user
-            return await call_next(request)
-
-    from app.templating import TEMPLATE_DIRS
-
-    app = FastAPI()
-    templates = Jinja2Templates(directory=TEMPLATE_DIRS)
-    templates.env.globals["app_env"] = settings.app_env
-    templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
-    templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
-    templates.env.globals["generate_csrf_token"] = generate_csrf_token
-    templates.env.globals["default_perspective"] = analysis_service.DEFAULT_PERSPECTIVE
-    templates.env.globals["default_perspective_label"] = (
-        analysis_service.DEFAULT_PERSPECTIVE_LABEL)
-    app.state.templates = templates
-    app.add_middleware(_InjectUser)
-    app.include_router(submissions.router)
-    test_client = TestClient(app, follow_redirects=False)
-    test_client.db = iteration2_db
-    test_client.templates = templates
-    return test_client
+    return make_client(iteration2_db, loss_db)
 
 
 @pytest.fixture()
 def deal(client):
-    submission_id = seed_submission(client.db.user_a, crm_ids=("CRM-1", "CRM-2"))
-    edm_id = seed_edm_for(submission_id)
-    a = seed_analysis(edm_id=edm_id, name="A", full_name="A long", irp_id="41958",
-                      irp_app_analysis_id="41958", perspectives=("GU", "GR", "RL"))
-    b = seed_analysis(edm_id=edm_id, name="B", full_name="B long", irp_id="41959",
-                      irp_app_analysis_id="41959", perspectives=("GR", "RL", "RP"),
-                      inserted_at="2026-09-10 07:00:00")
-    bad = seed_analysis(edm_id=edm_id, name="Bad", full_name="Bad long",
-                        irp_app_analysis_id="A-388", inserted_at="2026-09-10 06:00:00")
-    seed_client(1, "Example Re")
-    seed_client(2, "Retired", "N")
-    return {"submission_id": submission_id, "edm_id": edm_id, "a": a, "b": b, "bad": bad}
+    return make_deal(client)
 
 
-def _csrf() -> str:
-    from app.auth.csrf import generate_csrf_token
-    return generate_csrf_token()
-
-
-def _post(client, deal, analysis_ids, perspective="GR", htmx=False, **fields):
-    data = {"csrf_token": _csrf(), "perspective": perspective, "client_id": "1",
-            "treaty_incept": "2026-04-01", "crm_id": "CRM-1",
-            "data_vintage": "2025-12-31",
-            "analysis_ids": list(analysis_ids), **fields}
-    headers = {"HX-Request": "true"} if htmx else {}
-    return client.post(f"/submissions/{deal['submission_id']}/exports", data=data,
-                       headers=headers)
+@pytest.fixture()
+def export(client, deal):
+    return make_export(client, deal)
 
 
 # ── Export link ──────────────────────────────────────────────────────────────
@@ -286,14 +230,6 @@ def test_post_enqueue_failure_redirects_to_failed_rows_with_retry(client, deal, 
 
 # ── detail page, analyses fragment, exports section ─────────────────────────
 
-@pytest.fixture()
-def export(client, deal):
-    response = _post(client, deal, [deal["a"], deal["b"]])
-    export_id = response.headers["location"].rsplit("/", 1)[1]
-    return {**deal, "export_id": export_id,
-            "url": f"/submissions/{deal['submission_id']}/exports/{export_id}"}
-
-
 def test_detail_page_renders_queued_rows_and_header(client, export):
     page = client.get(export["url"])
     assert page.status_code == 200
@@ -403,7 +339,9 @@ def test_section_status_filter_keeps_the_matching_exports(client, export):
     assert loaded["export_id"] in only_loaded.text and export["export_id"] not in only_loaded.text
 
     # an unknown value is not a filter, and the poll carries the one in force
-    assert client.get(f"{url}?status=junk").text == client.get(url).text
+    junk = client.get(f"{url}?status=junk")
+    assert export["export_id"] in junk.text and loaded["export_id"] in junk.text
+    assert "close?status=" not in junk.text
     assert f'hx-get="{url}?status=failed" hx-trigger="every 10s"' in failed.text
 
 

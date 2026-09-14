@@ -58,6 +58,7 @@
 .status-chip.status-chip--export-in-progress { background: var(--c-amber-050);    color: var(--c-amber-700);     border-color: var(--c-amber-200); }
 .status-chip.status-chip--export-loaded      { background: var(--c-green-050);    color: var(--c-green-700);     border-color: var(--c-green-200); }
 .status-chip.status-chip--export-failed      { background: var(--c-red-050);      color: var(--c-red-700);       border-color: var(--c-red-200); }
+.status-chip.status-chip--export-closed      { background: var(--surface-recessed); color: var(--text-tertiary);   border-color: var(--border-default); }
 
 /* ── Icon button (icon-only, 28×28) ─────────────────────────────────────── */
 .icon-btn {
@@ -448,5 +449,3 @@
 }
 .nc-checking[hidden] { display: none; }
 
-/* export analysis status chips (spec 014) — the import-status palette keyed by
-   how far the analysis has got */

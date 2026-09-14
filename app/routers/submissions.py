@@ -297,6 +297,9 @@ def _results_status_filter(request: Request) -> str:
 
 
 _EXPORT_STATUS_FILTERS = ("failed", "loaded")
+# Retry and Close are offered on both export screens; the htmx target says
+# which one to render back.
+_EXPORTS_SECTION_TARGET = "submission-exports"
 
 
 def _export_status_filter(request: Request) -> str:
@@ -1632,6 +1635,34 @@ def export_analyses(request: Request, submission_id: str, export_id: str):
         "export": export, "status_filter": _export_status_filter(request)})
 
 
+def _export_action_response(request: Request, submission_id: str, export_id: str,
+                            action: str, message: str | None):
+    """The re-render Retry and Close both answer with: whichever fragment the
+    click came from (contracts/routes.md §7, §8). The whole fragment goes back
+    so its polling trigger returns, and the form's before-swap hook lets htmx
+    swap the 409 of a refusal in."""
+    if not _is_htmx(request):
+        if message is not None:
+            return _templates(request).TemplateResponse(
+                request, "base/error.html",
+                {"status_code": 409, "title": f"{action} refused", "detail": message,
+                 "is_htmx": False, "current_user": request.state.user}, status_code=409)
+        return RedirectResponse(f"/submissions/{submission_id}/exports/{export_id}",
+                                status_code=303)
+    context = {"status_filter": _export_status_filter(request),
+               "action_message": (f"{action} refused: {message}." if message else None)}
+    status_code = 409 if message else 200
+    if request.headers.get("HX-Target") == _EXPORTS_SECTION_TARGET:
+        return _partial(request, "partials/exports_section.html",
+                        {**context, "submission_id": submission_id,
+                         "exports": export_service.list_exports(submission_id)},
+                        status_code=status_code)
+    return _partial(request, "partials/export_analyses_table.html",
+                    {**context,
+                     "export": export_service.get_export_detail(submission_id, export_id)},
+                    status_code=status_code)
+
+
 @router.post("/submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/retry")
 def retry_export_analysis(request: Request, submission_id: str, export_id: str,
                           irp_analysis_id: str, csrf_token: str = Form(...)):
@@ -1643,20 +1674,23 @@ def retry_export_analysis(request: Request, submission_id: str, export_id: str,
         export_service.apply_retry(submission_id, export_id, irp_analysis_id)
     except export_service.ExportNotFound:
         return _export_not_found(request)
-    except export_service.ExportRetryRefused as exc:
+    except export_service.ExportActionRefused as exc:
         message = str(exc)
-    status_code = 409 if message else 200
-    if not _is_htmx(request):
-        if message is not None:
-            return _templates(request).TemplateResponse(
-                request, "base/error.html",
-                {"status_code": 409, "title": "Retry refused", "detail": message,
-                 "is_htmx": False, "current_user": request.state.user}, status_code=409)
+    return _export_action_response(request, submission_id, export_id, "Retry", message)
+
+
+@router.post("/submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/close")
+def close_export_analysis(request: Request, submission_id: str, export_id: str,
+                          irp_analysis_id: str, csrf_token: str = Form(...)):
+    detail_url = f"/submissions/{submission_id}/exports/{export_id}"
+    if not validate_csrf_token(csrf_token):
         return RedirectResponse(detail_url, status_code=303)
-    # The whole table, so its polling trigger returns while the re-armed job
-    # runs; the Retry form's before-swap hook lets htmx swap the 409 in.
-    export = export_service.get_export_detail(submission_id, export_id)
-    return _partial(request, "partials/export_analyses_table.html",
-                    {"export": export, "retry_message": message,
-                     "status_filter": _export_status_filter(request)},
-                    status_code=status_code)
+    message = None
+    try:
+        export_service.apply_close(submission_id, export_id, irp_analysis_id,
+                                   request.state.user.email)
+    except export_service.ExportNotFound:
+        return _export_not_found(request)
+    except export_service.ExportActionRefused as exc:
+        message = str(exc)
+    return _export_action_response(request, submission_id, export_id, "Close", message)
