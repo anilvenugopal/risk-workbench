@@ -143,9 +143,10 @@ GO
 -- dbo.RMS_HistoricalRDS. Callable without the Workbench:
 --     EXEC stage.usp_load_elt_result @manifest_id = <id>;
 -- Errors: 50000 called inside a transaction; 50001 the manifest row cannot be
--- claimed (the message says why); 50002 the lookup has no rows for the model
--- version; 50003 an event matches more than one lookup row. Every error leaves
--- zero target rows and load_status = 'failed' with the message.
+-- claimed (the message says why); 50003 an event matches more than one lookup
+-- row. Every error leaves zero target rows and load_status = 'failed' with the
+-- message. A model version the lookup does not carry is not an error: every
+-- event classifies as stochastic and historical_row_count is 0 (9/11 D8).
 CREATE OR ALTER PROCEDURE stage.usp_load_elt_result
     @manifest_id INT
 AS
@@ -199,14 +200,6 @@ BEGIN
         FROM stage.rwb_loss_result_manifest
         WHERE manifest_id = @manifest_id;
 
-        IF NOT EXISTS (SELECT 1 FROM dbo.Lookup_RMS_HistoricalRDS
-                       WHERE ModelVersion = @model_version)
-        BEGIN
-            SET @msg = CONCAT('Lookup_RMS_HistoricalRDS has no rows for model version ',
-                              ISNULL(@model_version, '(null)'));
-            THROW 50002, @msg, 1;
-        END;
-
         DECLARE @dup_event INT, @dup_count INT;
         SELECT TOP (1) @dup_event = e.event_id, @dup_count = COUNT(*)
         FROM (SELECT DISTINCT event_id FROM stage.rwb_loss_result_elt_data
@@ -247,12 +240,13 @@ BEGIN
 
         DECLARE @inserted TABLE (data_id INT);
         INSERT INTO dbo.Data (ClientID, TreatyIncept, DataVintage, DataName, DataModelVendor,
-                              DataModelVersion, DataCurrency, [Server], AnalysisID, [Name],
-                              [Description], Perspective, CRMID)
+                              DataModelVersion, DataCurrency, [Server], [Database],
+                              AnalysisID, [Name], [Description], Perspective, CRMID)
         OUTPUT INSERTED.DataID INTO @inserted (data_id)
         SELECT client_id, treaty_incept, data_vintage, data_name, data_model_vendor,
-               data_model_version, data_currency, [server], irp_app_analysis_id,
-               analysis_name, analysis_description, perspective_code, crm_id
+               data_model_version, data_currency, [server], [database],
+               irp_app_analysis_id, analysis_name, analysis_description,
+               perspective_code, crm_id
         FROM stage.rwb_loss_result_manifest
         WHERE manifest_id = @manifest_id;
 

@@ -69,6 +69,13 @@ def _seed_lookup(*rows: tuple) -> None:
             ), {"e": event_id, "p": peril, "n": name, "pcs": pcs, "v": version})
 
 
+def _delete_lookup(event_id: int, peril: str) -> None:
+    with get_connection("LOSS") as conn, conn.begin():
+        conn.execute(text("DELETE FROM dbo.Lookup_RMS_HistoricalRDS "
+                          "WHERE EventID = :e AND Peril = :p"),
+                     {"e": event_id, "p": peril})
+
+
 def _manifest(**overrides) -> int:
     values = {
         "export_id": str(uuid.uuid4()), "requested_by_email": "analyst@example.com",
@@ -79,6 +86,7 @@ def _manifest(**overrides) -> int:
         "client_id": 1, "treaty_incept": date(2026, 1, 1), "treaty_year": 2026,
         "crm_id": "CRM-1", "data_name": "Data name", "data_vintage": date(2025, 12, 31),
         "data_currency": "USD", "data_model_vendor": "RMS", "server": "https://rm.example",
+        "database": "rwb_workbench",
         "data_model_version": MODEL_VERSION, "stage_status": "staged",
         "load_status": "pending",
     }
@@ -89,15 +97,15 @@ def _manifest(**overrides) -> int:
             "requested_at, requested_from_submission_id, irp_analysis_id, "
             "irp_analysis_irp_id, irp_app_analysis_id, analysis_name, analysis_description, "
             "perspective_code, client_id, treaty_incept, treaty_year, crm_id, data_name, "
-            "data_vintage, data_currency, data_model_vendor, [server], data_model_version, "
-            "stage_status, load_status) "
+            "data_vintage, data_currency, data_model_vendor, [server], [database], "
+            "data_model_version, stage_status, load_status) "
             "OUTPUT INSERTED.manifest_id "
             "VALUES (:export_id, :requested_by_email, SYSUTCDATETIME(), "
             ":requested_from_submission_id, :irp_analysis_id, :irp_analysis_irp_id, "
             ":irp_app_analysis_id, :analysis_name, :analysis_description, "
             ":perspective_code, :client_id, :treaty_incept, :treaty_year, :crm_id, "
             ":data_name, :data_vintage, :data_currency, :data_model_vendor, :server, "
-            ":data_model_version, :stage_status, :load_status)"
+            ":database, :data_model_version, :stage_status, :load_status)"
         ), values).scalar()
 
 
@@ -173,6 +181,7 @@ def test_load_classifies_corrects_and_writes_the_three_targets(tmp_path):
     assert data["Name"] == "CRE_Port_Template"
     assert data["Description"] == "CRE_Port_Template full"
     assert data["Server"] == "https://rm.example" and data["CRMID"] == "CRM-1"
+    assert data["Database"] == "rwb_workbench"
     assert data["DataName"] == "Data name"
     assert str(data["TreatyIncept"]) == "2026-01-01"
     assert str(data["DataVintage"]) == "2025-12-31"
@@ -218,21 +227,19 @@ def test_blank_treaty_year_loads_as_null(tmp_path):
 
 # ── preconditions ─────────────────────────────────────────────────────────────
 
-def test_missing_lookup_model_version_fails_and_writes_nothing(tmp_path):
+def test_a_model_version_the_lookup_lacks_loads_every_event_as_stochastic(tmp_path):
+    """A version the lookup does not carry is the reference data as shipped, not a
+    failure (9/11 D8): everything classifies stochastic and historical is 0."""
     _seed_lookup((3001, "WS", "Storm", "24.0"))
     manifest_id = _manifest()
-    _stage(tmp_path, manifest_id, [(1001, 1.0, 0.0, 0.0, 1.0)])
+    _stage(tmp_path, manifest_id, [(1001, 1.0, 0.0, 0.0, 1.0), (3001, 2.0, 0.0, 0.0, 2.0)])
 
-    with pytest.raises(Exception) as exc:
-        _load(manifest_id)
+    _load(manifest_id)
 
-    assert "no rows for model version 25.0" in str(exc.value)
-    assert "(50002)" in str(exc.value)
     row = _manifest_row(manifest_id)
-    assert row["load_status"] == "failed"
-    assert "no rows for model version 25.0" in row["error_message"]
-    assert row["data_id"] is None
-    assert _count("dbo.Data") == 0 and _count("dbo.RMSELT") == 0
+    assert row["load_status"] == "loaded" and row["error_message"] is None
+    assert row["stochastic_row_count"] == 2 and row["historical_row_count"] == 0
+    assert _count("dbo.Data") == 1 and _count("dbo.RMSELT") == 2
     assert _count("dbo.RMS_HistoricalRDS") == 0
 
 
@@ -337,13 +344,15 @@ def test_target_write_failure_rolls_back_every_target_row(tmp_path):
 
 
 def test_failed_row_can_be_loaded_again_after_the_fix(tmp_path):
+    # the first failure is 50003: two lookup rows claim event 3001
+    _seed_lookup((3001, "WS", "Storm A", MODEL_VERSION), (3001, "EQ", "Quake A", MODEL_VERSION))
     manifest_id = _manifest()
     _stage(tmp_path, manifest_id, [(3001, 1.0, 0.0, 0.0, 1.0)])
     with pytest.raises(Exception):
         _load(manifest_id)
     assert _manifest_row(manifest_id)["load_status"] == "failed"
 
-    _seed_lookup((3001, "WS", "Storm", MODEL_VERSION))
+    _delete_lookup(3001, "EQ")
     _load(manifest_id)
 
     row = _manifest_row(manifest_id)

@@ -271,7 +271,7 @@ def test_detail_rows_show_counts_aal_error_and_stop_polling(client, export):
         connection="LOSS")
     execute_command(
         "UPDATE stage.rwb_loss_result_manifest SET stage_status = 'failed', "
-        "error_message = 'Lookup has no rows for model version 25.0' "
+        "error_message = 'event 1001 matches 2 historical lookup rows' "
         "WHERE irp_analysis_id = :a", {"a": export["b"]}, connection="LOSS")
 
     frag = client.get(f"{export['url']}/analyses")
@@ -281,7 +281,7 @@ def test_detail_rows_show_counts_aal_error_and_stop_polling(client, export):
     for value in ("4127", "15,689", "15,401", "288", "12", "3"):
         assert f"<span>{value}</span>" in frag.text
     assert frag.text.count('<span title="100.0">100</span>') == 2  # AAL per row
-    assert "Lookup has no rows for model version 25.0" in frag.text
+    assert "event 1001 matches 2 historical lookup rows" in frag.text
     assert frag.text.count(">Retry</button>") == 1
     assert f"analyses/{export['b']}/retry" in frag.text
 

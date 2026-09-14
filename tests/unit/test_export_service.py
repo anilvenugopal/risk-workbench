@@ -11,6 +11,7 @@ from datetime import date
 
 import pytest
 
+from app.config import settings
 from app.services import export_service as svc
 from db import execute, execute_one
 from tests.unit.export_rows import (
@@ -148,7 +149,9 @@ def test_list_clients_is_every_client_by_name(deal):
 
 # ── create_export ────────────────────────────────────────────────────────────
 
-def test_create_export_records_the_approved_values_and_enqueues_submit(deal):
+def test_create_export_records_the_approved_values_and_enqueues_submit(deal, monkeypatch):
+    monkeypatch.setattr(settings, "risk_modeler_base_url", "https://api-euw1.rms-ppe.com/")
+    monkeypatch.setattr(settings, "risk_modeler_tenant_name", "acme")
     export_id = _create(deal, [deal["a"], deal["b"]], crm_id="CRM-9",
                         treaty_incept=date(2026, 5, 1), data_vintage=date(2025, 12, 31),
                         data_names={deal["a"]: "Named A"})
@@ -167,6 +170,8 @@ def test_create_export_records_the_approved_values_and_enqueues_submit(deal):
     assert a["crm_id"] == "CRM-9" and a["data_name"] == "Named A"
     assert a["data_vintage"] == "2025-12-31" and a["data_currency"] == "USD"
     assert a["data_model_vendor"] == "RMS"
+    # what dbo.Data records the results came from: the RM web UI, this Workbench
+    assert a["server"] == "https://acme.rms-ppe.com" and a["database"] == "rwb_workbench"
     assert (a["peril_code"], a["region_code"]) == ("EQ", "NAEQ")
     assert (a["stage_status"], a["load_status"]) == ("pending", "pending")
     assert rows[1]["data_name"] is None

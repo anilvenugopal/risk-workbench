@@ -22,13 +22,14 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.services import analysis_service, rwb_job_service, submission_service
-from app.services._common import _parse_json_dict, _uid, _utcnow
+from app.services._common import _parse_json_dict, _rm_ui_root, _uid, _utcnow
 from app.workers import dispatch
 from db import (
     execute,
     execute_command,
     execute_one,
     get_connection,
+    get_connection_config,
     read_uncommitted_hint,
 )
 
@@ -375,13 +376,14 @@ _MANIFEST_INSERT = """
         irp_analysis_id, irp_analysis_irp_id, irp_app_analysis_id, analysis_name,
         analysis_description, perspective_code, client_id, treaty_incept, treaty_year,
         crm_id, data_name, data_vintage, data_currency, data_model_vendor, server,
-        peril_code, region_code, stage_status, load_status, inserted_at, updated_at)
+        [database], peril_code, region_code, stage_status, load_status, inserted_at,
+        updated_at)
     VALUES (
         :export_id, :requested_by_email, :now, :submission_id,
         :irp_analysis_id, :irp_analysis_irp_id, :irp_app_analysis_id, :analysis_name,
         :analysis_description, :perspective_code, :client_id, :treaty_incept, :treaty_year,
         :crm_id, :data_name, :data_vintage, :data_currency, 'RMS', :server,
-        :peril_code, :region_code, 'pending', 'pending', :now, :now)
+        :database, :peril_code, :region_code, 'pending', 'pending', :now, :now)
 """
 
 
@@ -434,6 +436,11 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
                 "characters.")
     export_id = str(uuid.uuid4())
     now = _utcnow()
+    # Where the results came from and where they were requested: the Risk Modeler
+    # web UI origin and the Workbench database, both written through to dbo.Data
+    # so a loaded row names its source without the Workbench (9/11 D11, D12).
+    server = _rm_ui_root()
+    database = get_connection_config("WORKBENCH")["database"] or None
     with get_connection("LOSS") as conn, conn.begin():
         for analysis in selected:
             conn.execute(text(_MANIFEST_INSERT), {
@@ -448,7 +455,7 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
                 "treaty_year": submission.treaty_year,
                 "crm_id": crm_id, "data_name": names.get(analysis.id) or None,
                 "data_vintage": data_vintage, "data_currency": analysis.currency,
-                "server": settings.risk_modeler_base_url or None,
+                "server": server, "database": database,
                 "peril_code": analysis.peril_code, "region_code": analysis.region_code,
             })
     try:
