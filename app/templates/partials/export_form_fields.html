@@ -1,8 +1,8 @@
 {# The export cart (contracts/routes.md §3): the perspective every selected
    analysis shares, and one cart row per selected analysis carrying its AAL at
    that perspective and its optional data name. An analysis already exported for
-   the chosen perspective is warned about, in the cart row and in the banner, and
-   still exports — the repeat writes a second data set (FR-004). #}
+   the chosen perspective is warned about in its cart row and still exports — the
+   repeat writes a second data set (FR-004). #}
 <div id="export-fields" class="export-cart">
   <div class="wf-field">
     <label>PERSPECTIVE <span class="wf-field__req" title="Required">*</span></label>
@@ -44,7 +44,8 @@
         <div class="wf-field__msg wf-field__hint wf-field__hint--warn">Already exported for {{ perspective }}
           ({{ a.exported.earlier_count }} time{{ 's' if a.exported.earlier_count != 1 }}),
           last {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
-          · {{ a.exported.status }} — <a href="{{ a.exported.detail_url }}">open that export</a>.</div>
+          · {{ a.exported.status }} — <a href="{{ a.exported.detail_url }}">open that export</a>.
+          Exporting again creates a new data set.</div>
         {% endif %}
       </div>
       {% endfor %}
@@ -53,17 +54,4 @@
     <div class="bo-cart__empty">Tick analyses on the left.</div>
     {% endif %}
   </div>
-
-  {% set exported = selected|selectattr('exported')|list %}
-  {% if exported %}
-  <div class="form-banner form-banner--warning">
-    {% for a in exported %}
-    <div>{{ a.name }}: already exported for {{ perspective }}
-      ({{ a.exported.earlier_count }} time{{ 's' if a.exported.earlier_count != 1 }}),
-      last {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
-      · {{ a.exported.status }} — <a href="{{ a.exported.detail_url }}">open that export</a>.
-      Exporting again creates a new data set.</div>
-    {% endfor %}
-  </div>
-  {% endif %}
 </div>

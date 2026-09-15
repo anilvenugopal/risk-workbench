@@ -83,7 +83,7 @@
   color: var(--color-positive); background: var(--color-positive-bg);
   border-color: var(--color-positive-border);
 }
-.form-banner--readonly, .form-banner--warning {
+.form-banner--readonly {
   color: var(--color-warning); background: var(--color-warning-bg);
   border-color: var(--color-warning-border);
 }
@@ -102,8 +102,10 @@
 .wf-field__hint { color: var(--text-tertiary); }
 /* A hint the analyst has to act on rather than read past — the same amber the
    inspection's own prompts use, so one colour means "decide this" throughout
-   the group dialog. */
+   the group dialog. A link inside one keeps that colour and is underlined, since
+   nothing else in the sentence marks it as a link. */
 .wf-field__hint--warn { color: var(--color-warning); }
+.wf-field__hint--warn a { text-decoration: underline; }
 .wf-field__input--error { border-color: var(--color-danger);
   background: var(--color-danger-bg); }
 
