@@ -67,10 +67,12 @@ a.sec__note--link:hover { text-decoration: underline; }
 .dtable--selectable .dtable__head > :nth-child(2) { z-index: 7; background: var(--surface-recessed); }
 .dtable--selectable .drow > summary:hover > :nth-child(2) { background: var(--surface-recessed); }
 .dtable--selectable .drow[open] > summary > :nth-child(2) { background: var(--color-brand-faint); }
-/* Header cells ellipsise by default, which clips a two-word heading over a narrow
-   column ("Perspective", "Model version"). Tables that need the whole heading
-   wrap it instead. */
-.dtable--wraphead .dtable__head > span { white-space: normal; line-height: 1.15; }
+/* Header cells ellipsise by default, which clips a heading over a narrow column
+   ("Perspective", "Model version", "Stochastic"). Tables that need the whole
+   heading wrap it, and a word too long for its column runs past the cell rather
+   than losing its last letters. */
+.dtable--wraphead .dtable__head > span { white-space: normal; line-height: 1.15;
+  overflow: visible; text-overflow: clip; }
 /* .drow-static and .dtable__group set display, which beats the UA [hidden] rule;
    the export form's name search hides rows with el.hidden. */
 .drow-static[hidden], .dtable__group[hidden] { display: none; }

@@ -7,11 +7,9 @@
   <span class="l"><span class="dt-title" title="{{ a.analysis_name }}">{{ a.analysis_name }}</span></span>
   <span class="l">{{ a.origin }}</span>
   <span class="l">{{ rows.status_chip(a.status) }}</span>
-  <span class="l"><time data-utc="{{ a.updated_at }}" title="{{ a.updated_at }} UTC">{{ a.updated_at }}</time></span>
-  <span class="l" title="{{ a.data_name or '' }}">{{ a.data_name or '—' }}</span>
   <span>{{ a.data_id if a.data_id is not none else '—' }}</span>
+  <span class="l" title="{{ a.data_name or '' }}">{{ a.data_name or '—' }}</span>
   <span title="{{ a.aal }}">{{ a.aal_display }}</span>
-  <span>{{ a.irp_app_analysis_id if a.irp_app_analysis_id is not none else '—' }}</span>
   <span>{{ a.data_currency or '—' }}</span>
   <span>{{ a.data_model_version or '—' }}</span>
   <span>{{ a.engine_type or '—' }}</span>
@@ -22,6 +20,8 @@
   <span>{{ '{:,}'.format(a.historical_row_count) if a.historical_row_count is not none else '—' }}</span>
   <span>{{ '{:,}'.format(a.exp_value_raised_count) if a.exp_value_raised_count is not none else '—' }}</span>
   <span>{{ '{:,}'.format(a.std_dev_zeroed_count) if a.std_dev_zeroed_count is not none else '—' }}</span>
+  <span>{{ a.irp_app_analysis_id if a.irp_app_analysis_id is not none else '—' }}</span>
+  <span class="l"><time data-utc="{{ a.updated_at }}" title="{{ a.updated_at }} UTC">{{ a.updated_at }}</time></span>
   <span class="l">
     {% if a.can_retry %}
     <span class="export-analysis__actions">

@@ -301,7 +301,7 @@ def test_exports_section_lists_this_submissions_exports_newest_first(client, exp
     assert "RP" not in section.text
     assert 'hx-trigger="every 10s"' in section.text  # the GR export is still in progress
     row = section.text.split(f'/exports/{older["export_id"]}')[1]
-    assert "r.patel@x.com" in row and "Example Re" in row
+    assert "r.patel@x.com" in row and "Example Re" in row and "CRM-1" in row
     assert "AAL 100" in row
     assert re.search(r"<span>1</span>\s*<span class=\"l\">1 loaded</span>", row)
     assert section.text.count('<details class="drow"') == 2

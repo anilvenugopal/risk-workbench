@@ -24,14 +24,15 @@
   </div>
   <div class="dtable-shell">
     <div class="dtable dtable--wraphead export-analyses"
-         style="--cols: minmax(360px,2fr) 70px 170px 150px minmax(140px,1fr) 80px 90px 80px 80px 90px 70px 70px 70px 90px 90px 90px 100px 100px 150px; min-width: 2150px">
+         style="--cols: minmax(360px,2fr) 80px 170px 90px minmax(160px,1fr) 100px 90px 100px 80px 80px 80px 100px 100px 100px 110px 110px 90px 190px 150px; min-width: 2340px">
       <div class="dtable__head">
         <span class="l">Analysis</span><span class="l">Origin</span><span class="l">Status</span>
-        <span class="l">Last change</span><span class="l">Data name</span><span>Data ID</span>
-        <span>AAL</span><span>RM id</span><span>Currency</span><span>Model version</span><span>Engine</span>
+        <span>Data ID</span><span class="l">Data name</span><span>AAL</span>
+        <span>Currency</span><span>Model version</span><span>Engine</span>
         <span>Peril</span><span>Region</span><span>Staged</span>
         <span>Stochastic</span><span>Historical</span><span>Exposure raised</span>
-        <span>Std dev zeroed</span><span class="l"></span>
+        <span>Std dev zeroed</span><span>RM id</span><span class="l">Last updated</span>
+        <span class="l"></span>
       </div>
       {% for a in shown %}
       {% with submission_id=export.submission_id, export_id=export.export_id %}

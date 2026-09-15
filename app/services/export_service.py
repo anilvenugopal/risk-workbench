@@ -185,6 +185,7 @@ class ExportSummary:
     requested_by_email: str
     requested_at: Any
     client_name: str | None
+    crm_id: str | None
     analyses: list[ExportAnalysisDetail] = field(default_factory=list)
 
     @property
@@ -505,7 +506,7 @@ def list_exports(submission_id: Any) -> list[ExportSummary]:
             summary = summaries[key] = ExportSummary(
                 export_id=key, perspective_code=r["perspective_code"],
                 requested_by_email=r["requested_by_email"], requested_at=r["requested_at"],
-                client_name=r["client_name"])
+                client_name=r["client_name"], crm_id=r["crm_id"])
         summary.analyses.append(_analysis_detail(r, analyses))
     return list(summaries.values())
 
