@@ -1,7 +1,7 @@
 """SQL Server tier fixtures — a dedicated, disposable test database.
 
 This tier owns every test that executes application SQL (Constitution
-Article 12 v4.0.0). At session start this conftest:
+Article 12 v5.0.0). At session start this conftest:
 
   1. points the WORKBENCH connection at ``rwb_workbench_tests`` by setting
      ``MSSQL_WORKBENCH_DATABASE`` for the test process only,

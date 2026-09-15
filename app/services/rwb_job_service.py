@@ -166,9 +166,7 @@ def ensure_pending_rwb_job(
                 "lid": (str(link_id) if link_id is not None else None),
                 "ct": context_type,
                 "ctxid": (str(context_id) if context_id is not None else None)})
-            # _uid, not str: uniqueidentifier reads back UPPERCASE, and every id
-            # a service hands out is lowercase (see _common._uid).
-            return _uid(row["id"])
+            return _uid(row["id"])  # see _common._uid
 
 
 def claim_rwb_job(*, rwb_job_id: Any, worker_id: str) -> bool:
@@ -230,8 +228,7 @@ def list_rwb_jobs_for_monitoring() -> list[dict]:
     it changes on every render, so baking it into the query would only be correct
     at the instant the query ran.
 
-    The four uniqueidentifier columns are normalized with ``_uid`` — they read
-    back UPPERCASE, and every id a service hands out is lowercase."""
+    The uniqueidentifier columns are normalized with ``_uid``."""
     rows = execute(
         """
         SELECT id, requestor_type, requestor_id, link_type, link_id,

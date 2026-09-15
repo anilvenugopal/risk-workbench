@@ -341,7 +341,8 @@ _HANDLE_SELECT = """
 
 
 # SQL Server rejects a statement carrying more than 2100 bind parameters, and
-# one EDM can hold more analyses than that.
+# one EDM can hold more analyses than that. 1000 is a margin under the cap, not
+# the cap itself — the statement below binds one parameter per analysis.
 _IN_CLAUSE_LIMIT = 1000
 
 
