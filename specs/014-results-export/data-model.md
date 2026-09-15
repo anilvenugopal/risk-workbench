@@ -185,7 +185,7 @@ Until built, the stage worker fails an archive whose loss-table folder is
 | `DataVintage` | `manifest.data_vintage` |
 | `DataName` | `manifest.data_name` |
 | `DataModelVendor` | `RMS` |
-| `DataModelVersion` | `manifest.data_model_version` (`25.0`) |
+| `DataModelVersion` | `manifest.data_model_version` (`25`, the whole number; T-33) |
 | `DataCurrency` | `manifest.data_currency` |
 | `Server` | `manifest.server` |
 | `Database` | `manifest.database` |
@@ -220,7 +220,7 @@ server's code page arrives as `?` with no error. CIC owns those columns.
 | `Type` | lookup `Type` |
 | `Event_Name` | lookup `Name` |
 | `Loss` | stage `loss` |
-| `PCS` | lookup `[PCS#]` (no truncation) |
+| `PCS` | lookup `[PCS#]`; a numeric value of one to three digits is zero-padded to four (`137` → `0137`); anything else copied without truncation (T-34) |
 | `Perspective` | `manifest.perspective_code` |
 | `AReLossSet` | Not populated |
 
@@ -230,12 +230,12 @@ server's code page arrives as `?` with no error. CIC owns those columns.
 `dbo.Lookup_RMS_HistoricalRDS` copied from `cic-reference/` into `rwb_loss`.
 `bootstrap_loss.py` then seeds `dbo.Client` with made-up rows and
 `dbo.Lookup_RMS_HistoricalRDS` from
-`db/bootstrap/seed/lookup_rms_historical_rds.csv`: the 2,754 historical
-events (`EVENTTYPECODE = HIST`) of Moody's `EVENT` reference export, 13
-model versions, `Peril` in `WS`/`EQ`/`WT` (T-30, research R16). Column map:
-`EventID` ← `EVENTID`, `Peril` ← `PERILCODE`, `Type` ← `'HIST'`, `Name` ←
-`EVENTNAME`, `ModelVersion` ← `MODELVERSIONCODE`, `CatYear` ← year in
-`EVENTNAME` or `NULL`, `[PCS#]` ← `NULL`. Never run against production; the
+`db/bootstrap/seed/lookup_rms_historical_rds.csv`: CIC's own export of the
+table (`cic-reference/Lookup_RMS_HistoricalRDS.xlsx`), 2,589 rows, every one
+`ModelVersion` `25`, `Peril` in `HU`/`EQ`/`WT`, `Type` `HIST` or `RDS`
+(T-30, research R16). The CSV columns are the table's columns in DDL order;
+`infra/scripts/convert_lookup_export.py` copies each cell as written except
+`PCS#` `NULL`, which loads as SQL `NULL`. Never run against production; the
 script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 
 ## 7. View models (`app/services/export_service.py`)

@@ -10,10 +10,9 @@
   inside `linux-box`; the stage worker refuses to create it).
 - A submission with at least two finished own analyses whose results are
   retrieved (`loss_results` set), run in the sandbox Risk Modeler so a real
-  export job can be submitted. For the historical path, add lookup rows in
-  `rwb_loss.dbo.Lookup_RMS_HistoricalRDS` for `ModelVersion = '25.0'`
-  with event IDs that appear in the analysis's ELT (the dev mirror seeds a
-  few; adjust to your analysis).
+  export job can be submitted. `bootstrap-loss` seeds CIC's whole
+  `Lookup_RMS_HistoricalRDS` (2,589 rows, all `ModelVersion = '25'`), so a
+  v25 DLM analysis takes the historical path with no hand-added rows.
 - Poller and the three export queues running (`make dev-up` starts them;
   check `queue_names()` lists `submit_results_export`, `stage_results_export`,
   `load_results_export`).
@@ -37,12 +36,13 @@
 4. Watch the statuses move: in progress → loaded. Expect several minutes per
    analysis for a real ELT.
 5. In `rwb_loss`: one `dbo.Data` row per analysis with `AnalysisID`,
-   `Perspective = 'GR'`, `DataModelVersion = '25.0'`, `Name`, `Description`,
+   `Perspective = 'GR'`, `DataModelVersion = '25'`, `Name`, `Description`,
    `CRMID`, `Server` reading `https://<tenant>.<domain>` (the Risk Modeler web
    UI, not `api-…`), and `Database` reading the Workbench database name
    (P-23); `dbo.RMSELT` rows plus `dbo.RMS_HistoricalRDS` rows
    equal to `staged_row_count`; every `Loss` equals the Parquet value
-   (acceptance 6; SC-002, SC-003). The archive is under
+   (acceptance 6; SC-002, SC-003). `RMS_HistoricalRDS.PCS` reads four digits
+   where the lookup holds a number (`0137` for `137`). The archive is under
    `EXPORT_ARCHIVE_DIR/{export_id}/{irp_analysis_id}/`.
 6. Reopen the form, tick the same analysis, pick GR: the cart row names the
    earlier export — date, requester, status, an underlined link, and how many

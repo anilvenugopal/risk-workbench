@@ -347,8 +347,8 @@ is a dev mirror that must never target production.
 - `db/bootstrap/loss_dev_mirror.sql` — development only: `dbo.Client`,
   `dbo.Data`, `dbo.RMSELT`, `dbo.RMS_HistoricalRDS`, and
   `dbo.Lookup_RMS_HistoricalRDS` copied from `cic-reference/`. Seed rows
-  come from `bootstrap_loss.py`: made-up clients and the historical
-  subset of Moody's `EVENT` export (R16).
+  come from `bootstrap_loss.py`: made-up clients and CIC's own
+  `Lookup_RMS_HistoricalRDS` export (R16).
 - A new `infra/scripts/bootstrap_loss.py` applies the mirror file, then
   `loss_schema.sql`, through `db.scripts.execute_script_file` on the `LOSS`
   connection (the trusted-script path handles `GO` batches; the target is an
@@ -585,58 +585,57 @@ Workbench and the repository* — the Workbench's Alembic-managed schema would
 land in CIC's repository; DATA_MODEL §1 keeps `LOSS` outside Alembic.
 Rejected.
 
-## R16 — The dev lookup seed is the historical subset of Moody's EVENT reference export (T-30)
+## R16 — The dev lookup seed is CIC's own `Lookup_RMS_HistoricalRDS` export (T-30)
 
-**Evidence** (profiled 2026-09-10): the user downloaded Moody's Risk Modeler
-`EVENT` reference table as `EVENT.csv.gz` (gzip-compressed CSV, 116 MB,
-kept beside the repo at `../EVENT.csv.gz`, not committed). Inside: one
-`~`-delimited CSV, 6,099,671 rows, 23 columns (`PERILCODE`,
-`MODELREGIONCODE`, `MODELVERSIONCODE`, `EVENTID`, `EVENTNAME`,
-`EVENTDESCRIPTION`, `EVENTTYPECODE`, `RDS`, `ISACTIVE`, `EXTERNALID`, …).
-It holds stochastic and historical events together:
+**Evidence** (profiled 2026-09-14): CIC supplied its lookup table as
+`Lookup_RMS_HistoricalRDS.xlsx`, committed at
+`cic-reference/Lookup_RMS_HistoricalRDS.xlsx` (117 KB) beside the table's DDL.
+One sheet, 2,589 rows, header `EventID, CatYear, Peril, Type, Name, PCS#,
+ModelVersion` — the DDL's column order.
 
-- `EVENTTYPECODE` is the historical marker: `HIST` 2,749 rows + `hist` 5
-  rows = 2,754 historical events; `EP` (4,887,280) and `STOC` (1,209,637)
-  are stochastic.
-- `RDS` is **not** the marker: it is `true` on 5,201,320 rows, including
-  4.2 M stochastic `EQ`/`EP` events.
-- Historical rows by peril: `WS` 2,707, `EQ` 31, `WT` 10; by model version:
-  13 versions from `7.0` to `25.0` (`11.0` 1,457; `7.0` 905; `13.1` 211;
-  `15.0` 135; `25.0` 2, both `WS`/`INWS`).
-- No repeated (`EVENTID`, `MODELVERSIONCODE`) among historical rows, so the
-  one-match assertion (T-04) holds on dev data.
-- `EXTERNALID` is empty on every historical row; `EVENTNAME` carries a
-  4-digit year on 2,595 of 2,754 rows (`NOTNAMED, 10/07/1896`,
-  `TW 1999 Chi-Chi M7.6 Event`); 9 rows have `ISACTIVE = false`.
-- `PERILCODE` holds Risk Modeler codes (`EQ`, `WS`, `WT`), the same values
-  `settings_metadata.perilCode` carries. Evidence toward O-11 for the dev
-  seed only; CIC's live `Peril` values are still unverified.
+| Column | Contents |
+|---|---|
+| `EventID` | 101384–16525623. `15000012` appears twice (`EQ`/`HIST`/1952, `PCS#` 5227 and 5229); no other repeat |
+| `CatYear` | A year, except `0` on the 11 `RDS` rows |
+| `Peril` | `HU` 2,492, `EQ` 87, `WT` 10. Hurricane is `HU`, not Risk Modeler's `WS` |
+| `Type` | `HIST` 2,578, `RDS` 11 |
+| `Name` | ≤ 40 characters, ASCII, no newlines; 92 rows carry leading or trailing spaces |
+| `PCS#` | The literal `NULL` on 2,436 rows; a number on 142 (115 four-digit, 27 three-digit, none zero-padded); the literal `N/A` on the 11 `RDS` rows |
+| `ModelVersion` | `25` on every row — the whole number, not `25.0` |
+
+`N/A` on the `RDS` rows is content, which makes the 2,436 `NULL` strings the
+export tool's null marker. `CatYear = 0` and `PCS# = 'N/A'` land together on
+the same 11 `RDS` rows, so both are values CIC keeps. `Peril` at 2 characters
+and `PCS#` at up to 4 both fit `RMS_HistoricalRDS`'s `VARCHAR(5)` targets.
 
 **Decision**:
 
-- `infra/scripts/extract_historical_events.py <EVENT.csv.gz>` writes the
-  rows with `UPPER(TRIM(EVENTTYPECODE)) = 'HIST'` to
-  `db/bootstrap/seed/lookup_rms_historical_rds.csv` (2,754 rows, committed;
-  the 116 MB source is not). Column mapping to `dbo.Lookup_RMS_HistoricalRDS`:
-  `EventID` ← `EVENTID`; `Peril` ← `PERILCODE`; `Type` ← `'HIST'`;
-  `Name` ← trimmed `EVENTNAME`; `ModelVersion` ← `MODELVERSIONCODE`;
-  `CatYear` ← the 4-digit year in `EVENTNAME`, `NULL` when absent;
-  `[PCS#]` ← `NULL` (no source column). Inactive rows are kept: the live
-  lookup carries no active flag.
+- `infra/scripts/convert_lookup_export.py <Lookup_RMS_HistoricalRDS.xlsx>`
+  writes `db/bootstrap/seed/lookup_rms_historical_rds.csv`: every row, in
+  CIC's order, columns as in the sheet. The run fails if the header is not
+  exactly the seven columns above. `PCS#` `NULL` becomes an empty field
+  (SQL `NULL` in `bootstrap_loss.py`); every other cell is copied as
+  written — spaces in `Name`, `CatYear` `0`, `N/A`, `ModelVersion` `25`, and
+  both `15000012` rows. A refreshed export diffs row for row; the xlsx itself
+  shows no `git diff`, so the CSV diff and the printed row count are the
+  review.
 - `infra/scripts/bootstrap_loss.py` loads that CSV into
   `dbo.Lookup_RMS_HistoricalRDS` after `loss_dev_mirror.sql` creates the
   table, and seeds `dbo.Client` with a handful of made-up rows.
-- The `CatYear` and `[PCS#]` mapping is Assumed: CIC fills the live lookup
-  by hand and may hold different values; the seed only has to make the
-  procedure classify, so nothing in the Workbench depends on those two
-  columns beyond copying them.
+- The procedure zero-pads a numeric `[PCS#]` of one to three digits to four
+  when it copies it into `RMS_HistoricalRDS.PCS` (T-34): a PCS code is four
+  digits downstream and CIC's lookup does not store it that way. The seed
+  stays a verbatim copy of CIC's table.
 
-**Alternatives considered**: *A few hand-typed lookup rows for `25.0`/`EQ`*
-(the R8 plan) — the file shows `25.0` has only two historical events, both
-`WS`, so a hand-typed seed would test a shape the data does not have.
-Rejected by the user 2026-09-10. *Filter on `RDS = true`* — includes 5.2 M
-stochastic rows. Rejected. *Load the whole file and filter in SQL* — 6.1 M
-rows into every `db-rebuild` for 2,754 useful ones. Rejected.
+**Alternatives considered**: *Moody's Risk Modeler `EVENT` reference export*
+(`EVENT.csv.gz`, 116 MB, 6.1 M rows; the seed from 2026-09-10 to 2026-09-14)
+— 2,754 rows typed `HIST` across 13 model versions, `Peril` `WS`,
+`ModelVersion` `25.0`, `[PCS#]` never filled, and the `HIST` twin's `EventID`
+that no ELT reports (R17). Too big to commit, so not reproducible, and it
+never classified one event on dev data. Replaced. *Pad `PCS#` in the seed* —
+the seed would stop being CIC's table, and the procedure at CIC would still
+copy three-digit codes. Rejected. *A few hand-typed lookup rows* — rejected
+by the user 2026-09-10 for testing a shape the data does not have.
 
 ## R17 — What a broker analysis writes in `metadata.csv`, and the lookup's event IDs (O-13)
 
@@ -651,28 +650,29 @@ Modeler 2.55.0; the R6 archives were our own analyses on 2.54.1):
 
 A group analysis reports `GROUP`, a third engine type (`irp_integration`
 identifies a group the same way). A broker analysis reports a build number
-where R6's archives held `25.0`; at 11 characters it does not fit
-`Data.DataModelVersion` (`nvarchar(10)`), so the stage worker keeps the first
-two parts. `EDMName`, `ExposureName`, `ModelProfile`, `Cedant`, and
-`Hazard Version` are all `Unavailable` in these archives.
+where R6's archives held `25.0`. CIC's lookup holds `25` (R16), and the
+procedure compares `ModelVersion` to `manifest.data_model_version` by string
+equality, so the stage worker keeps the whole number: `25.0` → `25`,
+`25.0.2450.0` → `25`, `23.0.2250.1` → `23`; a non-numeric form such as
+`HDv2.1` passes through (T-33). `EDMName`, `ExposureName`, `ModelProfile`,
+`Cedant`, and `Hazard Version` are all `Unavailable` in these archives.
 
 Each of Moody's historical storms is in `EVENT.csv.gz` twice: once typed
 `HIST`, once typed `STOC`, same `EVENTNAME` and model region. 1,443 of 1,444
 `NAWS` historical names have both. The ELT carries the `STOC` id —
 `NOTNAMED, 06/25/1851` is `2847001` in the exported analysis and `2896402` in
-the `HIST` rows the R16 seed was built from. Joining the seed to any staged
-analysis on `EventID` alone returns zero rows, so every analysis loaded so far
-classified as fully stochastic. All 15,689 event IDs in the R6 `NAEQ` archive
-resolve as `NAEQ` / `17.0` / `EP`: the version that describes an analysis's
-events is the model profile's `modelDataVersion`, not `metadata.csv`
-`ModelVersion`, `softwareVersionCode` (`RL25`), or the RiskLink release.
+the `HIST` rows the 2026-09-10 seed was built from. CIC's lookup holds
+`2847001` (`HU`/`HIST`/1851) and does not contain `2896402` at all: CIC keys
+its lookup on the id the ELT reports, which answers O-13. All 15,689 event
+IDs in the R6 `NAEQ` archive resolve as `NAEQ` / `17.0` / `EP`: the version
+that describes an analysis's events is the model profile's
+`modelDataVersion`, not `metadata.csv` `ModelVersion`, `softwareVersionCode`
+(`RL25`), or the RiskLink release.
 
-**Decision**: the seed and the classification join are unchanged until CIC's
-`Lookup_RMS_HistoricalRDS` can be read (O-13). Which side of the pair their
-table holds decides whether the dev seed is rebuilt from the `STOC` twins or
-the join changes. The empty-version failure this decision also held is gone
-(P-24, 2026-09-14): a join that returns nothing now loads every event as
-stochastic, which is exactly the state this section measured.
+**Decision**: the seed is CIC's own table (R16) and the classification join
+is unchanged. The empty-version failure this decision once held is gone
+(P-24, 2026-09-14): a join that returns nothing loads every event as
+stochastic.
 
 ## R18 — How a stage-schema change reaches CIC after cutover (O-12)
 
@@ -711,7 +711,7 @@ and the stage worker can tell which version a repository is at (T048–T050).
 
 - Q: An analysis's Risk Modeler loss table export downloads and stages zero loss rows for the chosen perspective. Fail at stage, load a header row with zero loss rows, or fail inside the load procedure? → A: Fail at stage with "no loss rows for perspective {code}"; nothing reaches `Data`, `RMSELT`, or `RMS_HistoricalRDS`; Retry re-runs the check (spec P-12). A header row with no loss rows would be indistinguishable in CIC's tools from a broken load.
 - Q: Risk Modeler accepts an export request but never reports FINISHED or FAILED. No Workbench timeout, automatic failure after a fixed wait, or analyst-driven restart of a waiting analysis? → A: No Workbench timeout (spec P-13). The analysis stays "requested from Risk Modeler" until Risk Modeler reports a terminal status, matching how analysis jobs already wait; Retry is offered only after a failure. A stuck row is cleared under O-01. Rejected: a fixed-wait failure (no observed hang justifies the branch) and restart of a waiting analysis (abandons a live Risk Modeler job).
-- Q (user-raised): Dev replicas of `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` need data. Where does it come from? → A: `Client` is seeded with made-up rows. The lookup is seeded from Moody's `EVENT.csv.gz` (user-downloaded, `../EVENT.csv.gz`), which mixes stochastic and historical events; only the historical events (`EVENTTYPECODE = HIST`, 2,754 of 6,099,671 rows) are loaded (plan T-30, R16).
+- Q (user-raised): Dev replicas of `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` need data. Where does it come from? → A: `Client` is seeded with made-up rows. The lookup is seeded from Moody's `EVENT.csv.gz` (user-downloaded, `../EVENT.csv.gz`), which mixes stochastic and historical events; only the historical events (`EVENTTYPECODE = HIST`, 2,754 of 6,099,671 rows) are loaded (plan T-30, R16). Superseded 2026-09-14: CIC supplied its own lookup export, and the seed is now that table (R16).
 - Q (user-raised): Where does database setup sit in the work order? → A: First. The dev mirror with both seeds, the `stage` schema and procedure, `bootstrap_loss.py`, and the SQL Server tier test of the procedure come before any route, worker, or template (plan T-31).
 
 ### Session 2026-09-14
