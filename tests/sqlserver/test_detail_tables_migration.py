@@ -8,6 +8,9 @@ Covers:
   - irp_analysis carries the three new detail columns (settings_metadata,
     is_group, exposure_resource_id) — and NOT the deferred group_parent_id;
   - the backfill_edm_detail rwb_job_type_kind seed row is present;
+  - every seeded breakout dimension carries its full vocabulary — the
+    _DIMENSIONS entry, both DataBridge scripts, the run_breakout_{code} job
+    type, and the worker body (spec 005);
   - no scope/customer column anywhere (Article 6) and no status column on the
     detail entities (Article 4);
   - the idempotent portfolio-detail upsert overwrites exposure_detail/as_of in
@@ -20,6 +23,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -27,6 +31,8 @@ from app.services import portfolio_service
 from db import execute, execute_command, execute_scalar
 
 pytestmark = pytest.mark.sqlserver
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DETAIL_TABLES = ["irp_portfolio", "irp_treaty"]
 
@@ -220,6 +226,54 @@ class TestDetailTablesMigration:
         definition = (row[0]["filter_definition"] or "").lower()
         assert "source_portfolio_id" in definition
         assert "deleted_at" in definition
+
+    def test_every_seeded_breakout_dimension_has_its_vocabulary(self):
+        """Per-dimension registration lockstep. Every value dimension (lob, state,
+        country, peril) needs a full ``_DIMENSIONS`` entry — the noun, its plural
+        (the chooser tile renders the count line from them), and the
+        ``portfolio_number`` letter — plus both DataBridge scripts (selection +
+        coverage), the ``run_breakout_{code}`` job-type seed, and the worker body.
+        A missing entry composes a wrong number, renders a missing noun, or fails
+        the run."""
+        from app.services import breakout_service, irp_gateway
+        from app.workers import portfolio_jobs
+        seeded = {row["code"] for row in execute(
+            "SELECT code FROM breakout_dimension_kind", {},
+            connection="WORKBENCH")}
+        values = seeded - {"custom"}
+        assert values == {"lob", "state", "country", "peril"}
+
+        job_types = {row["code"] for row in execute(
+            "SELECT code FROM rwb_job_type_kind", {}, connection="WORKBENCH")}
+        for code in values:
+            registered = breakout_service._DIMENSIONS[code]
+            assert registered.noun_plural and registered.number_letter, code
+            assert code in irp_gateway._SELECTION_SCRIPTS, code
+            assert code in irp_gateway._COVERAGE_SCRIPTS, code
+            # A value dimension with no clause in breakout_match_count.sql would
+            # have its filter dropped, and the Add-time count would then include
+            # accounts the breakout excludes (P-29).
+            assert code in irp_gateway._MATCH_COUNT_PARAMS, code
+            assert f"run_breakout_{code}" in job_types, code
+            assert f"run_breakout_{code}" in portfolio_jobs._BODIES, code
+        # custom (T-12): the grouping lineage code — the job type and the group
+        # worker body, but NO number letter (P-26: a group's number is its name
+        # truncated to 20); selections run through the value dimensions' scripts,
+        # so it must never gain scripts of its own.
+        assert breakout_service._DIMENSIONS["custom"].number_letter is None
+        assert "run_breakout_custom" in job_types
+        assert "run_breakout_custom" in portfolio_jobs._BODIES
+        assert "custom" not in irp_gateway._SELECTION_SCRIPTS
+        assert "custom" not in irp_gateway._COVERAGE_SCRIPTS
+        assert "custom" not in irp_gateway._MATCH_COUNT_PARAMS
+
+        sql_dir = _REPO_ROOT / "sql" / "databridge"
+        absent = [script for scripts in (irp_gateway._SELECTION_SCRIPTS,
+                                         irp_gateway._COVERAGE_SCRIPTS,
+                                         {"match": irp_gateway._MATCH_COUNT_SCRIPT})
+                  for script in scripts.values()
+                  if not (sql_dir / script).is_file()]
+        assert absent == [], f"registered script missing from sql/databridge: {absent}"
 
 
 # ── behavioral: the idempotent detail upsert under the real driver ────────────

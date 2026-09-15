@@ -145,6 +145,20 @@ def test_detail_renders_fixed_edm_and_rdm_tables_with_independent_empty_states(
     assert "Packages" not in body
 
 
+def test_detail_reassign_picker_preselects_the_current_owner(client, workbench_db):
+    """``submission_detail.html`` compares ``a.id|string`` against
+    ``submission.assigned_analyst_id`` with no ``|lower``. The owner id arrives
+    lowercase from ``submission_service``, so the analyst list must be lowercase
+    too or the picker opens on the wrong analyst."""
+    created = client.post("/submissions", data=_payload(name="Owner picker"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+
+    body = client.get(f"/submissions/{submission_id}").text
+
+    assert f'<option value="{workbench_db.user_a}" selected>' in body
+    assert f'<option value="{workbench_db.user_b}">' in body
+
+
 def test_submission_entity_table_sort_updates_order_and_submission_url(client):
     created = client.post("/submissions", data=_payload(name="Sortable entities"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
