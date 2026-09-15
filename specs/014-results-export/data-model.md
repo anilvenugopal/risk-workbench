@@ -233,9 +233,8 @@ server's code page arrives as `?` with no error. CIC owns those columns.
 `db/bootstrap/seed/lookup_rms_historical_rds.csv`: CIC's own export of the
 table (`cic-reference/Lookup_RMS_HistoricalRDS.xlsx`), 2,589 rows, every one
 `ModelVersion` `25`, `Peril` in `HU`/`EQ`/`WT`, `Type` `HIST` or `RDS`
-(T-30, research R16). The CSV columns are the table's columns in DDL order;
-`infra/scripts/convert_lookup_export.py` copies each cell as written except
-`PCS#` `NULL`, which loads as SQL `NULL`. Never run against production; the
+(T-30, research R16). The CSV is the sheet saved by hand, columns in DDL order, each cell as
+written except `PCS#` `NULL`, which is blank and loads as SQL `NULL`. Never run against production; the
 script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 
 ## 7. View models (`app/services/export_service.py`)

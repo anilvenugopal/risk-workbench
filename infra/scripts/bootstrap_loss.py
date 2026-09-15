@@ -60,7 +60,7 @@ def _seed_lookup(conn) -> int:
             "peril": r["Peril"],
             "type": r["Type"],
             "name": r["Name"],
-            "pcs": r["PCS"] or None,
+            "pcs": r["PCS#"] or None,
             "model_version": r["ModelVersion"],
         } for r in csv.DictReader(handle)]
     conn.execute(text("TRUNCATE TABLE dbo.Lookup_RMS_HistoricalRDS"))

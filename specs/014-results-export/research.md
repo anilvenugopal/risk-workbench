@@ -610,15 +610,14 @@ and `PCS#` at up to 4 both fit `RMS_HistoricalRDS`'s `VARCHAR(5)` targets.
 
 **Decision**:
 
-- `infra/scripts/convert_lookup_export.py <Lookup_RMS_HistoricalRDS.xlsx>`
-  writes `db/bootstrap/seed/lookup_rms_historical_rds.csv`: every row, in
-  CIC's order, columns as in the sheet. The run fails if the header is not
-  exactly the seven columns above. `PCS#` `NULL` becomes an empty field
-  (SQL `NULL` in `bootstrap_loss.py`); every other cell is copied as
-  written — spaces in `Name`, `CatYear` `0`, `N/A`, `ModelVersion` `25`, and
-  both `15000012` rows. A refreshed export diffs row for row; the xlsx itself
-  shows no `git diff`, so the CSV diff and the printed row count are the
-  review.
+- `db/bootstrap/seed/lookup_rms_historical_rds.csv` is the sheet saved as
+  CSV by hand, every row in CIC's order and the header as in the sheet: the
+  2,436 literal `NULL` cells in `PCS#` blanked (SQL `NULL` in
+  `bootstrap_loss.py`), and nothing else touched — the `N/A` cells, the
+  spaces in `Name`, `CatYear` `0`, `ModelVersion` `25`, and both `15000012`
+  rows stay as written. LF line endings. No conversion script: the lookup
+  is static (design note 23 D26), so a refresh is a one-off, and a saved
+  xlsx shows no `git diff`, so the CSV diff is the review.
 - `infra/scripts/bootstrap_loss.py` loads that CSV into
   `dbo.Lookup_RMS_HistoricalRDS` after `loss_dev_mirror.sql` creates the
   table, and seeds `dbo.Client` with a handful of made-up rows.
@@ -634,7 +633,9 @@ and `PCS#` at up to 4 both fit `RMS_HistoricalRDS`'s `VARCHAR(5)` targets.
 that no ELT reports (R17). Too big to commit, so not reproducible, and it
 never classified one event on dev data. Replaced. *Pad `PCS#` in the seed* —
 the seed would stop being CIC's table, and the procedure at CIC would still
-copy three-digit codes. Rejected. *A few hand-typed lookup rows* — rejected
+copy three-digit codes. Rejected. *A conversion script for the xlsx*
+(`convert_lookup_export.py`, written and deleted 2026-09-14) — sixty lines
+to blank one column once for a table that does not change. Rejected. *A few hand-typed lookup rows* — rejected
 by the user 2026-09-10 for testing a shape the data does not have.
 
 ## R17 — What a broker analysis writes in `metadata.csv`, and the lookup's event IDs (O-13)
