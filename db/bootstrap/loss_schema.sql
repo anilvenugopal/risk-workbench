@@ -260,13 +260,18 @@ BEGIN
 
         -- Peril and PCS are copied without truncation: a lookup value wider than
         -- the target column fails the load rather than loading a clipped value.
+        -- A PCS code is four digits downstream; the lookup stores some as three
+        -- (137), so a numeric [PCS#] of one to three digits is zero-padded here.
         INSERT INTO dbo.RMS_HistoricalRDS (DataID, ClientID, Peril, ModelVersion, TreatyYear,
                                            TreatyIncept, DataInforce, EventID, [Type],
                                            Event_Name, Loss, PCS, Perspective)
         SELECT @data_id, m.client_id, l.Peril, l.ModelVersion,
                CONVERT(VARCHAR(4), m.treaty_year), m.treaty_incept,
                CONVERT(VARCHAR(15), m.data_vintage, 23), d.event_id, l.[Type],
-               l.[Name], d.loss, l.[PCS#], m.perspective_code
+               l.[Name], d.loss,
+               CASE WHEN l.[PCS#] NOT LIKE '%[^0-9]%' AND LEN(l.[PCS#]) BETWEEN 1 AND 3
+                    THEN RIGHT('0000' + l.[PCS#], 4) ELSE l.[PCS#] END,
+               m.perspective_code
         FROM stage.rwb_loss_result_elt_data d
         JOIN stage.rwb_loss_result_manifest m ON m.manifest_id = d.manifest_id
         JOIN dbo.Lookup_RMS_HistoricalRDS l

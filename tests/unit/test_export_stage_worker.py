@@ -96,7 +96,7 @@ def test_happy_path_stages_files_and_rows_and_enqueues_the_load(staging, fake_ir
     assert m["stage_status"] == "staged" and m["staged_at"] is not None
     assert m["staged_row_count"] == 3 and m["error_message"] is None
     assert (m["loss_table_type"], m["engine_type"], m["data_model_version"]) == (
-        "ELT", "DLM", "25.0")
+        "ELT", "DLM", "25")
     assert m["zip_file"] == f"{staging['export_id']}/{staging['analysis_id']}/" \
                             "25437617_CRE_Port_Template_Losses.zip"
     assert (staging["root"] / m["zip_file"]).is_file()
@@ -142,7 +142,7 @@ def test_group_engine_type_and_build_number_version_are_recorded(staging, fake_i
         staging["tmp"] / "group", engine_type="GROUP", model_version="25.0.2450.0")
     _run_stage()
     m = _manifest(staging)
-    assert (m["engine_type"], m["data_model_version"]) == ("GROUP", "25.0")
+    assert (m["engine_type"], m["data_model_version"]) == ("GROUP", "25")
 
 
 def test_export_job_not_finished_fails_with_the_jobs_reason(staging):

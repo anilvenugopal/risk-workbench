@@ -244,14 +244,14 @@ def test_detail_page_renders_queued_rows_and_header(client, export):
 def test_detail_rows_show_the_recorded_attributes(client, export):
     execute_command(
         "UPDATE stage.rwb_loss_result_manifest SET data_name = 'AmFam HU GR 2026', "
-        "data_model_version = '25.0', engine_type = 'DLM' WHERE irp_analysis_id = :a",
+        "data_model_version = '25', engine_type = 'DLM' WHERE irp_analysis_id = :a",
         {"a": export["a"]}, connection="LOSS")
 
     frag = client.get(f"{export['url']}/analyses")
 
     row = next(chunk for chunk in frag.text.split('id="export-analysis-row-')
                if chunk.startswith(export["a"]))
-    for value in ("AmFam HU GR 2026", "41958", "USD", "25.0", "DLM", "EQ", "NAEQ"):
+    for value in ("AmFam HU GR 2026", "41958", "USD", "25", "DLM", "EQ", "NAEQ"):
         assert f">{value}<" in row
 
 

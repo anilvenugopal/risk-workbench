@@ -70,14 +70,14 @@ def test_a_raised_call_stamps_failed_with_the_sql_server_message(load_job, monke
         exc = RuntimeError("wrapped")
         exc.orig = _Orig(
             "('42000', '[42000] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
-            "event 1001 matches 2 historical lookup rows for model version 25.0 (50003) "
+            "event 1001 matches 2 historical lookup rows for model version 25 (50003) "
             "(SQLExecDirectW)')")
         raise exc
     monkeypatch.setattr(export_jobs, "execute_procedure", boom)
 
     export_jobs.run_pending(worker_id="w1")
 
-    message = "event 1001 matches 2 historical lookup rows for model version 25.0"
+    message = "event 1001 matches 2 historical lookup rows for model version 25"
     after = manifest_row(row["manifest_id"])
     assert after["load_status"] == "failed"
     assert after["error_message"] == message

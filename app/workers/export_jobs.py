@@ -186,11 +186,12 @@ def _read_metadata(table_dir: Path) -> dict:
 
 def _model_version(value: str) -> str | None:
     """``metadata.csv`` ``ModelVersion`` as CIC's ``Data.DataModelVersion`` takes it.
-    Risk Modeler writes either the decimal form (``25.0``) or a build number
-    (``23.0.2250.1``), which is wider than the ``nvarchar(10)`` target."""
+    Risk Modeler writes the decimal form (``25.0``) or a build number
+    (``23.0.2250.1``); CIC's ``Lookup_RMS_HistoricalRDS`` holds the whole number
+    (``25``), and the load procedure joins the two by string equality."""
     parts = value.split(".")
-    if len(parts) > 2 and all(part.isdigit() for part in parts):
-        return ".".join(parts[:2])
+    if len(parts) > 1 and all(part.isdigit() for part in parts):
+        return parts[0]
     return value or None
 
 

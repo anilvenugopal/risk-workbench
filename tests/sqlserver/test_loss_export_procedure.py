@@ -27,7 +27,7 @@ from db import execute, execute_one, execute_procedure, get_connection, upload_p
 pytestmark = pytest.mark.sqlserver
 
 BOOTSTRAP_DIR = Path(__file__).resolve().parents[2] / "db" / "bootstrap"
-MODEL_VERSION = "25.0"
+MODEL_VERSION = "25"
 
 
 def _clear_tables() -> None:
@@ -225,12 +225,27 @@ def test_blank_treaty_year_loads_as_null(tmp_path):
     assert hist["TreatyYear"] is None and hist["DataInforce"] == "2025-12-31"
 
 
+def test_numeric_pcs_is_padded_to_four_digits_and_other_values_copied(tmp_path):
+    _seed_lookup((3001, "WS", "Storm", MODEL_VERSION, "137"),
+                 (3002, "EQ", "Quake", MODEL_VERSION, "N/A"),
+                 (3003, "WS", "Storm B", MODEL_VERSION, "6461"))
+    manifest_id = _manifest()
+    _stage(tmp_path, manifest_id, [(3001, 1.0, 0.0, 0.0, 1.0), (3002, 1.0, 0.0, 0.0, 1.0),
+                                   (3003, 1.0, 0.0, 0.0, 1.0)])
+
+    _load(manifest_id)
+
+    pcs = {r["EventID"]: r["PCS"] for r in execute(
+        "SELECT EventID, PCS FROM dbo.RMS_HistoricalRDS", {}, connection="LOSS")}
+    assert pcs == {3001: "0137", 3002: "N/A", 3003: "6461"}
+
+
 # ── preconditions ─────────────────────────────────────────────────────────────
 
 def test_a_model_version_the_lookup_lacks_loads_every_event_as_stochastic(tmp_path):
     """A version the lookup does not carry is the reference data as shipped, not a
     failure (9/11 D8): everything classifies stochastic and historical is 0."""
-    _seed_lookup((3001, "WS", "Storm", "24.0"))
+    _seed_lookup((3001, "WS", "Storm", "24"))
     manifest_id = _manifest()
     _stage(tmp_path, manifest_id, [(1001, 1.0, 0.0, 0.0, 1.0), (3001, 2.0, 0.0, 0.0, 2.0)])
 
@@ -251,7 +266,7 @@ def test_event_matching_two_lookup_rows_fails(tmp_path):
     with pytest.raises(Exception) as exc:
         _load(manifest_id)
 
-    assert "event 3001 matches 2 historical lookup rows for model version 25.0" in str(exc.value)
+    assert "event 3001 matches 2 historical lookup rows for model version 25" in str(exc.value)
     assert "(50003)" in str(exc.value)
     assert _manifest_row(manifest_id)["load_status"] == "failed"
     assert _count("dbo.Data") == 0

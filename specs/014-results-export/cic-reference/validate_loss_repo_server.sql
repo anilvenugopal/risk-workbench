@@ -213,8 +213,9 @@ WHERE type IN ('S', 'U', 'G') AND name NOT LIKE '##%' ORDER BY name;
 /* ---------------------------------------------------------------------------
    8. HOW THE WORKFLOW TOOL WRITES TODAY — run only where section 4 shows rows.
    GOOD: DataInforce looks like 'yyyy-mm-dd'; Data.Perspective holds codes
-         (GU/GR/RL/RP); DataModelVersion is decimal ('25.0'); PCS/Peril
-         values fit their columns.
+         (GU/GR/RL/RP); DataModelVersion is the whole number ('25', the
+         form Lookup_RMS_HistoricalRDS.ModelVersion holds); PCS is four
+         digits; PCS/Peril values fit their columns.
    ASK : any other form: "Which format should the Workbench write for
          DataInforce / Perspective?" (plan O-04).
    --------------------------------------------------------------------------- */
