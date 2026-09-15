@@ -155,6 +155,20 @@ knowledge stays in the package.
 IDs"), so the existing entry point cannot serve one analysis. The local
 checkout at `../irp-integration` is at the PR 33 merge that released 0.8.0.
 
+`AnalysisManager.describe_run(analysis_id)` and its `RunDescription` /
+`AppliedTreaty` dataclasses now exist on the checkout's branch
+`feature/analysis-describe-run` (commit 243330f), which also moves `_inspect`'s
+reference lookups and region-row loop into `_ReferenceLookups` and
+`_region_facts` so the describe method and the grouping inspection share them.
+The tag and the TestPyPI publish are the user's to run; until they do,
+`make irp-testpypi` cannot pin the release and the workbench's active source
+stays TestPyPI 0.8.0, which carries no `describe_run`. Read live against the
+sandbox on 2026-09-11 through the checkout, the method and the gateway wrapper
+returned scheme 739 for 5741781, PET 12 "RMS 2020 Time-Dependent Rates" with
+1,978,459 periods for 5733173, and scheme 577 with treaties XPR_1_100_Fld and
+XPR_1_95_Fld for 5689560 — the fixtures' claims, re-checked
+(`tests/irp/test_describe_run.py`).
+
 **Alternatives.** A workbench module reimplementing the collapse over thin
 gateway reads: no package release needed, but the same shape logic in two
 repos drifts. Calling `inspect` with a dummy second id: the second analysis's
