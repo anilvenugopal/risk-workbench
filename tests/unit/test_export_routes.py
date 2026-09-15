@@ -303,7 +303,7 @@ def test_exports_section_lists_this_submissions_exports_newest_first(client, exp
     row = section.text.split(f'/exports/{older["export_id"]}')[1]
     assert "r.patel@x.com" in row and "Example Re" in row and "CRM-1" in row
     assert "AAL 100" in row
-    assert re.search(r"<span>1</span>\s*<span class=\"l\">1 loaded</span>", row)
+    assert re.search(r"<span class=\"l\">1</span>\s*<span class=\"l\">1 loaded</span>", row)
     assert section.text.count('<details class="drow"') == 2
 
 
@@ -318,7 +318,8 @@ def test_exports_section_stops_polling_when_every_analysis_is_terminal(client, e
                     connection="LOSS")
     section = client.get(f"/submissions/{export['submission_id']}/exports")
     assert 'hx-trigger="every 10s"' not in section.text
-    assert re.search(r"<span>2</span>\s*<span class=\"l\">2 failed</span>", section.text)
+    assert re.search(r"<span class=\"l\">2</span>\s*<span class=\"l\">2 failed</span>",
+                     section.text)
 
 
 def test_section_status_filter_keeps_the_matching_exports(client, export):

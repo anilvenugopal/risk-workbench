@@ -38,7 +38,7 @@
          style="--cols: 140px minmax(160px,1fr) 140px 90px minmax(200px,1.2fr) minmax(200px,1.4fr) 180px; min-width: 1150px">
       <div class="dtable__head">
         <span class="l">Perspective</span><span class="l">Client</span><span class="l">CRM ID</span>
-        <span>Analyses</span><span class="l">Progress</span><span class="l">Requested by</span>
+        <span class="l">Analyses</span><span class="l">Progress</span><span class="l">Requested by</span>
         <span class="l">Requested at</span>
       </div>
       {% for e in shown %}
@@ -49,7 +49,7 @@
                onclick="event.stopPropagation()">{{ e.perspective_code }}</a></span></span>
           <span class="l">{{ e.client_name or '—' }}</span>
           <span class="l">{{ e.crm_id or '—' }}</span>
-          <span>{{ e.analysis_count }}</span>
+          <span class="l">{{ e.analysis_count }}</span>
           <span class="l">{{ e.progress }}</span>
           <span class="l" title="{{ e.requested_by_email }}">{{ e.requested_by_email }}</span>
           <span class="l"><time data-utc="{{ e.requested_at }}" title="{{ e.requested_at }} UTC">{{ e.requested_at }}</time></span>
