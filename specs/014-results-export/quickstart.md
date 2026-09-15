@@ -44,9 +44,9 @@
    equal to `staged_row_count`; every `Loss` equals the Parquet value
    (acceptance 6; SC-002, SC-003). The archive is under
    `EXPORT_ARCHIVE_DIR/{export_id}/{irp_analysis_id}/`.
-6. Reopen the form, tick the same analysis, pick GR: the cart and a warning
-   banner name the earlier export — date, requester, status, a link, and how
-   many there are — and the Export button stays on (acceptance 4, P-17).
+6. Reopen the form, tick the same analysis, pick GR: the cart row names the
+   earlier export — date, requester, status, an underlined link, and how many
+   there are — and the Export button stays on (acceptance 4, P-17).
    Export again: a second `dbo.Data` row lands under a new data ID.
 7. Lookup miss: export an analysis whose `ModelVersion` has no lookup rows
    (delete the seeded rows first). It loads: every event is stochastic, the

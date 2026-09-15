@@ -72,8 +72,8 @@ Triggered by `hx-get` on the analysis list (`hx-trigger="change"`,
   `requested_by_email`, and status, how many there are, and a link to that
   export's §6 page under its own submission
   (`/submissions/{requested_from_submission_id}/exports/{export_id}`, spec
-  P-16) — in the cart row and again in a warning banner that closes with
-  "Exporting again creates a new data set." Nothing is disabled (spec P-17).
+  P-16) — in the cart row, closing with "Exporting again creates a new data
+  set." Nothing is disabled (spec P-17).
 
 ## 4. Submit
 
@@ -127,9 +127,9 @@ Renders `partials/exports_section.html`, loaded into the submission detail
 page below the analyses section (`hx-get` on load, and `hx-trigger="every
 10s"` while any row has an analysis not yet loaded or failed). One row per
 export whose `requested_from_submission_id` is this submission (spec P-16),
-newest first (data-model.md §7 `ExportSummary`): perspective,
-requester, request time, client, analysis count, loaded / failed counts. Each
-row links to §6. Empty state: "No exports yet". An expanded row lists that
+newest first (data-model.md §7 `ExportSummary`), in column order:
+perspective, client, CRM ID, analysis count, the loaded / failed / closed
+progress line, requester, request time. Each row links to §6. Empty state: "No exports yet". An expanded row lists that
 export's analyses: name, status chip, AAL, `data_id`, and **Close** (§8) on a
 failed analysis.
 
@@ -150,10 +150,12 @@ Nav node `submissions.export_detail` (hidden; crumb "Export {perspective} ·
 
 - Header: perspective, client name, treaty inception, CRM ID, data vintage,
   requester, request time, `export_id`.
-- One row per analysis (data-model.md §7 `ExportAnalysisDetail`): analysis
-  name, origin, derived status, last change (`updated_at`), `data_id`, AAL,
-  rows staged, stochastic rows, historical rows, exposure raised, standard
-  deviation zeroed, error message (when failed), who closed it and when (when
+- One row per analysis (data-model.md §7 `ExportAnalysisDetail`), in column
+  order: analysis name, origin, derived status, `data_id`, data name, AAL,
+  currency, model version, engine, peril, region, rows staged, stochastic
+  rows, historical rows, exposure raised, standard deviation zeroed, Risk
+  Modeler analysis ID, last updated (`updated_at`, localized in the browser to
+  the second), then error message (when failed), who closed it and when (when
   closed), **Retry** and **Close** (when failed).
 - The analysis table is a fragment (`GET …/exports/{export_id}/analyses`)
   that polls every 5 seconds while any row is not loaded or failed. It holds

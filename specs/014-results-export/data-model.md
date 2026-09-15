@@ -254,7 +254,7 @@ script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 ### ExportSummary — one exports-section row
 
 `export_id`, `perspective_code`, `requested_by_email`, `requested_at`,
-`client_name` (join `dbo.Client`), `analysis_count`, `loaded_count`,
+`client_name` (join `dbo.Client`), `crm_id`, `analysis_count`, `loaded_count`,
 `failed_count`, `closed_count` — grouped from the manifest rows whose
 `requested_from_submission_id` is the page's submission (spec P-16), newest
 first. `loaded_count` and `failed_count` are also what the section's status
