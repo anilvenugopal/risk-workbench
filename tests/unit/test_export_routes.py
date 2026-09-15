@@ -279,8 +279,8 @@ def test_detail_rows_show_counts_aal_error_and_stop_polling(client, export):
     assert 'hx-trigger="every 5s"' not in frag.text  # every row terminal → polling stops
     assert ">loaded</span>" in frag.text and ">failed</span>" in frag.text
     for value in ("4127", "15,689", "15,401", "288", "12", "3"):
-        assert f"<span>{value}</span>" in frag.text
-    assert frag.text.count('<span title="100.0">100</span>') == 2  # AAL per row
+        assert f'<span class="l">{value}</span>' in frag.text
+    assert frag.text.count('<span class="l" title="100.0">100</span>') == 2  # AAL per row
     assert "event 1001 matches 2 historical lookup rows" in frag.text
     assert frag.text.count(">Retry</button>") == 1
     assert f"analyses/{export['b']}/retry" in frag.text
