@@ -1,0 +1,87 @@
+{# Exports requested from this submission, newest first (contracts/routes.md
+   §5). Each row expands to the analyses in that export, each with Close when
+   it failed (§8); a refused Close renders `action_message` above the table.
+   The status select filters the exports; an expanded row always shows all of
+   its analyses.
+   Polls every 10s only while some export still has an analysis in progress; a
+   terminal state renders without a trigger and the polling stops.
+   data-restore-open keeps an expanded row open across those swaps. #}
+{% import "partials/export_row_macros.html" as rows %}
+{% set in_progress = exports|selectattr('in_progress')|list|length > 0 %}
+{% set query = ('?status=' ~ status_filter) if status_filter else '' %}
+{% set shown = exports|selectattr(status_filter ~ '_count')|list if status_filter else exports %}
+<details class="sec" open id="submission-exports" data-restore-open
+  {% if in_progress %}hx-get="/submissions/{{ submission_id }}/exports{{ query }}" hx-trigger="every 10s"
+  hx-target="this" hx-swap="outerHTML"{% endif %}>
+  <summary>
+    <span class="sec__caret">▸</span>
+    <span class="sec__title">Exports</span>
+    {% if exports %}<span class="badge badge--neutral">{{ exports|length }}</span>{% endif %}
+    {% if exports %}
+    <span class="sec__spacer"></span>
+    <select name="status" class="wf-field__input" style="width:auto"
+            onclick="event.stopPropagation()"
+            hx-get="/submissions/{{ submission_id }}/exports" hx-trigger="change"
+            hx-target="#submission-exports" hx-swap="outerHTML">
+      <option value="">All statuses</option>
+      <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Failed</option>
+      <option value="loaded" {% if status_filter == 'loaded' %}selected{% endif %}>Loaded</option>
+    </select>
+    {% endif %}
+  </summary>
+  {% if action_message|default(none) %}
+  <div class="form-banner form-banner--error">{{ action_message }}</div>
+  {% endif %}
+  {% if exports %}
+  <div class="dtable-shell">
+    <div class="dtable dtable--wraphead"
+         style="--cols: 140px minmax(160px,1fr) 140px 90px minmax(200px,1.2fr) minmax(200px,1.4fr) 180px; min-width: 1150px">
+      <div class="dtable__head">
+        <span class="l">Perspective</span><span class="l">Client</span><span class="l">CRM ID</span>
+        <span class="l">Analyses</span><span class="l">Progress</span><span class="l">Requested by</span>
+        <span class="l">Requested at</span>
+      </div>
+      {% for e in shown %}
+      <details class="drow" id="export-summary-{{ e.export_id }}">
+        <summary>
+          <span class="l"><span class="dt-name"><span class="dt-caret">&#9656;</span>
+            <a class="link" href="/submissions/{{ submission_id }}/exports/{{ e.export_id }}"
+               onclick="event.stopPropagation()">{{ e.perspective_code }}</a></span></span>
+          <span class="l">{{ e.client_name or '—' }}</span>
+          <span class="l">{{ e.crm_id or '—' }}</span>
+          <span class="l">{{ e.analysis_count }}</span>
+          <span class="l">{{ e.progress }}</span>
+          <span class="l" title="{{ e.requested_by_email }}">{{ e.requested_by_email }}</span>
+          <span class="l"><time data-utc="{{ e.requested_at }}" title="{{ e.requested_at }} UTC">{{ e.requested_at }}</time></span>
+        </summary>
+        <div class="drow__body">
+          {% for a in e.analyses %}
+          <div class="export-summary__analysis">
+            <span class="export-summary__name" title="{{ a.analysis_name }}">{{ a.analysis_name }}</span>
+            <span>{{ rows.status_chip(a.status) }}</span>
+            <span class="export-summary__aal" title="{{ a.aal }}">AAL {{ a.aal_display }}</span>
+            <span class="export-summary__dataid">Data ID: {{ a.data_id if a.data_id is not none else '—' }}</span>
+            <span>
+              {% if a.can_retry %}
+              <form hx-post="/submissions/{{ submission_id }}/exports/{{ e.export_id }}/analyses/{{ a.irp_analysis_id }}/close{{ query }}"
+                    hx-target="#submission-exports" hx-swap="outerHTML"
+                    hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"
+                    method="post" action="/submissions/{{ submission_id }}/exports/{{ e.export_id }}/analyses/{{ a.irp_analysis_id }}/close{{ query }}">
+                <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+                <button class="btn-sm" type="submit">Close</button>
+              </form>
+              {% endif %}
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+      {% else %}
+      <div class="dtable__groupempty">No exports match this filter.</div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="state-box">No exports yet</div>
+  {% endif %}
+</details>

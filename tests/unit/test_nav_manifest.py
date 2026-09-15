@@ -113,3 +113,14 @@ class TestVisibleNodes:
         for roles in [["analyst"], ["admin"], []]:
             keys = [n["key"] for n in visible_nodes(roles)]
             assert "home" in keys
+
+
+class TestExportNodes:
+    def test_export_nodes_are_hidden_under_the_submission(self):
+        from app.nav.manifest import breadcrumb, children
+        assert [k["key"] for k in children("submissions")] == ["submissions.all"]
+        assert [c["key"] for c in breadcrumb("submissions.export_new")] == [
+            "submissions", "submissions.detail", "submissions.export_new"]
+        assert [c["key"] for c in breadcrumb("submissions.export_detail")] == [
+            "submissions", "submissions.detail", "submissions.export_detail"]
+        assert breadcrumb("submissions.export_new")[-1]["label"] == "Export"

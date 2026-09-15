@@ -34,7 +34,7 @@ from typing import Any, Protocol, Sequence, runtime_checkable
 # Re-exported so callers (workers, FakeIRP) never import irp-integration directly
 # — this module stays the sole importer (T007). ``submit_portfolio_analysis``
 # raises this on any submit failure (spec 010, contracts/irp-gateway.md).
-from irp_integration.exceptions import IRPGroupingValidationError, IRPIntegrationError
+from irp_integration.exceptions import IRPAPIError, IRPGroupingValidationError, IRPIntegrationError
 
 # Spec 012 grouping types (contracts/grouping-worker.md): the service renders
 # ``GroupingInspection`` and the worker reads ``IRPGroupingValidationError.problems``.
@@ -400,6 +400,14 @@ class IRPGateway(Protocol):
                         exposure_resource_id: int) -> list[dict]: ...
 
     def delete_analysis(self, irp_id: str) -> None: ...
+
+    # ── spec-014 loss results export (submit worker, poller, stage worker) ────
+    def submit_analysis_export_job(self, *, analysis_id: int,
+                                   loss_details: list[dict]) -> tuple[int, dict]: ...
+
+    def get_export_job(self, irp_id: str) -> JobStatus: ...
+
+    def download_export_results(self, *, job_id: int, output_dir: str) -> str: ...
 
     # ── spec-005 breakout reads (fetch_portfolio_stamp is request-path-legal) ────
 
@@ -1117,6 +1125,26 @@ class _RealGateway:
         data = self._client().portfolio.get_geohaz_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
+    # ── spec-014 loss results export (irp-integration 0.7.2) ─────────────────
+
+    def submit_analysis_export_job(self, *, analysis_id: int,
+                                   loss_details: list[dict]) -> tuple[int, dict]:
+        # POST /platform/export/v1/jobs — one analysis per job; the wheel resolves
+        # the analysis first and raises IRPAPIError when it does not exist.
+        job_id, request_body = self._client().analysis.submit_analysis_export_job(
+            analysis_id, loss_details, "PARQUET")
+        return int(job_id), request_body
+
+    def get_export_job(self, irp_id: str) -> JobStatus:
+        data = self._client().export_job.get_export_job(int(irp_id))
+        return JobStatus(status=str(data["status"]), result=data)
+
+    def download_export_results(self, *, job_id: int, output_dir: str) -> str:
+        # Requires FINISHED; rejects HTML/JSON bodies and non-zip content;
+        # creates output_dir itself, so the caller checks the archive root first.
+        return str(self._client().export_job.download_export_results(
+            int(job_id), output_dir))
+
     # ── name searches for the blocking collision check (R8, amended #17) ──────────
 
     def search_edms(self, name: str) -> list[EntityHit]:
@@ -1445,6 +1473,20 @@ def delete_analysis(irp_id: str) -> None:
     _active().delete_analysis(irp_id)
 
 
+def submit_analysis_export_job(*, analysis_id: int,
+                               loss_details: list[dict]) -> tuple[int, dict]:
+    return _active().submit_analysis_export_job(
+        analysis_id=analysis_id, loss_details=loss_details)
+
+
+def get_export_job(irp_id: str) -> JobStatus:
+    return _active().get_export_job(irp_id)
+
+
+def download_export_results(*, job_id: int, output_dir: str) -> str:
+    return _active().download_export_results(job_id=job_id, output_dir=output_dir)
+
+
 def fetch_portfolio_stamp(*, exposure_irp_id: str,
                           portfolio_irp_id: str) -> str | None:
     return _active().fetch_portfolio_stamp(exposure_irp_id=exposure_irp_id,
@@ -1513,6 +1555,7 @@ __all__ = [
     "submit_portfolio_analysis", "get_analysis_job",
     "get_analysis_stats", "get_analysis_ep",
     "delete_analysis",
+    "submit_analysis_export_job", "get_export_job", "download_export_results",
     "fetch_portfolio_stamp",
     "select_breakout_accounts", "count_breakout_match", "create_sub_portfolio",
     "populate_sub_portfolio", "find_portfolio_by_number",
@@ -1523,5 +1566,5 @@ __all__ = [
     "GroupingPartition", "GroupingPartitionKey", "EventRateSchemeOption",
     "GroupingProblem",
     "GroupingTreaty", "SimulationSetOption",
-    "IRPIntegrationError", "IRPGroupingValidationError",
+    "IRPIntegrationError", "IRPAPIError", "IRPGroupingValidationError",
 ]

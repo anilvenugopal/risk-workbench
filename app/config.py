@@ -6,10 +6,10 @@ No secrets are stored in code or VCS. See infra/.env.example.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, computed_field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, computed_field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -58,8 +58,6 @@ class Settings(BaseSettings):
     redis_url: str = "redis://127.0.0.1:6379/0"
 
     # ── Paths ─────────────────────────────────────────────────────────────────
-    submission_outputs_base: str = "/workspace/data/outputs"
-
     # Read-only shared drive the broker files are browsed from (FR-008/FR-009/R11).
     # The app never writes/moves/deletes under this root — browsing is a live
     # directory listing. Empty in dev without a mounted drive.
@@ -126,6 +124,27 @@ class Settings(BaseSettings):
     # deployments set no tenant name).
     risk_modeler_base_url: str = ""
     risk_modeler_tenant_name: str = ""
+
+    # ── Loss results export (spec 014) ──────────────────────────────────────────
+    # Perspective codes the export form may offer, in display order (T-10);
+    # EXPORT_PERSPECTIVE_CODES is a comma-separated list, not JSON.
+    export_perspective_codes: Annotated[list[str], NoDecode] = ["GU", "GR", "RL", "RP"]
+    # Root the downloaded archives are kept under permanently (T-15). The stage
+    # worker fails an analysis when it is empty or not a directory; it never
+    # creates the directory (an unmounted share would otherwise fill local disk).
+    export_archive_dir: str = ""
+    # Local disk the archives are unzipped into, under
+    # {export_id}/{irp_analysis_id}/, and removed from once the analysis is
+    # staged (T-15). Created by whoever runs the app; the stage worker fails an
+    # analysis when it is empty or not a directory, and never creates the root.
+    export_staging_dir: str = ""
+
+    @field_validator("export_perspective_codes", mode="before")
+    @classmethod
+    def _split_perspective_codes(cls, value):
+        if isinstance(value, str):
+            return [code.strip().upper() for code in value.split(",") if code.strip()]
+        return value
 
     # ── Email notifications (Graph API, app-only Mail.Send) ─────────────────────
     # Separate Entra app registration from entra_* (OIDC login) — see

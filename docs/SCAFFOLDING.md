@@ -222,7 +222,8 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 | `make wsl-test-sql` | Run SQL Server integration tests. |
 | `make wsl-db-bootstrap` | Create the 3 app databases (skips existing). |
 | `make wsl-db-migrate` | Run pending Alembic migrations. |
-| `make wsl-db-rebuild` | **Destructive.** Drop and recreate all 3 databases. |
+| `make wsl-db-rebuild` | **Destructive.** Drop and recreate all 3 databases (runs `wsl-bootstrap-loss` last). |
+| `make wsl-bootstrap-loss` | Apply the dev mirror of CIC's five loss tables and the `stage` schema to `rwb_loss`, then seed `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS`. Idempotent. |
 
 ### Docker commands (partner / Windows users)
 
@@ -235,6 +236,7 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 | `make test` | Run unit tests inside Docker. |
 | `make db-bootstrap` | Create databases inside Docker. |
 | `make db-migrate` | Run migrations inside Docker. |
+| `make bootstrap-loss` | Set up `rwb_loss` (CIC table mirror, `stage` schema, seeds) inside Docker. |
 
 ---
 
@@ -254,6 +256,12 @@ Before any iteration that changes the schema, choose one:
 In dev we use Rebuild (drop-create-seed) rather than accumulating Alembic
 revisions. There is one revision (`0001_initial.py`) which is amended in place
 until production cutover.
+
+`rwb_loss` is not migrated by Alembic. `make db-rebuild` / `make wsl-db-rebuild`
+end by running `bootstrap-loss`, which applies `db/bootstrap/loss_dev_mirror.sql`
+(CIC's five tables), `db/bootstrap/loss_schema.sql` (the Workbench `stage`
+schema and `stage.usp_load_elt_result`), and the two seeds. Run it on its own
+after editing either SQL file.
 
 ---
 

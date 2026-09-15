@@ -119,5 +119,37 @@ def execute_command(sql: str, params: Params = None, connection: str = "WORKBENC
         ) from e
 
 
+def procedure_call(name: str, params: Dict[str, Any]) -> str:
+    """The ``EXEC name @p = :p, ...`` statement ``execute_procedure`` runs.
+    ``name`` and the parameter names are code constants, never user input."""
+    assignments = ", ".join(f"@{p} = :{p}" for p in params)
+    return f"EXEC {name} {assignments}"
+
+
+def execute_procedure(name: str, params: Dict[str, Any], connection: str = "WORKBENCH",
+                      database: Optional[str] = None) -> None:
+    """Run a stored procedure with bound parameters on an autocommit connection.
+
+    Autocommit keeps ``@@TRANCOUNT`` at 0 inside the procedure, so a procedure
+    that manages its own transaction (``stage.usp_load_elt_result``) can run.
+    Driver errors are re-raised unchanged: the caller reads the procedure's
+    message from them."""
+    engine = get_engine(connection, database=database)
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.execute(text(procedure_call(name, params)), params)
+
+
+def read_uncommitted_hint(connection: str = "WORKBENCH",
+                         database: Optional[str] = None) -> str:
+    """``WITH (READUNCOMMITTED)`` on SQL Server, empty on any other dialect.
+    Appended after a table name in request-path reads of tables another
+    session may be updating inside a long transaction (the loss repository has
+    read-committed snapshot isolation off)."""
+    if get_engine(connection, database=database).dialect.name == "mssql":
+        return "WITH (READUNCOMMITTED)"
+    return ""
+
+
 __all__ = ["execute", "execute_one", "execute_scalar", "execute_command",
+           "execute_procedure", "procedure_call", "read_uncommitted_hint",
            "row_limit"]
