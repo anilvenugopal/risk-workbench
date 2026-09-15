@@ -199,9 +199,13 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
         edm_id=edm_id, name="CRE_HO_FL_v25 DLM HU", loss_results=_extract(),
         inserted_by=iteration2_db.user_a,
         settings={"analysisType": "Exceedance Probability",
-                  "analysisFramework": "ELT", "currencyCode": "USD",
-                  "eventRateSchemeNames": [
-                      {"id": 0, "code": "0", "name": _LONG_SCHEME}]},
+                  "analysisFramework": "ELT",
+                  "currency": {"currencyCode": "USD"},
+                  "resolved": {"partitions": [
+                      {"region_code": "NA", "peril_code": "WS",
+                       "framework": "ELT",
+                       "event_rate_scheme": {"id": 739, "name": _LONG_SCHEME},
+                       "simulation_set": None}]}},
         submitted={"currency": {"code": "USD", "scheme": "RMS",
                                "vintage": "RL25"},
                    "min_loss_threshold": 1.0, "franchise_deductible": False,

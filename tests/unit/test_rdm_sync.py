@@ -15,6 +15,7 @@ from app.services import analysis_service, rdm_service
 from app.services._common import SubmissionRef
 from app.workers import analysis_jobs, dispatch, entity_jobs
 from db import execute, execute_command, execute_scalar
+from tests.unit.run_details_fixtures import captured_run, detail
 
 
 def _finish_all(fake, job_type):
@@ -446,7 +447,7 @@ def test_broker_table_uses_the_merged_analyses_column_set(monkeypatch):
             created_at="2026-08-20T14:02:11.000Z",
             display=analysis_service.AnalysisSettings(
                 peril="EQ", region="NA", currency="USD", engine_type="DLM",
-                engine_version="23.0", term="STD", pla="Enabled"))])
+                engine_version="23.0"))])
     _stub_reads(monkeypatch, analyses=[grp])
 
     html = _client().get("/rdms/rdm-1").text
@@ -511,3 +512,88 @@ def test_sync_failed_state_shows_warn_and_recovery(monkeypatch):
     assert "last sync failed" in html
     assert "Sync now" in html
     assert "every 3s" not in html  # terminal — no poll
+
+
+# ── the captured run details per broker analysis (spec 015, FR-001/FR-014) ─────
+
+def _seed_two_captures(fake_irp) -> None:
+    fake_irp.add_analysis(
+        source_rdm_name="R", exposure_name="E1", analysis_id="5689560",
+        name="USFL_Commercial_LT", metadata=detail("broker_dlm"),
+        run_details=captured_run("broker_dlm", fan_out=23),
+        exposure_resource_id="3", exposure_resource_type="PORTFOLIO")
+    fake_irp.add_analysis(
+        source_rdm_name="R", exposure_name="E2", analysis_id="5723351",
+        name="EQ_HI_RES", metadata=detail("broker_dlm_no_treaties"),
+        run_details=captured_run("broker_dlm_no_treaties", fan_out=51))
+
+
+def _resolved_by_irp_id(rdm_id: str) -> dict[str, dict | None]:
+    out: dict[str, dict | None] = {}
+    for row in execute("SELECT irp_id, settings_metadata FROM irp_analysis "
+                       "WHERE rdm_id=:r", {"r": rdm_id}, connection="WORKBENCH"):
+        stored = json.loads(row["settings_metadata"])
+        out[str(row["irp_id"])] = stored.get("resolved")
+    return out
+
+
+def test_backfill_writes_resolved_for_every_broker_analysis(
+        iteration2_db, fake_irp, drive):
+    _seed_two_captures(fake_irp)
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+
+    resolved = _resolved_by_irp_id(rdm_id)
+    windstorm = resolved["5689560"]
+    assert [(p["region_code"], p["peril_code"],
+             p["event_rate_scheme"]["id"]) for p in windstorm["partitions"]] == [
+        ("NA", "WS", 577)]
+    assert windstorm["partitions"][0]["event_rate_scheme"]["name"] == (
+        "RMS 2023 Historical Event Rates")
+    assert [t["number"] for t in windstorm["treaties"]] == [
+        "XPR_1_100_Fld", "XPR_1_95_Fld"]
+
+    earthquake = resolved["5723351"]
+    assert earthquake["partitions"][0]["event_rate_scheme"]["id"] == 163
+    # the read succeeded and the analysis applied none (FR-012)
+    assert earthquake["treaties"] == []
+
+
+def test_one_failed_run_details_read_leaves_the_other_analyses_captured(
+        iteration2_db, fake_irp, drive):
+    _seed_two_captures(fake_irp)
+    fake_irp.raise_on_describe_run = {"5689560"}
+
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+
+    resolved = _resolved_by_irp_id(rdm_id)
+    assert resolved["5689560"] is None                       # blank, not error
+    assert resolved["5723351"]["partitions"]
+    # the metadata snapshot and the prune/insert transaction both stood
+    stored = execute("SELECT settings_metadata FROM irp_analysis WHERE "
+                     "rdm_id=:r AND irp_id='5689560'", {"r": rdm_id},
+                     connection="WORKBENCH")
+    assert json.loads(stored[0]["settings_metadata"])["engineType"] == "DLM"
+    head = _analyst_heads(rdm_id)
+    assert not head or head[0]["status_code"] == "succeeded"
+    job = execute(
+        "SELECT status_code, output_data FROM rwb_job "
+        "WHERE rwb_job_type='backfill_rdm_analyses' ORDER BY inserted_at",
+        {}, connection="WORKBENCH")[-1]
+    assert job["status_code"] == "succeeded"
+    assert json.loads(job["output_data"])["run_details_failures"] == 1
+
+
+def test_backfill_reads_a_broker_group_from_its_detail_property(
+        iteration2_db, fake_irp, drive):
+    # The INGP shape (5723350): isGroup false, but the detail carries
+    # eventRateSchemes, so its partitions come from the property (T-03).
+    fake_irp.add_analysis(
+        source_rdm_name="R", exposure_name="E1", analysis_id="5723350",
+        name="HU_US", metadata=detail("broker_group_ingp"),
+        run_details=captured_run("broker_group_ingp", fan_out=23))
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+
+    [partition] = _resolved_by_irp_id(rdm_id)["5723350"]["partitions"]
+    assert partition["event_rate_scheme"] == {
+        "id": 578, "name": "RMS 2023 Stochastic Event Rates"}
+    assert partition["simulation_set"] is None

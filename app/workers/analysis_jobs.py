@@ -76,7 +76,8 @@ def free_name_attempts(full_name: str, *, scope_column: str, scope_value: Any,
 
 
 def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
-                    execution_id: str, actor_id: str | None) -> dict:
+                    treaty_names: list[str], execution_id: str,
+                    actor_id: str | None) -> dict:
     """Resume-or-claim the ``irp_analysis`` row for one work unit
     ``(execution_id, portfolio, item_no)``. A row already claimed (crash between
     the claim and the submit record) is reused with its recorded name; otherwise
@@ -108,10 +109,13 @@ def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
                 ), {"id": analysis_id, "edm": edm_id, "portfolio": portfolio["id"],
                     "template": item["template_id"], "execution": execution_id,
                     "item_no": item["item_no"], "name": name, "full": full_name,
-                    # The plan item verbatim: the values this run is submitted
-                    # with, never re-read from analysis_template later — a template
-                    # edit must not change what a finished run reports.
-                    "submitted": json.dumps(item),
+                    # The plan item verbatim, plus the treaty names the batch
+                    # plan selected (spec 015 T-05): the values this run is
+                    # submitted with, never re-read from analysis_template or
+                    # irp_treaty later — a template or treaty edit must not
+                    # change what a finished run reports.
+                    "submitted": json.dumps(
+                        {**item, "treaty_names": list(treaty_names)}),
                     "now": now, "by": actor_id})
         except Exception as exc:  # noqa: BLE001 — a UNIQUE race means try the next suffix
             if is_unique_violation(exc):
@@ -135,6 +139,7 @@ def _submit_one(*, edm_id: str, edm_name: str, execution_id: str, portfolio: dic
         return "skipped"
 
     claimed = _claim_analysis(edm_id=edm_id, portfolio=portfolio, item=item,
+                              treaty_names=treaty_names,
                               execution_id=execution_id, actor_id=actor_id)
     submit_kwargs = {
         "edm_name": edm_name, "portfolio_name": portfolio["name"],
@@ -206,6 +211,93 @@ def execute_analysis_batch(rwb_job_id: str) -> None:
                     body=lambda: _execute_analysis_batch_body(rwb_job_id))
 
 
+# The detail properties Risk Modeler writes one entry into per region and peril
+# of a group: ``eventRateSchemes`` on an ELT group, ``simulationSets`` on a PLT
+# one (T-03). A detail carrying either is a group here, whatever isGroup says.
+_GROUP_PARTITION_KEYS = ("eventRateSchemes", "simulationSets")
+
+
+def _positive(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _partition_payload(*, region_code: Any, peril_code: Any, framework: Any,
+                       scheme_id: Any, scheme_name: Any, set_id: Any,
+                       set_name: Any, periods: Any) -> dict:
+    """One ``partitions`` entry of the ``resolved`` key. Both writers build
+    their entries here — a group from its detail property, an own or broker
+    analysis from the collapsed region facts — so the two never drift into
+    different shapes for the same field (#86)."""
+    return {
+        "region_code": region_code,
+        "peril_code": peril_code,
+        "framework": framework,
+        "event_rate_scheme": ({"id": scheme_id, "name": scheme_name or None}
+                              if _positive(scheme_id) else None),
+        "simulation_set": ({"id": set_id, "name": set_name or None,
+                            "periods": periods or None}
+                           if _positive(set_id) else None),
+    }
+
+
+def _group_partitions(detail: dict) -> list[dict] | None:
+    """A group's partitions, read from its own detail (T-03). Each property
+    value already names the scheme and the simulation set Risk Modeler resolved
+    for one region and peril, so no reference read is needed. ``None`` when the
+    detail carries neither property."""
+    for prop in detail.get("additionalProperties") or []:
+        if (not isinstance(prop, dict)
+                or prop.get("key") not in _GROUP_PARTITION_KEYS):
+            continue
+        values = [entry.get("value") for entry in prop.get("properties") or []
+                  if isinstance(entry, dict)]
+        partitions = [
+            _partition_payload(
+                region_code=v.get("regionCode"), peril_code=v.get("perilCode"),
+                framework=v.get("framework"),
+                scheme_id=v.get("eventRateSchemeId"),
+                scheme_name=v.get("eventRateSchemeName"),
+                set_id=v.get("simulationSetId"),
+                set_name=v.get("simulationSetName"),
+                periods=v.get("simulationPeriods"))
+            for v in values if isinstance(v, dict)]
+        return sorted(partitions,
+                      key=lambda p: (p["region_code"], p["peril_code"]))
+    return None
+
+
+def _resolved_payload(run: irp_gateway.ResolvedRun | None, *,
+                      partitions: list[dict] | None = None) -> dict:
+    """The workbench's ``resolved`` key inside ``settings_metadata``
+    (contracts/settings-metadata-resolved.md).
+
+    ``partitions`` replaces the run's own: a group's come from its detail and
+    the region facts the describe call returned for it are ignored (T-03).
+    ``run`` is ``None`` when that call failed, which leaves the ``treaties``
+    key out — an absent half is a half that failed, and ``treaties: []`` means
+    the analysis applied none (FR-012)."""
+    payload: dict[str, Any] = {}
+    if partitions is not None:
+        payload["partitions"] = partitions
+    elif run is not None:
+        payload["partitions"] = [
+            _partition_payload(
+                region_code=p.region_code, peril_code=p.peril_code,
+                framework=p.framework, scheme_id=p.event_rate_scheme_id,
+                scheme_name=p.event_rate_scheme_name,
+                set_id=p.simulation_set_id, set_name=p.simulation_set_name,
+                periods=p.periods)
+            for p in run.partitions]
+    if run is not None:
+        payload["treaties"] = [
+            {"id": t.treaty_id, "number": t.number, "name": t.name,
+             "currency": t.currency, "occurrence_limit": t.occurrence_limit,
+             "risk_limit": t.risk_limit, "attachment_point": t.attachment_point,
+             "retention_amount": t.retention_amount} for t in run.treaties]
+    payload["captured_at"] = _utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return payload
+
+
 def _fail_analysis(analysis_id: str, reason: str) -> runtime.JobResult:
     """End the analysis at ``error`` alongside the failed ``rwb_job``. Its
     ``irp_job`` already reads FINISHED, so leaving ``pending`` would keep the EDM
@@ -274,13 +366,28 @@ def _finalize_analysis_body(rwb_job_id: Any) -> runtime.JobResult:
                        "(analysisId=%s): %s", analysis_id, rm_id, exc)
         return _fail_analysis(analysis_id, f"analysis resolve failed: {exc}")
 
-    irp_app_analysis_id = (meta.payload or {}).get("appAnalysisId")
+    # A group takes its partitions from the detail already in hand; the
+    # describe call still runs for its treaties. A failed read leaves
+    # ``resolved`` absent and the row still reaches ``ready`` (FR-014).
+    partitions = _group_partitions(meta.payload or {})
+    try:
+        run = irp_gateway.describe_analysis_run(analysis_id=int(rm_id))
+    except Exception as exc:  # noqa: BLE001 — blank and continue (FR-014)
+        logger.warning("finalize_analysis: run details read failed for %s "
+                       "(analysisId=%s): %s", analysis_id, rm_id, exc)
+        run = None
+    payload = meta.payload or {}
+    if run is not None or partitions is not None:
+        payload = {**payload,
+                   "resolved": _resolved_payload(run, partitions=partitions)}
+
+    irp_app_analysis_id = payload.get("appAnalysisId")
     execute_command(
         "UPDATE irp_analysis SET irp_app_analysis_id = :app, "
         "settings_metadata = :sm, status_code = 'ready', updated_at = :now "
         "WHERE id = :id",
         {"app": (str(irp_app_analysis_id) if irp_app_analysis_id is not None else None),
-         "sm": (json.dumps(meta.payload) if meta.payload else None),
+         "sm": (json.dumps(payload) if payload else None),
          "now": _utcnow(), "id": analysis_id},
         connection="WORKBENCH")
     # Chain the results retrieval: the queue's UNIQUE key dedups, so a re-fired

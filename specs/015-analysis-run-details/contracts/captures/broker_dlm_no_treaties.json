@@ -1,0 +1,109 @@
+{
+ "_captured": "2026-09-11 via irp-integration 0.8.0 against the sandbox tenant",
+ "_analysis_id": 5723351,
+ "get_analysis_by_id": {
+  "analysisId": 5723351,
+  "appAnalysisId": 42164,
+  "analysisName": "EQ_HI_RES",
+  "createDate": "2024-03-27T10:02:10",
+  "sourceRdmName": "Broker-RDM",
+  "exposureName": "",
+  "exposureResourceId": 39,
+  "exposureResourceType": "PORTFOLIO",
+  "engineType": "DLM",
+  "engineVersion": "RL23",
+  "analysisFramework": "ELT",
+  "analysisType": "Exceedance Probability",
+  "analysisMode": "Distributed",
+  "isGroup": false,
+  "groupType": "ANLS",
+  "peril": "Earthquake",
+  "perilCode": "EQ",
+  "subPeril": "Fire + Shake + Sprinkler Leakage (EQSL)",
+  "region": "North America",
+  "regionCode": "NA",
+  "currency": {
+   "currencyName": "US Dollar",
+   "currencyCode": "USD"
+  },
+  "lossAmplification": "Building, Contents, BI",
+  "eventRateSchemeNames": [],
+  "simulationSetId": 0,
+  "simulationPeriods": 0,
+  "modelProfile": {
+   "id": 0,
+   "code": "",
+   "name": ""
+  },
+  "additionalProperties": [
+   {
+    "key": "exposure",
+    "properties": [
+     {
+      "id": 39,
+      "name": "",
+      "value": "TYXXYY_CoName_0726_25RDM"
+     }
+    ]
+   },
+   {
+    "key": "minimumLossThreshold",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": ""
+     }
+    ]
+   },
+   {
+    "key": "franchiseDeductible",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": ""
+     }
+    ]
+   },
+   {
+    "key": "unrecognizedConstructionOccupancyTypes",
+    "properties": [
+     {
+      "id": 0,
+      "name": "Treat As Unknown",
+      "value": 1
+     }
+    ]
+   },
+   {
+    "key": "dataVersion",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": ""
+     }
+    ]
+   }
+  ]
+ },
+ "get_regions": [
+  {
+   "_note": "51 rows in the live response, one per subRegion ['A1', 'AK', 'AL', 'AZ', 'C2', 'CA']\u2026; identical otherwise",
+   "region": "NA",
+   "subRegion": "N2",
+   "peril": "Earthquake",
+   "eventRateSchemeId": 163,
+   "framework": "ELT",
+   "analysisId": 5723351,
+   "modelProfileId": 0,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL23"
+  }
+ ],
+ "search_analysis_treaties_paginated": []
+}

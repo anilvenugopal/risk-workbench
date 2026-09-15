@@ -254,6 +254,88 @@ class AnalysisMetadata:
 
 
 @dataclass(frozen=True)
+class ResolvedPartition:
+    """One region and peril a run resolved on (spec 015, contracts/irp-gateway.md).
+    An ELT partition carries an event rate scheme, a PLT partition the PET it
+    simulated on and that PET's period count. ``*_name`` is ``None`` when the id
+    was read but reference data did not name it."""
+    region_code: str
+    peril_code: str
+    framework: str                  # ELT | PLT
+    event_rate_scheme_id: int | None = None
+    event_rate_scheme_name: str | None = None
+    simulation_set_id: int | None = None   # the PET id on a PLT partition
+    simulation_set_name: str | None = None
+    periods: int | None = None
+
+
+@dataclass(frozen=True)
+class AppliedTreaty:
+    """One treaty as one analysis applied it: the terms are the analysis-level
+    values, not the EDM's definition — a run in CAD against a USD treaty reports
+    CAD (spec 015 T-05)."""
+    treaty_id: int | None
+    number: str
+    name: str | None = None
+    currency: str | None = None
+    occurrence_limit: float | None = None
+    risk_limit: float | None = None
+    attachment_point: float | None = None
+    retention_amount: float | None = None
+
+
+@dataclass(frozen=True)
+class ResolvedRun:
+    """What one analysis resolved on, collapsed for storage under
+    ``settings_metadata.resolved``."""
+    partitions: tuple[ResolvedPartition, ...] = ()
+    treaties: tuple[AppliedTreaty, ...] = ()
+
+
+def collapse_run_description(description: Any) -> ResolvedRun:
+    """One package ``RunDescription`` as a ``ResolvedRun``.
+
+    The package returns one region fact per region row — 23 for a US hurricane
+    analysis, one per state — and leaves the collapse to the caller. Partitions
+    come out one per distinct (region, peril, framework), sorted by region then
+    peril; treaties one per treaty id, sorted by number (P-06, P-07). ``FakeIRP``
+    calls this too, so its seeds and the wheel's response reach the same
+    ``ResolvedRun``."""
+    names = dict(description.event_rate_scheme_names or {})
+    partitions: dict[tuple[str, str, str], ResolvedPartition] = {}
+    for fact in description.regions or ():
+        key = (fact.region_code, fact.peril_code, fact.framework)
+        if key in partitions:
+            continue
+        partitions[key] = ResolvedPartition(
+            region_code=fact.region_code, peril_code=fact.peril_code,
+            framework=fact.framework,
+            event_rate_scheme_id=fact.event_rate_scheme_id,
+            event_rate_scheme_name=names.get(fact.event_rate_scheme_id),
+            simulation_set_id=fact.pet_id,
+            simulation_set_name=fact.pet_name,
+            periods=fact.periods)
+    treaties: dict[Any, AppliedTreaty] = {}
+    for treaty in description.treaties or ():
+        terms = treaty.terms or {}
+        key = (treaty.treaty_id if treaty.treaty_id is not None
+               else treaty.treaty_number)
+        if key in treaties:
+            continue
+        treaties[key] = AppliedTreaty(
+            treaty_id=treaty.treaty_id, number=treaty.treaty_number,
+            name=treaty.treaty_name, currency=terms.get("currency"),
+            occurrence_limit=terms.get("occurrenceLimit"),
+            risk_limit=terms.get("riskLimit"),
+            attachment_point=terms.get("attachmentPoint"),
+            retention_amount=terms.get("retentionAmount"))
+    return ResolvedRun(
+        partitions=tuple(sorted(partitions.values(),
+                                key=lambda p: (p.region_code, p.peril_code))),
+        treaties=tuple(sorted(treaties.values(), key=lambda t: t.number)))
+
+
+@dataclass(frozen=True)
 class ModelProfileEntry:
     irp_id: int
     name: str
@@ -349,6 +431,8 @@ class IRPGateway(Protocol):
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]: ...
 
     def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata: ...
+
+    def describe_analysis_run(self, *, analysis_id: int) -> ResolvedRun: ...
 
     def list_model_profiles(self) -> list[ModelProfileEntry]: ...
 
@@ -975,6 +1059,15 @@ class _RealGateway:
             exposure_resource_type=payload.get("exposureResourceType"),
             is_group=is_group)
 
+    def describe_analysis_run(self, *, analysis_id: int) -> ResolvedRun:
+        # What the run resolved on (spec 015 T-06): the package reads the
+        # analysis, its region rows, its applied treaties and the reference
+        # lists that name the schemes and PETs; the collapse to one partition
+        # per region and peril is ours. Worker-only (Article 11) — it costs
+        # several Risk Modeler reads.
+        return collapse_run_description(
+            self._client().analysis.describe_run(analysis_id))
+
     # ── single-status checks (Article 11 — never poll_*_to_completion) ────────────
 
     def get_import_job(self, irp_id: str) -> JobStatus:
@@ -1341,6 +1434,10 @@ def search_treaties(*, edm_irp_id: int) -> list[TreatyDetail]:
 
 def get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata:
     return _active().get_analysis_metadata(analysis_id=analysis_id)
+
+
+def describe_analysis_run(*, analysis_id: int) -> ResolvedRun:
+    return _active().describe_analysis_run(analysis_id=analysis_id)
 
 
 def list_model_profiles() -> list[ModelProfileEntry]:

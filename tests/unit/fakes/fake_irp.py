@@ -17,6 +17,8 @@ Name-collision hits are seeded via ``add_edm_name`` / ``add_rdm_name``.
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.services.irp_gateway import (
     AnalysisHit,
     AnalysisMetadata,
@@ -41,9 +43,11 @@ from app.services.irp_gateway import (
     ModelProfileEntry,
     OutputProfileEntry,
     PortfolioHit,
+    ResolvedRun,
     SubmitResult,
     SubPortfolioResult,
     TreatyDetail,
+    collapse_run_description,
 )
 
 # The real RM /metrics payload shape (confirmed in sandbox 2026-07-23, data-model §2)
@@ -233,6 +237,12 @@ class FakeIRP:
         # irp_id -> forced IRPIntegrationError on delete_analysis (per-id,
         # mirrors raise_on_submit_analysis_for)
         self.raise_on_delete_analysis: set[str] = set()
+        # analysis_id -> the run description describe_analysis_run collapses;
+        # analysis ids whose describe read raises instead (spec 015 FR-014)
+        self.raise_on_describe_run: set[str] = set()
+        # recorded describe_analysis_run analysis ids, in order — the FR-013
+        # assertion that expanding a row calls nothing counts these
+        self.describe_run_calls: list[str] = []
         # ── spec-011 result reads (worker-only) ──────────────────────────────
         # (analysis_id, perspective_code) -> {"stats": [...], "ep": [...]};
         # unseeded pairs fall back to _DEFAULT_RESULT_PERSPECTIVES
@@ -301,21 +311,30 @@ class FakeIRP:
                      exposure_resource_id: str | None = None,
                      exposure_resource_type: str | None = None,
                      is_group: bool = False,
-                     metadata: dict | None = None) -> None:
+                     metadata: dict | None = None,
+                     run_details: Any = None) -> None:
         """Seed an analysis discoverable by ``search_analyses`` for this (RDM, EDM)
         pair — the backfill worker captures it as an ``irp_analysis`` row (D2).
 
         Spec 004 (R9): optionally carries RM's exposure pointer — seed
         ``exposure_resource_type="PORTFOLIO"`` for a linkable analysis, ``GROUP``/
         another type or no pointer for the group / non-portfolio / unresolvable
-        paths — plus ``is_group`` and a ``metadata`` settings payload."""
+        paths — plus ``is_group`` and a ``metadata`` settings payload.
+
+        Spec 015: ``run_details`` is the run description the package's
+        ``describe_run`` returns for the analysis — region facts, scheme names
+        and applied treaties (``run_details_fixtures.captured_run``).
+        ``describe_analysis_run`` collapses it through the gateway's own
+        ``collapse_run_description``, so the fake and the wheel reach the same
+        ``ResolvedRun``."""
         self._analyses.append({
             "analysis_id": str(analysis_id), "name": name,
             "source_rdm_name": source_rdm_name, "exposure_name": exposure_name,
             "exposure_resource_id": (str(exposure_resource_id)
                                      if exposure_resource_id is not None else None),
             "exposure_resource_type": exposure_resource_type,
-            "is_group": is_group, "metadata": metadata})
+            "is_group": is_group, "metadata": metadata,
+            "run_details": run_details})
 
     def add_portfolio(self, *, edm_exposure_id: str | int, irp_id: str | int,
                       name: str, exposure: dict | None = None,
@@ -516,6 +535,16 @@ class FakeIRP:
                     exposure_resource_type=a.get("exposure_resource_type"),
                     is_group=bool(a.get("is_group")))
         return AnalysisMetadata()
+
+    def describe_analysis_run(self, *, analysis_id: int) -> ResolvedRun:
+        self.describe_run_calls.append(str(analysis_id))
+        if str(analysis_id) in self.raise_on_describe_run:
+            raise RuntimeError(
+                f"fake IRP: forced describe-run failure for {analysis_id}")
+        for a in self._analyses:
+            if a["analysis_id"] == str(analysis_id) and a.get("run_details"):
+                return collapse_run_description(a["run_details"])
+        return ResolvedRun()
 
     # ── spec-005 breakout composition (mirrors the gateway) ─────────────────────
 

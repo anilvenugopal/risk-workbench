@@ -474,6 +474,29 @@ class TestCompareModalRoutes:
         assert "Broker Analysis" in resp.text
         assert "Acme RDM" in resp.text
 
+    def test_metadata_line_reports_what_each_run_resolved_on(self, monkeypatch):
+        # FR-017/P-05: the line shows the resolved summary the expanded row
+        # shows; a row captured before the change says so in words.
+        from app.services.analysis_service import ComparableAnalysis, _resolved_view
+        from tests.unit.run_details_fixtures import settings_metadata
+
+        scheme = _resolved_view(
+            settings_metadata("broker_dlm", fan_out=23)).summary
+        rows = [
+            ComparableAnalysis(id=AN_A, name="Broker Analysis",
+                               rdm_name="Acme RDM", run_currency="USD",
+                               results_state="ready", run_details=scheme),
+            ComparableAnalysis(id=AN_B, name="Old Capture", rdm_name=None,
+                               run_currency="USD", results_state="ready"),
+        ]
+        client, _ = self._client(monkeypatch, rows)
+
+        resp = client.get(f"/submissions/{SUB_ID}/analyses/compare")
+
+        assert "RMS 2023 Historical Event Rates" in resp.text
+        assert "run details not returned" in resp.text
+        assert "scheme not returned" not in resp.text
+
     def test_gone_scope_renders_the_notice(self, monkeypatch):
         client, _ = self._client(monkeypatch, None)
 
