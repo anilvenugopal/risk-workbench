@@ -17,23 +17,18 @@ Everything not named here is unchanged.
 
 ## 2. Exports section (014 §5)
 
-- The count column is headed **Data sets** and holds the export's manifest
-  rows (one per analysis, or one per treaty per analysis at TY).
-- An expanded row's analysis line shows the treaty after the analysis name:
-  `{analysis} · {treaty_number}` (`· {treaty_name}` appended when it differs).
-- Close posts to §4.
-
-## 3. Export detail page and analysis table (014 §6)
-
-- Header badge: "{n} data set(s)".
-- Column order: analysis name, **Treaty** (the label above, `—` for a
-  portfolio row or a TY row whose table has not been read; `title` holds the
-  treaty IDs), origin, status, and the 014 columns unchanged.
+- A row is one manifest row: an analysis at a portfolio-level perspective, or
+  one treaty of an analysis at TY. An analysis at TY therefore occupies several
+  rows of its export, ordered by treaty number then treaty name.
+- A **Treaty** column follows the analysis name and holds `{treaty_number}`
+  (`· {treaty_name}` appended when it differs), `—` for a portfolio row or a TY
+  row whose loss table has not been read; its `title` holds the treaty IDs.
 - The AAL cell of a TY row is the row's `aal`; other rows keep the
   `loss_results` value.
-- Retry and Close post to §4.
+- The row's DOM id is `export-analysis-{export_id}-{manifest_id}`.
+- Retry and Close post to §3.
 
-## 4. Retry and Close
+## 3. Retry and Close
 
 ```
 POST /submissions/{submission_id}/exports/{export_id}/manifests/{manifest_id}/retry

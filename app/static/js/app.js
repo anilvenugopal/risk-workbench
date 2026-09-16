@@ -1337,9 +1337,10 @@ document.addEventListener('htmx:afterSwap', () => {
 // the clipboard, so a paste lands in Excel as columns. Cell values come from
 // data-value where a cell carries one (the raw stored number, the UTC
 // timestamp), textContent otherwise — no server round trip, no recomputation
-// of stored numbers. The checkbox column is skipped; group divider rows carry
-// no data cells and are skipped by the .drow selector. Delegated from the
-// document: the button arrives with every 3s section swap.
+// of stored numbers. The checkbox column of a selectable table is skipped;
+// group divider rows carry no data cells and are skipped by the row selector;
+// a row's trailing error and closed lines are not cells. Delegated from the
+// document: the button arrives with every section swap.
 function tableToTsv(dtable) {
   const cellValue = (cell) => {
     const holder = cell.hasAttribute('data-value')
@@ -1348,13 +1349,14 @@ function tableToTsv(dtable) {
     return (value !== null ? value : cell.textContent.trim())
       .replace(/\s+/g, ' ');
   };
+  const skip = dtable.classList.contains('dtable--selectable') ? 1 : 0;
+  const cells = (row) => [...row.querySelectorAll(':scope > span')]
+    .slice(skip).map(cellValue);
   const rows = [];
   const head = dtable.querySelector('.dtable__head');
-  if (head) {
-    rows.push([...head.children].slice(1).map(cellValue));
-  }
-  dtable.querySelectorAll('.drow > summary').forEach((summary) => {
-    rows.push([...summary.children].slice(1).map(cellValue));
+  if (head) rows.push(cells(head));
+  dtable.querySelectorAll('.drow > summary, .drow-static').forEach((row) => {
+    rows.push(cells(row));
   });
   return rows.map((r) => r.join('\t')).join('\n');
 }

@@ -13,7 +13,13 @@ from app.poller import run as poller
 from app.services import export_service as svc
 from app.workers import export_jobs
 from db import execute, execute_command, execute_one
-from tests.unit.export_rows import seed_analysis, seed_client, seed_edm_for, seed_submission
+from tests.unit.export_rows import (
+    seed_analysis,
+    seed_client,
+    seed_edm_for,
+    seed_lookup_versions,
+    seed_submission,
+)
 
 
 @pytest.fixture()
@@ -23,10 +29,11 @@ def submitted(iteration2_db, loss_db, fake_irp):
     edm_id = seed_edm_for(submission_id)
     a = seed_analysis(edm_id=edm_id, irp_id="41958", irp_app_analysis_id="41958")
     seed_client()
+    seed_lookup_versions("25.0")
     export_id = svc.create_export(
         submission_id=submission_id, user_email="analyst.a@example.com", analysis_ids=[a],
         perspective_code="GR", client_id=1, treaty_incept=date(2026, 4, 1), crm_id=None,
-        data_vintage=date(2025, 12, 31))
+        data_vintage=date(2025, 12, 31), model_version="25.0")
     export_jobs.run_pending(worker_id="w1")
     job = execute_one("SELECT id, irp_id FROM irp_job WHERE irp_job_type = 'export'", {},
                       connection="WORKBENCH")

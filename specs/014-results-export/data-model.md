@@ -18,7 +18,7 @@ target column reads it.
 
 | Column | Type | Source | Read by |
 |---|---|---|---|
-| `export_id` | `Uuid`, nullable, no FK, index `ix_irp_job_export_id` | `submit_results_export` worker, on each `export` job it inserts | Poller terminal handler (passes it into the stage job's `input_data`); the submit worker, to reuse a job a crashed run already recorded; a DBA tracing an export's Risk Modeler jobs (FR-023; the detail page does not list them) |
+| `export_id` | `Uuid`, nullable, no FK, index `ix_irp_job_export_id` | `submit_results_export` worker, on each `export` job it inserts | Poller terminal handler (passes it into the stage job's `input_data`); the submit worker, to reuse a job a crashed run already recorded; a DBA tracing an export's Risk Modeler jobs (FR-023; the exports table does not list them) |
 
 Existing `irp_job` columns an `export` job uses: `irp_job_type = 'export'`
 (seed exists), `irp_id` (Risk Modeler export job ID), `irp_analysis_id`,
@@ -71,10 +71,10 @@ AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 | Column | Type | Source | Read by |
 |---|---|---|---|
 | `manifest_id` | `INT IDENTITY` PK | — | Child tables; load job `input_data`; procedure parameter |
-| `export_id` | `UNIQUEIDENTIFIER` NOT NULL | Route on submit | Exports section and detail page (group key); `rwb_job.requestor_id` of the submit job; `irp_job.export_id` |
+| `export_id` | `UNIQUEIDENTIFIER` NOT NULL | Route on submit | Exports table (ordinal and rule); `rwb_job.requestor_id` of the submit job; `irp_job.export_id` |
 | `requested_by_email` | `NVARCHAR(255)` NOT NULL | `app_user.email` of the session user | Exports section; DBA traceability |
 | `requested_at` | `DATETIME2` NOT NULL | Submit time | Exports section |
-| `requested_from_submission_id` | `UNIQUEIDENTIFIER` NOT NULL, no FK (the submission lives in `WORKBENCH`, T-29) | Route: the submission whose export form was submitted (spec P-16) | Exports section filter; detail page and Retry (404 when the export was not requested from the page's submission); the exported mark's link on another submission's form |
+| `requested_from_submission_id` | `UNIQUEIDENTIFIER` NOT NULL, no FK (the submission lives in `WORKBENCH`, T-29) | Route: the submission whose export form was submitted (spec P-16) | Exports table filter; Retry and Close (404 when the export was not requested from the page's submission); the exported mark's link on another submission's form |
 | `irp_analysis_id` | `UNIQUEIDENTIFIER` NOT NULL | `irp_analysis.id` | Detail page; worker row lookup with `export_id` |
 | `irp_analysis_irp_id` | `NVARCHAR(64)` | `irp_analysis.irp_id` | Traceability to Risk Modeler; the submit worker's `analysis_id` argument |
 | `irp_app_analysis_id` | `INT` NOT NULL | `irp_analysis.irp_app_analysis_id` cast on submit (form rejects non-integers) | `Data.AnalysisID`; the form's repeat-export warning; checked against `metadata.csv` `AnlsId` |
@@ -94,7 +94,7 @@ AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 | `irp_export_job_id` | `NVARCHAR(64)` NULL | Submit worker | Retry decision; traceability |
 | `loss_table_type` | `VARCHAR(3)` NULL, CHECK `('ELT','PLT')` | Stage worker, archive folder name | Stage table and procedure selection |
 | `engine_type` | `VARCHAR(5)` NULL, CHECK `('DLM','HD','GROUP')` | Stage worker, `metadata.csv` `Engine Type` | Detail page; O-08 |
-| `data_model_version` | `NVARCHAR(10)` NULL | Stage worker, `metadata.csv` `ModelVersion`, reduced to the decimal form when Risk Modeler writes a build number (`23.0.2250.1` → `23.0`) | `Data.DataModelVersion`; lookup join and assertion |
+| `data_model_version` | `NVARCHAR(10)` NULL | Form: the export's model version, one of the lookup's distinct `ModelVersion` values (`25.0`), default newest (spec P-25) | `Data.DataModelVersion`; lookup join and assertion |
 | `peril_code` | `NVARCHAR(10)` NULL | `settings_metadata` `perilCode` on submit | Detail page; traceability (not part of the lookup join, R4) |
 | `region_code` | `NVARCHAR(10)` NULL | `settings_metadata` `regionCode` | Detail page; traceability |
 | `zip_file` | `NVARCHAR(1024)` NULL | Stage worker after download: `{export_id}/{irp_analysis_id}/{filename}` relative to `EXPORT_ARCHIVE_DIR` | Stage worker reuse; Retry |
@@ -103,7 +103,7 @@ AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 | `load_status` | `VARCHAR(10)` NOT NULL, CHECK `('pending','loading','loaded','failed')` | Route (`pending`); procedure (`loading` claim, `loaded` at commit, `failed` in CATCH); load worker (`failed` when the call raises early) | Detail page; procedure claim; load entry check |
 | `loaded_at` | `DATETIME2` NULL | Procedure | Detail page |
 | `error_message` | `NVARCHAR(MAX)` NULL | Worker or procedure | Detail page |
-| `data_id` | `INT` NULL | Procedure, `OUTPUT INSERTED.DataID` | `RMSELT.DataID`, `RMS_HistoricalRDS.DataID`; detail page |
+| `data_id` | `INT` NULL | Procedure, `OUTPUT INSERTED.DataID` | `RMSELT.DataID`, `RMS_HistoricalRDS.DataID`; exports table |
 | `staged_row_count` | `INT` NULL | Stage worker, sum of file `row_count` | Detail page |
 | `stochastic_row_count` | `INT` NULL | Procedure | Detail page |
 | `historical_row_count` | `INT` NULL | Procedure | Detail page |
@@ -185,7 +185,7 @@ Until built, the stage worker fails an archive whose loss-table folder is
 | `DataVintage` | `manifest.data_vintage` |
 | `DataName` | `manifest.data_name` |
 | `DataModelVendor` | `RMS` |
-| `DataModelVersion` | `manifest.data_model_version` (`25`, the whole number; T-33) |
+| `DataModelVersion` | `manifest.data_model_version` (`25.0`, the form the lookup holds; spec P-26) |
 | `DataCurrency` | `manifest.data_currency` |
 | `Server` | `manifest.server` |
 | `Database` | `manifest.database` |
@@ -232,7 +232,7 @@ server's code page arrives as `?` with no error. CIC owns those columns.
 `dbo.Lookup_RMS_HistoricalRDS` from
 `db/bootstrap/seed/lookup_rms_historical_rds.csv`: CIC's own export of the
 table (`cic-reference/Lookup_RMS_HistoricalRDS.xlsx`), 2,589 rows, every one
-`ModelVersion` `25`, `Peril` in `HU`/`EQ`/`WT`, `Type` `HIST` or `RDS`
+`ModelVersion` `25.0`, `Peril` in `HU`/`EQ`/`WT`, `Type` `HIST` or `RDS`
 (T-30, research R16). The CSV is the sheet saved by hand, columns in DDL order, each cell as
 written except `PCS#` `NULL`, which is blank and loads as SQL `NULL`. Never run against production; the
 script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
@@ -248,20 +248,20 @@ script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 | `perspectives` | `loss_results.perspectives` keys | Intersection input |
 | `peril_code`, `region_code`, `currency` | `_parse_settings(settings_metadata)` | Recorded on the manifest; `currency` is checked against the archive at stage |
 | `aal` | `loss_results.perspectives[code].aal` | `aal_display(code)` formats it with `analysis_service.fmt_loss`; shown on the cart row once a perspective is chosen (spec P-20) |
-| `exported` | The newest manifest row for (`irp_app_analysis_id`, chosen perspective), from any submission | When set: `requested_at`, `requested_by_email`, derived status, `earlier_count` (every such row), and `export_id` + `requested_from_submission_id` for the link to that export's detail page. A warning only — the row stays tickable and the export proceeds (spec P-17) |
+| `exported` | The newest manifest row for (`irp_app_analysis_id`, chosen perspective), from any submission | When set: `requested_at`, `requested_by_email`, derived status, `earlier_count` (every such row), and `requested_from_submission_id` for the link to that submission's exports table. A warning only — the row stays tickable and the export proceeds (spec P-17) |
 
-### ExportSummary — one exports-section row
+### ExportAnalysisDetail — one exports-table row
 
-`export_id`, `perspective_code`, `requested_by_email`, `requested_at`,
-`client_name` (join `dbo.Client`), `crm_id`, `analysis_count`, `loaded_count`,
-`failed_count`, `closed_count` — grouped from the manifest rows whose
-`requested_from_submission_id` is the page's submission (spec P-16), newest
-first. `loaded_count` and `failed_count` are also what the section's status
-filter selects on (spec P-21); a closed analysis counts in neither.
-
-### ExportAnalysisDetail — one detail-page row
-
-Manifest columns, plus `origin` (own, broker, or group) and `aal` — both read from the `irp_analysis` row over `WORKBENCH` by `manifest.irp_analysis_id`, `aal` from `loss_results.perspectives[manifest.perspective_code].aal` at render time and formatted by `aal_display` (spec P-20) — plus a derived `status`. The manifest row decides it alone; the `export` `irp_job` is not read:
+`list_export_rows(submission_id)` returns one per manifest row whose
+`requested_from_submission_id` is the page's submission (spec P-16), ordered
+newest export first (`requested_at DESC, export_id`, then analysis name).
+Manifest columns, plus `export_ordinal` (1 for the newest export, counted over
+the unfiltered list), `client_name` (join `dbo.Client`), and `origin` (own,
+broker, or group) and `aal` — both read from the `irp_analysis` row over
+`WORKBENCH` by `manifest.irp_analysis_id`, `aal` from
+`loss_results.perspectives[manifest.perspective_code].aal` at render time and
+formatted by `aal_display` (spec P-20) — plus a derived `status`. The
+manifest row decides it alone; the `export` `irp_job` is not read:
 
 | Condition | Displayed status |
 |---|---|

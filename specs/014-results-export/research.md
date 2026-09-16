@@ -221,7 +221,7 @@ fails the load through the one-match assertion.
 **Decision**: Where `loss > exp_value`, set `exp_value = loss` and flag the
 row; where `std_dev_i < 0` or `std_dev_c < 0` on a stochastic row, set the
 negative value to 0 and flag the row. Loss is never altered. Counts land on
-the manifest and the export detail page.
+the manifest and the exports table.
 
 **Rationale**: Note 24 D12–D15. Cheryl's condition for automatic correction
 was "I would want to know that it's happening"; Wendy's was that the summary
@@ -385,7 +385,7 @@ cross servers, so the constraint would be advisory. Rejected.
 ## R10 — Page reads of the manifest use a dialect-aware `READUNCOMMITTED` hint because RCSI is off (T-25)
 
 **Decision**: every request-path read of `stage.rwb_loss_result_manifest`
-(duplicate check, exports table, export detail page) appends the table hint
+(duplicate check, exports table) appends the table hint
 returned by a new `db.read_uncommitted_hint(connection)`: `WITH
 (READUNCOMMITTED)` on SQL Server, empty on SQLite. The helper follows
 `db.row_limit` (`db/execute.py:81`), which already branches on dialect.
@@ -393,7 +393,7 @@ returned by a new `db.read_uncommitted_hint(connection)`: `WITH
 **Rationale**: the load procedure holds an exclusive lock on the manifest
 row from the claim to the commit, which can be minutes for a large analysis.
 Under plain `READ COMMITTED`, the SQL Server default for an on-premises
-database, the export detail page would wait for the commit. A dirty read of
+database, the exports table would wait for the commit. A dirty read of
 one status row costs nothing; the unique index, not the read, is what stops a
 duplicate. A raw hint in the SQL would break every unit test, which runs the
 same queries over SQLite (R14).
@@ -405,15 +405,18 @@ wait on the load's row lock, so the hint is required, not precautionary.
 
 ## R11 — Export form and export detail are pages; the exports table is a section (T-26)
 
+The export detail page was removed 2026-09-15 (note 30 D1): the exports
+section is the one export status screen, one flat row per analysis with the
+export's columns repeated (clarifications 2026-09-16).
+
 **Decision**: the export form is a page at
 `/submissions/{submission_id}/exports/new`, reached from an **Export** button
 in the analyses section's summary bar beside Compare and View; the exports
-table is a section on the submission page below the analyses; the export
-detail page is `/submissions/{submission_id}/exports/{export_id}`. Each page
-is one hidden nav node under `submissions`, one handler, one template
+table is a section on the submission page below the analyses. The form is
+one hidden nav node under `submissions`, one handler, one template
 (Article 1). Ticking analyses re-renders the perspective select, the
 per-analysis data-name fields, and the exported marks over HTMX. Retry is an
-`hx-post` on the detail page that re-renders the analysis row.
+`hx-post` that re-renders the section.
 
 **Rationale**:
 
@@ -601,7 +604,7 @@ ModelVersion` — the DDL's column order.
 | `Type` | `HIST` 2,578, `RDS` 11 |
 | `Name` | ≤ 40 characters, ASCII, no newlines; 92 rows carry leading or trailing spaces |
 | `PCS#` | The literal `NULL` on 2,436 rows; a number on 142 (115 four-digit, 27 three-digit, none zero-padded); the literal `N/A` on the 11 `RDS` rows |
-| `ModelVersion` | `25` on every row — the whole number, not `25.0` |
+| `ModelVersion` | `25.0` on every row (the 2026-09-14 profile read `25` from a CSV that had lost the type; corrected 2026-09-15 against CIC's DDL, `nvarchar(10)` holding `25.0`, note 30 D11) |
 
 `N/A` on the `RDS` rows is content, which makes the 2,436 `NULL` strings the
 export tool's null marker. `CatYear = 0` and `PCS# = 'N/A'` land together on
@@ -614,7 +617,7 @@ and `PCS#` at up to 4 both fit `RMS_HistoricalRDS`'s `VARCHAR(5)` targets.
   CSV by hand, every row in CIC's order and the header as in the sheet: the
   2,436 literal `NULL` cells in `PCS#` blanked (SQL `NULL` in
   `bootstrap_loss.py`), and nothing else touched — the `N/A` cells, the
-  spaces in `Name`, `CatYear` `0`, `ModelVersion` `25`, and both `15000012`
+  spaces in `Name`, `CatYear` `0`, `ModelVersion` `25.0`, and both `15000012`
   rows stay as written. LF line endings. No conversion script: the lookup
   is static (design note 23 D26), so a refresh is a one-off, and a saved
   xlsx shows no `git diff`, so the CSV diff is the review.
@@ -651,12 +654,10 @@ Modeler 2.55.0; the R6 archives were our own analyses on 2.54.1):
 
 A group analysis reports `GROUP`, a third engine type (`irp_integration`
 identifies a group the same way). A broker analysis reports a build number
-where R6's archives held `25.0`. CIC's lookup holds `25` (R16), and the
-procedure compares `ModelVersion` to `manifest.data_model_version` by string
-equality, so the stage worker keeps the whole number: `25.0` → `25`,
-`25.0.2450.0` → `25`, `23.0.2250.1` → `23`; a non-numeric form such as
-`HDv2.1` passes through (T-33). `EDMName`, `ExposureName`, `ModelProfile`,
-`Cedant`, and `Hazard Version` are all `Unavailable` in these archives.
+where R6's archives held `25.0`. Neither form reaches the repository: the
+export's model version is chosen on the form (R19). `EDMName`,
+`ExposureName`, `ModelProfile`, `Cedant`, and `Hazard Version` are all
+`Unavailable` in these archives.
 
 Each of Moody's historical storms is in `EVENT.csv.gz` twice: once typed
 `HIST`, once typed `STOC`, same `EVENTNAME` and model region. 1,443 of 1,444
@@ -706,7 +707,52 @@ table ships one numbered script in `db/bootstrap/changes/`;
 `stage.rwb_loss_schema_version` records what has been applied, so both the DBA
 and the stage worker can tell which version a repository is at (T048–T050).
 
+## R19 — The export chooses the model version; options come from the lookup (D11–D14)
+
+**Evidence** (design session 2026-09-15, note 30): the export ran against
+CIC's real lookup for the first time. Two RiskLink 23 analyses loaded with
+zero historical rows and no complaint, because the lookup carries only
+`25.0` (P-24 hides the miss by design). CIC does not rerun an analysis to
+relabel it — Cheryl: "I'll just call it 25" — so the version the loss rows
+are classified under is the analyst's call, not the archive's. CIC's DDL for
+`Lookup_RMS_HistoricalRDS.ModelVersion` is `nvarchar(10)` holding `25.0`;
+the `25` of R16's 2026-09-14 profile came from a CSV hand-off that had
+dropped the type, and the seed was reset to `25.0` on 2026-09-15 (D11). The
+value is the RiskLink engine version, distinct from the model profile's data
+version (`18.1`; the 9/11 session and O-14).
+
+**Decision** (spec P-25, P-26; plan T-35): the export form carries one
+required model version for every analysis in the export, listing
+`SELECT DISTINCT ModelVersion FROM dbo.Lookup_RMS_HistoricalRDS` over `LOSS`
+at form time, newest numeric first, default the first. `create_export`
+writes it to `manifest.data_model_version` at submit; the procedure's header
+insert, lookup join, and historical-row insert read it from there unchanged.
+The stage worker stops reading the archive's `ModelVersion`; the archive's
+value is not recorded anywhere.
+
+**Alternatives rejected**:
+
+- *An environment variable listing the versions* — can offer a version the
+  lookup lacks, which loads silently with zero historical rows, the failure
+  the override exists to close.
+- *A model version per analysis* — D13: one export is one client, one
+  perspective, one vintage; the version belongs with those.
+- *Record the archive's version in a second column beside the chosen one* —
+  user 2026-09-16: nothing reads it, and the exports table shows the engine
+  type already.
+- *Keep the worker's whole-number reduction and reseed the lookup as `25`*
+  (T-33) — the seed would stop being CIC's table, and CIC's own column holds
+  `25.0`.
+
 ## Clarifications
+
+### Session 2026-09-16
+
+- Q: The 2026-09-15 session raised the export callouts (D1–D14), a submission status split, CRM-ID-grained dates, a treaty-type seed, and search. What is in this branch? → A: The export callouts only (D1–D14). Submission status, CRM-ID-grained dates, the treaty-type seed, and search are separate specs.
+- Q: Where do the model version options come from, and what is the default? → A: `SELECT DISTINCT ModelVersion FROM dbo.Lookup_RMS_HistoricalRDS` over `LOSS` at form time; the default is the highest numeric value. No environment variable (R19).
+- Q: Does the chosen version replace the archive's value everywhere, or sit beside it? → A: Replaces it everywhere: `manifest.data_model_version` at submit, `Data.DataModelVersion`, the lookup join, `RMS_HistoricalRDS.ModelVersion`. The archive's own `ModelVersion` is not recorded; the worker's `_model_version` is deleted, not reverted (P-25).
+- Q: What is the field called, and what does it mean? → A: "Model version" on the form. The spec defines it once: the RiskLink engine version in the form the lookup holds (`25.0`), distinct from the model profile's data version (`18.1`) (P-26).
+- Q: How do the two export screens become one? → A: One flat table on the submission page, one row per analysis; every row repeats the export columns; an Export column shows an ordinal (#1 newest); a thicker top border separates exports. No divider rows, no expand, no detail page (P-22 revised, FR-017).
 
 ### Session 2026-09-09
 

@@ -29,6 +29,7 @@ from tests.unit.export_rows import (
     seed_analysis,
     seed_client,
     seed_edm_for,
+    seed_lookup_versions,
     seed_manifest,
     seed_submission,
 )
@@ -89,6 +90,7 @@ def deal(iteration2_db, loss_db):
     c = seed_analysis(edm_id=edm_id, name="C", full_name="C long", irp_id="41960",
                       irp_app_analysis_id="41960", perspectives=("GU", "GR"), treaties=TREATIES)
     seed_client(1, "Example Re")
+    seed_lookup_versions("25.0")
     return {"submission_id": submission_id, "edm_id": edm_id, "a": a, "c": c}
 
 
@@ -96,7 +98,7 @@ def _create(deal, analysis_ids, perspective="TY", **overrides):
     kwargs = dict(submission_id=deal["submission_id"], user_email="analyst.a@example.com",
                   analysis_ids=analysis_ids, perspective_code=perspective, client_id=1,
                   treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
-                  data_vintage=date(2025, 12, 31), data_names=None)
+                  data_vintage=date(2025, 12, 31), model_version="25.0", data_names=None)
     kwargs.update(overrides)
     return svc.create_export(**kwargs)
 
@@ -121,7 +123,7 @@ def test_create_export_refuses_ty_for_an_analysis_without_treaties(deal):
     assert [(r["perspective_code"], r["treaty_number"]) for r in rows] == [("TY", None)]
 
 
-def test_detail_rows_carry_the_treaty_and_its_own_aal_at_ty(deal):
+def test_export_rows_carry_the_treaty_and_its_own_aal_at_ty(deal):
     export_id = str(uuid.uuid4())
     seed_manifest(export_id=export_id, submission_id=deal["submission_id"],
                   irp_analysis_id=deal["c"], perspective_code="TY", stage_status="staged",
@@ -131,13 +133,12 @@ def test_detail_rows_carry_the_treaty_and_its_own_aal_at_ty(deal):
                   irp_analysis_id=deal["c"], perspective_code="TY", stage_status="staged",
                   load_status="loaded", data_id=8, treaty_number="PR1", treaty_name="PR1")
 
-    detail = svc.get_export_detail(deal["submission_id"], export_id)
+    rows = svc.list_export_rows(deal["submission_id"])
 
-    assert [a.treaty_label for a in detail.analyses] == ["PR1", "PR2 · Layer two"]
-    second = detail.analyses[1]
+    assert [r.treaty_label for r in rows] == ["PR1", "PR2 · Layer two"]
+    second = rows[1]
     assert second.treaty_ids == ["33832", "44832"] and second.aal == 0.61
-    assert detail.analyses[0].aal is None  # the row's own value, never the analysis's
-    assert svc.list_exports(deal["submission_id"])[0].data_set_count == 2
+    assert rows[0].aal is None  # the row's own value, never the analysis's
 
 
 def test_find_exported_counts_one_export_for_two_treaty_rows(deal):
@@ -238,8 +239,9 @@ def test_ty_archive_splits_into_one_staged_row_per_treaty(ty_staging):
     for row in rows:
         assert row["stage_status"] == "staged" and row["load_status"] == "pending"
         assert row["perspective_code"] == "TY" and row["error_message"] is None
+        # the model version is the export's choice, not the archive's
         assert (row["loss_table_type"], row["engine_type"], row["data_model_version"]) == (
-            "ELT", "DLM", "25")
+            "ELT", "DLM", "25.0")
         assert row["zip_file"] == first["zip_file"] and row["irp_export_job_id"] == "1"
         assert row["client_id"] == 1 and row["data_vintage"] == "2025-12-31"
 
@@ -465,7 +467,7 @@ def test_fragment_at_ty_shows_the_note_and_no_aal(client):
     assert "AAL 100" in gr.text
 
 
-def test_detail_rows_show_the_treaty_and_the_section_counts_data_sets(client):
+def test_the_section_shows_one_row_per_treaty_with_its_own_aal(client):
     deal = make_deal(client)
     export_id = str(uuid.uuid4())
     for number, name, ids in (("PR1", "PR1", "33833"), ("PR2", "Layer two", "33832,44832")):
@@ -473,19 +475,15 @@ def test_detail_rows_show_the_treaty_and_the_section_counts_data_sets(client):
                       irp_analysis_id=deal["a"], perspective_code="TY", stage_status="staged",
                       load_status="loaded", data_id=7, treaty_number=number, treaty_name=name,
                       treaty_ids=ids, aal=0.61)
-    url = f"/submissions/{deal['submission_id']}/exports/{export_id}"
-
-    page = client.get(url)
-    assert page.status_code == 200
-    assert "2 data sets" in page.text
-    assert "<span class=\"l\">Treaty</span>" in page.text
-    assert ">PR1</span>" in page.text
-    assert 'title="Treaty IDs 33832, 44832">PR2 · Layer two</span>' in page.text
-    assert page.text.count('title="0.61">1</span>') == 2  # the row's own AAL
 
     section = client.get(f"/submissions/{deal['submission_id']}/exports")
-    assert "Data sets" in section.text and '<span class="l">2</span>' in section.text
-    assert "CRE_Port_Template long · PR2 · Layer two" in section.text
+
+    assert section.status_code == 200
+    assert '<span class="l">Treaty</span>' in section.text
+    assert section.text.count('id="export-analysis-') == 2
+    assert ">PR1</span>" in section.text
+    assert 'title="Treaty IDs 33832, 44832">PR2 · Layer two</span>' in section.text
+    assert section.text.count('title="0.61">1</span>') == 2  # the row's own AAL
 
 
 def test_close_posts_by_manifest_row(client):

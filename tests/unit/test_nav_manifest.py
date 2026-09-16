@@ -121,6 +121,4 @@ class TestExportNodes:
         assert [k["key"] for k in children("submissions")] == ["submissions.all"]
         assert [c["key"] for c in breadcrumb("submissions.export_new")] == [
             "submissions", "submissions.detail", "submissions.export_new"]
-        assert [c["key"] for c in breadcrumb("submissions.export_detail")] == [
-            "submissions", "submissions.detail", "submissions.export_detail"]
         assert breadcrumb("submissions.export_new")[-1]["label"] == "Export"

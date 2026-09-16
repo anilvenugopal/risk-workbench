@@ -22,6 +22,7 @@ from tests.unit.export_rows import (
     seed_analysis,
     seed_client,
     seed_edm_for,
+    seed_lookup_versions,
     seed_submission,
 )
 
@@ -43,10 +44,11 @@ def staging(iteration2_db, loss_db, fake_irp, tmp_path, monkeypatch):
     edm_id = seed_edm_for(submission_id)
     a = seed_analysis(edm_id=edm_id, irp_id="41958", irp_app_analysis_id="41958")
     seed_client()
+    seed_lookup_versions("25.0")
     export_id = svc.create_export(
         submission_id=submission_id, user_email="analyst.a@example.com", analysis_ids=[a],
         perspective_code="GR", client_id=1, treaty_incept=date(2026, 4, 1), crm_id=None,
-        data_vintage=date(2025, 12, 31))
+        data_vintage=date(2025, 12, 31), model_version="25.0")
     export_jobs.run_pending(worker_id="w1")
     irp_id = execute_one("SELECT irp_id FROM irp_job", {}, connection="WORKBENCH")["irp_id"]
     fake_irp.finish(irp_id)
@@ -95,8 +97,8 @@ def test_happy_path_stages_files_and_rows_and_enqueues_the_load(staging, fake_ir
     m = _manifest(staging)
     assert m["stage_status"] == "staged" and m["staged_at"] is not None
     assert m["staged_row_count"] == 3 and m["error_message"] is None
-    assert (m["loss_table_type"], m["engine_type"], m["data_model_version"]) == (
-        "ELT", "DLM", "25")
+    assert (m["loss_table_type"], m["engine_type"]) == ("ELT", "DLM")
+    assert m["data_model_version"] == "25.0"  # the export's choice, not the archive's
     assert m["zip_file"] == f"{staging['export_id']}/{staging['analysis_id']}/" \
                             "25437617_CRE_Port_Template_Losses.zip"
     assert (staging["root"] / m["zip_file"]).is_file()
@@ -136,12 +138,10 @@ def test_several_chunks_stage_in_order(staging, fake_irp):
     assert m["staged_row_count"] == 3
 
 
-def test_group_engine_type_and_build_number_version_are_recorded(staging, fake_irp):
-    fake_irp.export_archive_path = build_archive(
-        staging["tmp"] / "group", engine_type="GROUP", model_version="25.0.2450.0")
+def test_group_engine_type_is_recorded(staging, fake_irp):
+    fake_irp.export_archive_path = build_archive(staging["tmp"] / "group", engine_type="GROUP")
     _run_stage()
-    m = _manifest(staging)
-    assert (m["engine_type"], m["data_model_version"]) == ("GROUP", "25")
+    assert _manifest(staging)["engine_type"] == "GROUP"
 
 
 def test_export_job_not_finished_fails_with_the_jobs_reason(staging):

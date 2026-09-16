@@ -235,17 +235,6 @@ def _read_metadata(table_dir: Path) -> dict:
     return {k.strip(): (v or "").strip() for k, v in rows[0].items() if k}
 
 
-def _model_version(value: str) -> str | None:
-    """``metadata.csv`` ``ModelVersion`` as CIC's ``Data.DataModelVersion`` takes it.
-    Risk Modeler writes the decimal form (``25.0``) or a build number
-    (``23.0.2250.1``); CIC's ``Lookup_RMS_HistoricalRDS`` holds the whole number
-    (``25``), and the load procedure joins the two by string equality."""
-    parts = value.split(".")
-    if len(parts) > 1 and all(part.isdigit() for part in parts):
-        return parts[0]
-    return value or None
-
-
 def _perspective_files(table_dir: Path, output_level: str, perspective_code: str) -> list[Path]:
     level_dir = table_dir / output_level
     folders = {p.name for p in level_dir.iterdir() if p.is_dir()} if level_dir.is_dir() else set()
@@ -499,7 +488,6 @@ def _stage(targets: list[dict], rows: list[dict], irp_job_id: str, work_dir: Pat
                            f"match analysis currency {anchor['data_currency']!r}")
     facts = dict(loss_table_type=table_dir.name,
                  engine_type=metadata.get("Engine Type") or None,
-                 data_model_version=_model_version(metadata.get("ModelVersion", "")),
                  zip_file=archive.relative_to(root).as_posix())
     for row in targets:
         _stamp_manifest(row["manifest_id"], **facts)

@@ -9,7 +9,7 @@
 ## Plan status
 
 **Ready for tasks:** Yes, with two assumptions carried into the build (T-04 groups, T-10 Parquet column names) and spec O-04 built as "largest exposure value".
-**Blocked by:** Nothing for development. Verification against Risk Modeler needs a sandbox analysis run with treaties that take loss (quickstart.md). The 014 amendments spec FR-010 names from the 2026-09-15 session (flat exports table, decimal model version, export-wide engine-version override) are not in the codebase or in 014's documents; this plan changes nothing there, and every treaty data set runs through the same stage and load code as a portfolio data set, so whatever 014 builds applies to TY unchanged.
+**Blocked by:** Nothing for development. Verification against Risk Modeler needs a sandbox analysis run with treaties that take loss (quickstart.md). 014's 2026-09-15 session has since landed: the export detail page is gone and the exports section is the one export status screen, and the model version is chosen on the export form instead of read from the archive. This plan carries the Treaty column into that section; every treaty data set still runs through the same stage and load code as a portfolio data set.
 
 ## Design summary
 
@@ -20,7 +20,7 @@
 - **`submit_results_export`** sends `lossDetails: [{"metricType": "LOSS_TABLES", "outputLevels": ["Treaty"], "perspectiveCodes": ["GR"]}]` for a TY row. `GR` is the protocol constant P-08 asked for (T-01).
 - **`stage_results_export`** now acts on every manifest row of (`export_id`, `irp_analysis_id`) that is not staged, loaded, or closed. At TY it downloads once, reads `ELT/Treaty/TY/*.parquet`, combines each treaty's rows per event with pandas (P-11: loss summed, independent standard deviation summed, correlated the root of the sum of squares, rate kept, exposure value the largest, O-04), and writes one derived Parquet file per treaty into the working directory. The pre-split analysis row becomes the first treaty's row; each further treaty gets a sibling row copied from it, with `treaty_number`, `treaty_name`, `treaty_ids`, the composed `data_name`, and the treaty's `aal`. Each treaty file is uploaded under its own `manifest_id` with `output_level = 'Treaty'`, and the row is stamped `staged`. A table with no treaty rows fails the analysis row with "Risk Modeler returned no treaty (TY) loss rows for this analysis" (FR-007). One load job per analysis is enqueued (T-03, T-05).
 - **`load_results_export`** loads every manifest row of the analysis that is staged, not loaded, and not closed, calling `stage.usp_load_elt_result @manifest_id` once per row. Each call is its own transaction; a failed row is stamped alone and the job reports every failure. The procedure is unchanged: `Data.Perspective` takes `TY` and `Data.DataName` the composed name from the row (FR-008, FR-009).
-- **Read models** carry `treaty_number`, `treaty_name`, `treaty_ids`, and, at TY, `aal` from the row. The exports section and the detail table show a Treaty column beside the analysis name; a row count is labelled "data sets" on both screens because an analysis at TY is several rows (FR-011, T-12).
+- **Read models** carry `treaty_number`, `treaty_name`, `treaty_ids`, and, at TY, `aal` from the row. The exports section shows a Treaty column beside the analysis name, and its rows are keyed by `manifest_id` because an analysis at TY occupies several of them (FR-011, T-12).
 - **Retry and Close** move to `POST …/exports/{export_id}/manifests/{manifest_id}/retry|close`, since treaty rows share an analysis. Retry re-arms the analysis's single stage or load job after resetting the clicked row; the worker then touches only eligible rows, so a loaded or closed sibling is never re-run (FR-012, T-05, T-06).
 - **Repeat-export warning** counts distinct exports, not manifest rows, so a treaty export of two treaties reads as one earlier export (FR-013, T-11).
 - **DDL**: `stage.rwb_loss_result_manifest` gains `treaty_number`, `treaty_name`, `treaty_ids`, `aal`; `UNIQUE (export_id, irp_analysis_id)` becomes `UNIQUE (export_id, irp_analysis_id, treaty_number, treaty_name)`. The change is edited into `db/bootstrap/loss_schema.sql` and `tests/loss_mirror.py` because CIC's repository holds no manifest yet (014 R18); the developer runs `make bootstrap-loss-reset` (T-09).
@@ -34,7 +34,7 @@
 | Database (loss repository) | Four nullable manifest columns and a widened unique constraint in `db/bootstrap/loss_schema.sql`; `rwb_loss_result_file.output_level` now also takes `Treaty`. Procedure unchanged. |
 | Worker | `retrieve_analysis_results` records treaties; `submit_results_export` builds the treaty request; `stage_results_export` splits and combines; `load_results_export` loads every eligible row of the analysis. |
 | Service | `export_service`: TY in `perspectives`, treaty fields on the read models, Retry and Close by `manifest_id`, distinct-export warning count. |
-| UI | Form note and no AAL at TY; Treaty column on the detail table and the exports section; "data sets" labels; Retry and Close forms post to the manifest routes. No new screen (UI_WORKFLOW: derivative change, no preview). |
+| UI | Form note and no AAL at TY; Treaty column on the exports section, whose row ids and Retry and Close forms are keyed by `manifest_id`. No new screen (UI_WORKFLOW: derivative change, no preview). |
 | Gateway | `list_analysis_treaties` on the Protocol, `_RealGateway`, module functions, and `FakeIRP`. |
 | Config | `EXPORT_PERSPECTIVE_CODES` default `GU,GR,RL,RP,TY`; `infra/.env.example` updated. |
 | Docs | PRD §17.4 and §21 no longer list TY as out of scope; FUNCTIONAL_REQUIREMENTS §7 part B points at this spec; 014 plan O-02 closed. |
@@ -54,7 +54,7 @@
 | T-09 | The manifest DDL change is edited into `loss_schema.sql` (and the SQLite mirror) with no change script, because CIC's repository holds no manifest row (014 R18, O-05) | Approved | 014 [research.md#R18](../014-results-export/research.md#r18--how-a-stage-schema-change-reaches-cic-after-cutover-o-12) |
 | T-10 | The TY Parquet columns are `TreatyId`, `TreatyNum`, `TreatyName`, `EventId`, `Rate`, `Loss`, `StdDevI`, `StdDevC`, `ExpValue`, as in the CSV sample; a file missing any of them fails the analysis naming the columns | Assumed | [research.md#R1](research.md#r1--what-risk-modeler-returns-for-a-treaty-level-export-t-01-t-10) |
 | T-11 | The repeat-export warning counts distinct `export_id`s for the analysis and perspective, not manifest rows | Approved | FR-013 |
-| T-12 | The exports section's count column and the detail page's badge read "data sets"; the analysis name column keeps the analysis and a Treaty column follows it | Approved | FR-011; wording change against 014 T058 for the approver to see |
+| T-12 | The exports section keeps the analysis name column and a Treaty column follows it; each row is one manifest row, so its DOM id and its Retry and Close forms carry `manifest_id` | Approved | FR-011 |
 | T-13 | An analysis whose results were retrieved before this release has no `treaties` key and is offered no TY until its results are retrieved again; no backfill, the dev database is rebuilt | Approved | Pre-cutover rule (no backwards compatibility) |
 
 ## Open items carried from the design
@@ -124,10 +124,7 @@ app/
 ├── workers/export_jobs.py                 # treaty request; split + combine; per-row load
 ├── routers/submissions.py                 # …/manifests/{manifest_id}/retry|close
 ├── templates/partials/export_form_fields.html      # TY note; no AAL at TY
-├── templates/partials/export_analyses_table.html   # Treaty column
-├── templates/partials/export_analysis_row.html     # treaty cell; manifest-keyed actions
-├── templates/partials/exports_section.html         # "Data sets"; treaty in the expanded row; manifest-keyed Close
-├── templates/pages/submission_export_detail.html   # "data sets" badge
+├── templates/partials/exports_section.html         # Treaty column; manifest-keyed row ids, Retry, and Close
 infra/.env.example                         # EXPORT_PERSPECTIVE_CODES=GU,GR,RL,RP,TY
 tests/
 ├── loss_mirror.py                         # manifest columns in lockstep
@@ -151,6 +148,6 @@ docs/PRD.md, docs/FUNCTIONAL_REQUIREMENTS.md, specs/014-results-export/plan.md  
 
 <!-- Strategy by tier. Not a test-file inventory. -->
 
-- **Unit** (`uv run pytest tests/unit`): the retrieval worker stores `treaties` and fails without a partial write when the call raises; TY in `perspectives` only with a non-empty list and the intersection dropping it for one analysis without treaties; `create_export` refusing TY for such an analysis; the submit body at TY; the stage worker against a TY fixture archive (two treaties split into two rows with the composed data name, treaty IDs, and AAL; a treaty under two treaty IDs combined per event with the P-11 arithmetic; a table with no treaty rows failing with a message naming TY; a re-run leaving loaded and closed siblings untouched; missing columns named); the load worker calling the procedure once per eligible row and stamping one failure without touching the others; Retry and Close by `manifest_id` with the 404 and 409 paths; the fragment's TY note and missing AAL; the detail table's treaty cells; the exports section's count label; the repeat-export warning counting one export for two treaty rows.
+- **Unit** (`uv run pytest tests/unit`): the retrieval worker stores `treaties` and fails without a partial write when the call raises; TY in `perspectives` only with a non-empty list and the intersection dropping it for one analysis without treaties; `create_export` refusing TY for such an analysis; the submit body at TY; the stage worker against a TY fixture archive (two treaties split into two rows with the composed data name, treaty IDs, and AAL; a treaty under two treaty IDs combined per event with the P-11 arithmetic; a table with no treaty rows failing with a message naming TY; a re-run leaving loaded and closed siblings untouched; missing columns named); the load worker calling the procedure once per eligible row and stamping one failure without touching the others; Retry and Close by `manifest_id` with the 404 and 409 paths; the fragment's TY note and missing AAL; the exports section's Treaty column and per-row AAL; the repeat-export warning counting one export for two treaty rows.
 - **SQL Server integration** (`make test-sql`; unverified until someone runs it): a manifest row with `perspective_code = 'TY'`, `treaty_number`, `treaty_name`, and a composed `data_name` loads through the unchanged procedure with `Data.Perspective = 'TY'` and `Data.DataName` as composed; the widened unique constraint accepts two treaty rows of one analysis and refuses a third with the same treaty.
 - **IRP sandbox** (`uv run pytest tests/irp --run-irp -k treaty` inside `linux-box`): `list_analysis_treaties` on a finished sandbox analysis returns rows with `treaty_id`, `treaty_number`, `treaty_name`. The T-04 group half and the T-10 column names are checked by hand per quickstart.md, since a live TY export needs an analysis with treaties that take loss.

@@ -1,83 +1,123 @@
-{# Exports requested from this submission, newest first (contracts/routes.md
-   §5). Each row expands to the analyses in that export, each with Close when
-   it failed (§8); a refused Close renders `action_message` above the table.
-   The status select filters the exports; an expanded row always shows all of
-   its analyses.
-   Polls every 10s only while some export still has an analysis in progress; a
-   terminal state renders without a trigger and the polling stops.
-   data-restore-open keeps an expanded row open across those swaps. #}
-{% import "partials/export_row_macros.html" as rows %}
-{% set in_progress = exports|selectattr('in_progress')|list|length > 0 %}
-{% set query = ('?status=' ~ status_filter) if status_filter else '' %}
-{% set shown = exports|selectattr(status_filter ~ '_count')|list if status_filter else exports %}
-<details class="sec" open id="submission-exports" data-restore-open
+{# The exports table (contracts/routes.md §5): one row per manifest row of
+   every export requested from this submission — an analysis, or one treaty of
+   an analysis at TY (spec 016 P-09) — newest export first. Every row repeats
+   its export's columns on the right; the # column is the export's ordinal and a
+   heavier rule opens each export's block. The four selects filter the rows, and
+   the values in force ride on the poll, Retry, and Close URLs. Polls every 10s
+   only while some row is not terminal. Retry and Close re-render the whole
+   section, with `action_message` when one was refused (§7, §8). #}
+{% import "partials/export_row_macros.html" as rows_macros %}
+{% macro filter_select(name, all_label, options, current, labels=none) -%}
+<select name="{{ name }}" class="wf-field__input" style="width:auto"
+        onclick="event.stopPropagation()"
+        hx-get="/submissions/{{ submission_id }}/exports" hx-trigger="change"
+        hx-include="#export-filters" hx-target="#submission-exports" hx-swap="outerHTML">
+  <option value="">{{ all_label }}</option>
+  {% for value in options %}
+  <option value="{{ value }}" {% if current == value %}selected{% endif %}>{{ labels[value] if labels else value }}</option>
+  {% endfor %}
+</select>
+{%- endmacro %}
+{% set in_progress = rows|rejectattr('is_terminal')|list|length > 0 %}
+<details class="sec" open id="submission-exports"
   {% if in_progress %}hx-get="/submissions/{{ submission_id }}/exports{{ query }}" hx-trigger="every 10s"
   hx-target="this" hx-swap="outerHTML"{% endif %}>
   <summary>
     <span class="sec__caret">▸</span>
     <span class="sec__title">Exports</span>
-    {% if exports %}<span class="badge badge--neutral">{{ exports|length }}</span>{% endif %}
-    {% if exports %}
+    {% if rows %}
+    <span class="badge badge--neutral">{{ rows|map(attribute='export_id')|unique|list|length }}</span>
     <span class="sec__spacer"></span>
-    <select name="status" class="wf-field__input" style="width:auto"
-            onclick="event.stopPropagation()"
-            hx-get="/submissions/{{ submission_id }}/exports" hx-trigger="change"
-            hx-target="#submission-exports" hx-swap="outerHTML">
-      <option value="">All statuses</option>
-      <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Failed</option>
-      <option value="loaded" {% if status_filter == 'loaded' %}selected{% endif %}>Loaded</option>
-    </select>
+    <span id="export-filters" class="export-filters">
+      {{ filter_select('status', 'All statuses', ['failed', 'loaded'], filters.status,
+                       {'failed': 'Failed', 'loaded': 'Loaded'}) }}
+      {{ filter_select('client', 'All clients', clients, filters.client) }}
+      {{ filter_select('crm_id', 'All CRM IDs', crm_ids, filters.crm_id) }}
+      {{ filter_select('perspective', 'All perspectives', perspectives, filters.perspective) }}
+    </span>
+    {# preventDefault, not stopPropagation: the button is handled by a
+       document-level listener in app.js, which stopPropagation would never
+       reach. preventDefault still keeps the click from toggling the section. #}
+    <button class="btn-sm" type="button" data-copy-table onclick="event.preventDefault()"
+            title="Copy the table with headers — pastes into Excel">⋮ Copy table</button>
     {% endif %}
   </summary>
   {% if action_message|default(none) %}
   <div class="form-banner form-banner--error">{{ action_message }}</div>
   {% endif %}
-  {% if exports %}
+  {% if rows %}
   <div class="dtable-shell">
-    <div class="dtable dtable--wraphead"
-         style="--cols: 140px minmax(160px,1fr) 140px 90px minmax(200px,1.2fr) minmax(200px,1.4fr) 180px; min-width: 1150px">
+    <div class="dtable dtable--wraphead export-analyses"
+         style="--cols: 44px minmax(300px,2fr) 150px 70px 125px 80px minmax(150px,1fr) 90px 80px 60px 70px 90px 90px 90px 100px 100px 80px 170px 70px 90px 90px minmax(140px,1fr) 110px 110px 110px minmax(190px,1.3fr) 170px 130px; min-width: 3165px">
       <div class="dtable__head">
-        <span class="l">Perspective</span><span class="l">Client</span><span class="l">CRM ID</span>
-        <span class="l">Data sets</span><span class="l">Progress</span><span class="l">Requested by</span>
-        <span class="l">Requested at</span>
+        <span class="l">#</span><span class="l">Analysis</span><span class="l">Treaty</span>
+        <span class="l">Origin</span><span class="l">Status</span><span class="l">Data ID</span>
+        <span class="l">Data name</span>
+        <span class="l">AAL</span><span class="l">Currency</span><span class="l">Peril</span>
+        <span class="l">Region</span><span class="l">Staged</span><span class="l">Stochastic</span>
+        <span class="l">Historical</span><span class="l">Exposure raised</span>
+        <span class="l">Std dev zeroed</span><span class="l">RM id</span><span class="l">Last updated</span>
+        <span class="l">Engine</span><span class="l">Model version</span><span class="l">Perspective</span>
+        <span class="l">Client</span><span class="l">CRM ID</span><span class="l">Treaty inception</span>
+        <span class="l">Data vintage</span><span class="l">Requested by</span><span class="l">Requested at</span>
+        <span class="l"></span>
       </div>
-      {% for e in shown %}
-      <details class="drow" id="export-summary-{{ e.export_id }}">
-        <summary>
-          <span class="l"><span class="dt-name"><span class="dt-caret">&#9656;</span>
-            <a class="link" href="/submissions/{{ submission_id }}/exports/{{ e.export_id }}"
-               onclick="event.stopPropagation()">{{ e.perspective_code }}</a></span></span>
-          <span class="l">{{ e.client_name or '—' }}</span>
-          <span class="l">{{ e.crm_id or '—' }}</span>
-          <span class="l">{{ e.data_set_count }}</span>
-          <span class="l">{{ e.progress }}</span>
-          <span class="l" title="{{ e.requested_by_email }}">{{ e.requested_by_email }}</span>
-          <span class="l"><time data-utc="{{ e.requested_at }}" title="{{ e.requested_at }} UTC">{{ e.requested_at }}</time></span>
-        </summary>
-        <div class="drow__body">
-          {% for a in e.analyses %}
-          <div class="export-summary__analysis">
-            <span class="export-summary__name" title="{{ a.analysis_name }}{{ ' · ' ~ a.treaty_label if a.treaty_label }}">{{ a.analysis_name }}{% if a.treaty_label %} · {{ a.treaty_label }}{% endif %}</span>
-            <span>{{ rows.status_chip(a.status) }}</span>
-            <span class="export-summary__aal" title="{{ a.aal }}">AAL {{ a.aal_display }}</span>
-            <span class="export-summary__dataid">Data ID: {{ a.data_id if a.data_id is not none else '—' }}</span>
-            <span>
-              {% if a.can_retry %}
-              <form hx-post="/submissions/{{ submission_id }}/exports/{{ e.export_id }}/manifests/{{ a.manifest_id }}/close{{ query }}"
-                    hx-target="#submission-exports" hx-swap="outerHTML"
-                    hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"
-                    method="post" action="/submissions/{{ submission_id }}/exports/{{ e.export_id }}/manifests/{{ a.manifest_id }}/close{{ query }}">
-                <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-                <button class="btn-sm" type="submit">Close</button>
-              </form>
-              {% endif %}
-            </span>
-          </div>
-          {% endfor %}
-        </div>
-      </details>
+      {% for a in shown %}
+      <div class="drow-static export-analysis{% if loop.changed(a.export_id) %} export-analysis--first{% endif %}"
+           id="export-analysis-{{ a.export_id }}-{{ a.manifest_id }}">
+        <span class="l export-ordinal">#{{ a.export_ordinal }}</span>
+        <span class="l"><span class="dt-title" title="{{ a.analysis_name }}">{{ a.analysis_name }}</span></span>
+        <span class="l" title="{{ 'Treaty IDs ' ~ a.treaty_ids|join(', ') if a.treaty_ids else '' }}">{{ a.treaty_label or '—' }}</span>
+        <span class="l">{{ a.origin }}</span>
+        <span class="l">{{ rows_macros.status_chip(a.status) }}</span>
+        <span class="l">{{ a.data_id if a.data_id is not none else '—' }}</span>
+        <span class="l" title="{{ a.data_name or '' }}">{{ a.data_name or '—' }}</span>
+        <span class="l" title="{{ a.aal }}">{{ a.aal_display }}</span>
+        <span class="l">{{ a.data_currency or '—' }}</span>
+        <span class="l">{{ a.peril_code or '—' }}</span>
+        <span class="l">{{ a.region_code or '—' }}</span>
+        <span class="l">{{ '{:,}'.format(a.staged_row_count) if a.staged_row_count is not none else '—' }}</span>
+        <span class="l">{{ '{:,}'.format(a.stochastic_row_count) if a.stochastic_row_count is not none else '—' }}</span>
+        <span class="l">{{ '{:,}'.format(a.historical_row_count) if a.historical_row_count is not none else '—' }}</span>
+        <span class="l">{{ '{:,}'.format(a.exp_value_raised_count) if a.exp_value_raised_count is not none else '—' }}</span>
+        <span class="l">{{ '{:,}'.format(a.std_dev_zeroed_count) if a.std_dev_zeroed_count is not none else '—' }}</span>
+        <span class="l">{{ a.irp_app_analysis_id if a.irp_app_analysis_id is not none else '—' }}</span>
+        <span class="l"><time data-utc="{{ a.updated_at }}" title="{{ a.updated_at }} UTC">{{ a.updated_at }}</time></span>
+        <span class="l">{{ a.engine_type or '—' }}</span>
+        <span class="l">{{ a.data_model_version or '—' }}</span>
+        <span class="l">{{ a.perspective_code }}</span>
+        <span class="l">{{ a.client_name or '—' }}</span>
+        <span class="l">{{ a.crm_id or '—' }}</span>
+        <span class="l">{{ a.treaty_incept }}</span>
+        <span class="l">{{ a.data_vintage }}</span>
+        <span class="l" title="{{ a.requested_by_email }}">{{ a.requested_by_email }}</span>
+        <span class="l"><time data-utc="{{ a.requested_at }}" title="{{ a.requested_at }} UTC">{{ a.requested_at }}</time></span>
+        <span class="l">
+          {% if a.can_retry %}
+          <span class="export-analysis__actions">
+            {% for action, label in [('retry', 'Retry'), ('close', 'Close')] %}
+            <form hx-post="/submissions/{{ submission_id }}/exports/{{ a.export_id }}/manifests/{{ a.manifest_id }}/{{ action }}{{ query }}"
+                  hx-target="#submission-exports" hx-swap="outerHTML"
+                  hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"
+                  method="post" action="/submissions/{{ submission_id }}/exports/{{ a.export_id }}/manifests/{{ a.manifest_id }}/{{ action }}{{ query }}">
+              <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+              <button class="btn-sm" type="submit">{{ label }}</button>
+            </form>
+            {% endfor %}
+          </span>
+          {% endif %}
+        </span>
+        {% if a.error_message %}
+        <div class="export-detail__error">{{ a.error_message }}</div>
+        {% endif %}
+        {% if a.closed_at %}
+        <div class="export-detail__closed">Closed
+          <time data-utc="{{ a.closed_at }}" title="{{ a.closed_at }} UTC">{{ a.closed_at }}</time>
+          by {{ a.closed_by }}</div>
+        {% endif %}
+      </div>
       {% else %}
-      <div class="dtable__groupempty">No exports match this filter.</div>
+      <div class="dtable__groupempty">No analyses match this filter.</div>
       {% endfor %}
     </div>
   </div>

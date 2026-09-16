@@ -14,7 +14,13 @@ import pytest
 from app.services import export_service as svc
 from app.workers import export_jobs
 from db import execute, execute_one
-from tests.unit.export_rows import seed_analysis, seed_client, seed_edm_for, seed_submission
+from tests.unit.export_rows import (
+    seed_analysis,
+    seed_client,
+    seed_edm_for,
+    seed_lookup_versions,
+    seed_submission,
+)
 
 
 @pytest.fixture()
@@ -24,11 +30,12 @@ def export(iteration2_db, loss_db, fake_irp):
     a = seed_analysis(edm_id=edm_id, name="A", irp_id="41958", irp_app_analysis_id="41958")
     b = seed_analysis(edm_id=edm_id, name="B", irp_id="41959", irp_app_analysis_id="41959")
     seed_client()
+    seed_lookup_versions("25.0")
     export_id = svc.create_export(
         submission_id=submission_id, user_email="analyst.a@example.com",
         analysis_ids=[a, b], perspective_code="GR", client_id=1,
         treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
-        data_vintage=date(2025, 12, 31))
+        data_vintage=date(2025, 12, 31), model_version="25.0")
     return {"export_id": export_id, "submission_id": submission_id, "edm_id": edm_id,
             "a": a, "b": b}
 

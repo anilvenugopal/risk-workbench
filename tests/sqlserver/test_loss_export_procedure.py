@@ -28,7 +28,7 @@ from db import execute, execute_one, execute_procedure, get_connection, upload_p
 pytestmark = pytest.mark.sqlserver
 
 BOOTSTRAP_DIR = Path(__file__).resolve().parents[2] / "db" / "bootstrap"
-MODEL_VERSION = "25"
+MODEL_VERSION = "25.0"
 
 
 def _clear_tables() -> None:
@@ -250,7 +250,7 @@ def test_numeric_pcs_is_padded_to_four_digits_and_other_values_copied(tmp_path):
 def test_a_model_version_the_lookup_lacks_loads_every_event_as_stochastic(tmp_path):
     """A version the lookup does not carry is the reference data as shipped, not a
     failure (9/11 D8): everything classifies stochastic and historical is 0."""
-    _seed_lookup((3001, "WS", "Storm", "24"))
+    _seed_lookup((3001, "WS", "Storm", "24.0"))
     manifest_id = _manifest()
     _stage(tmp_path, manifest_id, [(1001, 1.0, 0.0, 0.0, 1.0), (3001, 2.0, 0.0, 0.0, 2.0)])
 
@@ -271,7 +271,7 @@ def test_event_matching_two_lookup_rows_fails(tmp_path):
     with pytest.raises(Exception) as exc:
         _load(manifest_id)
 
-    assert "event 3001 matches 2 historical lookup rows for model version 25" in str(exc.value)
+    assert "event 3001 matches 2 historical lookup rows for model version 25.0" in str(exc.value)
     assert "(50003)" in str(exc.value)
     assert _manifest_row(manifest_id)["load_status"] == "failed"
     assert _count("dbo.Data") == 0

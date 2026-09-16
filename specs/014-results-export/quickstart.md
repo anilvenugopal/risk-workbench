@@ -11,8 +11,9 @@
 - A submission with at least two finished own analyses whose results are
   retrieved (`loss_results` set), run in the sandbox Risk Modeler so a real
   export job can be submitted. `bootstrap-loss` seeds CIC's whole
-  `Lookup_RMS_HistoricalRDS` (2,589 rows, all `ModelVersion = '25'`), so a
-  v25 DLM analysis takes the historical path with no hand-added rows.
+  `Lookup_RMS_HistoricalRDS` (2,589 rows, all `ModelVersion = '25.0'`), so
+  the form offers `25.0` and every export takes the historical path with no
+  hand-added rows.
 - Poller and the three export queues running (`make dev-up` starts them;
   check `queue_names()` lists `submit_results_export`, `stage_results_export`,
   `load_results_export`).
@@ -26,17 +27,18 @@
    configured codes both analyses have (FR-003); one data-name field appears
    per ticked analysis (O-07). Treaty inception and CRM ID are pre-filled from
    the submission; client and data vintage are required and the vintage is
-   blank (story 1 acceptance 2). Pick GR: each cart row shows that analysis's
-   AAL (P-20). Clear the vintage and submit: the form comes back with "Data
-   vintage is required."
+   blank (story 1 acceptance 2). Model version reads `25.0`, the only version
+   the seeded lookup holds; keep it (P-25). Pick GR: each cart row shows that
+   analysis's AAL (P-20). Clear the vintage and submit: the form comes back
+   with "Data vintage is required."
    The client list includes a retired client (`ActiveFlag = 'N'`, seeded by
    `bootstrap-loss`) — P-18.
-3. Pick GR and a client, click **Export**. You land on the export detail page
-   with both analyses **queued** (acceptance 1).
+3. Pick GR and a client, click **Export**. You land on the submission page at
+   its exports table with both analyses **queued** under `#1` (acceptance 1).
 4. Watch the statuses move: in progress → loaded. Expect several minutes per
    analysis for a real ELT.
 5. In `rwb_loss`: one `dbo.Data` row per analysis with `AnalysisID`,
-   `Perspective = 'GR'`, `DataModelVersion = '25'`, `Name`, `Description`,
+   `Perspective = 'GR'`, `DataModelVersion = '25.0'`, `Name`, `Description`,
    `CRMID`, `Server` reading `https://<tenant>.<domain>` (the Risk Modeler web
    UI, not `api-…`), and `Database` reading the Workbench database name
    (P-23); `dbo.RMSELT` rows plus `dbo.RMS_HistoricalRDS` rows
@@ -48,30 +50,33 @@
    earlier export — date, requester, status, an underlined link, and how many
    there are — and the Export button stays on (acceptance 4, P-17).
    Export again: a second `dbo.Data` row lands under a new data ID.
-7. Lookup miss: export an analysis whose `ModelVersion` has no lookup rows
-   (delete the seeded rows first). It loads: every event is stochastic, the
-   detail page's historical count reads 0, and `dbo.RMS_HistoricalRDS` gets
+7. Lookup miss: add one lookup row under `ModelVersion = '24.0'`, reopen
+   the form, and pick `24.0`. It loads: every event is stochastic, the
+   row's historical count reads 0, and `dbo.RMS_HistoricalRDS` gets
    no rows (acceptance 7, non-negotiable 3, P-24).
 
 ## Story 2 — Follow an export
 
-1. Submission page: the exports section below the analyses lists every
-   export newest first with perspective, requester, time, client, analysis
-   count, loaded / failed counts; a row opens the detail page (acceptance 5).
-   An analysis exported for GR and RL shows two rows; the analyses grid is
-   unchanged (acceptance 6). A group analysis exported from another
-   submission is not listed here, but this submission's export form shows it
-   as exported with a link to that export (story 1 acceptance 4, P-16).
-2. Detail page, loaded row: data ID, AAL, rows staged, stochastic, historical,
-   exposure raised, standard deviation zeroed; stochastic + historical = staged
+1. Submission page: the exports table below the analyses lists one row per
+   analysis, newest export first, `#1` on the newest export's rows and a
+   heavier rule where the export changes; the export's perspective, client,
+   CRM ID, treaty inception, data vintage, model version, requester, and time
+   repeat on every row (acceptance 4). An analysis exported for GR and RL
+   shows two rows; the analyses grid is unchanged (acceptance 5). A group
+   analysis exported from another submission is not listed here, but this
+   submission's export form shows it as exported with a link to that
+   submission's exports table (story 1 acceptance 4, P-16).
+2. Loaded row: data ID, AAL, rows staged, stochastic, historical, exposure
+   raised, standard deviation zeroed; stochastic + historical = staged
    (acceptance 2, 6).
 3. Failed row: the error message and **Retry**; sibling rows show their own
    status (acceptance 3).
 4. Every row shows its last change time (acceptance 1).
-5. Pick **Failed** in the exports section: only the exports holding a failed
-   analysis stay listed, and expanding one still shows all of its analyses.
-   The same choice on the detail page keeps only the failed analyses; Retry
-   from there comes back under the filter (acceptance 7).
+5. Pick **Failed**: only the failed rows stay listed, the ordinals unchanged.
+   Add a client, CRM ID, or perspective: the filters combine; Retry comes
+   back under them (acceptance 7).
+6. **Copy table**, paste into Excel: headers on the first row, one column per
+   table column (acceptance 8).
 
 ## Story 3 — Retry
 
@@ -114,7 +119,7 @@ the download completed, else downloads again; no duplicate stage rows.
 EXEC stage.usp_load_elt_result @manifest_id = <id>;
 ```
 
-Against a `staged` row: loads and stamps `loaded`; the detail page shows it
+Against a `staged` row: loads and stamps `loaded`; the exports table shows it
 without any Workbench job. Against a `loaded` row: raises 50001 naming the
 data ID. Inside `BEGIN TRAN`: raises 50000, nothing written.
 

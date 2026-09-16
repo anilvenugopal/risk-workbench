@@ -117,8 +117,8 @@ re-raises after stamping).
    irp_app_analysis_id` and `AnalysisCurrency == data_currency`, naming
    both values on mismatch.
 5. `UPDATE` manifest `loss_table_type`, `engine_type` (`Engine Type`,
-   `DLM`, `HD` or `GROUP`), `data_model_version` (`ModelVersion`, reduced to
-   its first two parts when every part is numeric: `23.0.2250.1` → `23.0`).
+   `DLM`, `HD` or `GROUP`). The archive's `ModelVersion` is not read;
+   `data_model_version` was written at submit (spec P-25).
 6. List `{type}/Portfolio/{perspective_code}/*.parquet`; fail when the
    folder is missing or another perspective folder is present. Insert one
    `rwb_loss_result_file` row per file (`output_level`, `perspective_code`,

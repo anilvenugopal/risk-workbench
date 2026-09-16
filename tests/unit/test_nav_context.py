@@ -91,8 +91,7 @@ class TestGetNavContext:
 class TestExportContext:
     def test_export_pages_keep_the_submissions_section_active(self):
         from app.nav import get_nav_context
-        for key in ("submissions.export_new", "submissions.export_detail"):
-            ctx = get_nav_context(_user(["analyst"]), key)
-            assert ctx["active_section"] == "submissions"
-            assert [c["key"] for c in ctx["sidebar"]] == ["submissions.all"]
-            assert ctx["breadcrumb"][-1]["key"] == key
+        ctx = get_nav_context(_user(["analyst"]), "submissions.export_new")
+        assert ctx["active_section"] == "submissions"
+        assert [c["key"] for c in ctx["sidebar"]] == ["submissions.all"]
+        assert ctx["breadcrumb"][-1]["key"] == "submissions.export_new"

@@ -66,9 +66,9 @@ gateway wrapper. Nothing user-visible yet.
 
 ### Read models and screens
 
-- [x] T011 [US2] [FR-011] [FR-013] [FR-016] [T-08] [T-11] [T-12] `app/services/export_service.py`: `ExportAnalysisDetail.treaty_number`/`treaty_name`/`treaty_ids`/`treaty_label`, `aal` from the row at TY; `ExportSummary.data_set_count`; ordering by treaty (data-model.md §6); `find_exported` counting distinct exports.
+- [x] T011 [US2] [FR-011] [FR-013] [FR-016] [T-08] [T-11] [T-12] `app/services/export_service.py`: `ExportAnalysisDetail.treaty_number`/`treaty_name`/`treaty_ids`/`treaty_label`, `aal` from the row at TY; ordering by treaty (data-model.md §6); `find_exported` counting distinct exports.
   - Proof: `tests/unit/test_ty_export.py::test_detail_rows_carry_the_treaty_and_its_own_aal_at_ty`, `::test_find_exported_counts_one_export_for_two_treaty_rows`.
-- [x] T012 [US2] [FR-011] [T-12] Templates: `export_analyses_table.html` Treaty column and `--cols`; `export_analysis_row.html` treaty cell with `treaty_ids` in `title`; `exports_section.html` "Data sets" heading, `data_set_count`, treaty appended to the analysis name in the expanded row; `submission_export_detail.html` "data set(s)" badge (contracts/routes.md §2, §3).
+- [x] T012 [US2] [FR-011] [T-12] `app/templates/partials/exports_section.html`: Treaty column and `--cols`, the treaty cell with `treaty_ids` in `title`, and row ids and Retry and Close forms keyed by `manifest_id` (contracts/routes.md §2).
   - Proof: `tests/unit/test_ty_export.py::test_detail_rows_show_the_treaty_and_the_section_counts_data_sets`.
 
 **Checkpoint**: `uv run pytest tests/unit` green. **STOP.** The approver runs quickstart.md Story 1 steps 1–5 and Story 2 steps 1–2 on the running stack (needs `bootstrap-loss-reset`, results retrieved again, and a treaty analysis in the sandbox). The T-10 column check and the T-04 sandbox test run here.

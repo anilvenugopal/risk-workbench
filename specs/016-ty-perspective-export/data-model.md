@@ -13,8 +13,8 @@ on a TY analysis row until its loss table has been read (P-09).
 |---|---|---|---|
 | `treaty_number` | `NVARCHAR(64)` NULL | Stage worker, `TreatyNum` as written in the loss table | Composed `data_name`; both screens; the unique key |
 | `treaty_name` | `NVARCHAR(256)` NULL | Stage worker, `TreatyName` as written | Composed `data_name`; both screens; the unique key |
-| `treaty_ids` | `NVARCHAR(400)` NULL | Stage worker: the distinct `TreatyId` values found for the treaty, ascending, comma-separated (one for a single analysis, one per member for a group) | Traceability only (FR-006, non-negotiable 2); detail table `title` |
-| `aal` | `FLOAT` NULL | Stage worker: `SUM(rate × loss)` over the treaty's combined rows (P-10) | Detail table and exports section at TY, in place of the `loss_results` AAL |
+| `treaty_ids` | `NVARCHAR(400)` NULL | Stage worker: the distinct `TreatyId` values found for the treaty, ascending, comma-separated (one for a single analysis, one per member for a group) | Traceability only (FR-006, non-negotiable 2); exports table `title` |
+| `aal` | `FLOAT` NULL | Stage worker: `SUM(rate × loss)` over the treaty's combined rows (P-10) | The exports table at TY, in place of the `loss_results` AAL |
 
 Constraint change: `uq_rwb_loss_result_manifest_export_analysis` is now
 `UNIQUE (export_id, irp_analysis_id, treaty_number, treaty_name)`. Every other
@@ -90,7 +90,7 @@ the analysis's `perspectives`. No screen shows it. A document without the key
 `aal_display("TY")` is never shown: the cart row omits the AAL line at TY
 (P-10).
 
-### ExportAnalysisDetail — one detail-page row, now one per manifest row
+### ExportAnalysisDetail — one exports-table row, now one per manifest row
 
 New fields `treaty_number`, `treaty_name`, `treaty_ids` (list of strings), and
 a `treaty_label` property: `treaty_number`, then ` · treaty_name` when it
@@ -99,11 +99,7 @@ differs; empty for a portfolio row or a pre-split TY row. `aal` is the row's
 render time as before. Status derivation (014 §7) is unchanged; the manifest
 row decides alone. `manifest_id` is what Retry and Close post to.
 
-### ExportSummary
-
-`analysis_count` becomes `data_set_count` (the manifest rows of the export),
-shown under the heading "Data sets". `loaded_count`, `failed_count`,
-`closed_count`, and the status filter count treaty rows like analysis rows.
+The status filter counts treaty rows like analysis rows.
 
 ### ExportedMark
 
@@ -112,6 +108,7 @@ shown under the heading "Data sets". `loaded_count`, `failed_count`,
 
 ## 6. Row ordering
 
-Both screens order manifest rows by `analysis_description`, `analysis_name`,
-`treaty_number`, `treaty_name`, `manifest_id`, so an analysis's treaty rows sit
-together under it in treaty order.
+`list_export_rows` orders manifest rows within an export by
+`analysis_description`, `analysis_name`, `treaty_number`, `treaty_name`,
+`manifest_id`, so an analysis's treaty rows sit together under it in treaty
+order.

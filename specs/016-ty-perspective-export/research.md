@@ -52,7 +52,7 @@ Close. Two shapes were weighed.
 | Shape | Why not |
 |---|---|
 | A child table `stage.rwb_loss_result_treaty` with its own `stage_status`, `load_status`, `data_id`, counts, `closed_at`, `error_message` | Every piece of status machinery exists twice: `derive_status`, the two counts the exports section filters on, the procedure's claim, Retry's decision tree, and both screens' read models would each need a second path. The procedure would take a treaty ID as well as a manifest ID |
-| **Four nullable columns on the manifest** (`treaty_number`, `treaty_name`, `treaty_ids`, `aal`) with the pre-split analysis row becoming the first treaty's row and siblings copied from it | **Chosen.** A treaty row is a manifest row; everything downstream of the split (`usp_load_elt_result`, `derive_status`, the exports section, the detail table, Retry, Close, the failed/loaded filters) runs unchanged. The one cost is that Retry and Close can no longer be keyed by analysis (R5) |
+| **Four nullable columns on the manifest** (`treaty_number`, `treaty_name`, `treaty_ids`, `aal`) with the pre-split analysis row becoming the first treaty's row and siblings copied from it | **Chosen.** A treaty row is a manifest row; everything downstream of the split (`usp_load_elt_result`, `derive_status`, the exports section, Retry, Close, the failed/loaded filters) runs unchanged. The one cost is that Retry and Close can no longer be keyed by analysis (R5) |
 
 `UNIQUE (export_id, irp_analysis_id)` becomes `UNIQUE (export_id,
 irp_analysis_id, treaty_number, treaty_name)`. SQL Server treats `NULL` as a

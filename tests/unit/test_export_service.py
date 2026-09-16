@@ -1,6 +1,6 @@
 """Unit tests for app.services.export_service (spec 014 T017–T022, T035):
 the exportable-analysis list, the perspective intersection, the duplicate check
-over the loss mirror, the manifest insert, the read models, and status
+over the loss mirror, the manifest insert, the exports table rows, and status
 derivation. Workers, routes, and Retry have their own modules."""
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from tests.unit.export_rows import (
     seed_client,
     seed_edm_for,
     seed_export_job,
+    seed_lookup_versions,
     seed_manifest,
     seed_rdm_for,
     seed_submission,
@@ -36,6 +37,7 @@ def deal(iteration2_db, loss_db):
                       irp_app_analysis_id="41959", perspectives=("GR", "RL", "RP"),
                       inserted_at="2026-09-10 07:00:00")
     seed_client(1, "Example Re")
+    seed_lookup_versions("25.0", "23.0")
     return {"submission_id": submission_id, "edm_id": edm_id, "a": a, "b": b,
             "user_a": iteration2_db.user_a}
 
@@ -44,7 +46,7 @@ def _create(deal, analysis_ids, perspective="GR", **overrides):
     kwargs = dict(submission_id=deal["submission_id"], user_email="analyst.a@example.com",
                   analysis_ids=analysis_ids, perspective_code=perspective, client_id=1,
                   treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
-                  data_vintage=date(2025, 12, 31), data_names=None)
+                  data_vintage=date(2025, 12, 31), model_version="25.0", data_names=None)
     kwargs.update(overrides)
     return svc.create_export(**kwargs)
 
@@ -137,7 +139,8 @@ def test_find_exported_names_the_newest_export_and_counts_the_earlier_ones(deal)
     assert mark.requested_by_email == "r.patel@example.com"
     assert mark.earlier_count == 2
     assert mark.status == svc.QUEUED
-    assert mark.detail_url == f"/submissions/{other_submission}/exports/{newest['export_id']}"
+    assert mark.exports_url == f"/submissions/{other_submission}#submission-exports"
+    assert mark.export_id == newest["export_id"]
     assert svc.find_exported([41958], "RL") == {}
 
 
@@ -145,6 +148,14 @@ def test_list_clients_is_every_client_by_name(deal):
     seed_client(2, "Alpha Mutual", "Y")
     seed_client(3, "Retired", "N")
     assert [c.name for c in svc.list_clients()] == ["Alpha Mutual", "Example Re", "Retired"]
+
+
+def test_model_version_choices_newest_first_from_the_lookup(deal):
+    seed_lookup_versions("HDv2.1")
+    assert svc.model_version_choices() == ["25.0", "23.0", "HDv2.1"]
+    from db import execute_command
+    execute_command("DELETE FROM dbo.Lookup_RMS_HistoricalRDS", {}, connection="LOSS")
+    assert svc.model_version_choices() == []
 
 
 # ── create_export ────────────────────────────────────────────────────────────
@@ -169,7 +180,7 @@ def test_create_export_records_the_approved_values_and_enqueues_submit(deal, mon
     assert a["treaty_incept"] == "2026-05-01" and a["treaty_year"] == 2026
     assert a["crm_id"] == "CRM-9" and a["data_name"] == "Named A"
     assert a["data_vintage"] == "2025-12-31" and a["data_currency"] == "USD"
-    assert a["data_model_vendor"] == "RMS"
+    assert a["data_model_vendor"] == "RMS" and a["data_model_version"] == "25.0"
     # what dbo.Data records the results came from: the RM web UI, this Workbench
     assert a["server"] == "https://acme.rms-ppe.com" and a["database"] == "rwb_workbench"
     assert (a["peril_code"], a["region_code"]) == ("EQ", "NAEQ")
@@ -202,6 +213,8 @@ def test_create_export_never_writes_back_to_the_submission(deal):
     ({"client_id": 99}, "Choose a client"),
     ({"treaty_incept": None}, "Treaty inception is required"),
     ({"data_vintage": None}, "Data vintage is required"),
+    ({"model_version": None}, "Choose a model version"),
+    ({"model_version": "24.0"}, "Choose a model version"),
     ({"crm_id": "x" * 31}, "longer than 30"),
 ])
 def test_create_export_validation_messages(deal, overrides, message):
@@ -283,37 +296,34 @@ def test_derive_status(manifest, expected):
     assert svc.derive_status(manifest) == expected
 
 
-# ── get_export_detail / list_exports ─────────────────────────────────────────
+# ── list_export_rows ─────────────────────────────────────────────────────────
 
-def test_export_detail_header_rows_and_origins(deal):
+def test_list_export_rows_carries_the_export_columns_and_the_origin_on_every_row(deal):
     export_id = _create(deal, [deal["a"], deal["b"]], data_vintage=date(2025, 12, 31))
     seed_export_job(export_id=export_id, irp_analysis_id=deal["b"], irp_id="500",
                     status="RUNNING")
-    execute("SELECT 1", {}, connection="LOSS")
     from db import execute_command
     execute_command("UPDATE stage.rwb_loss_result_manifest SET irp_export_job_id = '500' "
                     "WHERE irp_analysis_id = :a", {"a": deal["b"]}, connection="LOSS")
 
-    detail = svc.get_export_detail(deal["submission_id"], export_id)
+    rows = svc.list_export_rows(deal["submission_id"])
 
-    assert detail.export_id == export_id and detail.client_name == "Example Re"
-    assert detail.perspective_code == "GR" and detail.crm_id == "CRM-1"
-    assert str(detail.data_vintage) == "2025-12-31"
-    assert detail.requested_by_email == "analyst.a@example.com"
-    assert [a.analysis_name for a in detail.analyses] == ["A long", "B long"]
-    assert [a.status for a in detail.analyses] == [svc.QUEUED, svc.IN_PROGRESS]
-    assert [a.origin for a in detail.analyses] == ["own", "own"]
+    assert [(r.export_id, r.export_ordinal) for r in rows] == [(export_id, 1), (export_id, 1)]
+    assert [r.analysis_name for r in rows] == ["A long", "B long"]
+    assert [r.status for r in rows] == [svc.QUEUED, svc.IN_PROGRESS]
+    assert [r.origin for r in rows] == ["own", "own"]
+    a = rows[0]
+    assert a.client_name == "Example Re" and a.perspective_code == "GR" and a.crm_id == "CRM-1"
+    assert str(a.data_vintage) == "2025-12-31" and str(a.treaty_incept) == "2026-04-01"
+    assert a.requested_by_email == "analyst.a@example.com" and a.data_model_version == "25.0"
     # AAL is read from irp_analysis.loss_results at the export's perspective (P-20)
-    assert [a.aal for a in detail.analyses] == [100.0, 100.0]
-    assert detail.analyses[0].aal_display == "100"
-    assert detail.in_progress and not detail.analyses[0].can_retry
-    assert svc.get_export_detail(str(uuid.uuid4()), export_id) is None
-    assert svc.get_export_detail(deal["submission_id"], str(uuid.uuid4())) is None
+    assert [r.aal for r in rows] == [100.0, 100.0] and a.aal_display == "100"
+    assert not a.is_terminal and not a.can_retry
 
 
-def test_list_exports_groups_this_submissions_exports_newest_first(deal):
-    other = str(uuid.uuid4())
-    seed_manifest(submission_id=other, irp_app_analysis_id=41958, perspective_code="GU")
+def test_list_export_rows_orders_exports_newest_first_and_numbers_them(deal):
+    seed_manifest(submission_id=str(uuid.uuid4()), irp_app_analysis_id=41958,
+                  perspective_code="GU")
     older = str(uuid.uuid4())
     seed_manifest(export_id=older, submission_id=deal["submission_id"],
                   irp_analysis_id=deal["a"], irp_app_analysis_id=41958, perspective_code="GR",
@@ -326,17 +336,17 @@ def test_list_exports_groups_this_submissions_exports_newest_first(deal):
                   irp_analysis_id=deal["a"], irp_app_analysis_id=41958, perspective_code="RL",
                   requested_at="2026-09-10 08:00:00")
 
-    exports = svc.list_exports(deal["submission_id"])
+    rows = svc.list_export_rows(deal["submission_id"])
 
-    assert [(e.export_id, e.perspective_code) for e in exports] == [(newer, "RL"), (older, "GR")]
-    assert (exports[1].data_set_count, exports[1].loaded_count, exports[1].failed_count) == (2, 1, 1)
-    assert exports[1].client_name == "Example Re" and not exports[1].in_progress
-    assert exports[0].in_progress
-    assert exports[1].progress == "1 loaded · 1 failed"
-    assert exports[0].progress == "1 in progress"
+    assert [(r.export_ordinal, r.perspective_code) for r in rows] == [
+        (1, "RL"), (2, "GR"), (2, "GR")]
+    assert [r.export_id for r in rows] == [newer, older, older]
+    assert [r.status for r in rows] == [svc.QUEUED, svc.LOADED, svc.FAILED]
+    assert rows[1].data_id == 5 and rows[2].can_retry
+    assert svc.list_export_rows(str(uuid.uuid4())) == []
 
 
-def test_a_closed_analysis_leaves_the_failed_count_and_lands_in_the_progress(deal):
+def test_a_closed_row_is_terminal_and_offers_no_retry(deal):
     export_id = str(uuid.uuid4())
     seed_manifest(export_id=export_id, submission_id=deal["submission_id"],
                   irp_analysis_id=deal["a"], stage_status="staged", load_status="loaded",
@@ -345,18 +355,8 @@ def test_a_closed_analysis_leaves_the_failed_count_and_lands_in_the_progress(dea
                   irp_analysis_id=deal["b"], stage_status="failed",
                   closed_at="2026-09-11 09:00:00", closed_by="b.bailey@premiumiq.com")
 
-    [summary] = svc.list_exports(deal["submission_id"])
+    rows = svc.list_export_rows(deal["submission_id"])
 
-    assert (summary.failed_count, summary.closed_count) == (0, 1)
-    assert summary.progress == "1 loaded · 1 closed"
-    assert not summary.in_progress and not summary.analyses[1].can_retry
-
-
-def test_list_exports_carries_the_analyses_the_detail_page_shows(deal):
-    export_id = _create(deal, [deal["a"], deal["b"]])
-
-    [summary] = svc.list_exports(deal["submission_id"])
-    detail = svc.get_export_detail(deal["submission_id"], export_id)
-
-    assert ([(a.irp_analysis_id, a.analysis_name, a.status, a.origin) for a in summary.analyses]
-            == [(a.irp_analysis_id, a.analysis_name, a.status, a.origin) for a in detail.analyses])
+    assert [r.status for r in rows] == [svc.LOADED, svc.CLOSED]
+    assert all(r.is_terminal for r in rows) and not rows[1].can_retry
+    assert rows[1].closed_by == "b.bailey@premiumiq.com"

@@ -1,5 +1,5 @@
-"""Close a failed analysis (spec 014 T055, P-22): the route from both export
-screens, the refusals it shares with Retry, and what a closed row then offers.
+"""Close a failed analysis (spec 014 T055, P-22): the route, the refusals it
+shares with Retry, and what a closed row then offers.
 
 Harness: the TestClient of tests/unit/export_client.py, as in test_export_routes.
 """
@@ -50,18 +50,19 @@ def _manifest_id(analysis_id: str):
     return row["manifest_id"] if row else 999999
 
 
-def _close(client, export, analysis_id, *, query="", target="export-analyses", htmx=True):
-    headers = {"HX-Request": "true", "HX-Target": target} if htmx else {}
+def _close(client, export, analysis_id, *, query="", htmx=True):
+    headers = {"HX-Request": "true"} if htmx else {}
     return client.post(f"{export['url']}/manifests/{_manifest_id(analysis_id)}/close{query}",
                        data={"csrf_token": csrf()}, headers=headers)
 
 
-def test_close_stamps_the_row_and_rerenders_the_table_without_either_action(client, export):
+def test_close_stamps_the_row_and_rerenders_the_section_without_either_action(client, export):
     _fail(export["b"])
 
     response = _close(client, export, export["b"])
 
     assert response.status_code == 200
+    assert 'id="submission-exports"' in response.text
     row = _manifest(export["b"])
     assert row["closed_at"] is not None and row["closed_by"] == "analyst.a@example.com"
     assert ">closed</span>" in response.text
@@ -79,7 +80,7 @@ def test_closing_the_last_open_analysis_stops_the_polling(client, export):
 
     response = _close(client, export, export["b"])
 
-    assert 'hx-trigger="every 5s"' not in response.text
+    assert 'hx-trigger="every 10s"' not in response.text
 
 
 def test_close_keeps_the_filter_in_force(client, export):
@@ -90,19 +91,6 @@ def test_close_keeps_the_filter_in_force(client, export):
     assert '<option value="failed" selected>Failed</option>' in response.text
     # closed is no longer failed, so the Failed filter no longer holds the row
     assert "No analyses match this filter." in response.text
-
-
-def test_close_from_the_exports_section_renders_the_section_back(client, export):
-    _fail(export["b"])
-
-    response = _close(client, export, export["b"], query="?status=failed",
-                      target="submission-exports")
-
-    assert response.status_code == 200
-    assert 'id="submission-exports"' in response.text
-    assert '<option value="failed" selected>Failed</option>' in response.text
-    # the export's only failure is closed, so the Failed filter drops the export
-    assert "No exports match this filter." in response.text
 
 
 def test_close_is_refused_on_a_loaded_an_in_progress_and_an_already_closed_row(client, export):
@@ -117,6 +105,7 @@ def test_close_is_refused_on_a_loaded_an_in_progress_and_an_already_closed_row(c
 
     queued = _close(client, export, export["b"])
     assert queued.status_code == 409
+    assert 'id="submission-exports"' in queued.text  # the refusal banners in the section
     assert "Close refused: the analysis is queued, not failed." in queued.text
 
     _fail(export["b"])
@@ -124,14 +113,6 @@ def test_close_is_refused_on_a_loaded_an_in_progress_and_an_already_closed_row(c
     again = _close(client, export, export["b"])
     assert again.status_code == 409
     assert "Close refused: the analysis is closed, not failed." in again.text
-
-
-def test_a_refused_close_from_the_section_banners_it_there(client, export):
-    response = _close(client, export, export["b"], target="submission-exports")
-
-    assert response.status_code == 409
-    assert 'id="submission-exports"' in response.text
-    assert "Close refused: the analysis is queued, not failed." in response.text
 
 
 def test_retry_is_refused_on_a_closed_row(client, export):
@@ -156,4 +137,6 @@ def test_close_without_a_valid_csrf_token_changes_nothing(client, export):
                            data={"csrf_token": "not-a-token"})
 
     assert response.status_code == 303
+    assert response.headers["location"] == (
+        f"/submissions/{export['submission_id']}#submission-exports")
     assert _manifest(export["b"])["closed_at"] is None

@@ -109,6 +109,20 @@
         <input class="wf-field__input" type="date" name="data_vintage" required
                value="{{ values.data_vintage or '' }}">
       </div>
+
+      <div class="wf-field">
+        <label>MODEL VERSION <span class="wf-field__req" title="Required">*</span></label>
+        <select class="wf-field__input" name="model_version" required>
+          {% for v in model_versions %}
+          <option value="{{ v }}" {% if values.model_version == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+        {% if model_versions %}
+        <div class="wf-field__msg wf-field__hint">Applied to every analysis in this export and written to the loss repository as its model version. Defaults to the newest version the historical event lookup holds.</div>
+        {% else %}
+        <div class="wf-field__msg wf-field__error">The historical event lookup lists no model versions.</div>
+        {% endif %}
+      </div>
     </div>
 
     <div class="status-controls">

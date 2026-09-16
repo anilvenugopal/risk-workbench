@@ -25,7 +25,7 @@
 2. Untick it, pick `TY`: the line "TY writes one loss set per treaty, per
    analysis." shows under the select; the cart row shows no AAL (acceptance 3,
    story 2 acceptance 3). Pick a client, enter a vintage, **Export**.
-3. The detail page shows one **queued** row for the analysis with an empty
+3. The exports section shows one **queued** row for the analysis with an empty
    Treaty cell. When the stage runs, the row becomes treaty `PR1` and a second
    row `PR2` appears (P-09); both move to loaded.
 4. In `rwb_loss`: two `dbo.Data` rows with `Perspective = 'TY'`,
@@ -48,23 +48,20 @@
 
 ## Story 2 — Follow treaty data sets
 
-1. Exports section: the export's **Data sets** column reads 2 for the one
-   analysis; the expanded row lists `… · PR1` and `… · PR2`, each with its own
-   status, AAL, and Data ID (acceptance 1, 3).
-2. Detail table: one row per treaty with the Treaty cell, last change time,
-   Data ID, and the five counts; the AAL is the treaty's own
-   (`SUM(Rate × Loss)` over its rows — check one against the file) (acceptance
-   1, 3).
-3. Fail one treaty's load (insert a duplicate `Lookup_RMS_HistoricalRDS` row
+1. Exports section: the one analysis occupies two rows, Treaty `PR1` and
+   `PR2`, each with its own status, last change time, Data ID, and the five
+   counts; the AAL is the treaty's own (`SUM(Rate × Loss)` over its rows —
+   check one against the file) (acceptance 1, 3).
+2. Fail one treaty's load (insert a duplicate `Lookup_RMS_HistoricalRDS` row
    for an event only that treaty carries, as 014 quickstart Story 3 step 1),
    Retry the export → that row fails, its sibling loads. The **Failed** filter
    lists the failed treaty row and not the loaded one (acceptance 4). Retry the
    failed row after deleting the duplicate: it loads; the sibling's `DataID`
    and `updated_at` are unchanged (FR-012, FR-014).
-4. Request rejected: point a TY row's `irp_analysis_irp_id` at a non-existent
+3. Request rejected: point a TY row's `irp_analysis_irp_id` at a non-existent
    analysis and export → one failed row for the analysis, no treaty rows
    (acceptance 2).
-5. Open a loaded treaty's Data ID in the workflow tool: the data name carries
+4. Open a loaded treaty's Data ID in the workflow tool: the data name carries
    the same treaty number the Workbench row shows (acceptance 5, SC-003).
 
 ## Story 3 — Export a group at TY
@@ -78,7 +75,7 @@
    table; the row's `treaty_ids` lists one ID per member, and a combined
    event's `Loss` equals the sum of the members' losses for that treaty and
    event in the archive (acceptance 2, P-11).
-3. Export the members without grouping: one data set per member per treaty
+2. Export the members without grouping: one data set per member per treaty
    (acceptance 3).
 
 ## Sandbox checks of the two assumptions
