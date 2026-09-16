@@ -321,7 +321,8 @@ def _curve_points(element: dict | None) -> dict | None:
 def build_loss_results_extract(*, perspective_codes: list[str],
                                results: dict[str, tuple[list[dict], list[dict]]],
                                settings: dict | None,
-                               retrieved_at: str) -> dict:
+                               retrieved_at: str,
+                               treaties: list[dict] | None = None) -> dict:
     """The contracts/loss-results.md document from RM's verbatim row lists.
 
     ``results`` maps each perspective code to its ``(stats_rows, ep_elements)``.
@@ -330,7 +331,9 @@ def build_loss_results_extract(*, perspective_codes: list[str],
     → explicitly ``null``. ``aal``/``std_dev`` come from the stats row whose
     ``epType`` is ``OEP`` (none → both ``null``); TCE-OEP/TCE-AEP elements are
     discarded. ``settings`` is the analysis metadata payload — engine fields
-    absent there are stored as ``null``, never omitted."""
+    absent there are stored as ``null``, never omitted. ``treaties`` is what
+    Risk Modeler reports applied to the run (spec 016 T-04); the export form
+    offers TY only when the list is non-empty."""
     payload = settings or {}
     perspectives: dict[str, dict | None] = {}
     for code in perspective_codes:
@@ -351,6 +354,7 @@ def build_loss_results_extract(*, perspective_codes: list[str],
         "engine_version": payload.get("engineVersion"),
         "retrieved_at": retrieved_at,
         "perspectives": perspectives,
+        "treaties": list(treaties or []),
     }
 
 
@@ -411,10 +415,14 @@ def _retrieve_analysis_results_body(rwb_job_id: Any) -> runtime.JobResult:
             return runtime.JobResult.fail(f"results read failed for {code}: {exc}")
         results[code] = (stats_rows, ep_rows)
         stats_counts[code] = len(stats_rows)
+    try:
+        treaties = irp_gateway.list_analysis_treaties(analysis_id=int(row["irp_id"]))
+    except Exception as exc:  # noqa: BLE001 — no partial write
+        return runtime.JobResult.fail(f"treaties read failed: {exc}")
 
     doc = build_loss_results_extract(
         perspective_codes=codes, results=results, settings=settings,
-        retrieved_at=_utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))
+        retrieved_at=_utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"), treaties=treaties)
     execute_command(
         "UPDATE irp_analysis SET loss_results = :doc, updated_at = :now "
         "WHERE id = :id",

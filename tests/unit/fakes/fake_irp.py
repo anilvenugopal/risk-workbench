@@ -247,6 +247,12 @@ class FakeIRP:
         # recorded result reads: {"call", "analysis_id", "perspective_code",
         # "exposure_resource_id"} — the idempotency assertions count these
         self.result_calls: list[dict] = []
+        # ── spec-016 applied treaties (list_analysis_treaties) ──────────────
+        # analysis id (str) → the wheel-shaped rows {"treatyId", "treatyNumber",
+        # "treatyName"}; an analysis not seeded ran with no treaties
+        self._analysis_treaties: dict[str, list[dict]] = {}
+        self.raise_on_analysis_treaties = False
+        self.treaty_calls: list[str] = []
         # ── spec-014 loss results export ─────────────────────────────────────
         # recorded export submits: {"analysis_id", "loss_details", "job_id"}
         self.export_submits: list[dict] = []
@@ -389,6 +395,11 @@ class FakeIRP:
         self._analysis_results[(str(analysis_id), perspective_code)] = {
             "stats": [] if stats is None else list(stats),
             "ep": [] if ep is None else list(ep)}
+
+    def set_analysis_treaties(self, analysis_id: str | int, treaties: list[dict]) -> None:
+        """Seed what ``list_analysis_treaties`` answers for one analysis, in the
+        wheel's shape (``treatyId``, ``treatyNumber``, ``treatyName``)."""
+        self._analysis_treaties[str(analysis_id)] = list(treaties)
 
     def run(self, irp_id: str) -> None:
         self.jobs[irp_id] = "RUNNING"
@@ -843,6 +854,15 @@ class FakeIRP:
                         exposure_resource_id: int) -> list[dict]:
         return self._results("ep", analysis_id, perspective_code,
                              exposure_resource_id)
+
+    def list_analysis_treaties(self, *, analysis_id: int) -> list[dict]:
+        self.treaty_calls.append(str(analysis_id))
+        if self.raise_on_analysis_treaties:
+            raise RuntimeError("fake IRP: forced treaties failure")
+        return [{"treaty_id": str(t.get("treatyId")),
+                 "treaty_number": t.get("treatyNumber"),
+                 "treaty_name": t.get("treatyName")}
+                for t in self._analysis_treaties.get(str(analysis_id), [])]
 
     def _results(self, call: str, analysis_id, perspective_code,
                  exposure_resource_id) -> list[dict]:
