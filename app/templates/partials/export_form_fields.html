@@ -44,7 +44,7 @@
         <div class="wf-field__msg wf-field__hint wf-field__hint--warn">Already exported for {{ perspective }}
           ({{ a.exported.earlier_count }} time{{ 's' if a.exported.earlier_count != 1 }}),
           last {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
-          · {{ a.exported.status }} — <a href="{{ a.exported.detail_url }}">open that export</a>.
+          · {{ a.exported.status }} — <a href="{{ a.exported.exports_url }}">open that submission's exports</a>.
           Exporting again creates a new data set.</div>
         {% endif %}
       </div>

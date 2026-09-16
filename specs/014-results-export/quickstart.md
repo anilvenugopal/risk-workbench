@@ -33,8 +33,8 @@
    with "Data vintage is required."
    The client list includes a retired client (`ActiveFlag = 'N'`, seeded by
    `bootstrap-loss`) — P-18.
-3. Pick GR and a client, click **Export**. You land on the export detail page
-   with both analyses **queued** (acceptance 1).
+3. Pick GR and a client, click **Export**. You land on the submission page at
+   its exports table with both analyses **queued** under `#1` (acceptance 1).
 4. Watch the statuses move: in progress → loaded. Expect several minutes per
    analysis for a real ELT.
 5. In `rwb_loss`: one `dbo.Data` row per analysis with `AnalysisID`,
@@ -52,28 +52,31 @@
    Export again: a second `dbo.Data` row lands under a new data ID.
 7. Lookup miss: add one lookup row under `ModelVersion = '24.0'`, reopen
    the form, and pick `24.0`. It loads: every event is stochastic, the
-   detail page's historical count reads 0, and `dbo.RMS_HistoricalRDS` gets
+   row's historical count reads 0, and `dbo.RMS_HistoricalRDS` gets
    no rows (acceptance 7, non-negotiable 3, P-24).
 
 ## Story 2 — Follow an export
 
-1. Submission page: the exports section below the analyses lists every
-   export newest first with perspective, requester, time, client, analysis
-   count, loaded / failed counts; a row opens the detail page (acceptance 5).
-   An analysis exported for GR and RL shows two rows; the analyses grid is
-   unchanged (acceptance 6). A group analysis exported from another
-   submission is not listed here, but this submission's export form shows it
-   as exported with a link to that export (story 1 acceptance 4, P-16).
-2. Detail page, loaded row: data ID, AAL, rows staged, stochastic, historical,
-   exposure raised, standard deviation zeroed; stochastic + historical = staged
+1. Submission page: the exports table below the analyses lists one row per
+   analysis, newest export first, `#1` on the newest export's rows and a
+   heavier rule where the export changes; the export's perspective, client,
+   CRM ID, treaty inception, data vintage, model version, requester, and time
+   repeat on every row (acceptance 4). An analysis exported for GR and RL
+   shows two rows; the analyses grid is unchanged (acceptance 5). A group
+   analysis exported from another submission is not listed here, but this
+   submission's export form shows it as exported with a link to that
+   submission's exports table (story 1 acceptance 4, P-16).
+2. Loaded row: data ID, AAL, rows staged, stochastic, historical, exposure
+   raised, standard deviation zeroed; stochastic + historical = staged
    (acceptance 2, 6).
 3. Failed row: the error message and **Retry**; sibling rows show their own
    status (acceptance 3).
 4. Every row shows its last change time (acceptance 1).
-5. Pick **Failed** in the exports section: only the exports holding a failed
-   analysis stay listed, and expanding one still shows all of its analyses.
-   The same choice on the detail page keeps only the failed analyses; Retry
-   from there comes back under the filter (acceptance 7).
+5. Pick **Failed**: only the failed rows stay listed, the ordinals unchanged.
+   Add a client, CRM ID, or perspective: the filters combine; Retry comes
+   back under them (acceptance 7).
+6. **Copy table**, paste into Excel: headers on the first row, one column per
+   table column (acceptance 8).
 
 ## Story 3 — Retry
 
@@ -116,7 +119,7 @@ the download completed, else downloads again; no duplicate stage rows.
 EXEC stage.usp_load_elt_result @manifest_id = <id>;
 ```
 
-Against a `staged` row: loads and stamps `loaded`; the detail page shows it
+Against a `staged` row: loads and stamps `loaded`; the exports table shows it
 without any Workbench job. Against a `loaded` row: raises 50001 naming the
 data ID. Inside `BEGIN TRAN`: raises 50000, nothing written.
 

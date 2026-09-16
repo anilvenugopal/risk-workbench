@@ -1,6 +1,6 @@
 """Loss results export (spec 014): the export form's read models, the manifest
-insert, the exports section and detail read models, status derivation, and the
-Retry and Close decisions.
+insert, the exports table's row model, status derivation, and the Retry and
+Close decisions.
 
 The export record is ``stage.rwb_loss_result_manifest`` in the loss repository
 (``LOSS``), one row per analysis per perspective. The Workbench keeps only the
@@ -82,8 +82,8 @@ class ExportedMark:
     earlier_count: int = 1
 
     @property
-    def detail_url(self) -> str:
-        return f"/submissions/{self.requested_from_submission_id}/exports/{self.export_id}"
+    def exports_url(self) -> str:
+        return f"/submissions/{self.requested_from_submission_id}#submission-exports"
 
 
 @dataclass
@@ -120,7 +120,11 @@ class Client:
 
 @dataclass
 class ExportAnalysisDetail:
+    """One row of the exports table (data-model.md §7): the manifest row's
+    values plus its export's ordinal within the submission (1 = newest)."""
     manifest_id: int
+    export_id: str
+    export_ordinal: int
     irp_analysis_id: str
     analysis_name: str | None
     origin: str
@@ -145,6 +149,13 @@ class ExportAnalysisDetail:
     error_message: str | None
     closed_at: Any
     closed_by: str | None
+    perspective_code: str
+    client_name: str | None
+    crm_id: str | None
+    treaty_incept: Any
+    data_vintage: Any
+    requested_by_email: str
+    requested_at: Any
 
     @property
     def aal_display(self) -> str:
@@ -157,65 +168,6 @@ class ExportAnalysisDetail:
     @property
     def can_retry(self) -> bool:
         return self.status == FAILED
-
-
-@dataclass
-class ExportDetail:
-    export_id: str
-    submission_id: str
-    perspective_code: str
-    client_id: int
-    client_name: str | None
-    treaty_incept: Any
-    crm_id: str | None
-    data_vintage: Any
-    requested_by_email: str
-    requested_at: Any
-    analyses: list[ExportAnalysisDetail] = field(default_factory=list)
-
-    @property
-    def in_progress(self) -> bool:
-        return any(not a.is_terminal for a in self.analyses)
-
-
-@dataclass
-class ExportSummary:
-    export_id: str
-    perspective_code: str
-    requested_by_email: str
-    requested_at: Any
-    client_name: str | None
-    crm_id: str | None
-    analyses: list[ExportAnalysisDetail] = field(default_factory=list)
-
-    @property
-    def analysis_count(self) -> int:
-        return len(self.analyses)
-
-    @property
-    def loaded_count(self) -> int:
-        return sum(1 for a in self.analyses if a.status == LOADED)
-
-    @property
-    def failed_count(self) -> int:
-        return sum(1 for a in self.analyses if a.status == FAILED)
-
-    @property
-    def closed_count(self) -> int:
-        return sum(1 for a in self.analyses if a.status == CLOSED)
-
-    @property
-    def in_progress(self) -> bool:
-        return any(not a.is_terminal for a in self.analyses)
-
-    @property
-    def progress(self) -> str:
-        """The roll-up the exports section shows in place of a status column."""
-        counts = ((self.loaded_count, LOADED), (self.failed_count, FAILED),
-                  (self.closed_count, CLOSED),
-                  (self.analysis_count - self.loaded_count - self.failed_count
-                   - self.closed_count, IN_PROGRESS))
-        return " · ".join(f"{n} {label}" for n, label in counts if n)
 
 
 # ── status derivation ────────────────────────────────────────────────────────
@@ -499,14 +451,13 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
     return export_id
 
 
-# ── exports section and detail page ──────────────────────────────────────────
+# ── exports table ────────────────────────────────────────────────────────────
 
 
-def list_exports(submission_id: Any) -> list[ExportSummary]:
-    """One row per export requested from this submission, newest first (P-16),
-    each carrying its analyses so the section can expand to them. The analyses
-    are built by the same helper the detail page uses, so the two pages can
-    never disagree about a status."""
+def list_export_rows(submission_id: Any) -> list[ExportAnalysisDetail]:
+    """One row per analysis of every export requested from this submission
+    (P-16), newest export first; ``export_ordinal`` counts the exports from 1
+    over the unfiltered list."""
     rows = [dict(r) for r in execute(
         "SELECT m.*, c.ClientName AS client_name "
         f"FROM stage.rwb_loss_result_manifest m {read_uncommitted_hint('LOSS')} "
@@ -515,25 +466,47 @@ def list_exports(submission_id: Any) -> list[ExportSummary]:
         "ORDER BY m.requested_at DESC, m.export_id, "
         "m.analysis_description, m.analysis_name, m.manifest_id",
         {"s": _uid(submission_id)}, connection="LOSS")]
-    if not rows:
-        return []
     analyses = _analysis_rows([_uid(r["irp_analysis_id"]) for r in rows])
-    summaries: dict[str, ExportSummary] = {}
-    for r in rows:
-        key = _uid(r["export_id"])
-        summary = summaries.get(key)
-        if summary is None:
-            summary = summaries[key] = ExportSummary(
-                export_id=key, perspective_code=r["perspective_code"],
-                requested_by_email=r["requested_by_email"], requested_at=r["requested_at"],
-                client_name=r["client_name"], crm_id=r["crm_id"])
-        summary.analyses.append(_analysis_detail(r, analyses))
-    return list(summaries.values())
+    result: list[ExportAnalysisDetail] = []
+    ordinal, current_export = 0, None
+    for row in rows:
+        export_id = _uid(row["export_id"])
+        if export_id != current_export:
+            ordinal, current_export = ordinal + 1, export_id
+        analysis = analyses.get(_uid(row["irp_analysis_id"])) or {}
+        perspectives = (_parse_json_dict(analysis.get("loss_results"), "loss_results")
+                        or {}).get("perspectives") or {}
+        result.append(ExportAnalysisDetail(
+            manifest_id=row["manifest_id"], export_id=export_id, export_ordinal=ordinal,
+            irp_analysis_id=_uid(row["irp_analysis_id"]),
+            analysis_name=row["analysis_description"] or row["analysis_name"],
+            origin=("broker" if analysis.get("rdm_id") else
+                    "group" if analysis.get("is_group") else "own"),
+            status=derive_status(row), updated_at=row["updated_at"],
+            irp_export_job_id=row["irp_export_job_id"], zip_file=row["zip_file"],
+            data_name=row["data_name"], irp_app_analysis_id=row["irp_app_analysis_id"],
+            data_currency=row["data_currency"], data_model_version=row["data_model_version"],
+            engine_type=row["engine_type"], peril_code=row["peril_code"],
+            region_code=row["region_code"],
+            data_id=row["data_id"],
+            aal=(perspectives.get(row["perspective_code"]) or {}).get("aal"),
+            staged_row_count=row["staged_row_count"],
+            stochastic_row_count=row["stochastic_row_count"],
+            historical_row_count=row["historical_row_count"],
+            exp_value_raised_count=row["exp_value_raised_count"],
+            std_dev_zeroed_count=row["std_dev_zeroed_count"],
+            error_message=row["error_message"],
+            closed_at=row["closed_at"], closed_by=row["closed_by"],
+            perspective_code=row["perspective_code"], client_name=row["client_name"],
+            crm_id=row["crm_id"], treaty_incept=row["treaty_incept"],
+            data_vintage=row["data_vintage"],
+            requested_by_email=row["requested_by_email"], requested_at=row["requested_at"]))
+    return result
 
 
 def _analysis_rows(irp_analysis_ids: list[str]) -> dict[str, dict]:
     """The ``irp_analysis`` row behind each manifest row: the origin label and
-    the AAL both screens show (P-20) are read from it at render time, never
+    the AAL the table shows (P-20) are read from it at render time, never
     copied onto the manifest."""
     if not irp_analysis_ids:
         return {}
@@ -542,55 +515,6 @@ def _analysis_rows(irp_analysis_ids: list[str]) -> dict[str, dict]:
         "SELECT id, is_group, rdm_id, loss_results FROM irp_analysis "
         f"WHERE id IN ({', '.join(':' + k for k in params)})",
         params, connection="WORKBENCH")}
-
-
-def _analysis_detail(row: dict, analyses: dict[str, dict]) -> ExportAnalysisDetail:
-    analysis = analyses.get(_uid(row["irp_analysis_id"])) or {}
-    perspectives = (_parse_json_dict(analysis.get("loss_results"), "loss_results")
-                    or {}).get("perspectives") or {}
-    return ExportAnalysisDetail(
-        manifest_id=row["manifest_id"], irp_analysis_id=_uid(row["irp_analysis_id"]),
-        analysis_name=row["analysis_description"] or row["analysis_name"],
-        origin=("broker" if analysis.get("rdm_id") else
-                "group" if analysis.get("is_group") else "own"),
-        status=derive_status(row), updated_at=row["updated_at"],
-        irp_export_job_id=row["irp_export_job_id"], zip_file=row["zip_file"],
-        data_name=row["data_name"], irp_app_analysis_id=row["irp_app_analysis_id"],
-        data_currency=row["data_currency"], data_model_version=row["data_model_version"],
-        engine_type=row["engine_type"], peril_code=row["peril_code"],
-        region_code=row["region_code"],
-        data_id=row["data_id"],
-        aal=(perspectives.get(row["perspective_code"]) or {}).get("aal"),
-        staged_row_count=row["staged_row_count"],
-        stochastic_row_count=row["stochastic_row_count"],
-        historical_row_count=row["historical_row_count"],
-        exp_value_raised_count=row["exp_value_raised_count"],
-        std_dev_zeroed_count=row["std_dev_zeroed_count"],
-        error_message=row["error_message"],
-        closed_at=row["closed_at"], closed_by=row["closed_by"])
-
-
-def get_export_detail(submission_id: Any, export_id: Any) -> ExportDetail | None:
-    """The export's header and one row per analysis; ``None`` when no manifest
-    row of this export was requested from this submission."""
-    rows = execute(
-        "SELECT m.*, c.ClientName AS client_name "
-        f"FROM stage.rwb_loss_result_manifest m {read_uncommitted_hint('LOSS')} "
-        "LEFT JOIN dbo.Client c ON c.ClientID = m.client_id "
-        "WHERE m.export_id = :e AND m.requested_from_submission_id = :s "
-        "ORDER BY m.analysis_description, m.analysis_name, m.manifest_id",
-        {"e": _uid(export_id), "s": _uid(submission_id)}, connection="LOSS")
-    if not rows:
-        return None
-    analyses = _analysis_rows([_uid(r["irp_analysis_id"]) for r in rows])
-    first = rows[0]
-    return ExportDetail(
-        export_id=_uid(first["export_id"]), submission_id=_uid(submission_id),
-        perspective_code=first["perspective_code"], client_id=int(first["client_id"]),
-        client_name=first["client_name"], treaty_incept=first["treaty_incept"],
-        crm_id=first["crm_id"], data_vintage=first["data_vintage"],
-        requested_by_email=first["requested_by_email"], requested_at=first["requested_at"],
-        analyses=[_analysis_detail(r, analyses) for r in rows])
 
 
 # ── retry and close ──────────────────────────────────────────────────────────
@@ -675,7 +599,7 @@ def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> Ret
                                                        analysis.get("rdm_id"))
 
     # Each branch first puts the row back into the state its job runs from, so
-    # the detail page reads it as in progress (and polls) until the job stamps it.
+    # the exports table reads it as in progress (and polls) until the job stamps it.
     if branch == "load":
         stage_job = execute_one(
             "SELECT id FROM rwb_job WHERE rwb_job_type = 'stage_results_export' "
@@ -728,8 +652,8 @@ __all__ = [
     "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN",
     "ExportError", "ExportValidationError", "ExportNotFound", "ExportActionRefused",
     "ExportedMark", "ExportableAnalysis", "Client",
-    "ExportAnalysisDetail", "ExportDetail", "ExportSummary",
+    "ExportAnalysisDetail",
     "derive_status", "list_exportable_analyses", "perspective_choices", "find_exported",
     "mark_exported", "list_clients", "model_version_choices", "create_export",
-    "list_exports", "get_export_detail", "retry_decision", "apply_retry", "apply_close",
+    "list_export_rows", "retry_decision", "apply_retry", "apply_close",
 ]

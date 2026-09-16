@@ -297,14 +297,38 @@ def _results_status_filter(request: Request) -> str:
 
 
 _EXPORT_STATUS_FILTERS = ("failed", "loaded")
-# Retry and Close are offered on both export screens; the htmx target says
-# which one to render back.
-_EXPORTS_SECTION_TARGET = "submission-exports"
 
 
 def _export_status_filter(request: Request) -> str:
     status = (request.query_params.get("status") or "").strip()
     return status if status in _EXPORT_STATUS_FILTERS else ""
+
+
+def _exports_section_context(request: Request, submission_id: str) -> dict:
+    """The exports table under the four filters in force (contracts/routes.md
+    §5). A value the table's own rows do not carry is no filter, the rule
+    ``?status=`` has always had; the export ordinal is counted before any
+    filter applies."""
+    rows = export_service.list_export_rows(submission_id)
+    options = {
+        "client": sorted({r.client_name for r in rows if r.client_name}),
+        "crm_id": sorted({r.crm_id for r in rows if r.crm_id}),
+        "perspective": sorted({r.perspective_code for r in rows}),
+    }
+    filters = {"status": _export_status_filter(request)}
+    for name, values in options.items():
+        value = (request.query_params.get(name) or "").strip()
+        filters[name] = value if value in values else ""
+    shown = [r for r in rows
+             if (not filters["status"] or r.status == filters["status"])
+             and (not filters["client"] or r.client_name == filters["client"])
+             and (not filters["crm_id"] or r.crm_id == filters["crm_id"])
+             and (not filters["perspective"] or r.perspective_code == filters["perspective"])]
+    active = {k: v for k, v in filters.items() if v}
+    return {"submission_id": submission_id, "rows": rows, "shown": shown,
+            "clients": options["client"], "crm_ids": options["crm_id"],
+            "perspectives": options["perspective"], "filters": filters,
+            "query": ("?" + urlencode(active)) if active else ""}
 
 
 def _results_groups(submission_id: str) -> list:
@@ -1592,17 +1616,15 @@ async def create_export(request: Request, submission_id: str):
             data_names=data_names)
     except export_service.ExportValidationError as exc:
         return reshow(error=str(exc))
-    return RedirectResponse(f"/submissions/{submission_id}/exports/{export_id}", status_code=303)
+    return RedirectResponse(f"/submissions/{submission_id}#submission-exports", status_code=303)
 
 
 @router.get("/submissions/{submission_id}/exports", response_class=HTMLResponse)
 def submission_exports(request: Request, submission_id: str):
     if submission_service.get_submission(submission_id) is None:
         return _not_found(request)
-    return _partial(request, "partials/exports_section.html", {
-        "submission_id": submission_id,
-        "status_filter": _export_status_filter(request),
-        "exports": export_service.list_exports(submission_id)})
+    return _partial(request, "partials/exports_section.html",
+                    _exports_section_context(request, submission_id))
 
 
 def _export_not_found(request: Request):
@@ -1614,67 +1636,31 @@ def _export_not_found(request: Request):
         status_code=404)
 
 
-@router.get("/submissions/{submission_id}/exports/{export_id}", response_class=HTMLResponse)
-def export_detail(request: Request, submission_id: str, export_id: str):
-    submission = submission_service.get_submission(submission_id)
-    if submission is None:
-        return _not_found(request)
-    export = export_service.get_export_detail(submission_id, export_id)
-    if export is None:
-        return _export_not_found(request)
-    return _templates(request).TemplateResponse(
-        request, "pages/submission_export_detail.html", {
-            "current_user": request.state.user,
-            "nav": _export_nav(request, "submissions.export_detail", submission,
-                               f"Export {export.perspective_code} · {export.requested_at}"),
-            "submission": submission, "export": export,
-            "status_filter": _export_status_filter(request)})
-
-
-@router.get("/submissions/{submission_id}/exports/{export_id}/analyses",
-            response_class=HTMLResponse)
-def export_analyses(request: Request, submission_id: str, export_id: str):
-    export = export_service.get_export_detail(submission_id, export_id)
-    if export is None:
-        return _export_not_found(request)
-    return _partial(request, "partials/export_analyses_table.html", {
-        "export": export, "status_filter": _export_status_filter(request)})
-
-
-def _export_action_response(request: Request, submission_id: str, export_id: str,
-                            action: str, message: str | None):
-    """The re-render Retry and Close both answer with: whichever fragment the
-    click came from (contracts/routes.md §7, §8). The whole fragment goes back
-    so its polling trigger returns, and the form's before-swap hook lets htmx
-    swap the 409 of a refusal in."""
+def _export_action_response(request: Request, submission_id: str, action: str,
+                            message: str | None):
+    """Retry and Close both answer with the whole exports section
+    (contracts/routes.md §7, §8) so its polling trigger returns; the form's
+    before-swap hook lets htmx swap the 409 of a refusal in."""
     if not _is_htmx(request):
         if message is not None:
             return _templates(request).TemplateResponse(
                 request, "base/error.html",
                 {"status_code": 409, "title": f"{action} refused", "detail": message,
                  "is_htmx": False, "current_user": request.state.user}, status_code=409)
-        return RedirectResponse(f"/submissions/{submission_id}/exports/{export_id}",
+        return RedirectResponse(f"/submissions/{submission_id}#submission-exports",
                                 status_code=303)
-    context = {"status_filter": _export_status_filter(request),
-               "action_message": (f"{action} refused: {message}." if message else None)}
-    status_code = 409 if message else 200
-    if request.headers.get("HX-Target") == _EXPORTS_SECTION_TARGET:
-        return _partial(request, "partials/exports_section.html",
-                        {**context, "submission_id": submission_id,
-                         "exports": export_service.list_exports(submission_id)},
-                        status_code=status_code)
-    return _partial(request, "partials/export_analyses_table.html",
-                    {**context,
-                     "export": export_service.get_export_detail(submission_id, export_id)},
-                    status_code=status_code)
+    return _partial(request, "partials/exports_section.html",
+                    {**_exports_section_context(request, submission_id),
+                     "action_message": (f"{action} refused: {message}." if message else None)},
+                    status_code=409 if message else 200)
 
 
 @router.post("/submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/retry")
 def retry_export_analysis(request: Request, submission_id: str, export_id: str,
                           irp_analysis_id: str, csrf_token: str = Form(...)):
-    detail_url = f"/submissions/{submission_id}/exports/{export_id}"
     if not validate_csrf_token(csrf_token):
-        return RedirectResponse(detail_url, status_code=303)
+        return RedirectResponse(f"/submissions/{submission_id}#submission-exports",
+                                status_code=303)
     message = None
     try:
         export_service.apply_retry(submission_id, export_id, irp_analysis_id)
@@ -1682,15 +1668,15 @@ def retry_export_analysis(request: Request, submission_id: str, export_id: str,
         return _export_not_found(request)
     except export_service.ExportActionRefused as exc:
         message = str(exc)
-    return _export_action_response(request, submission_id, export_id, "Retry", message)
+    return _export_action_response(request, submission_id, "Retry", message)
 
 
 @router.post("/submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/close")
 def close_export_analysis(request: Request, submission_id: str, export_id: str,
                           irp_analysis_id: str, csrf_token: str = Form(...)):
-    detail_url = f"/submissions/{submission_id}/exports/{export_id}"
     if not validate_csrf_token(csrf_token):
-        return RedirectResponse(detail_url, status_code=303)
+        return RedirectResponse(f"/submissions/{submission_id}#submission-exports",
+                                status_code=303)
     message = None
     try:
         export_service.apply_close(submission_id, export_id, irp_analysis_id,
@@ -1699,4 +1685,4 @@ def close_export_analysis(request: Request, submission_id: str, export_id: str,
         return _export_not_found(request)
     except export_service.ExportActionRefused as exc:
         message = str(exc)
-    return _export_action_response(request, submission_id, export_id, "Close", message)
+    return _export_action_response(request, submission_id, "Close", message)

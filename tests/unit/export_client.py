@@ -9,6 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
 from app.config import settings
+from db import execute_one
 from tests.unit.export_rows import (
     seed_analysis,
     seed_client,
@@ -75,11 +76,16 @@ def make_deal(test_client) -> dict:
 
 
 def make_export(test_client, deal) -> dict:
-    """An accepted export of both exportable analyses at GR."""
-    response = post_export(test_client, deal, [deal["a"], deal["b"]])
-    export_id = response.headers["location"].rsplit("/", 1)[1]
+    """An accepted export of both exportable analyses at GR. ``url`` is the
+    Retry and Close prefix; ``section`` is the exports table."""
+    post_export(test_client, deal, [deal["a"], deal["b"]])
+    export_id = execute_one(
+        "SELECT export_id FROM stage.rwb_loss_result_manifest "
+        "WHERE requested_from_submission_id = :s",
+        {"s": deal["submission_id"]}, connection="LOSS")["export_id"]
     return {**deal, "export_id": export_id,
-            "url": f"/submissions/{deal['submission_id']}/exports/{export_id}"}
+            "url": f"/submissions/{deal['submission_id']}/exports/{export_id}",
+            "section": f"/submissions/{deal['submission_id']}/exports"}
 
 
 def csrf() -> str:

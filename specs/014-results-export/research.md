@@ -221,7 +221,7 @@ fails the load through the one-match assertion.
 **Decision**: Where `loss > exp_value`, set `exp_value = loss` and flag the
 row; where `std_dev_i < 0` or `std_dev_c < 0` on a stochastic row, set the
 negative value to 0 and flag the row. Loss is never altered. Counts land on
-the manifest and the export detail page.
+the manifest and the exports table.
 
 **Rationale**: Note 24 D12–D15. Cheryl's condition for automatic correction
 was "I would want to know that it's happening"; Wendy's was that the summary
@@ -385,7 +385,7 @@ cross servers, so the constraint would be advisory. Rejected.
 ## R10 — Page reads of the manifest use a dialect-aware `READUNCOMMITTED` hint because RCSI is off (T-25)
 
 **Decision**: every request-path read of `stage.rwb_loss_result_manifest`
-(duplicate check, exports table, export detail page) appends the table hint
+(duplicate check, exports table) appends the table hint
 returned by a new `db.read_uncommitted_hint(connection)`: `WITH
 (READUNCOMMITTED)` on SQL Server, empty on SQLite. The helper follows
 `db.row_limit` (`db/execute.py:81`), which already branches on dialect.
@@ -393,7 +393,7 @@ returned by a new `db.read_uncommitted_hint(connection)`: `WITH
 **Rationale**: the load procedure holds an exclusive lock on the manifest
 row from the claim to the commit, which can be minutes for a large analysis.
 Under plain `READ COMMITTED`, the SQL Server default for an on-premises
-database, the export detail page would wait for the commit. A dirty read of
+database, the exports table would wait for the commit. A dirty read of
 one status row costs nothing; the unique index, not the read, is what stops a
 duplicate. A raw hint in the SQL would break every unit test, which runs the
 same queries over SQLite (R14).
@@ -405,15 +405,18 @@ wait on the load's row lock, so the hint is required, not precautionary.
 
 ## R11 — Export form and export detail are pages; the exports table is a section (T-26)
 
+The export detail page was removed 2026-09-15 (note 30 D1): the exports
+section is the one export status screen, one flat row per analysis with the
+export's columns repeated (clarifications 2026-09-16).
+
 **Decision**: the export form is a page at
 `/submissions/{submission_id}/exports/new`, reached from an **Export** button
 in the analyses section's summary bar beside Compare and View; the exports
-table is a section on the submission page below the analyses; the export
-detail page is `/submissions/{submission_id}/exports/{export_id}`. Each page
-is one hidden nav node under `submissions`, one handler, one template
+table is a section on the submission page below the analyses. The form is
+one hidden nav node under `submissions`, one handler, one template
 (Article 1). Ticking analyses re-renders the perspective select, the
 per-analysis data-name fields, and the exported marks over HTMX. Retry is an
-`hx-post` on the detail page that re-renders the analysis row.
+`hx-post` that re-renders the section.
 
 **Rationale**:
 
