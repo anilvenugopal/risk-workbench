@@ -8,18 +8,10 @@
 
 The column stays Risk Modeler's `GET /platform/riskdata/v1/analyses/{id}`
 response, stored as returned, for all three origins. It gains one
-workbench-owned top-level key:
-
-| Key | Written by | Content |
-|---|---|---|
-| `resolved` | `finalize_analysis` (own analyses and groups), `backfill_rdm_analyses` (broker analyses), in the same UPDATE as the response | `partitions[]` — one entry per region and peril the run resolved on, each with `region_code`, `peril_code`, `framework`, `event_rate_scheme {id, name}`, `simulation_set {id, name, periods}`; `treaties[]` — `{id, number, name, currency, occurrence_limit, risk_limit, attachment_point, retention_amount}` per applied treaty; `captured_at` |
-
-Full shape and rules:
+workbench-owned top-level key, `resolved`, written by `finalize_analysis` (own
+analyses and groups) and `backfill_rdm_analyses` (broker analyses) in the same
+UPDATE as the response. Keys, per-field semantics and absence rules:
 [contracts/settings-metadata-resolved.md](contracts/settings-metadata-resolved.md).
-
-Absence semantics: `resolved` missing = never captured or capture failed
-whole (FR-015, FR-014); one half missing = that read failed; `treaties: []`
-= read succeeded, none applied (FR-012).
 
 ## 2. `irp_analysis.submitted_settings` — the plan item gains `treaty_names` (T-05)
 
@@ -47,12 +39,3 @@ One shape for every origin, written whole by `retrieve_analysis_results`
 |---|---|
 | Partition (analysis region) — one region-and-peril combination a run resolved on | one element of `settings_metadata.resolved.partitions` |
 | Applied treaty — a treaty as one analysis applied it | one element of `settings_metadata.resolved.treaties` |
-
-## 5. `docs/DATA_MODEL.md` §6 — rows to update
-
-- `settings_metadata` column note: "JSON: Risk Modeler's GET-analysis
-  response as returned, plus the workbench key `resolved` (spec 015)".
-- The `submitted_settings` bullet gains the group shape (compose plan) and
-  `treaty_names`.
-- The §6 bullet list gains one sentence stating the origin → source table
-  above, so the three columns' semantics are written down once.
