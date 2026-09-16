@@ -27,6 +27,9 @@ from app.services.irp_gateway import (
     GroupingMember,
     GroupingPartition,
     GroupingPartitionKey,
+    collapse_run_description,
+    group_partitions,
+    resolved_payload,
 )
 from db import execute, execute_command, execute_one, get_connection
 from tests.unit.grouping_rows import (
@@ -1472,13 +1475,10 @@ def _group_row(submission: str, name: str, settings: dict, **kwargs):
 def _group_settings(name: str) -> dict:
     """The ``settings_metadata`` the worker writes for a group: partitions from
     the detail property, treaties from the describe call."""
-    from app.services.irp_gateway import collapse_run_description
-    from app.workers.analysis_jobs import _group_partitions, _resolved_payload
-
     captured = detail(name)
-    return {**captured, "resolved": _resolved_payload(
+    return {**captured, "resolved": resolved_payload(
         collapse_run_description(captured_run(name)),
-        partitions=_group_partitions(captured))}
+        partitions=group_partitions(captured))}
 
 
 def test_a_mixed_group_lists_both_halves_per_region_and_peril(iteration2_db):

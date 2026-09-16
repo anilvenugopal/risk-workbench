@@ -18,7 +18,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.services.irp_gateway import GroupingRegionFact
+from app.services.irp_gateway import GroupingRegionFact, collapse_run_description, resolved_payload
 
 _CAPTURE_DIR = (Path(__file__).resolve().parents[2] / "specs"
                 / "015-analysis-run-details" / "contracts" / "captures")
@@ -219,11 +219,6 @@ def settings_metadata(name: str, **kwargs) -> dict:
     """One capture's ``get_analysis_by_id`` response with the ``resolved`` key
     the workers write beside it — the reader tests start from the document the
     writer produces. ``kwargs`` reach ``captured_run``."""
-    # Imported here so a test that only needs a capture does not pull in the
-    # worker module and its broker registration.
-    from app.services.irp_gateway import collapse_run_description
-    from app.workers.analysis_jobs import _resolved_payload
-
     return {**detail(name),
-            "resolved": _resolved_payload(
+            "resolved": resolved_payload(
                 collapse_run_description(captured_run(name, **kwargs)))}

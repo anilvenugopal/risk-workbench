@@ -143,7 +143,7 @@ specs/015-analysis-run-details/
 
 ../irp-integration/irp_integration/analysis.py (or grouping.py)   # describe method (T-06), released to TestPyPI
 
-app/services/irp_gateway.py            # describe_analysis_run + ResolvedRun types
+app/services/irp_gateway.py            # describe_analysis_run + ResolvedRun types + resolved_capture, which both writers call
 app/services/analysis_service.py       # resolved reader; _event_rate_scheme and dead fields removed
 app/workers/analysis_jobs.py           # finalize writes resolved; _claim_analysis stores treaty_names
 app/workers/entity_jobs.py             # backfill writes resolved per broker analysis

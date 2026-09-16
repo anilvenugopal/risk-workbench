@@ -44,7 +44,6 @@ from app.services import (
 )
 from app.services._common import _uid, _utcnow
 from app.workers import broker, dispatch, runtime
-from app.workers.analysis_jobs import _group_partitions, _resolved_payload
 from app.workers.queues import rwb_actor
 from db import (
     execute,
@@ -254,21 +253,16 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
             metadata_failures += 1
             continue
         meta_by_id[hit.analysis_id] = meta
-        # A broker group (the INGP shape) takes its partitions from its own
-        # detail property. A failure blanks this analysis's ``resolved`` and
-        # leaves every other analysis captured (FR-014).
-        partitions = _group_partitions(meta.payload or {})
-        try:
-            run = irp_gateway.describe_analysis_run(
-                analysis_id=int(hit.analysis_id))
-        except Exception as exc:  # noqa: BLE001 — blank, never error (FR-014)
+        # A broker group (the INGP shape) reaches here too: its partitions come
+        # from its own detail property, not from the describe call.
+        resolved, error = irp_gateway.resolved_capture(
+            meta.payload or {}, analysis_id=int(hit.analysis_id))
+        if error is not None:
             logger.warning("backfill_rdm_analyses: run details read failed "
-                           "(analysis=%s): %s", hit.analysis_id, exc)
+                           "(analysis=%s): %s", hit.analysis_id, error)
             run_details_failures += 1
-            run = None
-        if run is not None or partitions is not None:
-            resolved_by_id[hit.analysis_id] = _resolved_payload(
-                run, partitions=partitions)
+        if resolved is not None:
+            resolved_by_id[hit.analysis_id] = resolved
 
     now = _utcnow()
     pruned = 0

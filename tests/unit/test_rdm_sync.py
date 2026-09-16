@@ -583,6 +583,34 @@ def test_one_failed_run_details_read_leaves_the_other_analyses_captured(
     assert json.loads(job["output_data"])["run_details_failures"] == 1
 
 
+def test_a_malformed_group_detail_leaves_the_other_analyses_captured(
+        iteration2_db, fake_irp, drive):
+    # FR-014: building the partitions raises on a detail entry with no
+    # regionCode. That blanks one analysis; it never aborts the RDM capture.
+    _seed_two_captures(fake_irp)
+    malformed = detail("group_mixed_rm_made")
+    prop, = [p for p in malformed["additionalProperties"]
+             if p["key"] == "simulationSets"]
+    prop["properties"][0]["value"].pop("regionCode")
+    fake_irp.add_analysis(
+        source_rdm_name="R", exposure_name="E3", analysis_id="5684003",
+        name="CRE_Group", metadata=malformed,
+        run_details=captured_run("group_mixed_rm_made"))
+
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+
+    resolved = _resolved_by_irp_id(rdm_id)
+    assert resolved["5684003"] is None
+    assert resolved["5689560"]["partitions"]
+    assert resolved["5723351"]["partitions"]
+    job = execute(
+        "SELECT status_code, output_data FROM rwb_job "
+        "WHERE rwb_job_type='backfill_rdm_analyses' ORDER BY inserted_at",
+        {}, connection="WORKBENCH")[-1]
+    assert job["status_code"] == "succeeded"
+    assert json.loads(job["output_data"])["run_details_failures"] == 1
+
+
 def test_backfill_reads_a_broker_group_from_its_detail_property(
         iteration2_db, fake_irp, drive):
     # The INGP shape (5723350): isGroup false, but the detail carries

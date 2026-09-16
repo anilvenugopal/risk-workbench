@@ -14,7 +14,7 @@ import uuid
 from dataclasses import replace
 
 from app.services import analysis_execution_service as svc
-from app.services import analysis_service, rwb_job_service
+from app.services import analysis_service, irp_gateway, rwb_job_service
 from app.workers import analysis_jobs
 from app.workers.analysis_jobs import (STORED_RETURN_PERIODS,
                                        build_loss_results_extract)
@@ -895,7 +895,7 @@ def test_finalize_on_an_hd_analysis_writes_the_plt_partition(
 # ── spec 015 story 3: a group's partitions come from its own detail (T-03) ─────
 
 def _partitions_of(name: str) -> list[dict] | None:
-    return analysis_jobs._group_partitions(detail(name))
+    return irp_gateway.group_partitions(detail(name))
 
 
 def test_a_risk_modeler_made_mixed_group_lists_every_region_and_peril():
@@ -948,7 +948,7 @@ def test_an_own_analysis_detail_carries_no_group_property():
 
 
 def _finalize_group(iteration2_db, fake_irp, name: str, *,
-                    treaties=None) -> dict | None:
+                    treaties=None, metadata=None) -> dict | None:
     """Finalize one group seeded from capture ``name``; return its stored
     ``settings_metadata``."""
     submission = seed_submission("Sub One")
@@ -959,7 +959,8 @@ def _finalize_group(iteration2_db, fake_irp, name: str, *,
         described = replace(described, treaties=tuple(treaties))
     fake_irp.add_analysis(analysis_id="9500", source_rdm_name="-",
                           exposure_name="", is_group=True,
-                          metadata=detail(name), run_details=described)
+                          metadata=metadata if metadata is not None else detail(name),
+                          run_details=described)
     job_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
@@ -1001,6 +1002,24 @@ def test_a_group_whose_treaty_read_failed_keeps_its_partitions(
     resolved = stored["resolved"]
     assert len(resolved["partitions"]) == 3
     assert "treaties" not in resolved
+    group = execute_one(
+        "SELECT status_code FROM irp_analysis WHERE is_group = 1",
+        {}, connection="WORKBENCH")
+    assert group["status_code"] == "ready"
+
+
+def test_a_group_detail_missing_a_region_code_still_reaches_ready(
+        iteration2_db, fake_irp):
+    # FR-014: a malformed detail blanks ``resolved`` on that analysis; it never
+    # fails the finished run. The partition sort is what raises on a None code.
+    malformed = detail("group_mixed_rm_made")
+    prop, = [p for p in malformed["additionalProperties"]
+             if p["key"] == "simulationSets"]
+    prop["properties"][0]["value"].pop("regionCode")
+    stored = _finalize_group(iteration2_db, fake_irp, "group_mixed_rm_made",
+                             metadata=malformed)
+
+    assert "resolved" not in stored
     group = execute_one(
         "SELECT status_code FROM irp_analysis WHERE is_group = 1",
         {}, connection="WORKBENCH")

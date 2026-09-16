@@ -50,6 +50,8 @@ from irp_integration.grouping import (
     SimulationSetOption,
 )
 
+from app.services._common import _utcnow
+
 logger = logging.getLogger(__name__)
 
 # Repo-owned, read-only DataBridge scripts — the per-EDM summary aggregates
@@ -333,6 +335,113 @@ def collapse_run_description(description: Any) -> ResolvedRun:
         partitions=tuple(sorted(partitions.values(),
                                 key=lambda p: (p.region_code, p.peril_code))),
         treaties=tuple(sorted(treaties.values(), key=lambda t: t.number)))
+
+
+# The detail properties Risk Modeler writes one entry into per region and peril
+# of a group: ``eventRateSchemes`` on an ELT group, ``simulationSets`` on a PLT
+# one (spec 015 T-03). A detail carrying either is a group here, whatever
+# isGroup says.
+_GROUP_PARTITION_KEYS = ("eventRateSchemes", "simulationSets")
+
+
+def _is_rm_id(value: Any) -> bool:
+    """Risk Modeler sends ``0`` where an id does not apply, so only a positive
+    integer names a scheme or a simulation set."""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def partition_payload(*, region_code: Any, peril_code: Any, framework: Any,
+                      scheme_id: Any, scheme_name: Any, set_id: Any,
+                      set_name: Any, periods: Any) -> dict:
+    """One ``partitions`` entry of the ``resolved`` key. Both writers build
+    their entries here — a group from its detail property, an own or broker
+    analysis from the collapsed region facts — so the two never drift into
+    different shapes for the same field (#86)."""
+    return {
+        "region_code": region_code,
+        "peril_code": peril_code,
+        "framework": framework,
+        "event_rate_scheme": ({"id": scheme_id, "name": scheme_name or None}
+                              if _is_rm_id(scheme_id) else None),
+        "simulation_set": ({"id": set_id, "name": set_name or None,
+                            "periods": periods or None}
+                           if _is_rm_id(set_id) else None),
+    }
+
+
+def group_partitions(detail: dict) -> list[dict] | None:
+    """A group's partitions, read from its own detail (spec 015 T-03). Each
+    property value already names the scheme and the simulation set Risk Modeler
+    resolved for one region and peril, so no reference read is needed. ``None``
+    when the detail carries neither property."""
+    for prop in detail.get("additionalProperties") or []:
+        if (not isinstance(prop, dict)
+                or prop.get("key") not in _GROUP_PARTITION_KEYS):
+            continue
+        values = [entry.get("value") for entry in prop.get("properties") or []
+                  if isinstance(entry, dict)]
+        partitions = [
+            partition_payload(
+                region_code=v.get("regionCode"), peril_code=v.get("perilCode"),
+                framework=v.get("framework"),
+                scheme_id=v.get("eventRateSchemeId"),
+                scheme_name=v.get("eventRateSchemeName"),
+                set_id=v.get("simulationSetId"),
+                set_name=v.get("simulationSetName"),
+                periods=v.get("simulationPeriods"))
+            for v in values if isinstance(v, dict)]
+        return sorted(partitions,
+                      key=lambda p: (p["region_code"], p["peril_code"]))
+    return None
+
+
+def resolved_payload(run: ResolvedRun | None, *,
+                     partitions: list[dict] | None = None) -> dict:
+    """The workbench's ``resolved`` key inside ``settings_metadata``
+    (contracts/settings-metadata-resolved.md).
+
+    ``partitions`` replaces the run's own: a group's come from its detail and
+    the region facts the describe call returned for it are ignored (T-03).
+    ``run`` is ``None`` when that call failed, which leaves the ``treaties``
+    key out — an absent half is a half that failed, and ``treaties: []`` means
+    the analysis applied none (FR-012)."""
+    payload: dict[str, Any] = {}
+    if partitions is not None:
+        payload["partitions"] = partitions
+    elif run is not None:
+        payload["partitions"] = [
+            partition_payload(
+                region_code=p.region_code, peril_code=p.peril_code,
+                framework=p.framework, scheme_id=p.event_rate_scheme_id,
+                scheme_name=p.event_rate_scheme_name,
+                set_id=p.simulation_set_id, set_name=p.simulation_set_name,
+                periods=p.periods)
+            for p in run.partitions]
+    if run is not None:
+        payload["treaties"] = [
+            {"id": t.treaty_id, "number": t.number, "name": t.name,
+             "currency": t.currency, "occurrence_limit": t.occurrence_limit,
+             "risk_limit": t.risk_limit, "attachment_point": t.attachment_point,
+             "retention_amount": t.retention_amount} for t in run.treaties]
+    payload["captured_at"] = _utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return payload
+
+
+def resolved_capture(detail: dict, *,
+                     analysis_id: int) -> tuple[dict | None, Exception | None]:
+    """The ``resolved`` payload for one analysis, and the read failure if there
+    was one. Never raises: a failed read leaves ``resolved`` — or only its
+    ``treaties`` half — absent, and the analysis still reaches ``ready``
+    (FR-014). The caller owns the log line and the failure count."""
+    partitions = run = error = None
+    try:
+        partitions = group_partitions(detail)
+        run = describe_analysis_run(analysis_id=analysis_id)
+    except Exception as exc:  # noqa: BLE001 — blank and continue (FR-014)
+        error = exc
+    if run is None and partitions is None:
+        return None, error
+    return resolved_payload(run, partitions=partitions), error
 
 
 @dataclass(frozen=True)
