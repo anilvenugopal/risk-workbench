@@ -1,10 +1,12 @@
-{# One analysis of an export on the detail page (data-model.md §7
-   ExportAnalysisDetail). Retry and Close both re-render the whole table so its
-   polling trigger returns while the re-armed job runs. Close is offered
-   wherever Retry is: on a failed analysis only. #}
+{# One manifest row of an export on the detail page (data-model.md §7
+   ExportAnalysisDetail): an analysis, or one treaty of an analysis at TY. Retry
+   and Close both re-render the whole table so its polling trigger returns
+   while the re-armed job runs. Close is offered wherever Retry is: on a failed
+   row only. Both post by manifest row, since treaty rows share an analysis. #}
 {% import "partials/export_row_macros.html" as rows %}
-<div class="drow-static export-analysis" id="export-analysis-row-{{ a.irp_analysis_id }}">
+<div class="drow-static export-analysis" id="export-analysis-row-{{ a.manifest_id }}">
   <span class="l"><span class="dt-title" title="{{ a.analysis_name }}">{{ a.analysis_name }}</span></span>
+  <span class="l" title="{{ 'Treaty IDs ' ~ a.treaty_ids|join(', ') if a.treaty_ids else '' }}">{{ a.treaty_label or '—' }}</span>
   <span class="l">{{ a.origin }}</span>
   <span class="l">{{ rows.status_chip(a.status) }}</span>
   <span class="l">{{ a.data_id if a.data_id is not none else '—' }}</span>
@@ -26,10 +28,10 @@
     {% if a.can_retry %}
     <span class="export-analysis__actions">
       {% for action, label in [('retry', 'Retry'), ('close', 'Close')] %}
-      <form hx-post="/submissions/{{ submission_id }}/exports/{{ export_id }}/analyses/{{ a.irp_analysis_id }}/{{ action }}{{ query }}"
+      <form hx-post="/submissions/{{ submission_id }}/exports/{{ export_id }}/manifests/{{ a.manifest_id }}/{{ action }}{{ query }}"
             hx-target="#export-analyses" hx-swap="outerHTML"
             hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"
-            method="post" action="/submissions/{{ submission_id }}/exports/{{ export_id }}/analyses/{{ a.irp_analysis_id }}/{{ action }}{{ query }}">
+            method="post" action="/submissions/{{ submission_id }}/exports/{{ export_id }}/manifests/{{ a.manifest_id }}/{{ action }}{{ query }}">
         <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
         <button class="btn-sm" type="submit">{{ label }}</button>
       </form>

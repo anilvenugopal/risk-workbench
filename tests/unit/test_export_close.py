@@ -37,16 +37,23 @@ def _fail(analysis_id: str, message: str = "Analysis not found") -> None:
         {"e": message, "a": analysis_id}, connection="LOSS")
 
 
-def _close(client, export, analysis_id, *, query="", target="export-analyses", htmx=True):
-    headers = {"HX-Request": "true", "HX-Target": target} if htmx else {}
-    return client.post(f"{export['url']}/analyses/{analysis_id}/close{query}",
-                       data={"csrf_token": csrf()}, headers=headers)
-
-
 def _manifest(analysis_id: str) -> dict:
     return execute_one(
         "SELECT * FROM stage.rwb_loss_result_manifest WHERE irp_analysis_id = :a",
         {"a": analysis_id}, connection="LOSS")
+
+
+def _manifest_id(analysis_id: str):
+    """Close and Retry post by manifest row (spec 016 T-06); the export under
+    test has one row per analysis, so the analysis names it."""
+    row = _manifest(analysis_id)
+    return row["manifest_id"] if row else 999999
+
+
+def _close(client, export, analysis_id, *, query="", target="export-analyses", htmx=True):
+    headers = {"HX-Request": "true", "HX-Target": target} if htmx else {}
+    return client.post(f"{export['url']}/manifests/{_manifest_id(analysis_id)}/close{query}",
+                       data={"csrf_token": csrf()}, headers=headers)
 
 
 def test_close_stamps_the_row_and_rerenders_the_table_without_either_action(client, export):
@@ -131,21 +138,21 @@ def test_retry_is_refused_on_a_closed_row(client, export):
     _fail(export["b"])
     _close(client, export, export["b"])
 
-    response = client.post(f"{export['url']}/analyses/{export['b']}/retry",
+    response = client.post(f"{export['url']}/manifests/{_manifest_id(export['b'])}/retry",
                            data={"csrf_token": csrf()}, headers={"HX-Request": "true"})
 
     assert response.status_code == 409
     assert "Retry refused: the analysis is closed, not failed." in response.text
 
 
-def test_close_404s_for_an_analysis_outside_this_export(client, export):
+def test_close_404s_for_a_row_outside_this_export(client, export):
     assert _close(client, export, str(uuid.uuid4())).status_code == 404
 
 
 def test_close_without_a_valid_csrf_token_changes_nothing(client, export):
     _fail(export["b"])
 
-    response = client.post(f"{export['url']}/analyses/{export['b']}/close",
+    response = client.post(f"{export['url']}/manifests/{_manifest_id(export['b'])}/close",
                            data={"csrf_token": "not-a-token"})
 
     assert response.status_code == 303

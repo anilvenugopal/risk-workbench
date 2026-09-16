@@ -1663,15 +1663,15 @@ def _export_action_response(request: Request, submission_id: str, export_id: str
                     status_code=status_code)
 
 
-@router.post("/submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/retry")
+@router.post("/submissions/{submission_id}/exports/{export_id}/manifests/{manifest_id}/retry")
 def retry_export_analysis(request: Request, submission_id: str, export_id: str,
-                          irp_analysis_id: str, csrf_token: str = Form(...)):
+                          manifest_id: str, csrf_token: str = Form(...)):
     detail_url = f"/submissions/{submission_id}/exports/{export_id}"
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(detail_url, status_code=303)
     message = None
     try:
-        export_service.apply_retry(submission_id, export_id, irp_analysis_id)
+        export_service.apply_retry(submission_id, export_id, manifest_id)
     except export_service.ExportNotFound:
         return _export_not_found(request)
     except export_service.ExportActionRefused as exc:
@@ -1679,15 +1679,15 @@ def retry_export_analysis(request: Request, submission_id: str, export_id: str,
     return _export_action_response(request, submission_id, export_id, "Retry", message)
 
 
-@router.post("/submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/close")
+@router.post("/submissions/{submission_id}/exports/{export_id}/manifests/{manifest_id}/close")
 def close_export_analysis(request: Request, submission_id: str, export_id: str,
-                          irp_analysis_id: str, csrf_token: str = Form(...)):
+                          manifest_id: str, csrf_token: str = Form(...)):
     detail_url = f"/submissions/{submission_id}/exports/{export_id}"
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(detail_url, status_code=303)
     message = None
     try:
-        export_service.apply_close(submission_id, export_id, irp_analysis_id,
+        export_service.apply_close(submission_id, export_id, manifest_id,
                                    request.state.user.email)
     except export_service.ExportNotFound:
         return _export_not_found(request)

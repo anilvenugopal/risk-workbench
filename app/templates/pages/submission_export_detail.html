@@ -9,7 +9,7 @@
 <div class="page-pad">
   <div class="detail-head">
     <h1>Export {{ export.perspective_code }}
-      <span class="badge badge--neutral">{{ export.analyses|length }} analys{{ 'is' if export.analyses|length == 1 else 'es' }}</span></h1>
+      <span class="badge badge--neutral">{{ export.analyses|length }} data set{{ '' if export.analyses|length == 1 else 's' }}</span></h1>
     <div class="deal-head__created">Requested
       <time data-utc="{{ export.requested_at }}" title="{{ export.requested_at }} UTC">{{ export.requested_at }}</time>
       by {{ export.requested_by_email }}

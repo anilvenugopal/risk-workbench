@@ -18,6 +18,8 @@
     </select>
     {% if selected and not choices %}
     <div class="wf-field__msg wf-field__error">The selected analyses share no exportable perspective</div>
+    {% elif perspective == 'TY' %}
+    <div class="wf-field__msg wf-field__hint">TY writes one loss set per treaty, per analysis.</div>
     {% elif not selected %}
     <div class="wf-field__msg wf-field__hint">Tick at least one analysis to choose a perspective.</div>
     {% endif %}
@@ -33,7 +35,8 @@
           <span class="bo-cart-row__label">{{ a.name }}</span>
           <button type="button" class="bo-cart-row__remove" @click="untick('{{ a.id }}')">remove</button>
         </div>
-        {% if perspective %}
+        {# No AAL at TY: the value exists only per treaty, on the loaded row (P-10). #}
+        {% if perspective and perspective != 'TY' %}
         <div class="bo-cart-row__meta" title="{{ a.aal.get(perspective) }}">AAL {{ a.aal_display(perspective) }}</div>
         {% endif %}
         <label class="export-cart-row__name">Data name

@@ -198,7 +198,7 @@ def test_create_export_never_writes_back_to_the_submission(deal):
 @pytest.mark.parametrize("overrides, message", [
     ({"analysis_ids": []}, "Select at least one analysis"),
     ({"perspective_code": "RP"}, "A long has no RP results"),
-    ({"perspective_code": "TY"}, "Choose a perspective"),
+    ({"perspective_code": "XX"}, "Choose a perspective"),
     ({"client_id": 99}, "Choose a client"),
     ({"treaty_incept": None}, "Treaty inception is required"),
     ({"data_vintage": None}, "Data vintage is required"),
@@ -329,7 +329,7 @@ def test_list_exports_groups_this_submissions_exports_newest_first(deal):
     exports = svc.list_exports(deal["submission_id"])
 
     assert [(e.export_id, e.perspective_code) for e in exports] == [(newer, "RL"), (older, "GR")]
-    assert (exports[1].analysis_count, exports[1].loaded_count, exports[1].failed_count) == (2, 1, 1)
+    assert (exports[1].data_set_count, exports[1].loaded_count, exports[1].failed_count) == (2, 1, 1)
     assert exports[1].client_name == "Example Re" and not exports[1].in_progress
     assert exports[0].in_progress
     assert exports[1].progress == "1 loaded · 1 failed"

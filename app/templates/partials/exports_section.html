@@ -38,7 +38,7 @@
          style="--cols: 140px minmax(160px,1fr) 140px 90px minmax(200px,1.2fr) minmax(200px,1.4fr) 180px; min-width: 1150px">
       <div class="dtable__head">
         <span class="l">Perspective</span><span class="l">Client</span><span class="l">CRM ID</span>
-        <span class="l">Analyses</span><span class="l">Progress</span><span class="l">Requested by</span>
+        <span class="l">Data sets</span><span class="l">Progress</span><span class="l">Requested by</span>
         <span class="l">Requested at</span>
       </div>
       {% for e in shown %}
@@ -49,7 +49,7 @@
                onclick="event.stopPropagation()">{{ e.perspective_code }}</a></span></span>
           <span class="l">{{ e.client_name or '—' }}</span>
           <span class="l">{{ e.crm_id or '—' }}</span>
-          <span class="l">{{ e.analysis_count }}</span>
+          <span class="l">{{ e.data_set_count }}</span>
           <span class="l">{{ e.progress }}</span>
           <span class="l" title="{{ e.requested_by_email }}">{{ e.requested_by_email }}</span>
           <span class="l"><time data-utc="{{ e.requested_at }}" title="{{ e.requested_at }} UTC">{{ e.requested_at }}</time></span>
@@ -57,16 +57,16 @@
         <div class="drow__body">
           {% for a in e.analyses %}
           <div class="export-summary__analysis">
-            <span class="export-summary__name" title="{{ a.analysis_name }}">{{ a.analysis_name }}</span>
+            <span class="export-summary__name" title="{{ a.analysis_name }}{{ ' · ' ~ a.treaty_label if a.treaty_label }}">{{ a.analysis_name }}{% if a.treaty_label %} · {{ a.treaty_label }}{% endif %}</span>
             <span>{{ rows.status_chip(a.status) }}</span>
             <span class="export-summary__aal" title="{{ a.aal }}">AAL {{ a.aal_display }}</span>
             <span class="export-summary__dataid">Data ID: {{ a.data_id if a.data_id is not none else '—' }}</span>
             <span>
               {% if a.can_retry %}
-              <form hx-post="/submissions/{{ submission_id }}/exports/{{ e.export_id }}/analyses/{{ a.irp_analysis_id }}/close{{ query }}"
+              <form hx-post="/submissions/{{ submission_id }}/exports/{{ e.export_id }}/manifests/{{ a.manifest_id }}/close{{ query }}"
                     hx-target="#submission-exports" hx-swap="outerHTML"
                     hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"
-                    method="post" action="/submissions/{{ submission_id }}/exports/{{ e.export_id }}/analyses/{{ a.irp_analysis_id }}/close{{ query }}">
+                    method="post" action="/submissions/{{ submission_id }}/exports/{{ e.export_id }}/manifests/{{ a.manifest_id }}/close{{ query }}">
                 <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
                 <button class="btn-sm" type="submit">Close</button>
               </form>

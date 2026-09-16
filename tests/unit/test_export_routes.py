@@ -44,6 +44,14 @@ def export(client, deal):
     return make_export(client, deal)
 
 
+def _mid(analysis_id: str):
+    """Rows, Retry, and Close are keyed by manifest row (spec 016 T-06); the
+    export under test has one row per analysis, so the analysis names it."""
+    row = execute_one("SELECT manifest_id FROM stage.rwb_loss_result_manifest "
+                      "WHERE irp_analysis_id = :a", {"a": analysis_id}, connection="LOSS")
+    return row["manifest_id"] if row else 999999
+
+
 # ── Export link ──────────────────────────────────────────────────────────────
 
 def test_export_link_on_the_submission_results_section_only(client, deal):
@@ -250,7 +258,7 @@ def test_detail_rows_show_the_recorded_attributes(client, export):
     frag = client.get(f"{export['url']}/analyses")
 
     row = next(chunk for chunk in frag.text.split('id="export-analysis-row-')
-               if chunk.startswith(export["a"]))
+               if chunk.startswith(f'{_mid(export["a"])}"'))
     for value in ("AmFam HU GR 2026", "41958", "USD", "25", "DLM", "EQ", "NAEQ"):
         assert f">{value}<" in row
 
@@ -283,7 +291,7 @@ def test_detail_rows_show_counts_aal_error_and_stop_polling(client, export):
     assert frag.text.count('<span class="l" title="100.0">100</span>') == 2  # AAL per row
     assert "event 1001 matches 2 historical lookup rows" in frag.text
     assert frag.text.count(">Retry</button>") == 1
-    assert f"analyses/{export['b']}/retry" in frag.text
+    assert f"manifests/{_mid(export['b'])}/retry" in frag.text
 
 
 def test_exports_section_lists_this_submissions_exports_newest_first(client, export):
@@ -358,15 +366,15 @@ def test_detail_status_filter_keeps_the_matching_analyses(client, export):
         "WHERE irp_analysis_id = :a", {"a": export["b"]}, connection="LOSS")
 
     failed = client.get(f"{export['url']}/analyses?status=failed")
-    assert f'id="export-analysis-row-{export["b"]}"' in failed.text
-    assert f'id="export-analysis-row-{export["a"]}"' not in failed.text
+    assert f'id="export-analysis-row-{_mid(export["b"])}"' in failed.text
+    assert f'id="export-analysis-row-{_mid(export["a"])}"' not in failed.text
     assert 'retry?status=failed"' in failed.text  # Retry comes back to the same filter
 
     empty = client.get(f"{export['url']}/analyses?status=loaded")
     assert "No analyses match this filter." in empty.text
 
     junk = client.get(f"{export['url']}/analyses?status=junk")  # not a filter
-    assert f'id="export-analysis-row-{export["a"]}"' in junk.text
+    assert f'id="export-analysis-row-{_mid(export["a"])}"' in junk.text
     assert "retry?status=" not in junk.text
 
 
@@ -374,7 +382,7 @@ def test_retry_rerenders_the_table_under_the_filter_in_force(client, export):
     execute_command(
         "UPDATE stage.rwb_loss_result_manifest SET stage_status = 'failed' "
         "WHERE irp_analysis_id = :a", {"a": export["b"]}, connection="LOSS")
-    response = client.post(f"{export['url']}/analyses/{export['b']}/retry?status=failed",
+    response = client.post(f"{export['url']}/manifests/{_mid(export['b'])}/retry?status=failed",
                            data={"csrf_token": _csrf()}, headers={"HX-Request": "true"})
     assert response.status_code == 200
     assert '<option value="failed" selected>Failed</option>' in response.text
@@ -393,7 +401,7 @@ def test_submission_page_keeps_the_analyses_grid_and_loads_the_exports_section(c
 # ── Retry ────────────────────────────────────────────────────────────────────
 
 def _retry(client, export, analysis_id, htmx=True):
-    return client.post(f"{export['url']}/analyses/{analysis_id}/retry",
+    return client.post(f"{export['url']}/manifests/{_mid(analysis_id)}/retry",
                        data={"csrf_token": _csrf()},
                        headers={"HX-Request": "true"} if htmx else {})
 
@@ -411,7 +419,7 @@ def test_retry_on_a_failed_row_rearms_submit_and_rerenders_the_polling_table(cli
 
     assert response.status_code == 200
     assert 'id="export-analyses"' in response.text and 'hx-trigger="every 5s"' in response.text
-    assert f'id="export-analysis-row-{export["b"]}"' in response.text
+    assert f'id="export-analysis-row-{_mid(export["b"])}"' in response.text
     assert ">queued</span>" in response.text and "Retry</button>" not in response.text
     assert rwb_jobs("submit_results_export")[0]["status_code"] == "pending"
     row = manifest_row(manifest_id=execute_one(
@@ -459,7 +467,7 @@ def test_retry_refused_answers_409_with_the_reason_in_the_table(client, export):
     assert plain.status_code == 409
 
 
-def test_retry_404s_for_an_analysis_outside_this_export(client, export):
+def test_retry_404s_for_a_row_outside_this_export(client, export):
     response = _retry(client, export, str(uuid.uuid4()))
     assert response.status_code == 404
 

@@ -20,6 +20,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.workers.export_jobs import ELT_COLUMN_MAP
 from db import execute, execute_one, execute_procedure, get_connection, upload_parquet
@@ -89,6 +90,8 @@ def _manifest(**overrides) -> int:
         "database": "rwb_workbench",
         "data_model_version": MODEL_VERSION, "stage_status": "staged",
         "load_status": "pending",
+        # spec 016: NULL on a portfolio-level row; one row per treaty at TY
+        "treaty_number": None, "treaty_name": None, "treaty_ids": None, "aal": None,
     }
     values.update(overrides)
     with get_connection("LOSS") as conn, conn.begin():
@@ -98,14 +101,16 @@ def _manifest(**overrides) -> int:
             "irp_analysis_irp_id, irp_app_analysis_id, analysis_name, analysis_description, "
             "perspective_code, client_id, treaty_incept, treaty_year, crm_id, data_name, "
             "data_vintage, data_currency, data_model_vendor, [server], [database], "
-            "data_model_version, stage_status, load_status) "
+            "data_model_version, stage_status, load_status, treaty_number, treaty_name, "
+            "treaty_ids, aal) "
             "OUTPUT INSERTED.manifest_id "
             "VALUES (:export_id, :requested_by_email, SYSUTCDATETIME(), "
             ":requested_from_submission_id, :irp_analysis_id, :irp_analysis_irp_id, "
             ":irp_app_analysis_id, :analysis_name, :analysis_description, "
             ":perspective_code, :client_id, :treaty_incept, :treaty_year, :crm_id, "
             ":data_name, :data_vintage, :data_currency, :data_model_vendor, :server, "
-            ":database, :data_model_version, :stage_status, :load_status)"
+            ":database, :data_model_version, :stage_status, :load_status, :treaty_number, "
+            ":treaty_name, :treaty_ids, :aal)"
         ), values).scalar()
 
 
@@ -373,3 +378,32 @@ def test_failed_row_can_be_loaded_again_after_the_fix(tmp_path):
     row = _manifest_row(manifest_id)
     assert row["load_status"] == "loaded" and row["historical_row_count"] == 1
     assert _count("dbo.Data") == 1
+
+
+# ── treaty data sets (spec 016 T-02, FR-009) ──────────────────────────────────
+
+def test_a_treaty_row_loads_with_perspective_ty_and_its_composed_name(tmp_path):
+    manifest_id = _manifest(perspective_code="TY", treaty_number="PR2",
+                            treaty_name="Layer two", treaty_ids="33832,44832",
+                            data_name="AmFam HU PR2 Layer two", aal=0.1)
+    _stage(tmp_path, manifest_id, [(1001, 40.0, 2.0, 3.0, 80.0), (3001, 60.0, 1.0, 4.0, 90.0)])
+
+    _load(manifest_id)
+
+    row = _manifest_row(manifest_id)
+    assert row["load_status"] == "loaded" and row["stochastic_row_count"] == 2
+    data = execute_one("SELECT Perspective, DataName, AnalysisID FROM dbo.Data WHERE DataID = :d",
+                       {"d": row["data_id"]}, connection="LOSS")
+    assert (data["Perspective"], data["DataName"], data["AnalysisID"]) == (
+        "TY", "AmFam HU PR2 Layer two", 41958)
+    assert _count("dbo.RMSELT") == 2
+
+
+def test_two_treaty_rows_of_one_analysis_are_allowed_and_a_repeat_is_not():
+    export_id, analysis_id = str(uuid.uuid4()), str(uuid.uuid4())
+    common = dict(export_id=export_id, irp_analysis_id=analysis_id, perspective_code="TY")
+    _manifest(treaty_number="PR1", treaty_name="PR1", **common)
+    _manifest(treaty_number="PR2", treaty_name="PR2", **common)
+    with pytest.raises(IntegrityError) as exc:
+        _manifest(treaty_number="PR2", treaty_name="PR2", **common)
+    assert "uq_rwb_loss_result_manifest_export_analysis" in str(exc.value)

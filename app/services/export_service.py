@@ -3,8 +3,10 @@ insert, the exports section and detail read models, status derivation, and the
 Retry and Close decisions.
 
 The export record is ``stage.rwb_loss_result_manifest`` in the loss repository
-(``LOSS``), one row per analysis per perspective. The Workbench keeps only the
-``rwb_job`` / ``irp_job`` rows that process it. Request-path reads of the
+(``LOSS``), one row per analysis per perspective — or, at the treaty-level
+perspective TY (spec 016), one row per treaty per analysis once the loss table
+has been read. The Workbench keeps only the ``rwb_job`` / ``irp_job`` rows that
+process it. Request-path reads of the
 manifest carry ``read_uncommitted_hint("LOSS")`` because read-committed snapshot
 isolation is off on CIC's repository. No function here calls Risk Modeler.
 """
@@ -46,6 +48,10 @@ TERMINAL_STATUSES = frozenset({LOADED, FAILED, CLOSED})
 DATA_NAME_MAX_LEN = 150
 CRM_ID_MAX_LEN = 30
 RETRY_EXPORT_JOB_MAX_AGE = timedelta(days=7)
+# The treaty-level export (spec 016). Offered when every selected analysis was
+# run with treaties; the stage worker splits its loss table into one manifest
+# row per treaty.
+TY = "TY"
 
 
 class ExportError(Exception):
@@ -120,10 +126,15 @@ class Client:
 
 @dataclass
 class ExportAnalysisDetail:
+    """One manifest row: an analysis at a portfolio-level perspective, or one
+    treaty of an analysis at TY (spec 016 P-09)."""
     manifest_id: int
     irp_analysis_id: str
     analysis_name: str | None
     origin: str
+    treaty_number: str | None
+    treaty_name: str | None
+    treaty_ids: list[str]
     status: str
     updated_at: Any
     irp_export_job_id: str | None
@@ -149,6 +160,16 @@ class ExportAnalysisDetail:
     @property
     def aal_display(self) -> str:
         return analysis_service.fmt_loss(self.aal)
+
+    @property
+    def treaty_label(self) -> str:
+        """``PR1``, or ``PR1 · Layer one`` when the name differs from the
+        number; empty for a portfolio row or a TY row not yet split."""
+        if not self.treaty_number and not self.treaty_name:
+            return ""
+        if self.treaty_name and self.treaty_name != self.treaty_number:
+            return f"{self.treaty_number or ''} · {self.treaty_name}".strip(" ·")
+        return self.treaty_number or ""
 
     @property
     def is_terminal(self) -> bool:
@@ -189,7 +210,8 @@ class ExportSummary:
     analyses: list[ExportAnalysisDetail] = field(default_factory=list)
 
     @property
-    def analysis_count(self) -> int:
+    def data_set_count(self) -> int:
+        """Manifest rows: one per analysis, or one per treaty per analysis at TY."""
         return len(self.analyses)
 
     @property
@@ -213,7 +235,7 @@ class ExportSummary:
         """The roll-up the exports section shows in place of a status column."""
         counts = ((self.loaded_count, LOADED), (self.failed_count, FAILED),
                   (self.closed_count, CLOSED),
-                  (self.analysis_count - self.loaded_count - self.failed_count
+                  (self.data_set_count - self.loaded_count - self.failed_count
                    - self.closed_count, IN_PROGRESS))
         return " · ".join(f"{n} {label}" for n, label in counts if n)
 
@@ -286,6 +308,11 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         produced = {code: data for code, data
                     in (loss_results.get("perspectives") or {}).items() if data}
         perspectives = list(produced)
+        # Run with treaties (spec 016 FR-001): the treaties Risk Modeler reported
+        # at results retrieval. The list gates the offer; the export reads treaty
+        # identity from the loss table itself.
+        if loss_results.get("treaties"):
+            perspectives.append(TY)
         # The column, else the metadata snapshot's appAnalysisId (spec 012
         # FR-023): only the own-executed finalize path writes the column, so
         # every RDM-backfilled broker row carries the id in its snapshot alone.
@@ -324,7 +351,8 @@ def find_exported(irp_app_analysis_ids: list[int],
                   perspective_code: str) -> dict[int, ExportedMark]:
     """The newest existing manifest row for each of the analyses at this
     perspective, from any submission, keyed by ``irp_app_analysis_id``, with
-    ``earlier_count`` counting all of that analysis's rows (FR-004)."""
+    ``earlier_count`` counting that analysis's distinct exports (FR-004): a TY
+    export's treaty rows count once."""
     ids = sorted({int(v) for v in irp_app_analysis_ids if v is not None})
     if not ids:
         return {}
@@ -340,19 +368,22 @@ def find_exported(irp_app_analysis_ids: list[int],
         "ORDER BY irp_app_analysis_id, requested_at DESC, manifest_id DESC",
         params, connection="LOSS")
     marks: dict[int, ExportedMark] = {}
+    seen: dict[int, set[str]] = {}
     for r in rows:
         app_id = int(r["irp_app_analysis_id"])
+        export_id = _uid(r["export_id"])
         mark = marks.get(app_id)
         if mark is None:
             marks[app_id] = ExportedMark(
                 irp_app_analysis_id=app_id,
-                perspective_code=r["perspective_code"], export_id=_uid(r["export_id"]),
+                perspective_code=r["perspective_code"], export_id=export_id,
                 requested_from_submission_id=_uid(r["requested_from_submission_id"]),
                 requested_at=r["requested_at"],
                 requested_by_email=r["requested_by_email"],
                 status=derive_status(r))
-        else:
+        elif export_id not in seen[app_id]:
             mark.earlier_count += 1
+        seen.setdefault(app_id, set()).add(export_id)
     return marks
 
 
@@ -417,7 +448,8 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
     for analysis in selected:
         if perspective_code not in analysis.perspectives:
             raise ExportValidationError(
-                f"{analysis.name} has no {perspective_code} results.")
+                f"{analysis.name} was not run with treaties." if perspective_code == TY
+                else f"{analysis.name} has no {perspective_code} results.")
     if client_id is None or execute_one(
             "SELECT 1 AS x FROM dbo.Client WHERE ClientID = :c",
             {"c": client_id}, connection="LOSS") is None:
@@ -493,7 +525,8 @@ def list_exports(submission_id: Any) -> list[ExportSummary]:
         "LEFT JOIN dbo.Client c ON c.ClientID = m.client_id "
         "WHERE m.requested_from_submission_id = :s "
         "ORDER BY m.requested_at DESC, m.export_id, "
-        "m.analysis_description, m.analysis_name, m.manifest_id",
+        "m.analysis_description, m.analysis_name, m.treaty_number, m.treaty_name, "
+        "m.manifest_id",
         {"s": _uid(submission_id)}, connection="LOSS")]
     if not rows:
         return []
@@ -528,11 +561,19 @@ def _analysis_detail(row: dict, analyses: dict[str, dict]) -> ExportAnalysisDeta
     analysis = analyses.get(_uid(row["irp_analysis_id"])) or {}
     perspectives = (_parse_json_dict(analysis.get("loss_results"), "loss_results")
                     or {}).get("perspectives") or {}
+    treaty_ids = [v for v in (row.get("treaty_ids") or "").split(",") if v]
+    # A treaty row's AAL is its own combined rows' sum of rate × loss, written
+    # by the stage worker (P-10); a portfolio row reads the analysis's stored
+    # AAL at that perspective.
+    aal = (row.get("aal") if row["perspective_code"] == TY
+           else (perspectives.get(row["perspective_code"]) or {}).get("aal"))
     return ExportAnalysisDetail(
         manifest_id=row["manifest_id"], irp_analysis_id=_uid(row["irp_analysis_id"]),
         analysis_name=row["analysis_description"] or row["analysis_name"],
         origin=("broker" if analysis.get("rdm_id") else
                 "group" if analysis.get("is_group") else "own"),
+        treaty_number=row.get("treaty_number"), treaty_name=row.get("treaty_name"),
+        treaty_ids=treaty_ids,
         status=derive_status(row), updated_at=row["updated_at"],
         irp_export_job_id=row["irp_export_job_id"], zip_file=row["zip_file"],
         data_name=row["data_name"], irp_app_analysis_id=row["irp_app_analysis_id"],
@@ -540,7 +581,7 @@ def _analysis_detail(row: dict, analyses: dict[str, dict]) -> ExportAnalysisDeta
         engine_type=row["engine_type"], peril_code=row["peril_code"],
         region_code=row["region_code"],
         data_id=row["data_id"],
-        aal=(perspectives.get(row["perspective_code"]) or {}).get("aal"),
+        aal=aal,
         staged_row_count=row["staged_row_count"],
         stochastic_row_count=row["stochastic_row_count"],
         historical_row_count=row["historical_row_count"],
@@ -558,7 +599,8 @@ def get_export_detail(submission_id: Any, export_id: Any) -> ExportDetail | None
         f"FROM stage.rwb_loss_result_manifest m {read_uncommitted_hint('LOSS')} "
         "LEFT JOIN dbo.Client c ON c.ClientID = m.client_id "
         "WHERE m.export_id = :e AND m.requested_from_submission_id = :s "
-        "ORDER BY m.analysis_description, m.analysis_name, m.manifest_id",
+        "ORDER BY m.analysis_description, m.analysis_name, m.treaty_number, m.treaty_name, "
+        "m.manifest_id",
         {"e": _uid(export_id), "s": _uid(submission_id)}, connection="LOSS")
     if not rows:
         return None
@@ -609,15 +651,20 @@ def retry_decision(manifest: dict, export_job: dict | None, archive_root: str,
     return "submit"
 
 
-def _failed_manifest(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> dict:
-    """The manifest row Retry and Close both act on. Raises ``ExportNotFound``
-    when the row is not this submission's and ``ExportActionRefused`` when the
-    row is not failed — a Risk Modeler failure the stage worker has not stamped
-    yet is not failed yet, and a closed row is no longer failed."""
+def _failed_manifest(submission_id: Any, export_id: Any, manifest_id: Any) -> dict:
+    """The manifest row Retry and Close both act on — one analysis, or one
+    treaty of an analysis at TY. Raises ``ExportNotFound`` when the row is not
+    this submission's and ``ExportActionRefused`` when the row is not failed —
+    a Risk Modeler failure the stage worker has not stamped yet is not failed
+    yet, and a closed row is no longer failed."""
+    try:
+        manifest_key = int(manifest_id)
+    except (TypeError, ValueError):
+        raise ExportNotFound("That analysis is not part of this export.") from None
     manifest = execute_one(
         f"SELECT * FROM stage.rwb_loss_result_manifest {read_uncommitted_hint('LOSS')} "
-        "WHERE export_id = :e AND irp_analysis_id = :a AND requested_from_submission_id = :s",
-        {"e": _uid(export_id), "a": _uid(irp_analysis_id), "s": _uid(submission_id)},
+        "WHERE manifest_id = :m AND export_id = :e AND requested_from_submission_id = :s",
+        {"m": manifest_key, "e": _uid(export_id), "s": _uid(submission_id)},
         connection="LOSS")
     if manifest is None:
         raise ExportNotFound("That analysis is not part of this export.")
@@ -629,12 +676,12 @@ def _failed_manifest(submission_id: Any, export_id: Any, irp_analysis_id: Any) -
     return manifest
 
 
-def apply_close(submission_id: Any, export_id: Any, irp_analysis_id: Any,
+def apply_close(submission_id: Any, export_id: Any, manifest_id: Any,
                 user_email: str) -> None:
-    """Close a failed analysis: the analyst has dealt with the failure outside
+    """Close a failed row: the analyst has dealt with the failure outside
     the Workbench and wants it off the list (P-22). Nothing is re-run — a fix
-    is a new export — and a closed analysis offers no Retry."""
-    manifest = _failed_manifest(submission_id, export_id, irp_analysis_id)
+    is a new export — and a closed row offers no Retry."""
+    manifest = _failed_manifest(submission_id, export_id, manifest_id)
     now = _utcnow()
     execute_command(
         "UPDATE stage.rwb_loss_result_manifest SET closed_at = :now, closed_by = :u, "
@@ -642,9 +689,12 @@ def apply_close(submission_id: Any, export_id: Any, irp_analysis_id: Any,
         {"now": now, "u": user_email, "m": manifest["manifest_id"]}, connection="LOSS")
 
 
-def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> RetryBranch:
-    """Re-arm exactly one job for a failed analysis and dispatch it."""
-    manifest = _failed_manifest(submission_id, export_id, irp_analysis_id)
+def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBranch:
+    """Re-arm exactly one job for a failed row and dispatch it. The job is the
+    analysis's one stage or load job; it acts on every eligible row of the
+    analysis, so a loaded or closed sibling treaty row is never re-run
+    (spec 016 T-05)."""
+    manifest = _failed_manifest(submission_id, export_id, manifest_id)
     job = _export_job(manifest["irp_export_job_id"])
     branch = retry_decision(manifest, job, settings.export_archive_dir, _utcnow())
     analysis_id = _uid(manifest["irp_analysis_id"])
@@ -672,8 +722,7 @@ def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> Ret
             requestor_type="rwb_job", requestor_id=stage_job["id"], rwb_job_type=job_type,
             link_type=link_type, link_id=link_id,
             context_type="irp_analysis", context_id=analysis_id,
-            input_data={"export_id": export_key, "irp_analysis_id": analysis_id,
-                        "manifest_id": manifest["manifest_id"]})
+            input_data={"export_id": export_key, "irp_analysis_id": analysis_id})
     elif branch == "stage":
         execute_command(
             "UPDATE stage.rwb_loss_result_manifest SET stage_status = 'pending', "
@@ -705,7 +754,7 @@ def apply_retry(submission_id: Any, export_id: Any, irp_analysis_id: Any) -> Ret
 
 __all__ = [
     "QUEUED", "IN_PROGRESS", "LOADED", "FAILED", "CLOSED",
-    "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN",
+    "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN", "TY",
     "ExportError", "ExportValidationError", "ExportNotFound", "ExportActionRefused",
     "ExportedMark", "ExportableAnalysis", "Client",
     "ExportAnalysisDetail", "ExportDetail", "ExportSummary",

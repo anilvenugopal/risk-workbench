@@ -121,8 +121,7 @@ def test_happy_path_stages_files_and_rows_and_enqueues_the_load(staging, fake_ir
     assert load[0]["requestor_type"] == "rwb_job" and load[0]["requestor_id"] == _stage_job()["id"]
     assert load[0]["context_type"] == "irp_analysis"
     assert json.loads(load[0]["input_data"]) == {
-        "export_id": staging["export_id"], "irp_analysis_id": staging["analysis_id"],
-        "manifest_id": m["manifest_id"]}
+        "export_id": staging["export_id"], "irp_analysis_id": staging["analysis_id"]}
     assert not any(Path(settings.export_staging_dir).rglob("*.parquet"))
 
 
@@ -300,7 +299,7 @@ def test_load_enqueue_failure_stamps_load_failed_and_keeps_the_staged_rows(
 
 
 def test_a_failure_before_the_stage_steps_still_stamps_the_row(staging, monkeypatch):
-    def boom(manifest_id, work_dir):
+    def boom(manifest_id):
         raise RuntimeError("LOSS is down")
     monkeypatch.setattr(export_jobs, "_discard_partial_stage", boom)
 
@@ -310,7 +309,7 @@ def test_a_failure_before_the_stage_steps_still_stamps_the_row(staging, monkeypa
 def test_the_worker_time_limit_stamps_the_row_and_re_raises(staging, monkeypatch):
     from dramatiq.middleware import TimeLimitExceeded
 
-    def slow(manifest, irp_job_id):
+    def slow(targets, rows, irp_job_id, work_dir):
         raise TimeLimitExceeded()
     monkeypatch.setattr(export_jobs, "_stage", slow)
 

@@ -1,9 +1,10 @@
-{# The export detail page's analysis table; polls every 5s while any analysis
-   is not yet loaded or failed (contracts/routes.md §6). The Retry and Close
-   routes re-render it, with `action_message` when one was refused (§7, §8). The
-   status select sits inside the swapped fragment so the filter survives both
-   the poll and a Retry. The analysis name is frozen at the left while the
-   recorded attributes and the row counts scroll under it. #}
+{# The export detail page's analysis table; polls every 5s while any row
+   is not yet loaded or failed (contracts/routes.md §6). One row per manifest
+   row: an analysis, or one treaty of an analysis at TY (spec 016 P-09). The
+   Retry and Close routes re-render it, with `action_message` when one was
+   refused (§7, §8). The status select sits inside the swapped fragment so the
+   filter survives both the poll and a Retry. The analysis name is frozen at
+   the left while the recorded attributes and the row counts scroll under it. #}
 {% set query = ('?status=' ~ status_filter) if status_filter else '' %}
 {% set shown = export.analyses|selectattr('status', 'equalto', status_filter)|list if status_filter else export.analyses %}
 <div id="export-analyses"
@@ -24,9 +25,9 @@
   </div>
   <div class="dtable-shell">
     <div class="dtable dtable--wraphead export-analyses"
-         style="--cols: minmax(360px,2fr) 80px 170px 90px minmax(160px,1fr) 100px 90px 100px 80px 80px 80px 100px 100px 100px 110px 110px 90px 190px 150px; min-width: 2340px">
+         style="--cols: minmax(360px,2fr) 150px 80px 170px 90px minmax(160px,1fr) 100px 90px 100px 80px 80px 80px 100px 100px 100px 110px 110px 90px 190px 150px; min-width: 2490px">
       <div class="dtable__head">
-        <span class="l">Analysis</span><span class="l">Origin</span><span class="l">Status</span>
+        <span class="l">Analysis</span><span class="l">Treaty</span><span class="l">Origin</span><span class="l">Status</span>
         <span class="l">Data ID</span><span class="l">Data name</span><span class="l">AAL</span>
         <span class="l">Currency</span><span class="l">Model version</span><span class="l">Engine</span>
         <span class="l">Peril</span><span class="l">Region</span><span class="l">Staged</span>
