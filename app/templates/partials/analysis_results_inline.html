@@ -31,9 +31,7 @@
     {% if not r.partitions %}
     <div><dt>Run details</dt><dd class="blank">not returned</dd></div>
     {% elif r.partitions|length == 1 %}
-    {% set label, val = (('Simulation set', r.single_simulation_set)
-                         if r.single_simulation_set
-                         else ('Event rate scheme', r.single_scheme)) %}
+    {% set label, val = r.single_label, r.single_value %}
     {% if val %}<div><dt>{{ label }}</dt><dd title="{{ val }}">{{ val }}</dd></div>
     {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>
     {% endif %}

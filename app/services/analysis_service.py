@@ -175,9 +175,11 @@ class ResolvedDetails:
     # One entry per partition, in stored order (already sorted at write time).
     partitions: list[str] | None = None
     treaties: list[str] | None = None
-    # Set only when the run resolved on exactly one partition (P-08).
-    single_scheme: str | None = None
-    single_simulation_set: str | None = None
+    # Set only when the run resolved on exactly one partition (P-08). The label
+    # comes from the framework, never from which value resolved, so a PLT
+    # partition whose set is missing still reads Simulation set (FR-006).
+    single_label: str | None = None
+    single_value: str | None = None
     summary: str | None = None
 
 
@@ -225,11 +227,12 @@ def _resolved_view(settings: dict | None) -> ResolvedDetails:
     if len(stored) == 1:
         only = stored[0]
         if only.get("framework") == "PLT":
-            view.single_simulation_set = _simulation_set_label(
-                only.get("simulation_set"))
+            view.single_label = "Simulation set"
+            view.single_value = _simulation_set_label(only.get("simulation_set"))
         else:
-            view.single_scheme = _scheme_name(only.get("event_rate_scheme"))
-        view.summary = view.single_simulation_set or view.single_scheme
+            view.single_label = "Event rate scheme"
+            view.single_value = _scheme_name(only.get("event_rate_scheme"))
+        view.summary = view.single_value
     else:
         view.summary = "; ".join(view.partitions) or None
     return view

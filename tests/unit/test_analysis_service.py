@@ -1153,7 +1153,7 @@ def test_compare_rows_report_what_each_run_resolved_on(iteration2_db):
     [group] = analysis_service.list_submission_rdms(submission_id=submission)
     broker = {a.name: a for a in analysis_service.list_submission_rdm_analyses(
         submission_id=submission, rdm_id=group.rdm_id)}
-    assert (broker["USFL_Commercial_LT"].resolved.single_scheme
+    assert (broker["USFL_Commercial_LT"].resolved.single_value
             == rows["USFL_Commercial_LT"].run_details)
 
 
@@ -1299,8 +1299,8 @@ def test_broker_row_names_its_event_rate_scheme_and_no_simulation_set(
     row = _broker_row(submission, "USFL_Commercial_LT",
                       settings_metadata("broker_dlm", fan_out=23))
 
-    assert row.resolved.single_scheme == "RMS 2023 Historical Event Rates"
-    assert row.resolved.single_simulation_set is None
+    assert row.resolved.single_label == "Event rate scheme"
+    assert row.resolved.single_value == "RMS 2023 Historical Event Rates"
     panel = _inline_panel(row)
     assert "<dt>Event rate scheme</dt>" in panel
     assert "RMS 2023 Historical Event Rates" in panel
@@ -1389,7 +1389,7 @@ def test_the_expanded_row_and_the_compose_screen_name_one_scheme(iteration2_db):
     screen = build_inspection_screen(GroupingInspectionView(
         inspection=inspection, members={5689560: member}))
 
-    assert screen.rows[0].options[0].label == row.resolved.single_scheme
+    assert screen.rows[0].options[0].label == row.resolved.single_value
 
 
 # ── spec 015 story 2: the HD row names its simulation set (FR-003/FR-004/FR-006) ─
@@ -1404,9 +1404,9 @@ def _own_row(edm: str, name: str, settings: dict | None):
 def test_hd_row_names_its_simulation_set_and_no_event_rate_scheme(iteration2_db):
     row = _own_row(_edm(), "HD Run", settings_metadata("own_hd"))
 
-    assert row.resolved.single_simulation_set == (
+    assert row.resolved.single_label == "Simulation set"
+    assert row.resolved.single_value == (
         "RMS 2020 Time-Dependent Rates (1,978,459 periods)")
-    assert row.resolved.single_scheme is None
     panel = _inline_panel(row)
     assert ("<dt>Simulation set</dt><dd title=\"RMS 2020 Time-Dependent Rates "
             "(1,978,459 periods)\">") in panel
@@ -1426,8 +1426,22 @@ def test_a_pet_the_capture_could_not_name_reads_by_its_id(iteration2_db):
     row = _own_row(_edm(), "HD Run",
                    settings_metadata("own_hd", pet_names={}))
 
-    assert row.resolved.single_simulation_set == "PET 12 (1,978,459 periods)"
+    assert row.resolved.single_value == "PET 12 (1,978,459 periods)"
     assert "<dt>Simulation set</dt>" in _inline_panel(row)
+
+
+def test_a_plt_partition_with_no_set_still_reads_simulation_set(iteration2_db):
+    # FR-006: the label follows the partition's framework. A PLT partition
+    # whose set did not resolve reads Simulation set — never the ELT label.
+    captured = settings_metadata("own_hd")
+    captured["resolved"]["partitions"][0]["simulation_set"] = None
+    row = _own_row(_edm(), "HD Run", captured)
+
+    assert row.resolved.single_label == "Simulation set"
+    assert row.resolved.single_value is None
+    panel = _inline_panel(row)
+    assert '<dt>Simulation set</dt><dd class="blank">not returned</dd>' in panel
+    assert "<dt>Event rate scheme</dt>" not in panel
 
 
 def test_an_hd_row_with_no_captured_partitions_reads_not_returned(iteration2_db):
@@ -1504,7 +1518,7 @@ def test_a_one_partition_group_renders_the_single_field(iteration2_db):
     row = _group_row(submission, "CRE_Sub One_Group",
                      _group_settings("group_plt_workbench_made"))
 
-    assert row.resolved.single_simulation_set == (
+    assert row.resolved.single_value == (
         "RMS V2.0 Stochastic Event Rates - Typhoon and Non-Typhoon Flood "
         "Events (50,000 periods)")
     panel = _inline_panel(row)
