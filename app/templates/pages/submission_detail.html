@@ -156,6 +156,10 @@
           all_empty_text=results_section.all_empty_text %}
     {% include "partials/analyses_merged_section.html" %}
   {% endwith %}
+  {# Exports section (spec 014): loaded once the page renders; the partial
+     polls itself every 10s while an export is still in progress. #}
+  <div id="submission-exports" hx-get="/submissions/{{ submission.id }}/exports"
+       hx-trigger="load" hx-swap="outerHTML"></div>
   <div id="submission-entity-modal"></div>
   <div id="group-modal"
        hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }"></div>

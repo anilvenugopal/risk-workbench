@@ -80,6 +80,13 @@ db-rebuild:   ## [Docker] DESTRUCTIVE — drop and recreate all 3 app databases
 	$(BOX) python infra/scripts/reset_db.py --all
 	$(BOX) alembic upgrade head
 	$(BOX) python infra/scripts/seed_db.py
+	$(BOX) python infra/scripts/bootstrap_loss.py
+
+bootstrap-loss:   ## [Docker] Apply CIC's table mirror + the stage schema to rwb_loss and seed Client / historical lookup
+	$(BOX) python infra/scripts/bootstrap_loss.py
+
+bootstrap-loss-reset:   ## [Docker] DESTRUCTIVE — drop the three stage tables in rwb_loss, then bootstrap-loss
+	$(BOX) python infra/scripts/bootstrap_loss.py --reset-stage
 
 test:   ## [Docker] Run unit tests (no SQL Server needed)
 	$(BOX) uv run pytest tests/unit -v
@@ -160,6 +167,13 @@ wsl-db-rebuild:   ## [WSL2] DESTRUCTIVE — drop and recreate all 3 app database
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/reset_db.py --all'
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run alembic upgrade head'
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/seed_db.py'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/bootstrap_loss.py'
+
+wsl-bootstrap-loss:   ## [WSL2] Apply CIC's table mirror + the stage schema to rwb_loss and seed Client / historical lookup
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/bootstrap_loss.py'
+
+wsl-bootstrap-loss-reset:   ## [WSL2] DESTRUCTIVE — drop the three stage tables in rwb_loss, then wsl-bootstrap-loss
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/bootstrap_loss.py --reset-stage'
 
 wsl-test:   ## [WSL2] Run unit tests (no SQL Server needed)
 	uv run pytest tests/unit -v

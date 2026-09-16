@@ -686,3 +686,51 @@ def test_lob_lists_over_the_free_text_cap_are_not_stored():
     # breakout enumerates from breakout_values, so lob must not survive it.
     assert "lob" not in summary["1"]["breakout_values"]
     assert "lob" in summary["2"]["breakout_values"]
+
+
+# ── spec-014 export wrappers ─────────────────────────────────────────────────────
+
+def test_submit_analysis_export_job_passes_parquet_and_returns_int_job_id():
+    calls = []
+
+    def submit_analysis_export_job(analysis_id, loss_details, file_extension):
+        calls.append((analysis_id, loss_details, file_extension))
+        return "25437617", {"exportType": "RESULTS"}
+
+    gw = _gw(analysis=SimpleNamespace(submit_analysis_export_job=submit_analysis_export_job))
+    details = [{"metricType": "LOSS_TABLES", "outputLevels": ["Portfolio"],
+                "perspectiveCodes": ["GR"]}]
+
+    job_id, body = gw.submit_analysis_export_job(analysis_id=41958, loss_details=details)
+
+    assert (job_id, body) == (25437617, {"exportType": "RESULTS"})
+    assert calls == [(41958, details, "PARQUET")]
+
+
+def test_get_export_job_is_a_single_status_read():
+    calls = []
+
+    def get_export_job(job_id):
+        calls.append(job_id)
+        return {"status": "FINISHED", "tasks": []}
+
+    gw = _gw(export_job=SimpleNamespace(get_export_job=get_export_job))
+    status = gw.get_export_job("25437617")
+
+    assert calls == [25437617]
+    assert status.status == "FINISHED"
+    assert status.result == {"status": "FINISHED", "tasks": []}
+
+
+def test_download_export_results_returns_the_saved_path():
+    calls = []
+
+    def download_export_results(job_id, output_dir):
+        calls.append((job_id, output_dir))
+        return f"{output_dir}/25437617_Losses.zip"
+
+    gw = _gw(export_job=SimpleNamespace(download_export_results=download_export_results))
+    path = gw.download_export_results(job_id=25437617, output_dir="/archive/e/a")
+
+    assert path == "/archive/e/a/25437617_Losses.zip"
+    assert calls == [(25437617, "/archive/e/a")]

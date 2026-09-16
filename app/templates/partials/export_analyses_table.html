@@ -1,0 +1,46 @@
+{# The export detail page's analysis table; polls every 5s while any analysis
+   is not yet loaded or failed (contracts/routes.md §6). The Retry and Close
+   routes re-render it, with `action_message` when one was refused (§7, §8). The
+   status select sits inside the swapped fragment so the filter survives both
+   the poll and a Retry. The analysis name is frozen at the left while the
+   recorded attributes and the row counts scroll under it. #}
+{% set query = ('?status=' ~ status_filter) if status_filter else '' %}
+{% set shown = export.analyses|selectattr('status', 'equalto', status_filter)|list if status_filter else export.analyses %}
+<div id="export-analyses"
+     {% if export.in_progress %}hx-get="/submissions/{{ export.submission_id }}/exports/{{ export.export_id }}/analyses{{ query }}"
+     hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+  {% if action_message|default(none) %}
+  <div class="form-banner form-banner--error">{{ action_message }}</div>
+  {% endif %}
+  <div class="section-head">
+    <h2>Analyses</h2>
+    <select name="status" class="wf-field__input" style="width:auto"
+            hx-get="/submissions/{{ export.submission_id }}/exports/{{ export.export_id }}/analyses"
+            hx-trigger="change" hx-target="#export-analyses" hx-swap="outerHTML">
+      <option value="">All statuses</option>
+      <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Failed</option>
+      <option value="loaded" {% if status_filter == 'loaded' %}selected{% endif %}>Loaded</option>
+    </select>
+  </div>
+  <div class="dtable-shell">
+    <div class="dtable dtable--wraphead export-analyses"
+         style="--cols: minmax(360px,2fr) 80px 170px 90px minmax(160px,1fr) 100px 90px 100px 80px 80px 80px 100px 100px 100px 110px 110px 90px 190px 150px; min-width: 2340px">
+      <div class="dtable__head">
+        <span class="l">Analysis</span><span class="l">Origin</span><span class="l">Status</span>
+        <span class="l">Data ID</span><span class="l">Data name</span><span class="l">AAL</span>
+        <span class="l">Currency</span><span class="l">Model version</span><span class="l">Engine</span>
+        <span class="l">Peril</span><span class="l">Region</span><span class="l">Staged</span>
+        <span class="l">Stochastic</span><span class="l">Historical</span><span class="l">Exposure raised</span>
+        <span class="l">Std dev zeroed</span><span class="l">RM id</span><span class="l">Last updated</span>
+        <span class="l"></span>
+      </div>
+      {% for a in shown %}
+      {% with submission_id=export.submission_id, export_id=export.export_id %}
+      {% include "partials/export_analysis_row.html" %}
+      {% endwith %}
+      {% else %}
+      <div class="dtable__groupempty">No analyses match this filter.</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
