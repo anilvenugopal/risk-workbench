@@ -1521,8 +1521,10 @@ def _export_form_response(request: Request, submission_id: str, *, selected_ids=
              "submission": None, "gone": True}, status_code=404)
     analyses = export_service.list_exportable_analyses(submission_id) or []
     crm_ids = submission_service.list_crm_ids(submission_id)
+    model_versions = export_service.model_version_choices()
     form_values = {"client_id": "", "treaty_incept": submission.inception_date or "",
-                   "crm_id": (crm_ids[0].crm_id if crm_ids else ""), "data_vintage": ""}
+                   "crm_id": (crm_ids[0].crm_id if crm_ids else ""), "data_vintage": "",
+                   "model_version": (model_versions[0] if model_versions else "")}
     form_values.update(values or {})
     return _templates(request).TemplateResponse(
         request, "pages/submission_export_new.html", {
@@ -1530,6 +1532,7 @@ def _export_form_response(request: Request, submission_id: str, *, selected_ids=
             "nav": _export_nav(request, "submissions.export_new", submission, "Export"),
             "submission": submission, "submission_id": submission.id, "gone": False,
             "analyses": analyses, "clients": export_service.list_clients(),
+            "model_versions": model_versions,
             "values": form_values, "selected_ids": {_uid(v) for v in selected_ids},
             "error": error,
             **_export_fields_context(analyses, selected_ids, perspective, data_names),
@@ -1566,12 +1569,14 @@ async def create_export(request: Request, submission_id: str):
     treaty_incept_raw = (form.get("treaty_incept") or "").strip()
     data_vintage_raw = (form.get("data_vintage") or "").strip()
     crm_id = form.get("crm_id") or ""
+    model_version = (form.get("model_version") or "").strip()
     data_names = _data_names(form.multi_items())
     reshow = partial(
         _export_form_response, request, submission_id, selected_ids=analysis_ids,
         perspective=perspective, data_names=data_names, status_code=422,
         values={"client_id": form.get("client_id") or "", "treaty_incept": treaty_incept_raw,
-                "crm_id": crm_id, "data_vintage": data_vintage_raw})
+                "crm_id": crm_id, "data_vintage": data_vintage_raw,
+                "model_version": model_version})
     treaty_incept = _parse_date(treaty_incept_raw)
     if treaty_incept_raw and treaty_incept is None:
         return reshow(error="Treaty inception is not a valid date.")
@@ -1583,7 +1588,8 @@ async def create_export(request: Request, submission_id: str):
             submission_id=submission_id, user_email=request.state.user.email,
             analysis_ids=analysis_ids, perspective_code=perspective,
             client_id=_parse_int(form.get("client_id")), treaty_incept=treaty_incept,
-            crm_id=crm_id, data_vintage=data_vintage, data_names=data_names)
+            crm_id=crm_id, data_vintage=data_vintage, model_version=model_version,
+            data_names=data_names)
     except export_service.ExportValidationError as exc:
         return reshow(error=str(exc))
     return RedirectResponse(f"/submissions/{submission_id}/exports/{export_id}", status_code=303)

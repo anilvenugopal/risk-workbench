@@ -13,6 +13,7 @@ from tests.unit.export_rows import (
     seed_analysis,
     seed_client,
     seed_edm_for,
+    seed_lookup_versions,
     seed_submission,
 )
 
@@ -69,6 +70,7 @@ def make_deal(test_client) -> dict:
                         irp_app_analysis_id="A-388", inserted_at="2026-09-10 06:00:00")
     seed_client(1, "Example Re")
     seed_client(2, "Retired", "N")
+    seed_lookup_versions("25.0", "23.0")
     return {"submission_id": submission_id, "edm_id": edm_id, "a": a, "b": b, "bad": bad}
 
 
@@ -88,7 +90,7 @@ def csrf() -> str:
 def post_export(test_client, deal, analysis_ids, perspective="GR", htmx=False, **fields):
     data = {"csrf_token": csrf(), "perspective": perspective, "client_id": "1",
             "treaty_incept": "2026-04-01", "crm_id": "CRM-1",
-            "data_vintage": "2025-12-31",
+            "data_vintage": "2025-12-31", "model_version": "25.0",
             "analysis_ids": list(analysis_ids), **fields}
     headers = {"HX-Request": "true"} if htmx else {}
     return test_client.post(f"/submissions/{deal['submission_id']}/exports", data=data,

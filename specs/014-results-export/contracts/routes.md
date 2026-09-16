@@ -39,6 +39,10 @@ submission). Renders `pages/submission_export_new.html` with:
 - Treaty inception (date, default `submission.inception_date`), CRM ID (text,
   default the submission's first `submission_crm_id.crm_id`), data vintage
   (date, blank, required — spec P-19).
+- Model version `<select>` over `export_service.model_version_choices()`, the
+  lookup's distinct `ModelVersion` values newest first, the first selected,
+  required (spec P-25). An empty list shows "The historical event lookup
+  lists no model versions."
 - Export button, disabled until at least one analysis is ticked and a
   perspective and client are chosen. An analysis already exported for the
   chosen perspective never turns it off (§3).
@@ -81,7 +85,8 @@ Triggered by `hx-get` on the analysis list (`hx-trigger="change"`,
 POST /submissions/{submission_id}/exports
 Form fields: analysis_ids[] (uuid, ≥1), perspective (code), client_id (int),
              treaty_incept (date), crm_id (text ≤30, optional),
-             data_vintage (date), data_name[<uuid>] (text ≤150, optional)
+             data_vintage (date), model_version (text, one of the lookup's
+             versions), data_name[<uuid>] (text ≤150, optional)
 ```
 
 The form is a plain POST, not `hx-post`: htmx does not swap a 422 response,
@@ -96,6 +101,8 @@ the analyst's values, HTTP 422:
    analysis's perspectives.
 3. `client_id` is a row of `dbo.Client` (spec P-18, FR-002).
 4. `treaty_incept` and `data_vintage` are present and parse (spec P-19).
+5. `model_version` is one of `model_version_choices()` ("Choose a model
+   version." otherwise, spec P-25).
 
 On success:
 

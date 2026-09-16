@@ -11,8 +11,9 @@
 - A submission with at least two finished own analyses whose results are
   retrieved (`loss_results` set), run in the sandbox Risk Modeler so a real
   export job can be submitted. `bootstrap-loss` seeds CIC's whole
-  `Lookup_RMS_HistoricalRDS` (2,589 rows, all `ModelVersion = '25'`), so a
-  v25 DLM analysis takes the historical path with no hand-added rows.
+  `Lookup_RMS_HistoricalRDS` (2,589 rows, all `ModelVersion = '25.0'`), so
+  the form offers `25.0` and every export takes the historical path with no
+  hand-added rows.
 - Poller and the three export queues running (`make dev-up` starts them;
   check `queue_names()` lists `submit_results_export`, `stage_results_export`,
   `load_results_export`).
@@ -26,9 +27,10 @@
    configured codes both analyses have (FR-003); one data-name field appears
    per ticked analysis (O-07). Treaty inception and CRM ID are pre-filled from
    the submission; client and data vintage are required and the vintage is
-   blank (story 1 acceptance 2). Pick GR: each cart row shows that analysis's
-   AAL (P-20). Clear the vintage and submit: the form comes back with "Data
-   vintage is required."
+   blank (story 1 acceptance 2). Model version reads `25.0`, the only version
+   the seeded lookup holds; keep it (P-25). Pick GR: each cart row shows that
+   analysis's AAL (P-20). Clear the vintage and submit: the form comes back
+   with "Data vintage is required."
    The client list includes a retired client (`ActiveFlag = 'N'`, seeded by
    `bootstrap-loss`) — P-18.
 3. Pick GR and a client, click **Export**. You land on the export detail page
@@ -36,7 +38,7 @@
 4. Watch the statuses move: in progress → loaded. Expect several minutes per
    analysis for a real ELT.
 5. In `rwb_loss`: one `dbo.Data` row per analysis with `AnalysisID`,
-   `Perspective = 'GR'`, `DataModelVersion = '25'`, `Name`, `Description`,
+   `Perspective = 'GR'`, `DataModelVersion = '25.0'`, `Name`, `Description`,
    `CRMID`, `Server` reading `https://<tenant>.<domain>` (the Risk Modeler web
    UI, not `api-…`), and `Database` reading the Workbench database name
    (P-23); `dbo.RMSELT` rows plus `dbo.RMS_HistoricalRDS` rows
@@ -48,8 +50,8 @@
    earlier export — date, requester, status, an underlined link, and how many
    there are — and the Export button stays on (acceptance 4, P-17).
    Export again: a second `dbo.Data` row lands under a new data ID.
-7. Lookup miss: export an analysis whose `ModelVersion` has no lookup rows
-   (delete the seeded rows first). It loads: every event is stochastic, the
+7. Lookup miss: add one lookup row under `ModelVersion = '24.0'`, reopen
+   the form, and pick `24.0`. It loads: every event is stochastic, the
    detail page's historical count reads 0, and `dbo.RMS_HistoricalRDS` gets
    no rows (acceptance 7, non-negotiable 3, P-24).
 

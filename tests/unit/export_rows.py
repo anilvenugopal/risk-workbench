@@ -98,6 +98,15 @@ def seed_client(client_id: int = 1, name: str = "Example Re", active: str = "Y")
     return client_id
 
 
+def seed_lookup_versions(*versions: str) -> None:
+    """One historical lookup row per model version, so the export form offers them."""
+    for index, version in enumerate(versions):
+        execute_command(
+            "INSERT INTO dbo.Lookup_RMS_HistoricalRDS (EventID, CatYear, Peril, Type, Name, "
+            "[PCS#], ModelVersion) VALUES (:e, 2020, 'HU', 'HIST', :n, NULL, :v)",
+            {"e": 3000 + index, "n": f"Storm {index}", "v": version}, connection="LOSS")
+
+
 def seed_manifest(*, export_id: str | None = None, submission_id: str | None = None,
                   irp_analysis_id: str | None = None, irp_app_analysis_id: int = 41958,
                   perspective_code: str = "GR", client_id: int = 1,
@@ -118,7 +127,7 @@ def seed_manifest(*, export_id: str | None = None, submission_id: str | None = N
         "data_currency": "USD",
         "data_model_vendor": "RMS", "server": "https://rm.example",
         "irp_export_job_id": None, "loss_table_type": None, "engine_type": None,
-        "data_model_version": None, "peril_code": "EQ", "region_code": "NAEQ",
+        "data_model_version": "25.0", "peril_code": "EQ", "region_code": "NAEQ",
         "zip_file": None, "stage_status": stage_status, "staged_at": None,
         "load_status": load_status, "loaded_at": None, "error_message": None,
         "data_id": None, "staged_row_count": None, "stochastic_row_count": None,
@@ -172,6 +181,6 @@ def rwb_jobs(rwb_job_type: str) -> list[dict]:
 
 __all__ = [
     "NOW", "seed_submission", "seed_edm_for", "seed_rdm_for", "seed_analysis", "seed_client",
-    "seed_manifest", "manifest_row", "manifest_for", "seed_export_job", "rwb_jobs",
-    "loss_results", "date",
+    "seed_lookup_versions", "seed_manifest", "manifest_row", "manifest_for", "seed_export_job",
+    "rwb_jobs", "loss_results", "date",
 ]

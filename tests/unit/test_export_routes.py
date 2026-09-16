@@ -84,6 +84,9 @@ def test_form_renders_defaults_rows_and_disabled_reason(client, deal):
     assert 'name="crm_id" maxlength="30"\n               value="CRM-1"' in page.text
     assert '<option value="1" >Example Re</option>' in page.text
     assert '<option value="2" >Retired</option>' in page.text
+    assert 'name="model_version" required' in page.text
+    assert '<option value="25.0" selected>25.0</option>' in page.text
+    assert '<option value="23.0" >23.0</option>' in page.text
     assert "Cannot be exported: Risk Modeler application analysis ID &#39;A-388&#39;" in page.text
     assert page.text.count('name="analysis_ids"') == 3
     assert 'name="perspective" required\n            disabled' in page.text
@@ -244,14 +247,14 @@ def test_detail_page_renders_queued_rows_and_header(client, export):
 def test_detail_rows_show_the_recorded_attributes(client, export):
     execute_command(
         "UPDATE stage.rwb_loss_result_manifest SET data_name = 'AmFam HU GR 2026', "
-        "data_model_version = '25', engine_type = 'DLM' WHERE irp_analysis_id = :a",
+        "engine_type = 'DLM' WHERE irp_analysis_id = :a",
         {"a": export["a"]}, connection="LOSS")
 
     frag = client.get(f"{export['url']}/analyses")
 
     row = next(chunk for chunk in frag.text.split('id="export-analysis-row-')
                if chunk.startswith(export["a"]))
-    for value in ("AmFam HU GR 2026", "41958", "USD", "25", "DLM", "EQ", "NAEQ"):
+    for value in ("AmFam HU GR 2026", "41958", "USD", "25.0", "DLM", "EQ", "NAEQ"):
         assert f">{value}<" in row
 
 

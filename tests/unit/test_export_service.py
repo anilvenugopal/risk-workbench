@@ -19,6 +19,7 @@ from tests.unit.export_rows import (
     seed_client,
     seed_edm_for,
     seed_export_job,
+    seed_lookup_versions,
     seed_manifest,
     seed_rdm_for,
     seed_submission,
@@ -36,6 +37,7 @@ def deal(iteration2_db, loss_db):
                       irp_app_analysis_id="41959", perspectives=("GR", "RL", "RP"),
                       inserted_at="2026-09-10 07:00:00")
     seed_client(1, "Example Re")
+    seed_lookup_versions("25.0", "23.0")
     return {"submission_id": submission_id, "edm_id": edm_id, "a": a, "b": b,
             "user_a": iteration2_db.user_a}
 
@@ -44,7 +46,7 @@ def _create(deal, analysis_ids, perspective="GR", **overrides):
     kwargs = dict(submission_id=deal["submission_id"], user_email="analyst.a@example.com",
                   analysis_ids=analysis_ids, perspective_code=perspective, client_id=1,
                   treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
-                  data_vintage=date(2025, 12, 31), data_names=None)
+                  data_vintage=date(2025, 12, 31), model_version="25.0", data_names=None)
     kwargs.update(overrides)
     return svc.create_export(**kwargs)
 
@@ -147,6 +149,14 @@ def test_list_clients_is_every_client_by_name(deal):
     assert [c.name for c in svc.list_clients()] == ["Alpha Mutual", "Example Re", "Retired"]
 
 
+def test_model_version_choices_newest_first_from_the_lookup(deal):
+    seed_lookup_versions("HDv2.1")
+    assert svc.model_version_choices() == ["25.0", "23.0", "HDv2.1"]
+    from db import execute_command
+    execute_command("DELETE FROM dbo.Lookup_RMS_HistoricalRDS", {}, connection="LOSS")
+    assert svc.model_version_choices() == []
+
+
 # ── create_export ────────────────────────────────────────────────────────────
 
 def test_create_export_records_the_approved_values_and_enqueues_submit(deal, monkeypatch):
@@ -169,7 +179,7 @@ def test_create_export_records_the_approved_values_and_enqueues_submit(deal, mon
     assert a["treaty_incept"] == "2026-05-01" and a["treaty_year"] == 2026
     assert a["crm_id"] == "CRM-9" and a["data_name"] == "Named A"
     assert a["data_vintage"] == "2025-12-31" and a["data_currency"] == "USD"
-    assert a["data_model_vendor"] == "RMS"
+    assert a["data_model_vendor"] == "RMS" and a["data_model_version"] == "25.0"
     # what dbo.Data records the results came from: the RM web UI, this Workbench
     assert a["server"] == "https://acme.rms-ppe.com" and a["database"] == "rwb_workbench"
     assert (a["peril_code"], a["region_code"]) == ("EQ", "NAEQ")
@@ -202,6 +212,8 @@ def test_create_export_never_writes_back_to_the_submission(deal):
     ({"client_id": 99}, "Choose a client"),
     ({"treaty_incept": None}, "Treaty inception is required"),
     ({"data_vintage": None}, "Data vintage is required"),
+    ({"model_version": None}, "Choose a model version"),
+    ({"model_version": "24.0"}, "Choose a model version"),
     ({"crm_id": "x" * 31}, "longer than 30"),
 ])
 def test_create_export_validation_messages(deal, overrides, message):

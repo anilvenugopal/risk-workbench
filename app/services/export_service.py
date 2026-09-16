@@ -369,6 +369,22 @@ def list_clients() -> list[Client]:
         "ORDER BY ClientName, ClientID", {}, connection="LOSS")]
 
 
+def model_version_choices() -> list[str]:
+    """The distinct ``ModelVersion`` values of ``dbo.Lookup_RMS_HistoricalRDS``
+    (``25.0``), newest numeric first, then any non-numeric form alphabetically.
+    The first entry is the form's default (P-25)."""
+    values = {str(r["ModelVersion"]).strip() for r in execute(
+        "SELECT DISTINCT ModelVersion FROM dbo.Lookup_RMS_HistoricalRDS "
+        "WHERE ModelVersion IS NOT NULL", {}, connection="LOSS")}
+    numeric, other = [], []
+    for value in values:
+        try:
+            numeric.append((float(value), value))
+        except ValueError:
+            other.append(value)
+    return [v for _, v in sorted(numeric, reverse=True)] + sorted(other)
+
+
 # ── submit ───────────────────────────────────────────────────────────────────
 
 _MANIFEST_INSERT = """
@@ -376,21 +392,22 @@ _MANIFEST_INSERT = """
         export_id, requested_by_email, requested_at, requested_from_submission_id,
         irp_analysis_id, irp_analysis_irp_id, irp_app_analysis_id, analysis_name,
         analysis_description, perspective_code, client_id, treaty_incept, treaty_year,
-        crm_id, data_name, data_vintage, data_currency, data_model_vendor, server,
-        [database], peril_code, region_code, stage_status, load_status, inserted_at,
-        updated_at)
+        crm_id, data_name, data_vintage, data_currency, data_model_vendor,
+        data_model_version, server, [database], peril_code, region_code, stage_status,
+        load_status, inserted_at, updated_at)
     VALUES (
         :export_id, :requested_by_email, :now, :submission_id,
         :irp_analysis_id, :irp_analysis_irp_id, :irp_app_analysis_id, :analysis_name,
         :analysis_description, :perspective_code, :client_id, :treaty_incept, :treaty_year,
-        :crm_id, :data_name, :data_vintage, :data_currency, 'RMS', :server,
-        :database, :peril_code, :region_code, 'pending', 'pending', :now, :now)
+        :crm_id, :data_name, :data_vintage, :data_currency, 'RMS',
+        :data_model_version, :server, :database, :peril_code, :region_code, 'pending',
+        'pending', :now, :now)
 """
 
 
 def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str],
                   perspective_code: str, client_id: int | None, treaty_incept: Any,
-                  crm_id: str | None, data_vintage: Any,
+                  crm_id: str | None, data_vintage: Any, model_version: str | None,
                   data_names: dict[str, str] | None = None) -> str:
     """Validate in the contracts/routes.md §4 order, insert one manifest row per
     analysis in one LOSS transaction, enqueue ``submit_results_export``, and
@@ -426,6 +443,8 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
         raise ExportValidationError("Treaty inception is required.")
     if data_vintage is None:
         raise ExportValidationError("Data vintage is required.")
+    if model_version not in model_version_choices():
+        raise ExportValidationError("Choose a model version.")
     crm_id = (crm_id or "").strip() or None
     if crm_id and len(crm_id) > CRM_ID_MAX_LEN:
         raise ExportValidationError(f"CRM ID is longer than {CRM_ID_MAX_LEN} characters.")
@@ -456,6 +475,7 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
                 "treaty_year": submission.treaty_year,
                 "crm_id": crm_id, "data_name": names.get(analysis.id) or None,
                 "data_vintage": data_vintage, "data_currency": analysis.currency,
+                "data_model_version": model_version,
                 "server": server, "database": database,
                 "peril_code": analysis.peril_code, "region_code": analysis.region_code,
             })
@@ -710,6 +730,6 @@ __all__ = [
     "ExportedMark", "ExportableAnalysis", "Client",
     "ExportAnalysisDetail", "ExportDetail", "ExportSummary",
     "derive_status", "list_exportable_analyses", "perspective_choices", "find_exported",
-    "mark_exported", "list_clients", "create_export", "list_exports",
-    "get_export_detail", "retry_decision", "apply_retry", "apply_close",
+    "mark_exported", "list_clients", "model_version_choices", "create_export",
+    "list_exports", "get_export_detail", "retry_decision", "apply_retry", "apply_close",
 ]

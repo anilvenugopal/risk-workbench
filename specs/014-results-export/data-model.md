@@ -94,7 +94,7 @@ AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
 | `irp_export_job_id` | `NVARCHAR(64)` NULL | Submit worker | Retry decision; traceability |
 | `loss_table_type` | `VARCHAR(3)` NULL, CHECK `('ELT','PLT')` | Stage worker, archive folder name | Stage table and procedure selection |
 | `engine_type` | `VARCHAR(5)` NULL, CHECK `('DLM','HD','GROUP')` | Stage worker, `metadata.csv` `Engine Type` | Detail page; O-08 |
-| `data_model_version` | `NVARCHAR(10)` NULL | Stage worker, `metadata.csv` `ModelVersion`, reduced to the decimal form when Risk Modeler writes a build number (`23.0.2250.1` → `23.0`) | `Data.DataModelVersion`; lookup join and assertion |
+| `data_model_version` | `NVARCHAR(10)` NULL | Form: the export's model version, one of the lookup's distinct `ModelVersion` values (`25.0`), default newest (spec P-25) | `Data.DataModelVersion`; lookup join and assertion |
 | `peril_code` | `NVARCHAR(10)` NULL | `settings_metadata` `perilCode` on submit | Detail page; traceability (not part of the lookup join, R4) |
 | `region_code` | `NVARCHAR(10)` NULL | `settings_metadata` `regionCode` | Detail page; traceability |
 | `zip_file` | `NVARCHAR(1024)` NULL | Stage worker after download: `{export_id}/{irp_analysis_id}/{filename}` relative to `EXPORT_ARCHIVE_DIR` | Stage worker reuse; Retry |
@@ -185,7 +185,7 @@ Until built, the stage worker fails an archive whose loss-table folder is
 | `DataVintage` | `manifest.data_vintage` |
 | `DataName` | `manifest.data_name` |
 | `DataModelVendor` | `RMS` |
-| `DataModelVersion` | `manifest.data_model_version` (`25`, the whole number; T-33) |
+| `DataModelVersion` | `manifest.data_model_version` (`25.0`, the form the lookup holds; spec P-26) |
 | `DataCurrency` | `manifest.data_currency` |
 | `Server` | `manifest.server` |
 | `Database` | `manifest.database` |
@@ -232,7 +232,7 @@ server's code page arrives as `?` with no error. CIC owns those columns.
 `dbo.Lookup_RMS_HistoricalRDS` from
 `db/bootstrap/seed/lookup_rms_historical_rds.csv`: CIC's own export of the
 table (`cic-reference/Lookup_RMS_HistoricalRDS.xlsx`), 2,589 rows, every one
-`ModelVersion` `25`, `Peril` in `HU`/`EQ`/`WT`, `Type` `HIST` or `RDS`
+`ModelVersion` `25.0`, `Peril` in `HU`/`EQ`/`WT`, `Type` `HIST` or `RDS`
 (T-30, research R16). The CSV is the sheet saved by hand, columns in DDL order, each cell as
 written except `PCS#` `NULL`, which is blank and loads as SQL `NULL`. Never run against production; the
 script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.

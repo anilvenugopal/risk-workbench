@@ -59,7 +59,7 @@ def build_archive(
     dest_dir: Path, *,
     job_id: int = 25437617, analysis_name: str = "CRE_Port_Template",
     anls_id: int = 41958, currency: str = "USD", engine_type: str = "DLM",
-    model_version: str = "25.0", loss_table: str = "ELT",
+    loss_table: str = "ELT",
     perspectives: Sequence[str] = ("GR",),
     rows: Sequence[dict] | None = None, chunks: int = 1,
     metadata: bool = True, columns: Sequence[str] = ELT_COLUMNS,
@@ -80,7 +80,7 @@ def build_archive(
             writer = csv.writer(out)
             writer.writerow(["AnlsId", "AnalysisName", "AnalysisCurrency", "Engine Type",
                              "ModelVersion", "Peril", "Region", "PerspCodes"])
-            writer.writerow([anls_id, analysis_name, currency, engine_type, model_version,
+            writer.writerow([anls_id, analysis_name, currency, engine_type, "25.0",
                              "Earthquake", "NAEQ", ",".join(perspectives)])
             archive.writestr(f"{top}/{loss_table}/metadata.csv", out.getvalue())
         for perspective in perspectives:
