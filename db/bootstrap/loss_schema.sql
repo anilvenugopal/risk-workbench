@@ -5,7 +5,8 @@
 -- ships its own ALTER TABLE block. Names no database, so the same file installs in
 -- dev and at CIC.
 -- Contract: specs/014-results-export/contracts/load-procedure.md.
--- Schema:   specs/014-results-export/data-model.md §4.
+-- Schema:   specs/014-results-export/data-model.md §4; the treaty columns
+--           specs/016-ty-perspective-export/data-model.md §1.
 
 IF SCHEMA_ID('stage') IS NULL EXEC('CREATE SCHEMA stage AUTHORIZATION dbo');
 GO
@@ -44,6 +45,12 @@ CREATE TABLE stage.rwb_loss_result_manifest (
     data_model_version           NVARCHAR(10)     NULL,
     peril_code                   NVARCHAR(10)     NULL,
     region_code                  NVARCHAR(10)     NULL,
+    -- Treaty data set (spec 016): NULL on a portfolio-level row and on a TY
+    -- row until its loss table has been read; then one row per treaty.
+    treaty_number                NVARCHAR(64)     NULL,
+    treaty_name                  NVARCHAR(256)    NULL,
+    treaty_ids                   NVARCHAR(400)    NULL,
+    aal                          FLOAT            NULL,
     zip_file                     NVARCHAR(1024)   NULL,
     stage_status                 VARCHAR(10)      NOT NULL
         CONSTRAINT ck_rwb_loss_result_manifest_stage_status
@@ -67,7 +74,7 @@ CREATE TABLE stage.rwb_loss_result_manifest (
     updated_at                   DATETIME2        NOT NULL
         CONSTRAINT df_rwb_loss_result_manifest_updated_at DEFAULT SYSUTCDATETIME(),
     CONSTRAINT uq_rwb_loss_result_manifest_export_analysis
-        UNIQUE (export_id, irp_analysis_id)
+        UNIQUE (export_id, irp_analysis_id, treaty_number, treaty_name)
 );
 GO
 
