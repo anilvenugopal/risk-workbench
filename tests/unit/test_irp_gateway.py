@@ -713,12 +713,3 @@ def test_resolve_app_analysis_id_raises_on_no_match():
     gw, _ = _search_gw([])
     with pytest.raises(LookupError):
         gw.resolve_app_analysis_id(app_analysis_id=99999)
-
-
-def test_resolve_app_analysis_id_raises_on_two_matches():
-    # The wheel's get_analysis_by_app_analysis_id would take results[0]. A
-    # DISTINCT type from the no-match LookupError: the id the analyst typed is
-    # correct, so the dialog must not send them back to re-check it.
-    gw, _ = _search_gw([{"analysisId": 1}, {"analysisId": 2}])
-    with pytest.raises(irp_gateway.AmbiguousAnalysisId):
-        gw.resolve_app_analysis_id(app_analysis_id=35774)

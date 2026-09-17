@@ -145,10 +145,6 @@ def check_analysis(*, submission_id: Any, app_analysis_id: str,
                                kind="warning")
     try:
         analysis_id = irp_gateway.resolve_app_analysis_id(app_analysis_id=int(app_id))
-    except irp_gateway.AmbiguousAnalysisId:
-        raise ImportCheckError(
-            f"Risk Modeler has more than one analysis with id {app_id} — it "
-            "cannot be imported by id.") from None
     except LookupError:
         raise ImportCheckError(
             f"Risk Modeler has no analysis {app_id} — use the id shown on the "

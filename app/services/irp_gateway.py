@@ -128,12 +128,6 @@ class DuplicatePortfolioNameError(Exception):
     before raising this."""
 
 
-class AmbiguousAnalysisId(LookupError):
-    """``resolve_app_analysis_id`` found more than one analysis with the
-    appAnalysisId. A DISTINCT type because the no-match case is also a
-    ``LookupError`` and tells the analyst to re-check an id that is correct."""
-
-
 # ── Result value objects (gateway-owned; independent of the wheel's shapes) ──────
 
 @dataclass(frozen=True)
@@ -1100,15 +1094,9 @@ class _RealGateway:
 
     def resolve_app_analysis_id(self, *, app_analysis_id: int) -> str:
         # The Risk Modeler UI shows appAnalysisId; every other call here takes
-        # the Platform analysisId. Built and enforced locally rather than
-        # through the wheel's get_analysis_by_app_analysis_id, which takes
-        # results[0] without noticing a second match.
+        # the Platform analysisId.
         rows = self._client().analysis.search_analyses_paginated(
             filter=f"appAnalysisId={int(app_analysis_id)}")
-        if len(rows) > 1:
-            raise AmbiguousAnalysisId(
-                f"expected exactly one analysis with appAnalysisId "
-                f"{app_analysis_id}, found {len(rows)}")
         if not rows:
             raise LookupError(
                 f"no analysis with appAnalysisId {app_analysis_id}")

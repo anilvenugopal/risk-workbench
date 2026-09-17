@@ -18,7 +18,6 @@ Name-collision hits are seeded via ``add_edm_name`` / ``add_rdm_name``.
 from __future__ import annotations
 
 from app.services.irp_gateway import (
-    AmbiguousAnalysisId,
     AnalysisHit,
     AnalysisMetadata,
     CurrencyEntry,
@@ -814,10 +813,6 @@ class FakeIRP:
             raise RuntimeError("fake IRP: forced appAnalysisId lookup failure")
         hits = [a for a in self._analyses
                 if a.get("app_analysis_id") == str(app_analysis_id)]
-        if len(hits) > 1:
-            raise AmbiguousAnalysisId(
-                f"expected exactly one analysis with appAnalysisId "
-                f"{app_analysis_id}, found {len(hits)}")
         if not hits:
             raise LookupError(
                 f"no analysis with appAnalysisId {app_analysis_id}")

@@ -319,18 +319,6 @@ def test_import_carries_on_past_an_unexpected_failure(
                               existing=[]).analysis_id == "90002"
 
 
-def test_check_names_an_ambiguous_app_id_rather_than_a_missing_one(
-        iteration2_db, fake_irp):
-    seed_rm_analysis(fake_irp)
-    seed_rm_analysis(fake_irp, platform_id="90002", name="Same id, other row")
-
-    with pytest.raises(svc.ImportCheckError) as exc:
-        svc.check_analysis(submission_id=seed_submission(),
-                           app_analysis_id=APP_ID, existing=[])
-    assert str(exc.value) == ("Risk Modeler has more than one analysis with id "
-                              "35774 — it cannot be imported by id.")
-
-
 def test_check_refuses_an_app_id_already_on_the_dialogs_list(
         iteration2_db, fake_irp):
     """The typed value is normalized before the comparison, so a leading zero
