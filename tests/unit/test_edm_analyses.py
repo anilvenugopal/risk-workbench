@@ -199,9 +199,13 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
         edm_id=edm_id, name="CRE_HO_FL_v25 DLM HU", loss_results=_extract(),
         inserted_by=iteration2_db.user_a,
         settings={"analysisType": "Exceedance Probability",
-                  "analysisFramework": "ELT", "currencyCode": "USD",
-                  "eventRateSchemeNames": [
-                      {"id": 0, "code": "0", "name": _LONG_SCHEME}]},
+                  "analysisFramework": "ELT",
+                  "currency": {"currencyCode": "USD"},
+                  "resolved": {"partitions": [
+                      {"region_code": "NA", "peril_code": "WS",
+                       "framework": "ELT",
+                       "event_rate_scheme": {"id": 739, "name": _LONG_SCHEME},
+                       "simulation_set": None}]}},
         submitted={"currency": {"code": "USD", "scheme": "RMS",
                                "vintage": "RL25"},
                    "min_loss_threshold": 1.0, "franchise_deductible": False,
@@ -229,7 +233,8 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
     assert "Analyst A" in html
     # the fields the condensed grid or the template now says are gone (O-11)
     for label in ("<dt>Peril</dt>", "Analysis template", "<dt>Currency</dt>",
-                  "Min loss threshold", "Franchise deductible"):
+                  "Min loss threshold", "Franchise deductible",
+                  "Unrecognized construction / occupancy"):
         assert label not in html
     assert "USD · RMS · RL25" not in html
     # the perspective toggle defaults to Pre-Cat Net (FR-012, D9) and lists
@@ -240,7 +245,6 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
         assert label in html
     # a long value wraps in CSS; the cell carries the full text as its tooltip
     assert f'title="{_LONG_SCHEME}"' in html
-    assert "Treat as unknown" in html
 
 
 def test_expanded_row_shows_results_pending_while_retrieval_runs(client):
@@ -338,6 +342,17 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     # the copy sliver's hooks (FR-018): the button and the data-value attributes
     assert "data-copy-table" in html
     assert "data-analyses-section" in html
+
+
+def test_merged_section_delete_confirmation_names_risk_modeler(client):
+    """Every deletable row on the EDM grid was run from this EDM, so Delete
+    reaches Risk Modeler too — unlike the submission's Results grid (#101)."""
+    edm_id = _seed_edm()
+    _seed_executed(edm_id=edm_id, name="Ready one", loss_results=_extract())
+
+    html = client.get(f"/edms/{edm_id}/analyses").text
+
+    assert "They are also deleted in Risk Modeler." in html
 
 
 def test_merged_section_status_filter_rides_the_poll_url(client):

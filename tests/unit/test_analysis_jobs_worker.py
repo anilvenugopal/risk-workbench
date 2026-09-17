@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 
 from app.services import analysis_execution_service as svc
-from app.services import rwb_job_service
+from app.services import analysis_service, irp_gateway, rwb_job_service
 from app.workers import analysis_jobs
 from app.workers.analysis_jobs import (STORED_RETURN_PERIODS,
                                        build_loss_results_extract)
@@ -26,6 +27,8 @@ from tests.unit.analysis_rows import (
     seed_template,
 )
 from tests.unit.fakes.fake_irp import ep_elements, stats_rows
+from tests.unit.grouping_rows import seed_group, seed_submission
+from tests.unit.run_details_fixtures import captured_run, detail
 
 
 def _analyses_for(edm_id: str) -> list[dict]:
@@ -249,7 +252,8 @@ def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(iteration2_db, fa
     # exists yet (the worker died before step 4).
     claimed = analysis_jobs._claim_analysis(
         edm_id=edm_id, portfolio=plan["portfolios"][0], item=plan["items"][0],
-        execution_id=plan["execution_id"], actor_id=iteration2_db.user_a)
+        treaty_names=[], execution_id=plan["execution_id"],
+        actor_id=iteration2_db.user_a)
     job_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
@@ -723,24 +727,31 @@ def test_claim_snapshots_the_plan_item_and_a_resumed_claim_keeps_it(
 
     claimed = analysis_jobs._claim_analysis(
         edm_id=edm_id, portfolio={"id": portfolio_id, "name": "Portfolio A"},
-        item=item, execution_id=execution_id, actor_id=iteration2_db.user_a)
+        item=item, treaty_names=["PR1", "PR2"], execution_id=execution_id,
+        actor_id=iteration2_db.user_a)
 
     stored = execute_one(
         "SELECT submitted_settings FROM irp_analysis WHERE id = :id",
         {"id": claimed["id"]}, connection="WORKBENCH")["submitted_settings"]
-    assert json.loads(stored) == item
+    # the plan item plus the treaty names the batch plan selected (T-05)
+    assert json.loads(stored) == {**item, "treaty_names": ["PR1", "PR2"]}
+    row = analysis_service._submitted_view(stored)
+    assert row.construction_occupancy == "Treat as unknown"
+    assert row.currency == "USD"
 
     # a resumed claim (crash between claim and submit) reuses the row and never
     # rewrites the snapshot — approved plans are immutable (rule 8)
     edited = _plan_item(template_id=template_id, min_loss_threshold=99.0)
     again = analysis_jobs._claim_analysis(
         edm_id=edm_id, portfolio={"id": portfolio_id, "name": "Portfolio A"},
-        item=edited, execution_id=execution_id, actor_id=iteration2_db.user_a)
+        item=edited, treaty_names=["PR3"], execution_id=execution_id,
+        actor_id=iteration2_db.user_a)
     assert again["id"] == claimed["id"]
     kept = execute_one(
         "SELECT submitted_settings FROM irp_analysis WHERE id = :id",
         {"id": claimed["id"]}, connection="WORKBENCH")["submitted_settings"]
     assert json.loads(kept)["min_loss_threshold"] == 1.0
+    assert json.loads(kept)["treaty_names"] == ["PR1", "PR2"]
 
 
 # ── Retry a failed retrieval (spec 011 FR-007, T-11) ─────────────────────────────
@@ -795,3 +806,264 @@ def test_retry_revives_the_failed_row_and_the_worker_stores_the_hd_curve(
     assert gr["oep"]["1000"] == 1000.0
     assert len([v for v in gr["oep"].values() if v is not None]) == 10
     assert [j["id"] for j in _retrieval_jobs_for(analysis_id)] == [job_id]
+
+
+# ── finalize_analysis: the resolved run details (spec 015, T-07/FR-014) ─────────
+
+def _submitted_own_analysis(iteration2_db) -> tuple[str, dict]:
+    """One submitted own analysis, ready for ``finalize_analysis``."""
+    seed_currency()
+    edm_id = seed_edm("EDM One")
+    _run_execution(edm_id=edm_id, portfolio_id=seed_portfolio(edm_id),
+                   template_ids=[seed_template()], actor_id=iteration2_db.user_a)
+    analysis_jobs.run_pending(worker_id="w1")
+    return edm_id, _analyses_for(edm_id)[0]
+
+
+def _stored_settings(analysis_id: str) -> dict | None:
+    row = execute_one(
+        "SELECT settings_metadata FROM irp_analysis WHERE id = :id",
+        {"id": analysis_id}, connection="WORKBENCH")
+    return json.loads(row["settings_metadata"]) if row["settings_metadata"] else None
+
+
+def _finalize_capture(iteration2_db, fake_irp, name: str, *,
+                      fan_out: int = 1, treaties=None) -> dict | None:
+    """Finalize one own analysis seeded from capture ``name``; return the
+    ``settings_metadata`` the worker stored."""
+    edm_id, analysis = _submitted_own_analysis(iteration2_db)
+    described = captured_run(name, fan_out=fan_out)
+    if treaties is not None:
+        described = replace(described, treaties=tuple(treaties))
+    fake_irp.add_analysis(analysis_id="9001", source_rdm_name="-",
+                          exposure_name="EDM One", metadata=detail(name),
+                          run_details=described)
+    _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"}, edm_id)
+    return _stored_settings(analysis["id"])
+
+
+def test_finalize_writes_the_resolved_partition_and_treaties(
+        iteration2_db, fake_irp):
+    stored = _finalize_capture(iteration2_db, fake_irp, "own_dlm", fan_out=23)
+
+    assert stored["engineType"] == "DLM"          # RM's own keys untouched
+    resolved = stored["resolved"]
+    assert resolved["partitions"] == [{
+        "region_code": "NA", "peril_code": "WS", "framework": "ELT",
+        "event_rate_scheme": {"id": 739,
+                              "name": "RMS 2025 Stochastic Event Rates"},
+        "simulation_set": None}]
+    assert [t["number"] for t in resolved["treaties"]] == ["PR1", "PR2"]
+    assert resolved["treaties"][0] == {
+        "id": 33833, "number": "PR1", "name": "PR1", "currency": "USD",
+        "occurrence_limit": 1000000.0, "risk_limit": 250000.0,
+        "attachment_point": 250000.0, "retention_amount": 0.0}
+    assert resolved["captured_at"].endswith("Z")
+
+
+def test_finalize_run_details_failure_leaves_resolved_absent_and_ready(
+        iteration2_db, fake_irp):
+    edm_id, analysis = _submitted_own_analysis(iteration2_db)
+    fake_irp.add_analysis(analysis_id="9001", source_rdm_name="-",
+                          exposure_name="EDM One",
+                          metadata=detail("own_dlm"),
+                          run_details=captured_run("own_dlm"))
+    fake_irp.raise_on_describe_run = {"9001"}
+
+    _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"}, edm_id)
+
+    stored = _stored_settings(analysis["id"])
+    assert stored["engineType"] == "DLM"      # the metadata write stands
+    assert "resolved" not in stored
+    row = execute_one("SELECT status_code FROM irp_analysis WHERE id = :id",
+                      {"id": analysis["id"]}, connection="WORKBENCH")
+    assert row["status_code"] == "ready"
+    assert len(_retrieval_jobs_for(analysis["id"])) == 1
+
+
+def test_finalize_on_an_hd_analysis_writes_the_plt_partition(
+        iteration2_db, fake_irp):
+    stored = _finalize_capture(iteration2_db, fake_irp, "own_hd")
+
+    assert stored["resolved"]["partitions"] == [{
+        "region_code": "NZ", "peril_code": "EQ", "framework": "PLT",
+        "event_rate_scheme": None,
+        "simulation_set": {"id": 12, "name": "RMS 2020 Time-Dependent Rates",
+                           "periods": 1978459}}]
+
+
+# ── spec 015 story 3: a group's partitions come from its own detail (T-03) ─────
+
+def _partitions_of(name: str) -> list[dict] | None:
+    return irp_gateway.group_partitions(detail(name))
+
+
+def test_a_risk_modeler_made_mixed_group_lists_every_region_and_peril():
+    # 5684003: the simulationSets property, one value per region and peril,
+    # sorted by region code then peril code (P-06).
+    partitions = _partitions_of("group_mixed_rm_made")
+
+    assert [(p["region_code"], p["peril_code"], p["framework"])
+            for p in partitions] == [("JP", "WS", "PLT"), ("NA", "EQ", "ELT"),
+                                     ("NA", "WS", "ELT")]
+    typhoon, earthquake, hurricane = partitions
+    assert typhoon["event_rate_scheme"] is None
+    assert typhoon["simulation_set"] == {
+        "id": 15, "name": "RMS V2.0 Stochastic Event Rates - Typhoon Events Only",
+        "periods": 50000}
+    assert earthquake["event_rate_scheme"] == {
+        "id": 163, "name": "RMS 17.0 NA   Stochastic Event Rates"}
+    assert earthquake["simulation_set"]["id"] == 87
+    assert hurricane["event_rate_scheme"]["id"] == 738
+    assert hurricane["simulation_set"]["id"] == 146
+
+
+def test_an_elt_group_lists_schemes_with_no_simulation_set():
+    partitions = _partitions_of("group_elt_workbench_made")
+
+    assert [(p["peril_code"], p["event_rate_scheme"]["id"], p["simulation_set"])
+            for p in partitions] == [("EQ", 163, None), ("WS", 739, None)]
+
+
+def test_a_plt_group_lists_one_simulation_set():
+    [partition] = _partitions_of("group_plt_workbench_made")
+
+    assert partition["event_rate_scheme"] is None
+    assert partition["simulation_set"]["id"] == 14
+    assert partition["simulation_set"]["periods"] == 50000
+
+
+def test_a_broker_group_reads_as_a_group_whatever_is_group_says():
+    # 5723350 arrives with isGroup false and groupType INGP (research finding).
+    assert detail("broker_group_ingp")["isGroup"] is False
+    [partition] = _partitions_of("broker_group_ingp")
+
+    assert partition["event_rate_scheme"] == {
+        "id": 578, "name": "RMS 2023 Stochastic Event Rates"}
+
+
+def test_an_own_analysis_detail_carries_no_group_property():
+    assert _partitions_of("own_dlm") is None
+    assert _partitions_of("own_hd") is None
+
+
+def _finalize_group(iteration2_db, fake_irp, name: str, *,
+                    treaties=None, metadata=None) -> dict | None:
+    """Finalize one group seeded from capture ``name``; return its stored
+    ``settings_metadata``."""
+    submission = seed_submission("Sub One")
+    group_id = seed_group(submission, "CRE_Sub One_Group", status="pending",
+                          irp_id=None)
+    described = captured_run(name)
+    if treaties is not None:
+        described = replace(described, treaties=tuple(treaties))
+    fake_irp.add_analysis(analysis_id="9500", source_rdm_name="-",
+                          exposure_name="", is_group=True,
+                          metadata=metadata if metadata is not None else detail(name),
+                          run_details=described)
+    job_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
+        "status_code, input_data) VALUES (:id, 'irp_job', :rid, 'submission', "
+        ":sub, 'irp_analysis', :aid, 'finalize_analysis', 'pending', :input)",
+        {"id": job_id, "rid": str(uuid.uuid4()), "sub": submission,
+         "aid": group_id,
+         "input": json.dumps({"analysis_id": group_id,
+                              "rm_analysis_id": "9500"})},
+        connection="WORKBENCH")
+    analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="finalize_analysis",
+                          worker_id="w1")
+    return _stored_settings(group_id)
+
+
+def test_finalize_on_a_group_writes_the_detail_partitions_and_its_treaties(
+        iteration2_db, fake_irp):
+    # The group's treaty search returns its members' rows, so the same treaty
+    # id can come back once per member (P-07).
+    described = captured_run("group_mixed_rm_made")
+    stored = _finalize_group(iteration2_db, fake_irp, "group_mixed_rm_made",
+                             treaties=described.treaties + described.treaties)
+
+    resolved = stored["resolved"]
+    assert [(p["region_code"], p["peril_code"]) for p in resolved["partitions"]] == [
+        ("JP", "WS"), ("NA", "EQ"), ("NA", "WS")]
+    # the detail's schemes, not the region facts the describe call returned:
+    # its NA · WS row reports 739, the group grouped on 738
+    assert resolved["partitions"][2]["event_rate_scheme"]["id"] == 738
+    assert [t["number"] for t in resolved["treaties"]] == ["PR1", "PR2", "QS_JP"]
+
+
+def test_a_group_whose_treaty_read_failed_keeps_its_partitions(
+        iteration2_db, fake_irp):
+    fake_irp.raise_on_describe_run = {"9500"}
+    stored = _finalize_group(iteration2_db, fake_irp, "group_mixed_rm_made")
+
+    resolved = stored["resolved"]
+    assert len(resolved["partitions"]) == 3
+    assert "treaties" not in resolved
+    group = execute_one(
+        "SELECT status_code FROM irp_analysis WHERE is_group = 1",
+        {}, connection="WORKBENCH")
+    assert group["status_code"] == "ready"
+
+
+def test_a_group_detail_missing_a_region_code_still_reaches_ready(
+        iteration2_db, fake_irp):
+    # FR-014: a malformed detail blanks ``resolved`` on that analysis; it never
+    # fails the finished run. The partition sort is what raises on a None code.
+    malformed = detail("group_mixed_rm_made")
+    prop, = [p for p in malformed["additionalProperties"]
+             if p["key"] == "simulationSets"]
+    prop["properties"][0]["value"].pop("regionCode")
+    stored = _finalize_group(iteration2_db, fake_irp, "group_mixed_rm_made",
+                             metadata=malformed)
+
+    assert "resolved" not in stored
+    group = execute_one(
+        "SELECT status_code FROM irp_analysis WHERE is_group = 1",
+        {}, connection="WORKBENCH")
+    assert group["status_code"] == "ready"
+
+
+# ── spec 015 story 4: the row records the treaties (T-05/FR-010/FR-014) ────────
+
+def test_submit_records_the_selected_treaty_names_on_the_plan_item(
+        iteration2_db, fake_irp):
+    edm_id = seed_edm("EDM One")
+    portfolio = {"id": seed_portfolio(edm_id), "name": "Portfolio A"}
+    item = _plan_item(template_id=seed_template())
+
+    analysis_jobs._submit_one(
+        edm_id=edm_id, edm_name="EDM One", execution_id=str(uuid.uuid4()),
+        portfolio=portfolio, item=item, treaty_names=["PR1", "PR2"],
+        submission_id=None, actor_id=iteration2_db.user_a)
+
+    stored = execute_one(
+        "SELECT submitted_settings FROM irp_analysis WHERE edm_id = :e",
+        {"e": edm_id}, connection="WORKBENCH")["submitted_settings"]
+    assert json.loads(stored) == {**item, "treaty_names": ["PR1", "PR2"]}
+    view = analysis_service._submitted_view(stored)
+    assert view.construction_occupancy == "Treat as unknown"
+    assert view.currency == "USD"
+
+
+def test_finalize_writes_every_applied_treaty_with_its_terms(
+        iteration2_db, fake_irp):
+    stored = _finalize_capture(iteration2_db, fake_irp, "own_hd")
+
+    # sorted by treaty number, not by the order Risk Modeler returned (P-06)
+    assert [t["number"] for t in stored["resolved"]["treaties"]] == ["PR1", "PR2"]
+    assert stored["resolved"]["treaties"][1] == {
+        "id": 33808, "number": "PR2", "name": "PR2", "currency": "USD",
+        "occurrence_limit": 1000000.0, "risk_limit": 500000.0,
+        "attachment_point": 500000.0, "retention_amount": 0.0}
+
+
+def test_finalize_on_a_run_with_no_treaties_writes_an_empty_list(
+        iteration2_db, fake_irp):
+    stored = _finalize_capture(iteration2_db, fake_irp, "own_dlm",
+                               fan_out=23, treaties=[])
+
+    # the read succeeded and the analysis applied none (FR-012)
+    assert stored["resolved"]["treaties"] == []

@@ -571,7 +571,7 @@ Reviewing, comparing, and delivering finalized results. Volume is highly variabl
 
 Analysis metadata list (design note 05 §2): engine / model version · engine type (DLM vs HD) and version · analysis type / mode · peril (primary and secondary) · region · currency · construction · line of business · group type · long-term vs near-term · event-rate scheme / rate vintage · loss amplification (PLA). *Rate/event-rate detail lives one drill-down deeper than the rest (RiskLink "analysis summary" vs the main grid).*
 
-**Narrowed 8/26 (D4/D10, spec 011 O-11).** The expanded analysis row shows engine version, analysis type, subperil, framework, event-rate scheme, unrecognized construction and occupancy, and who ran it. Engine type, region, peril, portfolio and template are columns on the merged table instead; currency, construction, line of business, term and loss amplification are shown nowhere today and return when the team asks for them.
+**Narrowed 8/26 (D4/D10, spec 011 O-11).** The expanded analysis row shows engine version, analysis type, subperil, framework, event-rate scheme, and who ran it. Engine type, region, peril, portfolio and template are columns on the merged table instead; unrecognized construction and occupancy, currency, construction, line of business, term and loss amplification are shown nowhere today and return when the team asks for them.
 
 **Confirmed as built 8/28 (D19/D20).** Portfolio and Template as separate columns ("Oh yeah. I like that"), the full analysis name in the expanded view, and analysis type relocated to the expanded row **instead of** an abbreviation column — Ben declined the code map ("that's a map I'd have to manually maintain"), which closes 20 O20-3 by removal; record it so the map is not proposed again.
 

@@ -1,0 +1,154 @@
+{
+ "_captured": "2026-09-11 via irp-integration 0.8.0 against the sandbox tenant",
+ "_analysis_id": 5733165,
+ "get_analysis_by_id": {
+  "analysisId": 5733165,
+  "appAnalysisId": 42300,
+  "analysisName": "CRE_Standard Test Submission_Group",
+  "createDate": "2026-09-09T15:22:12",
+  "sourceRdmName": "",
+  "exposureName": "",
+  "exposureResourceId": 2,
+  "exposureResourceType": "PORTFOLIO",
+  "engineType": "Group",
+  "engineVersion": "PLTGroup1.0",
+  "analysisFramework": "PLT",
+  "analysisType": "Exceedance Probability",
+  "analysisMode": "Distributed",
+  "isGroup": true,
+  "peril": "Windstorm",
+  "perilCode": "WS",
+  "subPeril": "Multi-SubPeril",
+  "region": "Japan",
+  "regionCode": "JP",
+  "currency": {
+   "currencyName": "US Dollar",
+   "currencyCode": "USD",
+   "currencyScheme": "RMS",
+   "currencyAsOfDate": "2025-05-28T00:00:00Z",
+   "currencyVintage": "RL25"
+  },
+  "lossAmplification": "None",
+  "eventRateSchemeNames": [],
+  "simulationSetId": 0,
+  "simulationPeriods": 0,
+  "modelProfile": {
+   "id": 0,
+   "code": "",
+   "name": ""
+  },
+  "additionalProperties": [
+   {
+    "key": "groupedAnalysisIds",
+    "properties": [
+     {
+      "id": 42178,
+      "name": "CRE_WS_JP_COM_JP WS HD",
+      "value": ""
+     },
+     {
+      "id": 42249,
+      "name": "CRE_WS_JP_COM_HD_JPWS_Stochastic_Typhoon-And-Non-Typhoon",
+      "value": ""
+     }
+    ]
+   },
+   {
+    "key": "propagateDetailedOutput",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": "Yes"
+     }
+    ]
+   },
+   {
+    "key": "simulationSets",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": {
+       "regionCode": "JP",
+       "perilCode": "WS",
+       "framework": "PLT",
+       "eventRateSchemeId": 0,
+       "simulationSetId": 14,
+       "simulationSetName": "RMS V2.0 Stochastic Event Rates - Typhoon and Non-Typhoon Flood Events",
+       "simulationPeriods": 50000
+      }
+     }
+    ]
+   },
+   {
+    "key": "groupSimulationPeriod",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": 50000
+     }
+    ]
+   }
+  ]
+ },
+ "get_regions": [
+  {
+   "_note": "1 rows in the live response, one per subRegion ['JP']; identical otherwise",
+   "region": "JP",
+   "subRegion": "JP",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 0,
+   "framework": "PLT",
+   "analysisId": 5733165,
+   "modelProfileId": 5309,
+   "petId": 14,
+   "numSamples": 1,
+   "periods": 50000,
+   "applyContractFlag": false,
+   "engineVersion": "HDv2.1"
+  },
+  {
+   "_note": "1 rows in the live response, one per subRegion ['JP']; identical otherwise",
+   "region": "JP",
+   "subRegion": "JP",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 0,
+   "framework": "PLT",
+   "analysisId": 5733165,
+   "modelProfileId": 5295,
+   "petId": 15,
+   "numSamples": 1,
+   "periods": 50000,
+   "applyContractFlag": false,
+   "engineVersion": "HDv2.1"
+  }
+ ],
+ "search_analysis_treaties_paginated": [
+  {
+   "treatyId": 33805,
+   "treatyNumber": "QS_JP",
+   "treatyName": "QS_JP",
+   "treatyType": "QUOT",
+   "currency": {
+    "id": 0,
+    "code": "JPY",
+    "name": "Japanese Yen"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 20000000.0,
+   "attachmentPoint": 0.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 1000000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2026-01-01T00:00:00.000Z",
+   "expirationDate": "2026-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 0,
+   "uri": "/platform/riskdata/v1/analyses/5733165/treaties"
+  }
+ ]
+}

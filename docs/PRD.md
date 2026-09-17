@@ -2,7 +2,7 @@
 
 **Status:** Draft for build · **Format:** Living document, kept in the repo  
 **Intended builder:** Claude Code (agent-built, iteration-sequenced)  
-**Source of domain truth:** `irp-workbench/` (IRP integration ground truth) + `irp-integration` 0.4.0 from TestPyPI
+**Source of domain truth:** `irp-workbench/` (IRP integration ground truth) + the active `irp-integration` wheel selected by the uv dependency groups
 
 ---
 
@@ -933,6 +933,8 @@ There is no per-task `blocked→ready` machine. An op is offered to the analyst 
 ### 14.3 IRP job submission
 
 **Submission is synchronous on the request path** (Article 11): the service calls the IRP API directly, records the returned job id, and responds immediately — IRP submit calls return quickly (they enqueue work server-side and hand back a job id), the analyst gets immediate confirmation or an error in the same HTTP response, and there is no benefit to deferring a sub-second call through a queue.
+
+Article 11 v4.1.0 also permits one bounded single-analysis `get_analysis_metadata` read on the request path, for a point-of-action validation the analyst is waiting on — the Import dialog's per-id check (#101) is the caller. The constitution states the rule; polling, enumerations, and result retrieval stay worker-side.
 
 **On submission failure** the `irp_job` row is written with `status = 'SUBMISSION FAILED'` (submission-side — it never reached RM, so there is no `irp_id`) and `submission_attempt_count` incremented. A **single-threaded `submission_retry` batch job** re-attempts eligible rows up to `IRP_SUBMISSION_MAX_RETRIES` (default 3) with backoff; after max retries the job stays `SUBMISSION FAILED` (now terminal). `SUBMISSION FAILED` (no `irp_id`) is distinct from `FAILED` (RM ran it and it failed) — different cause, different retry. There is no bare `ERROR` status.
 

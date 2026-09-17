@@ -2,8 +2,8 @@
   Sync Impact Report
   ==================
 
-  --- 2026-09-10 (spec 014 /speckit-analyze finding C1) ---
-  Version change: 4.0.0 → 4.1.0  (MINOR — Article 3 gains a second carve-out;
+  --- 2026-09-17 (spec 014 /speckit-analyze finding C1) ---
+  Version change: 4.1.0 → 4.2.0  (MINOR — Article 3 gains a second carve-out;
   no article redefined or removed; 13-article numbering stable)
 
   Added: Article 3 "Carve-out — client-owned databases". Categorical columns
@@ -19,6 +19,23 @@
 
   Templates: no plan-template Constitution Check wording changes (the template
   names no articles).
+
+  --- 2026-09-16 (issue #101 import analyses by id) ---
+  Version change: 4.0.0 → 4.1.0  (MINOR — the Article 11 interface contract
+  gains a request-path carve-out for a single-analysis Platform metadata read;
+  no article redefined or removed; 13-article numbering stable)
+
+  Added: Article 11 "Platform analysis read on the request path" clause — a
+  bounded, single-analysis `get_analysis_metadata` call is permitted on the
+  request path when it answers a point-of-action validation. Motivated by issue
+  #101: the Import dialog validates each `appAnalysisId` against Risk Modeler as
+  the analyst enters it, and the 4.0.0 interface contract pinned every `get_*`
+  worker-side, which would force a job-and-poll round trip to answer one id the
+  analyst is waiting on. Enumerations and result retrieval (`get_elt`, `get_ep`)
+  stay worker-side; `poll_*_to_completion` stays forbidden everywhere.
+
+  Templates: no plan-template Constitution Check title changes (Article 11
+  title unchanged).
 
   --- CR-004 (2026-08-25) ---
   Version change: 3.2.0 → 4.0.0  (MAJOR — CR-004: Article 10 redefined in
@@ -225,7 +242,7 @@ of operation/worker types the app dispatches on is closed and app-defined
 (it changes only when the app itself adds support for a new op), so the "always
 kind table" default applies.
 
-**Carve-out — client-owned databases (added v4.1.0, 2026-09-10):** categorical
+**Carve-out — client-owned databases (added v4.2.0, 2026-09-17):** categorical
 columns on tables the Workbench installs in a database it does not migrate
 (today the `stage` schema in CIC's `CRE_Trial_ELT_Repository`, spec 014 T-19)
 MAY be constrained with `CHECK` constraints instead of kind tables. A kind
@@ -386,6 +403,14 @@ through `irp_gateway`, still a repo-owned SQL file, and it MUST fail open (an
 unreachable DataBridge never blocks the action). Enumerations, per-EDM
 aggregates, and any read whose result size grows with the book stay worker-side.
 
+**Platform analysis read on the request path (added v4.1.0, 2026-09-16):** a
+**bounded, single-analysis** Platform metadata read (`get_analysis_metadata`) is
+permitted on the request path when it answers a point-of-action validation the
+analyst is waiting on — still through `irp_gateway`, one analysis per call,
+bounded by the ids the analyst typed rather than by the size of the book.
+Enumerations and result-retrieval methods (`get_elt`, `get_ep`) stay worker-side,
+and `poll_*_to_completion` stays forbidden everywhere.
+
 ### Article 12 — Test-First, with Three Connected Strategies
 
 Behavior MUST be covered by tests across three tiers:
@@ -451,4 +476,4 @@ research begins.
 
 ---
 
-**Version**: 4.1.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-10
+**Version**: 4.2.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-17
