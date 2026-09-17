@@ -78,17 +78,17 @@
     {% if analyses or groups %}
     <span class="badge badge--neutral">{{ analyses|length }} own &middot; {{ broker_total }} broker</span>
     {% endif %}
-    <span class="sec__spacer"></span>
-    <span class="sec__picked" x-show="count" x-cloak><strong x-text="count"></strong> selected</span>
     {# Import sits outside the analyses-or-groups block: an empty deal is the
-       first place a Risk Modeler group needs pulling in (#101). Submission
-       grid only, like Group — the row lands on the submission leg. #}
-    {% if import_url and source_submission is defined and source_submission
-          and not (edm is defined and edm) %}
+       first place a Risk Modeler group needs pulling in (#101). Only the
+       submission's Results grid passes ``import_url`` — the row lands on the
+       submission leg. #}
+    {% if import_url %}
     <button class="btn-sm" type="button" onclick="event.stopPropagation()"
             hx-get="{{ import_url }}" hx-target="#import-modal" hx-swap="innerHTML"
             title="Import analyses or groups by their Risk Modeler id">Import</button>
     {% endif %}
+    <span class="sec__spacer"></span>
+    <span class="sec__picked" x-show="count" x-cloak><strong x-text="count"></strong> selected</span>
     {% if analyses or groups %}
     <select name="status" class="wf-field__input" style="width:auto"
             onclick="event.stopPropagation()"
