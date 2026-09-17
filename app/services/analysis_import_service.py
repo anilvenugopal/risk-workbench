@@ -238,6 +238,10 @@ def import_analyses(*, submission_id: Any, entries: list[ImportCandidate],
     imported = 0
     failed: list[str] = []
     for entry in entries:
+        # The hidden ``entries`` inputs are client-editable, so name, is_group,
+        # engine and currency are re-read from Risk Modeler here rather than
+        # trusted; an edited id pair imports nothing the analyst could not have
+        # typed into the dialog.
         try:
             _import_one(sid, entry.app_analysis_id, entry.analysis_id, actor_id)
         except ImportCheckError as exc:

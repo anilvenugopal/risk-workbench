@@ -88,5 +88,5 @@ contract stays with review, as it already is for `edm_service.list_edms` and
 | Tier | What it covers |
 |---|---|
 | Unit (`tests/unit/test_analysis_import_service.py`, `test_submission_routes.py`) | The per-id check, the duplicate refusals across every origin, the insert, the name suffix, the enqueue and its compensating soft-delete, and the modal routes — against the SQLite WORKBENCH mirror and the fake gateway. |
-| SQL Server (`tests/sqlserver`) | The `imported_at` column and `ix_irp_analysis_irp_id` in the real migration. |
+| SQL Server (`tests/sqlserver/test_schema_drift.py`) | The `imported_at` column against the real migration — `irp_analysis` is an `EXACT_MATCH_TABLES` entry, so the mirror added in `tests/iteration1_mirror.py` must match it. No test asserts `ix_irp_analysis_irp_id`. |
 | IRP sandbox (`tests/irp/test_import_by_app_analysis_id.py`) | `resolve_app_analysis_id` against a real `appAnalysisId` (`IRP_TEST_APP_ANALYSIS_ID`), and the `LookupError` an unknown id raises. |
