@@ -1121,10 +1121,15 @@ class _RealGateway:
     def list_analysis_treaties(self, *, analysis_id: int) -> list[dict]:
         # GET /platform/riskdata/v1/analyses/{analysisId}/treaties — the
         # treaties Risk Modeler applied when the analysis ran (spec 016 T-04).
-        # Identity only; cedant, producer, and treatyType are dropped.
+        # Identity plus the four terms the export form shows per treaty
+        # (spec 016 P-12); cedant and producer are dropped.
         return [{"treaty_id": str(t.get("treatyId")),
                  "treaty_number": t.get("treatyNumber"),
-                 "treaty_name": t.get("treatyName")}
+                 "treaty_name": t.get("treatyName"),
+                 "treaty_type": t.get("treatyType"),
+                 "attachment_point": t.get("attachmentPoint"),
+                 "occurrence_limit": t.get("occurrenceLimit"),
+                 "risk_limit": t.get("riskLimit")}
                 for t in self._client().analysis.search_analysis_treaties_paginated(
                     analysis_id)]
 

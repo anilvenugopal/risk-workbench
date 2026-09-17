@@ -19,6 +19,7 @@ is wrong.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from datetime import date
 from functools import partial
@@ -1519,8 +1520,28 @@ def _data_names(items) -> dict:
             if key.startswith("data_name[") and key.endswith("]")}
 
 
+_TREATY_DATA_NAME_KEY = re.compile(r"^treaty_data_name\[(.+?)\]\[(.+)\]$")
+
+
+def _treaty_picks(items) -> dict:
+    """The treaties ticked per analysis and the data name typed for each, out of
+    `treaty[<analysis_id>]` and `treaty_data_name[<analysis_id>][<treaty_number>]`
+    keys (spec 016 D23, D24). A name whose treaty is not ticked is dropped."""
+    items = list(items)
+    picks: dict[str, dict[str, str]] = {}
+    for key, value in items:
+        if key.startswith("treaty[") and key.endswith("]"):
+            picks.setdefault(key[len("treaty["):-1], {})[value] = ""
+    for key, value in items:
+        match = _TREATY_DATA_NAME_KEY.match(key)
+        if match and match.group(2) in picks.get(match.group(1), {}):
+            picks[match.group(1)][match.group(2)] = value
+    return picks
+
+
 def _export_fields_context(analyses: list, selected_ids, perspective: str,
-                           data_names: dict | None = None) -> dict:
+                           data_names: dict | None = None,
+                           treaty_picks: dict | None = None) -> dict:
     wanted = {_uid(v) for v in selected_ids}
     selected = [a for a in analyses if a.id in wanted and a.disabled_reason is None]
     choices = export_service.perspective_choices(selected)
@@ -1529,13 +1550,14 @@ def _export_fields_context(analyses: list, selected_ids, perspective: str,
         export_service.mark_exported(selected, perspective)
     return {"selected": selected, "choices": choices, "perspective": perspective,
             "data_name_max": export_service.DATA_NAME_MAX_LEN,
-            "data_names": {_uid(k): v for k, v in (data_names or {}).items()}}
+            "data_names": {_uid(k): v for k, v in (data_names or {}).items()},
+            "treaty_picks": {_uid(k): v for k, v in (treaty_picks or {}).items()}}
 
 
 def _export_form_response(request: Request, submission_id: str, *, selected_ids=(),
                           perspective: str = "", values: dict | None = None,
-                          data_names: dict | None = None, error: str | None = None,
-                          status_code: int = 200):
+                          data_names: dict | None = None, treaty_picks: dict | None = None,
+                          error: str | None = None, status_code: int = 200):
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _templates(request).TemplateResponse(
@@ -1559,7 +1581,8 @@ def _export_form_response(request: Request, submission_id: str, *, selected_ids=
             "model_versions": model_versions,
             "values": form_values, "selected_ids": {_uid(v) for v in selected_ids},
             "error": error,
-            **_export_fields_context(analyses, selected_ids, perspective, data_names),
+            **_export_fields_context(analyses, selected_ids, perspective, data_names,
+                                     treaty_picks),
         }, status_code=status_code)
 
 
@@ -1579,7 +1602,8 @@ def export_new_fields(request: Request, submission_id: str):
         "submission_id": submission_id,
         **_export_fields_context(analyses, request.query_params.getlist("analysis_ids"),
                                  request.query_params.get("perspective", ""),
-                                 _data_names(request.query_params.multi_items())),
+                                 _data_names(request.query_params.multi_items()),
+                                 _treaty_picks(request.query_params.multi_items())),
     })
 
 
@@ -1595,9 +1619,11 @@ async def create_export(request: Request, submission_id: str):
     crm_id = form.get("crm_id") or ""
     model_version = (form.get("model_version") or "").strip()
     data_names = _data_names(form.multi_items())
+    treaty_picks = _treaty_picks(form.multi_items())
     reshow = partial(
         _export_form_response, request, submission_id, selected_ids=analysis_ids,
-        perspective=perspective, data_names=data_names, status_code=422,
+        perspective=perspective, data_names=data_names, treaty_picks=treaty_picks,
+        status_code=422,
         values={"client_id": form.get("client_id") or "", "treaty_incept": treaty_incept_raw,
                 "crm_id": crm_id, "data_vintage": data_vintage_raw,
                 "model_version": model_version})
@@ -1613,7 +1639,7 @@ async def create_export(request: Request, submission_id: str):
             analysis_ids=analysis_ids, perspective_code=perspective,
             client_id=_parse_int(form.get("client_id")), treaty_incept=treaty_incept,
             crm_id=crm_id, data_vintage=data_vintage, model_version=model_version,
-            data_names=data_names)
+            data_names=data_names, treaty_picks=treaty_picks)
     except export_service.ExportValidationError as exc:
         return reshow(error=str(exc))
     return RedirectResponse(f"/submissions/{submission_id}#submission-exports", status_code=303)

@@ -28,5 +28,6 @@ def test_list_analysis_treaties_names_each_applied_treaty():
 
     assert rows, "the analysis reports no treaties; pick one run with treaties that take loss"
     for row in rows:
-        assert set(row) == {"treaty_id", "treaty_number", "treaty_name"}
+        assert set(row) >= {"treaty_id", "treaty_number", "treaty_name", "treaty_type",
+                            "attachment_point", "occurrence_limit", "risk_limit"}
         assert row["treaty_id"] and row["treaty_number"]

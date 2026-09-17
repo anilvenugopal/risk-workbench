@@ -57,13 +57,15 @@ def seed_rdm_for(submission_id: str, name: str = "Broker RDM") -> str:
     return rdm_id
 
 
-def loss_results(*codes: str, treaties: tuple[tuple[str, str, str], ...] = ()) -> dict:
-    """``treaties`` are (treaty_id, treaty_number, treaty_name) as the results
-    retrieval records them (spec 016); non-empty offers TY."""
+def loss_results(*codes: str, treaties: tuple = ()) -> dict:
+    """``treaties`` are (treaty_id, treaty_number, treaty_name) triples, or the
+    whole dict the results retrieval records when a test needs the term values
+    too (spec 016); non-empty offers TY."""
     return {"perspectives": {code: {"aal": 100.0, "std_dev": 10.0, "oep": {}, "aep": {}}
                              for code in codes},
-            "treaties": [{"treaty_id": i, "treaty_number": n, "treaty_name": t}
-                         for i, n, t in treaties]}
+            "treaties": [t if isinstance(t, dict) else
+                         {"treaty_id": t[0], "treaty_number": t[1], "treaty_name": t[2]}
+                         for t in treaties]}
 
 
 def seed_analysis(*, edm_id: str | None = None, rdm_id: str | None = None,
@@ -73,7 +75,7 @@ def seed_analysis(*, edm_id: str | None = None, rdm_id: str | None = None,
                   currency: str | None = "USD", peril: str = "EQ", region: str = "NAEQ",
                   is_group: int = 0, inserted_at: str = NOW,
                   write_app_column: bool = True,
-                  treaties: tuple[tuple[str, str, str], ...] = ()) -> str:
+                  treaties: tuple = ()) -> str:
     """``write_app_column=False`` is the RDM-backfilled broker row: only the
     own-executed finalize path writes ``irp_app_analysis_id``, so a broker row
     carries the id in its metadata snapshot alone (spec 012 FR-023)."""

@@ -332,8 +332,9 @@ def build_loss_results_extract(*, perspective_codes: list[str],
     ``epType`` is ``OEP`` (none → both ``null``); TCE-OEP/TCE-AEP elements are
     discarded. ``settings`` is the analysis metadata payload — engine fields
     absent there are stored as ``null``, never omitted. ``treaties`` is what
-    Risk Modeler reports applied to the run (spec 016 T-04); the export form
-    offers TY only when the list is non-empty."""
+    Risk Modeler reports applied to the run (spec 016 T-04), stored verbatim
+    with the four term values the export form shows per treaty; the form offers
+    TY only when the list is non-empty."""
     payload = settings or {}
     perspectives: dict[str, dict | None] = {}
     for code in perspective_codes:

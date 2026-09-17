@@ -398,7 +398,9 @@ class FakeIRP:
 
     def set_analysis_treaties(self, analysis_id: str | int, treaties: list[dict]) -> None:
         """Seed what ``list_analysis_treaties`` answers for one analysis, in the
-        wheel's shape (``treatyId``, ``treatyNumber``, ``treatyName``)."""
+        wheel's shape (``treatyId``, ``treatyNumber``, ``treatyName``, and the
+        term keys ``treatyType``, ``attachmentPoint``, ``occurrenceLimit``,
+        ``riskLimit``)."""
         self._analysis_treaties[str(analysis_id)] = list(treaties)
 
     def run(self, irp_id: str) -> None:
@@ -861,7 +863,11 @@ class FakeIRP:
             raise RuntimeError("fake IRP: forced treaties failure")
         return [{"treaty_id": str(t.get("treatyId")),
                  "treaty_number": t.get("treatyNumber"),
-                 "treaty_name": t.get("treatyName")}
+                 "treaty_name": t.get("treatyName"),
+                 "treaty_type": t.get("treatyType"),
+                 "attachment_point": t.get("attachmentPoint"),
+                 "occurrence_limit": t.get("occurrenceLimit"),
+                 "risk_limit": t.get("riskLimit")}
                 for t in self._analysis_treaties.get(str(analysis_id), [])]
 
     def _results(self, call: str, analysis_id, perspective_code,

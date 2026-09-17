@@ -309,7 +309,7 @@ def test_a_failure_before_the_stage_steps_still_stamps_the_row(staging, monkeypa
 def test_the_worker_time_limit_stamps_the_row_and_re_raises(staging, monkeypatch):
     from dramatiq.middleware import TimeLimitExceeded
 
-    def slow(targets, rows, irp_job_id, work_dir):
+    def slow(targets, irp_job_id, work_dir):
         raise TimeLimitExceeded()
     monkeypatch.setattr(export_jobs, "_stage", slow)
 

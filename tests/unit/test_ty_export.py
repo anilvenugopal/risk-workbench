@@ -1,7 +1,8 @@
 """Unit tests for the treaty-level (TY) export (spec 016): the treaties the
 results retrieval records, TY in the perspective intersection, the treaty
-request, the split of a TY archive into one manifest row per treaty with the
-P-11 combination, the per-row load, Retry by manifest row, and both screens.
+selection the form writes as one manifest row per ticked treaty, the treaty
+request, the staging of each ticked treaty with the P-11 combination, the
+per-row load, Retry by manifest row, and both screens.
 
 Harness: the SQLite WORKBENCH and LOSS mirrors, ``fake_irp``, the fixture
 archive of tests/unit/export_archive.py, and the TestClient of
@@ -39,7 +40,18 @@ from tests.unit.test_analysis_jobs_worker import (
     _stored_extract,
 )
 
-TREATIES = (("33833", "PR1", "PR1"), ("33832", "PR2", "Layer two"))
+# The treaties an analysis was run with, as the results retrieval records them:
+# identity plus the four terms the cart shows (P-12). They match the two
+# treaties of the fixture archive in tests/unit/export_archive.py.
+TREATIES = (
+    {"treaty_id": "33833", "treaty_number": "PR1", "treaty_name": "PR1",
+     "treaty_type": "WORK", "risk_limit": 3_000_000.0, "attachment_point": 2_000_000.0,
+     "occurrence_limit": 9_000_000.0},
+    {"treaty_id": "33832", "treaty_number": "PR2", "treaty_name": "Layer two",
+     "treaty_type": "CATA", "risk_limit": 5_000_000.0, "attachment_point": 250_000.0,
+     "occurrence_limit": None},
+)
+BOTH_TREATIES = {"PR1": "", "PR2": ""}
 
 
 # ── results retrieval records the applied treaties (T-04) ────────────────────
@@ -48,15 +60,21 @@ TREATIES = (("33833", "PR1", "PR1"), ("33832", "PR2", "Layer two"))
 def test_retrieval_stores_the_applied_treaties(iteration2_db, fake_irp):
     analysis_id = _seed_finished_analysis()
     fake_irp.set_analysis_treaties("9001", [
-        {"treatyId": 33833, "treatyNumber": "PR1", "treatyName": "PR1", "cedant": "x"},
+        {"treatyId": 33833, "treatyNumber": "PR1", "treatyName": "PR1", "cedant": "x",
+         "treatyType": "WORK", "attachmentPoint": 2_000_000.0,
+         "occurrenceLimit": 9_000_000.0, "riskLimit": 3_000_000.0},
         {"treatyId": 33832, "treatyNumber": "PR2", "treatyName": "Layer two"}])
 
     job = _run_retrieval(analysis_id)
 
     assert job["status_code"] == "succeeded"
     assert _stored_extract(analysis_id)["treaties"] == [
-        {"treaty_id": "33833", "treaty_number": "PR1", "treaty_name": "PR1"},
-        {"treaty_id": "33832", "treaty_number": "PR2", "treaty_name": "Layer two"}]
+        {"treaty_id": "33833", "treaty_number": "PR1", "treaty_name": "PR1",
+         "treaty_type": "WORK", "attachment_point": 2_000_000.0,
+         "occurrence_limit": 9_000_000.0, "risk_limit": 3_000_000.0},
+        {"treaty_id": "33832", "treaty_number": "PR2", "treaty_name": "Layer two",
+         "treaty_type": None, "attachment_point": None, "occurrence_limit": None,
+         "risk_limit": None}]
     assert fake_irp.treaty_calls == ["9001"]
 
 
@@ -94,13 +112,20 @@ def deal(iteration2_db, loss_db):
     return {"submission_id": submission_id, "edm_id": edm_id, "a": a, "c": c}
 
 
-def _create(deal, analysis_ids, perspective="TY", **overrides):
+def _create(deal, analysis_ids, perspective="TY", treaty_picks=None, **overrides):
     kwargs = dict(submission_id=deal["submission_id"], user_email="analyst.a@example.com",
                   analysis_ids=analysis_ids, perspective_code=perspective, client_id=1,
                   treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
-                  data_vintage=date(2025, 12, 31), model_version="25.0", data_names=None)
+                  data_vintage=date(2025, 12, 31), model_version="25.0", data_names=None,
+                  treaty_picks=treaty_picks)
     kwargs.update(overrides)
     return svc.create_export(**kwargs)
+
+
+def _manifest_rows(export_id):
+    return execute(
+        "SELECT * FROM stage.rwb_loss_result_manifest WHERE export_id = :e "
+        "ORDER BY manifest_id", {"e": export_id}, connection="LOSS")
 
 
 def test_ty_is_offered_only_when_every_selected_analysis_ran_with_treaties(deal):
@@ -112,15 +137,71 @@ def test_ty_is_offered_only_when_every_selected_analysis_ran_with_treaties(deal)
     assert svc.perspective_choices([rows[deal["c"]], rows[deal["a"]]]) == ["GU", "GR"]
 
 
+def test_the_cart_lists_each_treaty_once_with_its_terms(deal):
+    """A group repeats a treaty once per member; the cart offers it once, with
+    the type spelled out and the amounts in the display format (P-12, D26)."""
+    repeated = seed_analysis(
+        edm_id=deal["edm_id"], name="G", irp_id="41961", irp_app_analysis_id="41961",
+        perspectives=("GR",), is_group=1,
+        treaties=(*TREATIES, {**TREATIES[0], "treaty_id": "44833"}))
+    rows = {r.id: r for r in svc.list_exportable_analyses(deal["submission_id"])}
+
+    assert [(t.number, t.name) for t in rows[repeated].treaty_choices] == [
+        ("PR1", "PR1"), ("PR2", "Layer two")]
+    first, second = rows[deal["c"]].treaty_choices
+    assert (first.number, first.name, first.type_label) == ("PR1", "PR1", "Working Excess")
+    assert (first.risk_limit, first.attachment_point, first.occurrence_limit) == (
+        "3.0M", "2.0M", "9.0M")
+    assert (second.type_label, second.attachment_point, second.occurrence_limit) == (
+        "Catastrophe", "250,000", "—")
+
+
 def test_create_export_refuses_ty_for_an_analysis_without_treaties(deal):
     with pytest.raises(svc.ExportValidationError) as exc:
-        _create(deal, [deal["a"], deal["c"]])
+        _create(deal, [deal["a"], deal["c"]], treaty_picks={deal["c"]: BOTH_TREATIES})
     assert str(exc.value) == "A long was not run with treaties."
 
-    export_id = _create(deal, [deal["c"]])
-    rows = execute("SELECT perspective_code, treaty_number FROM stage.rwb_loss_result_manifest "
-                   "WHERE export_id = :e", {"e": export_id}, connection="LOSS")
-    assert [(r["perspective_code"], r["treaty_number"]) for r in rows] == [("TY", None)]
+
+def test_create_export_refuses_an_analysis_with_no_treaty_ticked(deal):
+    with pytest.raises(svc.ExportValidationError) as exc:
+        _create(deal, [deal["c"]], treaty_picks={})
+    assert str(exc.value) == "Tick at least one treaty for C long."
+    assert execute("SELECT 1 FROM stage.rwb_loss_result_manifest", {},
+                   connection="LOSS") == []
+
+
+def test_create_export_refuses_a_treaty_the_analysis_did_not_run_with(deal):
+    with pytest.raises(svc.ExportValidationError) as exc:
+        _create(deal, [deal["c"]], treaty_picks={deal["c"]: {"PR1": "", "FAC-9": ""}})
+    assert str(exc.value) == "Treaty FAC-9 is not one of C long's treaties."
+
+
+def test_one_manifest_row_per_ticked_treaty_with_the_typed_or_default_name(deal):
+    export_id = _create(deal, [deal["c"]],
+                        treaty_picks={deal["c"]: {"PR2": "AmFam HU 5x5 2026", "PR1": "  "}})
+
+    rows = _manifest_rows(export_id)
+    assert [(r["perspective_code"], r["treaty_number"], r["treaty_name"], r["data_name"])
+            for r in rows] == [
+        ("TY", "PR1", "PR1", "C PR1"),
+        ("TY", "PR2", "Layer two", "AmFam HU 5x5 2026")]
+    # Nothing the stage worker writes is known yet.
+    assert all(r["treaty_ids"] is None and r["aal"] is None and r["stage_status"] == "pending"
+               for r in rows)
+
+
+def test_an_untouched_treaty_is_not_exported(deal):
+    export_id = _create(deal, [deal["c"]], treaty_picks={deal["c"]: {"PR2": ""}})
+
+    assert [r["treaty_number"] for r in _manifest_rows(export_id)] == ["PR2"]
+
+
+def test_a_typed_treaty_data_name_over_the_limit_is_refused(deal):
+    with pytest.raises(svc.ExportValidationError) as exc:
+        _create(deal, [deal["c"]],
+                treaty_picks={deal["c"]: {"PR1": "x" * (svc.DATA_NAME_MAX_LEN + 1)}})
+    assert str(exc.value) == ("Data name for C long treaty PR1 is longer than 150 "
+                              "characters.")
 
 
 def test_export_rows_carry_the_treaty_and_its_own_aal_at_ty(deal):
@@ -162,7 +243,7 @@ def test_find_exported_counts_one_export_for_two_treaty_rows(deal):
 
 
 def test_a_ty_row_requests_the_treaty_output_level_with_the_fixed_perspective(deal, fake_irp):
-    _create(deal, [deal["c"]])
+    _create(deal, [deal["c"]], treaty_picks={deal["c"]: BOTH_TREATIES})
 
     export_jobs.run_pending(worker_id="w1")
 
@@ -172,13 +253,54 @@ def test_a_ty_row_requests_the_treaty_output_level_with_the_fixed_perspective(de
     assert export_jobs.TY_REQUEST_PERSPECTIVE_CODE == "GR"
 
 
-# ── the stage worker: split and combine (T-02, T-03, T-05, T-07, T-08) ───────
+def test_the_ticked_treaty_rows_share_one_export_request(deal, fake_irp):
+    """One loss table holds every treaty, so one request serves every row of the
+    analysis and its job id is stamped on all of them."""
+    export_id = _create(deal, [deal["c"]], treaty_picks={deal["c"]: BOTH_TREATIES})
+
+    export_jobs.run_pending(worker_id="w1")
+
+    assert [s["analysis_id"] for s in fake_irp.export_submits] == [41960]
+    rows = _manifest_rows(export_id)
+    assert [r["irp_export_job_id"] for r in rows] == ["1", "1"]
+    jobs = execute("SELECT irp_id, irp_analysis_id FROM irp_job WHERE irp_job_type = 'export'",
+                   {}, connection="WORKBENCH")
+    assert [(j["irp_id"], j["irp_analysis_id"]) for j in jobs] == [("1", deal["c"])]
+
+
+def test_a_rejected_request_fails_every_treaty_row_of_the_analysis(deal, fake_irp):
+    fake_irp.raise_on_export_submit_for = {41960}
+    export_id = _create(deal, [deal["c"]], treaty_picks={deal["c"]: BOTH_TREATIES})
+
+    export_jobs.run_pending(worker_id="w1")
+
+    rows = _manifest_rows(export_id)
+    assert all(r["stage_status"] == "failed" and "41960 not found" in r["error_message"]
+               for r in rows)
+    assert all(r["irp_export_job_id"] is None for r in rows)
+
+
+def test_a_job_recorded_by_a_crashed_run_is_stamped_on_every_treaty_row(deal, fake_irp):
+    from tests.unit.export_rows import seed_export_job
+
+    export_id = _create(deal, [deal["c"]], treaty_picks={deal["c"]: BOTH_TREATIES})
+    seed_export_job(export_id=export_id, irp_analysis_id=deal["c"], irp_id="77",
+                    edm_id=deal["edm_id"])
+
+    export_jobs.run_pending(worker_id="w1")
+
+    assert fake_irp.export_submits == []
+    assert [r["irp_export_job_id"] for r in _manifest_rows(export_id)] == ["77", "77"]
+
+
+# ── the stage worker: match and combine (T-02, T-03, T-05, T-08) ─────────────
 
 
 @pytest.fixture()
-def ty_staging(deal, fake_irp, tmp_path, monkeypatch):
-    """A TY export of ``c`` whose Risk Modeler job has FINISHED and whose stage
-    job is pending; the archive is the two-treaty fixture table."""
+def ty_env(deal, fake_irp, tmp_path, monkeypatch):
+    """The archive and staging roots, the SQLite Parquet upload, and the
+    two-treaty fixture table Risk Modeler hands back. ``_arm`` turns it into a
+    TY export waiting to be staged."""
     monkeypatch.setattr(elt, "upload_parquet", sqlite_upload_parquet)
     root = tmp_path / "archive"
     root.mkdir()
@@ -188,13 +310,26 @@ def ty_staging(deal, fake_irp, tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "export_staging_dir", str(staging_root))
     fake_irp.export_archive_path = build_archive(tmp_path / "fixture", anls_id=41960,
                                                  output_level="Treaty")
-    export_id = _create(deal, [deal["c"]], data_names={deal["c"]: "AmFam HU"})
+    return {**deal, "fake_irp": fake_irp, "root": root, "tmp": tmp_path}
+
+
+def _arm(env, picks=None):
+    """A TY export of ``c`` with the given ticks, whose Risk Modeler job has
+    FINISHED and whose stage job is pending."""
+    export_id = _create(env, [env["c"]],
+                        treaty_picks={env["c"]: picks or {"PR1": "AmFam HU 3x2", "PR2": ""}})
     export_jobs.run_pending(worker_id="w1")
     irp_id = execute_one("SELECT irp_id FROM irp_job", {}, connection="WORKBENCH")["irp_id"]
-    fake_irp.finish(irp_id)
+    env["fake_irp"].finish(irp_id)
     poller.poll_once()
-    return {**deal, "export_id": export_id, "analysis_id": deal["c"], "root": root,
-            "tmp": tmp_path}
+    return {**env, "export_id": export_id, "analysis_id": env["c"]}
+
+
+@pytest.fixture()
+def ty_staging(ty_env):
+    """Both treaties ticked: the case every stage test but the selection ones
+    starts from."""
+    return _arm(ty_env)
 
 
 def _rows(s):
@@ -219,20 +354,19 @@ def _load_jobs():
                    connection="WORKBENCH")
 
 
-def test_ty_archive_splits_into_one_staged_row_per_treaty(ty_staging):
-    before = _rows(ty_staging)
-    assert len(before) == 1 and before[0]["treaty_number"] is None
+def test_each_ticked_treaty_row_is_staged_from_the_one_loss_table(ty_staging):
+    rows_before = _rows(ty_staging)
+    assert [r["treaty_number"] for r in rows_before] == ["PR1", "PR2"]
 
     assert export_jobs.run_pending(worker_id="w1") == 1
 
     rows = _rows(ty_staging)
-    assert [r["treaty_number"] for r in rows] == ["PR1", "PR2"]
+    assert [r["manifest_id"] for r in rows] == [r["manifest_id"] for r in rows_before]
     first, second = rows
-    assert first["manifest_id"] == before[0]["manifest_id"]  # the analysis row became PR1
     assert (first["treaty_name"], first["data_name"], first["treaty_ids"]) == (
-        "PR1", "AmFam HU PR1", "33833")
+        "PR1", "AmFam HU 3x2", "33833")
     assert (second["treaty_name"], second["data_name"], second["treaty_ids"]) == (
-        "Layer two", "AmFam HU PR2 Layer two", "33832")
+        "Layer two", "C PR2", "33832")
     assert (first["staged_row_count"], second["staged_row_count"]) == (3, 2)
     assert first["aal"] == pytest.approx(0.001 * (100 + 10 + 500))
     assert second["aal"] == pytest.approx(0.001 * (40 + 60))
@@ -265,7 +399,8 @@ def test_ty_archive_splits_into_one_staged_row_per_treaty(ty_staging):
     assert _stage_job()["status_code"] == "succeeded"
 
 
-def test_ty_rows_of_one_treaty_under_two_treaty_ids_are_combined_per_event(ty_staging, fake_irp):
+def test_ty_rows_of_one_treaty_under_two_treaty_ids_are_combined_per_event(ty_env, fake_irp):
+    ty_staging = _arm(ty_env, {"PR1": "AmFam HU 3x2"})
     fake_irp.export_archive_path = build_archive(
         ty_staging["tmp"] / "group", anls_id=41960, output_level="Treaty", treaty_rows=[
             {"TreatyId": 33833, "TreatyNum": "PR1", "TreatyName": "PR1", "EventId": 1001,
@@ -295,31 +430,65 @@ def test_ty_rows_of_one_treaty_under_two_treaty_ids_are_combined_per_event(ty_st
         1002, 10.0, 1.0, 20.0)
 
 
-def test_ty_archive_with_no_treaty_rows_fails_naming_ty(ty_staging, fake_irp):
+def test_a_treaty_the_analyst_left_unticked_is_skipped_and_logged(ty_env, caplog):
+    ty_staging = _arm(ty_env, {"PR2": ""})
+
+    with caplog.at_level("INFO", logger="app.workers.export_jobs"):
+        export_jobs.run_pending(worker_id="w1")
+
+    rows = _rows(ty_staging)
+    assert len(rows) == 1
+    assert (rows[0]["treaty_number"], rows[0]["stage_status"], rows[0]["staged_row_count"]) == (
+        "PR2", "staged", 2)
+    assert "1 treaties in the loss table have no row to stage" in caplog.text
+    # PR1's derived file keeps its place in the table, so PR2's is still the second.
+    files = execute("SELECT result_file FROM stage.rwb_loss_result_file", {}, connection="LOSS")
+    assert len(files) == 1 and files[0]["result_file"].endswith("_TY__2.parquet")
+
+
+def test_a_ticked_treaty_the_table_does_not_hold_fails_its_row_alone(ty_env, fake_irp):
+    ty_staging = _arm(ty_env)
+    fake_irp.export_archive_path = build_archive(
+        ty_staging["tmp"] / "pr1only", anls_id=41960, output_level="Treaty",
+        treaty_rows=[{"TreatyId": 33833, "TreatyNum": "PR1", "TreatyName": "PR1",
+                      "EventId": 1001, "Rate": 0.001, "Loss": 100.0, "StdDevI": 1.0,
+                      "StdDevC": 2.0, "ExpValue": 50.0}])
+
+    export_jobs.run_pending(worker_id="w1")
+
+    first, second = _rows(ty_staging)
+    assert first["stage_status"] == "staged" and first["error_message"] is None
+    assert second["stage_status"] == "failed"
+    assert second["error_message"] == (
+        "treaty PR2 Layer two is not in the loss table Risk Modeler returned")
+    assert len(_load_jobs()) == 1  # PR1 still loads
+
+
+def test_ty_archive_with_no_treaty_rows_fails_every_row_naming_ty(ty_staging, fake_irp):
     fake_irp.export_archive_path = build_archive(
         ty_staging["tmp"] / "empty", anls_id=41960, output_level="Treaty", treaty_rows=[])
 
     export_jobs.run_pending(worker_id="w1")
 
     rows = _rows(ty_staging)
-    assert len(rows) == 1 and rows[0]["treaty_number"] is None
-    assert rows[0]["stage_status"] == "failed"
-    assert rows[0]["error_message"] == (
-        "Risk Modeler returned no treaty (TY) loss rows for this analysis")
+    assert len(rows) == 2
+    assert all(r["error_message"] == (
+        "Risk Modeler returned no treaty (TY) loss rows for this analysis") for r in rows)
+    assert all(svc.derive_status(r) == svc.FAILED for r in rows)
     assert _load_jobs() == []
-    assert svc.derive_status(rows[0]) == svc.FAILED
 
 
-def test_ty_file_missing_columns_fails_naming_them(ty_staging, fake_irp):
+def test_ty_file_missing_columns_fails_every_row_naming_them(ty_staging, fake_irp):
     fake_irp.export_archive_path = build_archive(
         ty_staging["tmp"] / "narrow", anls_id=41960, output_level="Treaty",
         columns=tuple(c for c in TY_COLUMNS if c != "TreatyName"))
 
     export_jobs.run_pending(worker_id="w1")
 
-    row = _rows(ty_staging)[0]
-    assert row["stage_status"] == "failed"
-    assert row["error_message"].endswith("is missing columns TreatyName")
+    rows = _rows(ty_staging)
+    assert len(rows) == 2
+    assert all(r["stage_status"] == "failed"
+               and r["error_message"].endswith("is missing columns TreatyName") for r in rows)
 
 
 def test_retry_on_one_treaty_row_leaves_its_loaded_sibling_alone(ty_staging):
@@ -446,25 +615,61 @@ def client(iteration2_db, loss_db) -> TestClient:
     return make_client(iteration2_db, loss_db)
 
 
-def test_fragment_at_ty_shows_the_note_and_no_aal(client):
+def _treaty_analysis(deal):
+    return seed_analysis(edm_id=deal["edm_id"], name="C", full_name="C long", irp_id="41960",
+                         irp_app_analysis_id="41960", perspectives=("GU", "GR"),
+                         treaties=TREATIES)
+
+
+def test_fragment_at_ty_lists_the_treaties_with_their_terms_and_no_aal(client):
     deal = make_deal(client)
-    c = seed_analysis(edm_id=deal["edm_id"], name="C", full_name="C long", irp_id="41960",
-                      irp_app_analysis_id="41960", perspectives=("GU", "GR"), treaties=TREATIES)
+    c = _treaty_analysis(deal)
     url = f"/submissions/{deal['submission_id']}/exports/new/fields"
 
     alone = client.get(url, params={"analysis_ids": [c], "perspective": "TY"})
     assert alone.status_code == 200
     assert '<option value="TY" selected>TY</option>' in alone.text
-    assert "one loss set per treaty, per analysis" in alone.text
+    assert "one loss set per ticked treaty, per analysis" in alone.text
     assert "AAL " not in alone.text
+    assert f'name="treaty[{c}]" value="PR1"' in alone.text
+    assert f'name="treaty[{c}]" value="PR2"' in alone.text
+    assert "checked" not in alone.text                      # nothing ticked by default
+    assert "0 of 2 ticked" in alone.text
+    assert ">Working Excess</span>" in alone.text
+    assert "risk <b>3.0M</b> · att <b>2.0M</b> · occ <b>9.0M</b>" in alone.text
+    assert "risk <b>5.0M</b> · att <b>250,000</b> · occ <b>—</b>" in alone.text
+    assert f'name="treaty_data_name[{c}][PR2]"' in alone.text
+    assert 'placeholder="C PR2"' in alone.text
+    assert f'name="data_name[{c}]"' not in alone.text       # not at TY (P-06)
 
     both = client.get(url, params={"analysis_ids": [c, deal["a"]], "perspective": "TY"})
     assert 'value="TY"' not in both.text
-    assert "one loss set per treaty" not in both.text
+    assert "one loss set per ticked treaty" not in both.text
     assert '<option value="GR"' in both.text
 
     gr = client.get(url, params={"analysis_ids": [c], "perspective": "GR"})
     assert "AAL 100" in gr.text
+    assert f'name="data_name[{c}]"' in gr.text
+    assert "treaty-pick" not in gr.text
+
+
+def test_fragment_keeps_the_ticks_and_the_treaty_names_typed_before_the_next_change(client):
+    deal = make_deal(client)
+    c = _treaty_analysis(deal)
+
+    frag = client.get(f"/submissions/{deal['submission_id']}/exports/new/fields",
+                      params=[("analysis_ids", c), ("perspective", "TY"),
+                              (f"treaty[{c}]", "PR2"),
+                              (f"treaty_data_name[{c}][PR2]", "AmFam HU 5x5 2026"),
+                              (f"treaty_data_name[{c}][PR1]", "not ticked, dropped")])
+
+    assert "1 of 2 ticked" in frag.text
+    ticked = frag.text.split(f'name="treaty[{c}]" value="PR2"')[1].split(">")[0]
+    assert "checked" in ticked
+    unticked = frag.text.split(f'name="treaty[{c}]" value="PR1"')[1].split(">")[0]
+    assert "checked" not in unticked
+    assert 'value="AmFam HU 5x5 2026"' in frag.text
+    assert "not ticked, dropped" not in frag.text
 
 
 def test_the_section_shows_one_row_per_treaty_with_its_own_aal(client):

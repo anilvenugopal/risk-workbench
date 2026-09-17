@@ -199,7 +199,42 @@ def test_form_posts_plainly_so_a_422_rerender_is_shown(client, deal):
     tag = re.search(r'<form[^>]*id="export-form"[^>]*>', page.text).group(0)
     assert "hx-post" not in tag and 'method="post"' in tag
     assert 'x-data="analysisPicks()"' in tag
-    assert ':disabled="!count"' in page.text
+    assert ':disabled="!count || !treatiesOk"' in page.text
+
+
+def test_post_at_ty_writes_one_row_per_ticked_treaty(client, deal):
+    c = seed_analysis(edm_id=deal["edm_id"], name="C", full_name="C long", irp_id="41960",
+                      irp_app_analysis_id="41960", perspectives=("GU", "GR"),
+                      treaties=(("33833", "PR1", "PR1"), ("33832", "PR2", "Layer two")))
+
+    response = _post(client, deal, [c], perspective="TY", **{
+        f"treaty[{c}]": ["PR1", "PR2"],
+        f"treaty_data_name[{c}][PR1]": "AmFam HU 3x2 2026"})
+
+    assert response.status_code == 303
+    rows = execute("SELECT treaty_number, treaty_name, data_name "
+                   "FROM stage.rwb_loss_result_manifest ORDER BY manifest_id", {},
+                   connection="LOSS")
+    assert [(r["treaty_number"], r["treaty_name"], r["data_name"]) for r in rows] == [
+        ("PR1", "PR1", "AmFam HU 3x2 2026"), ("PR2", "Layer two", "C PR2")]
+
+
+def test_post_at_ty_without_a_tick_rerenders_with_the_ticks_it_had(client, deal):
+    c = seed_analysis(edm_id=deal["edm_id"], name="C", full_name="C long", irp_id="41960",
+                      irp_app_analysis_id="41960", perspectives=("GU", "GR"),
+                      treaties=(("33833", "PR1", "PR1"), ("33832", "PR2", "Layer two")))
+    other = seed_analysis(edm_id=deal["edm_id"], name="D", full_name="D long", irp_id="41961",
+                          irp_app_analysis_id="41961", perspectives=("GU", "GR"),
+                          treaties=(("33833", "PR1", "PR1"),))
+
+    response = _post(client, deal, [c, other], perspective="TY",
+                     **{f"treaty[{c}]": "PR2"})
+
+    assert response.status_code == 422
+    assert "Tick at least one treaty for D long." in response.text
+    kept = response.text.split(f'name="treaty[{c}]" value="PR2"')[1].split(">")[0]
+    assert "checked" in kept
+    assert execute("SELECT 1 FROM stage.rwb_loss_result_manifest", {}, connection="LOSS") == []
 
 
 def test_post_over_an_earlier_export_creates_a_second_one(client, deal):

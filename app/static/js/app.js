@@ -811,6 +811,7 @@ document.addEventListener('alpine:init', () => {
     total: 0,
     brokerCount: 0,
     picked: [],
+    treatiesOk: true,
     term: '',
     shown: 0,
     rowCount: 0,
@@ -833,6 +834,11 @@ document.addEventListener('alpine:init', () => {
       this.picked = checked.map((box) => box.value);
       this.brokerCount = checked.filter(
         (box) => box.dataset.broker !== undefined).length;
+      // The export form at TY (spec 016 D23): every analysis in the cart needs
+      // at least one treaty ticked before Export is offered. No treaty list on
+      // the page means nothing to gate.
+      this.treatiesOk = Array.from(this.$root.querySelectorAll('.treaty-pick')).every(
+        (pick) => pick.querySelector('input[type=checkbox]:checked'));
       const selectAll = this.$refs.selectAll;
       if (!selectAll) return;
       selectAll.checked = this.total > 0 && this.count === this.total;
@@ -872,6 +878,15 @@ document.addEventListener('alpine:init', () => {
       if (!this.rowCount) return '';
       return this.term ? `${this.shown} of ${this.rowCount} analyses`
         : `${this.rowCount} analyses`;
+    },
+    // The all / none links over one analysis's treaty list. The ticked count in
+    // the head is server-rendered, so it catches up with the next fragment swap.
+    tickTreaties(pick, checked) {
+      if (!pick) return;
+      pick.querySelectorAll('input[type=checkbox]').forEach((box) => {
+        box.checked = checked;
+      });
+      this.onChange();
     },
     // Removing an analysis from the export cart. The bubbling change is what
     // refetches the cart fragment, exactly as ticking the box does.
