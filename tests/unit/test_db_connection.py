@@ -133,7 +133,7 @@ class TestDisposeAll:
 class TestPoolKwargs:
     def test_returns_expected_keys(self):
         from db.connection import _pool_kwargs
-        kwargs = _pool_kwargs()
+        kwargs = _pool_kwargs("WORKBENCH")
         assert "pool_size" in kwargs
         assert "max_overflow" in kwargs
         assert "pool_timeout" in kwargs
@@ -143,8 +143,20 @@ class TestPoolKwargs:
     def test_env_override_applied(self, monkeypatch):
         from db.connection import _pool_kwargs
         monkeypatch.setenv("MSSQL_POOL_SIZE", "10")
-        kwargs = _pool_kwargs()
+        kwargs = _pool_kwargs("WORKBENCH")
         assert kwargs["pool_size"] == 10
+
+    def test_connection_override_takes_precedence(self, monkeypatch):
+        from db.connection import _pool_kwargs
+        monkeypatch.setenv("MSSQL_POOL_SIZE", "10")
+        monkeypatch.setenv("MSSQL_POOL_MAX_OVERFLOW", "7")
+        monkeypatch.setenv("MSSQL_WORKBENCH_POOL_SIZE", "3")
+        monkeypatch.setenv("MSSQL_WORKBENCH_POOL_MAX_OVERFLOW", "2")
+
+        kwargs = _pool_kwargs("workbench")
+
+        assert kwargs["pool_size"] == 3
+        assert kwargs["max_overflow"] == 2
 
 
 class TestEngineCache:
@@ -157,7 +169,7 @@ class TestEngineCache:
                             lambda name: {"auth_type": "SQL", "name": name})
         monkeypatch.setattr(conn_mod, "build_sqlalchemy_url",
                             lambda cfg, database=None: "sqlite:///:memory:")
-        monkeypatch.setattr(conn_mod, "_pool_kwargs", lambda: {})
+        monkeypatch.setattr(conn_mod, "_pool_kwargs", lambda name: {})
 
         # First call: creates and caches
         eng1 = conn_mod.get_engine("CACHED")

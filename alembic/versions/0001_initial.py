@@ -4,9 +4,8 @@ Revision ID: 0001
 Revises: (none)
 Create Date: 2026-07-01
 
-Dev strategy: drop-create-seed. This is the ONLY revision until production
-cutover. Run `make db-rebuild` to drop and recreate from scratch rather than
-accumulating incremental migrations.
+Production baseline. Do not edit this revision after the production deployment
+branch. Add a new Alembic revision for every later Workbench schema change.
 """
 
 from __future__ import annotations

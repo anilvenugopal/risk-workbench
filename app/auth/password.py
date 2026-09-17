@@ -10,6 +10,9 @@ from __future__ import annotations
 import bcrypt
 
 
+_DUMMY_PASSWORD_HASH = "$2b$12$.d4A9buOfDK8s08kgVF7Iu2VDpXJQOqRl1GhB8AGzmtGHXXvRAY9C"
+
+
 def hash_password(plain: str) -> str:
     """Return a bcrypt hash of plain at cost factor 12."""
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt(rounds=12)).decode()
@@ -27,6 +30,11 @@ def verify_password(plain: str, hashed: str | None) -> bool:
         return bcrypt.checkpw(plain.encode(), hashed.encode())
     except (ValueError, TypeError):
         return False
+
+
+def verify_dummy_password(plain: str) -> None:
+    """Run one bcrypt check when no account exists for the submitted email."""
+    bcrypt.checkpw(plain.encode(), _DUMMY_PASSWORD_HASH.encode())
 
 
 def validate_password_requirements(plain: str) -> list[str]:

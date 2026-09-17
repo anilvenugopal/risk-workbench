@@ -61,8 +61,9 @@ git --version
 **Decided**: this project's deploy mechanism is push-based —
 [rhel9-ssh-deploy.sh](../../infra/scripts/rhel9/rhel9-ssh-deploy.sh) pushes code to
 the server via `rsync` over SSH; the server never runs `git clone`/`git
-pull` against GitHub, and never needs outbound internet access or GitHub
-credentials. `git` is still installed on the server (for the separate,
+pull` against GitHub and needs no outbound GitHub access or credentials.
+Dependency installation still needs public PyPI or an approved internal
+mirror, as listed in RHEL9_DEPLOYMENT.md. `git` is still installed on the server (for the separate,
 manual/local `rhel9-pull-code.sh` flow, and general troubleshooting
 convenience), but production deploys do not depend on it being there.
 
@@ -179,8 +180,8 @@ the project's dependency management.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-See [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md) for how the project uses `uv` day to day, and [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) for how a
-`uv.lock`-built environment can be applied without `uv` present there, with a workaround.
+See [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md) for how the project uses `uv` day to day, and [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) for the
+hash-locked pip installation used without `uv` in production.
 
 ---
 

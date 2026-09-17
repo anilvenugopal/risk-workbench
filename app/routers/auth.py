@@ -10,7 +10,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.auth.middleware import COOKIE_NAME
-from app.auth.password import hash_password, validate_password_requirements, verify_password
+from app.auth.password import (
+    hash_password,
+    validate_password_requirements,
+    verify_dummy_password,
+    verify_password,
+)
 from app.config import settings
 from app.services.auth_service import (
     create_session,
@@ -98,6 +103,13 @@ def login_submit(
     ip = _client_ip(request)
     ua = request.headers.get("User-Agent", "")[:512]
 
+    if not settings.password_auth_enabled:
+        return templates.TemplateResponse(request, "auth/login_page.html", {
+            "error": "Password sign-in is not enabled.",
+            "next": next,
+            "email_value": None,
+        }, status_code=404)
+
     def fail(msg: str):
         logger.warning("login failed (%s)", msg)
         log_attempt(email, "password", False, msg, ip, ua)
@@ -112,7 +124,7 @@ def login_submit(
 
     user = get_user_by_email(email)
     if not user:
-        fail("account_not_found")  # still check hash to prevent timing oracle
+        verify_dummy_password(password)
         return fail("account_not_found")
 
     if not verify_password(password, user.get("password_hash")):

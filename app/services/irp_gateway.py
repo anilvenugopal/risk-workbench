@@ -11,12 +11,12 @@ checks or any result retrieval.
 ``poll_*_to_completion`` helpers are NEVER wrapped here (they run for minutes and
 are forbidden everywhere — Article 11).
 
-**Version churn is quarantined here.** ``irp-integration`` is pre-release and its
-signatures move; it is source-switchable across PyPI / TestPyPI / a local checkout
-(``make irp-pypi | irp-testpypi | irp-local``, research R1). Re-confirming a method
-signature against the active wheel is a one-file edit, and the CI fake
+**Package calls stay here.** Production and CI use exact PyPI version 0.8.0;
+developers may temporarily install a local editable checkout with ``make
+irp-local``. The offline package contract test checks every manager method used
+by this module, and the CI fake
 (``tests/unit/fakes/fake_irp.py``) implements the same ``IRPGateway`` protocol, so a
-signature change never scatters across services.
+signature change stays within this module and its fake.
 
 Injection: tests call ``configure(FakeIRP())``; production code calls the module
 free functions (``submit_edm_import(...)`` etc.), which delegate to the active
@@ -435,15 +435,14 @@ class IRPGateway(Protocol):
 # ── The real implementation — imports irp-integration lazily ─────────────────────
 
 class _RealGateway:
-    """Thin wrapper over ``irp-integration`` 0.2.0 (manager-based). ``IRPClient()``
+    """Thin wrapper over ``irp-integration`` 0.8.0 (manager-based). ``IRPClient()``
     reads all config from env vars — no constructor args. The library is imported
     lazily (inside ``_client``) so importing this module never requires the wheel;
     unit tests inject a fake and never construct this class.
 
     Every call maps to exactly one manager method — all single-status-check;
     ``poll_*_to_completion`` is never wrapped (Article 11). Method signatures were
-    re-confirmed against the active 0.2.0 wheel; re-confirm before trusting a new
-    source (``make irp-status``) since the wheel is pre-release (R1).
+    checked by the package contract unit test against the exact production pin.
     """
 
     def __init__(self) -> None:

@@ -12,6 +12,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  production-install:
+    name: Production requirements
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install hash-locked runtime dependencies
+        run: |
+          python -m venv .venv-prod
+          .venv-prod/bin/python -m pip install --require-hashes -r requirements.txt
+
+      - name: Verify production imports and package version
+        env:
+          APP_ENV: development
+          SESSION_SECRET_KEY: ci-production-install-check
+        run: |
+          .venv-prod/bin/python -c "from importlib.metadata import version; assert version('irp-integration') == '0.8.0'"
+          .venv-prod/bin/python -c "import app.main"
+
   unit:
     name: Unit tests
     runs-on: ubuntu-latest
@@ -25,7 +49,10 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies
-        run: uv sync --frozen          # resolves default-groups = ["dev", "irp-testpypi"]
+        run: uv sync --frozen
+
+      - name: Check production requirements
+        run: bash infra/scripts/generate-requirements.sh --check
 
       - name: Unit tests
         run: make wsl-test             # = uv run pytest tests/unit -v (no env, no services)

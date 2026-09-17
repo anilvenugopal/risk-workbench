@@ -2,7 +2,7 @@
 
 **Status:** Draft for build · **Format:** Living document, kept in the repo  
 **Intended builder:** Claude Code (agent-built, iteration-sequenced)  
-**Source of domain truth:** `irp-workbench/` (IRP integration ground truth) + `irp-integration` 0.4.0 from TestPyPI
+**Source of domain truth:** `irp-workbench/` (IRP integration ground truth) + PyPI `irp-integration` 0.8.0
 
 ---
 
@@ -276,7 +276,7 @@ A standard server-rendered login page at `GET /auth/login`. On `POST /auth/login
 1. Look up `app_user` by email (case-insensitive).
 2. Verify the submitted password against `app_user.password_hash` (bcrypt, cost factor 12).
 3. On success: create a `user_session` row, set `HttpOnly Secure SameSite=Lax` cookie containing only the session ID (random 32-byte hex). Redirect to the originally-requested URL or home.
-4. On failure: increment `login_attempt` counter for `(email, ip_address)`. Apply rate limit (§5.1.3). Return the login form with a generic error — never indicate whether the email exists.
+4. On failure: write one `login_attempt` row. Return the login form with a generic error — never indicate whether the email exists. An unknown email still performs one dummy bcrypt comparison to keep response cost comparable.
 
 #### 5.1.2 Password management
 
@@ -284,19 +284,19 @@ A standard server-rendered login page at `GET /auth/login`. On `POST /auth/login
 - New accounts are created by an admin. The admin sets a temporary password; `must_change_password = true` is set on the account.
 - On first login (or when `must_change_password = true`), the user is redirected to `GET /auth/change-password` and cannot access any other route until the password is changed.
 - Password requirements (enforced at set time, not just client-side): minimum 12 characters, at least one uppercase, one lowercase, one digit.
-- **Password reset by admin only** — no self-service reset in v1 (no email infrastructure required). Admin uses the admin UI or a CLI command (`python -m app.cli reset-password --email x@y.com`) to set a new temporary password and flag `must_change_password = true`.
-- Passwords for `AUTH_MODE=oidc` accounts are null. If an `oidc`-provisioned account somehow reaches the password login form, it is rejected with "account uses SSO login."
+- **Password reset by admin only** — no self-service reset in v1 (no email infrastructure required). Admin uses the admin UI or `APP_DIR=/rms bash infra/scripts/run_user_setup` to set a new temporary password and flag `must_change_password = true`.
+- OIDC-only accounts have a null password hash. A password attempt for an OIDC-only account receives the same generic error as any other invalid credential.
 
-#### 5.1.3 Rate limiting
+#### 5.1.3 Rate limiting (deferred)
 
-Tracked in the `login_attempt` table. Two independent limits applied on every failed attempt:
+`login_attempt` stores the data needed for two planned independent limits:
 
 | Scope | Limit | Lockout |
 |---|---|---|
 | Per email | 5 failed attempts in 15 minutes | 15-minute lockout on that email |
 | Per IP | 20 failed attempts in 15 minutes | 15-minute lockout on that IP |
 
-Lockout check runs **before** password verification — a locked account/IP receives the generic error without hitting bcrypt. On success, the attempt counter for that email is cleared. Lockout state is read from the `login_attempt` table (count of failed attempts in the window); no separate lockout column needed.
+The lockout checks are not implemented. Production password deployments accept the resulting brute-force risk until the deferred requirement is completed. The intended lockout state is derived from `login_attempt`; no separate lockout column is planned.
 
 #### 5.1.4 Session management
 
@@ -385,7 +385,7 @@ Full implementation steps are in §5.3.
     ENTRA_REDIRECT_URI=http://localhost:8000/auth/callback   # dev; use https:// in production
     ```
 
-15. **Remove or disable** `AUTH_MODE=password` login route once all accounts are on SSO and the cutover is confirmed stable. Keep the route code behind the mode check — don't delete it until SSO has been running for a full season without issues.
+15. A deployment may switch to `AUTH_MODE=oidc` when all accounts use Entra. The password route remains supported and rejects POST requests whenever password authentication is disabled.
 
 ---
 
@@ -1517,7 +1517,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **A3 — Stale source file (dissolved by CR-003).** The old concern — a changed broker file going undetected between scanner triggers — no longer exists: there is no reconciliation scanner or file inventory (CR-003 M5, §8). A file is read live at package creation and its path stored as `source_file_path`; there is nothing to drift out of sync.
 - **A4 — Cookie/session vs. live role changes.** Admin changes a user's role; active session doesn't reflect it. Resolution: the session holds identity only; roles are read **live from DB on every request** (§5.4). Changes are immediate. (There is no customer-access scope to change — CR-003 M2.)
 - **A5 — Dev stub can't be killed mid-session.** Resolution: explicitly accepted for local development only. `AUTH_MODE=dev` is gated on `APP_ENV != production` server-side. Audit, loud banner (§5.0).
-- **A5a — Password auth is weaker than SSO.** Accepted for v1 MVP. Mitigated by: bcrypt cost factor 12, rate limiting (5 attempts / 15 min per email; 20 / 15 min per IP), `HttpOnly Secure SameSite=Lax` cookie, server-side sessions in WORKBENCH DB, CSRF tokens on all state-changing requests, forced password change on first login, admin-only password reset. Upgrade path to Entra SSO (§5.3) requires no downstream code changes.
+- **A5a — Password auth is weaker than SSO.** Accepted for production deployments that cannot use OIDC. Implemented controls are bcrypt cost factor 12, `HttpOnly Secure SameSite=Lax` cookies, server-side sessions in WORKBENCH DB, CSRF tokens on state-changing requests, forced password change on first login, and admin-only password reset. Rate limiting remains deferred; production password deployments accept the brute-force risk until §5.1.3 is implemented.
 - **A6 — Three-DB split makes local dev painful.** One SQL Server Docker container hosts all three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`). Three connection strings, one server, three database names. Schema isolation is enforced by database name, not separate servers. No extra infra cost locally. All application processes (app, nginx, Redis, poller, workers) run natively on Linux — no Docker overhead for anything except SQL Server.
 - **A7 — Dramatiq worker failure leaves RWB job stuck.** Resolution: layered per §2.3a. Worker death → Dramatiq redelivery. Task failure → Dramatiq Retries middleware. Job stops progressing (wedged worker or message lost) → per-job heartbeat + single-instance reconciler resets `running → pending` and re-enqueues. Idempotent workers ensure double-delivery is harmless. No duration-based sweep — stale threshold is a constant multiple of the heartbeat interval.
 - **A8 — IRP outage blocks everything.** Resolution: ops that need IRP are simply not enabled by the prerequisite gate while IRP is down (§13.1, §15.6); already-imported entities remain viewable. Submissions in `SUBMISSION FAILED` are retried by the single-threaded submission-retry batch job, and the poller catches up when IRP comes back.
@@ -1573,7 +1573,7 @@ This prompt applies independently to each of the three app-managed databases (`W
   - **Suites are predefined, not freeform user-built (D11).** Admin-maintained; starter-set seeding and Excel export-import were deferred out of MVP (spec 009 P-02) — setup is manual, with duplicate-and-edit (P-12) as the fast path (§11.3).
   - **Run-a-suite is default-first (D13).** Select portfolios + treaties, pick the suite, go; optional expand-to-deselect (§11.3a). *(Reshaped 2026-08-20: portfolio-first modal flow, treaties picked in the modal, direct submit — see the 2026-08-20 decision above.)*
   - **Suites may mix DLM, HD, and accumulation templates (D14);** DLM-vs-accumulation separation is a convention, not a rule. Peril/portfolio mismatch failures are expected, surfaced with a reason, never silently ignored (§11.3, §11.3a).
-- **v1 auth: username + bcrypt password** (`AUTH_MODE=password`). bcrypt cost 12, rate limiting, server-side sessions in WORKBENCH DB (`user_session` table), CSRF tokens, forced password change on first login, admin-only reset. No Redis dependency for auth. Upgrade to Entra SSO (`AUTH_MODE=oidc`) requires no downstream changes (§5.1, §5.2, §5.3).
+- **Password auth** (`AUTH_MODE=password` or `both`). bcrypt cost 12, server-side sessions in WORKBENCH DB (`user_session` table), CSRF tokens, forced password change on first login, and admin-only reset. Rate limiting is deferred. No Redis dependency for auth. Switching to Entra SSO (`AUTH_MODE=oidc`) requires no downstream changes (§5.1, §5.2, §5.3).
 - **Session store is WORKBENCH DB** (`user_session` table), not Redis. Sessions survive Redis restarts; active sessions are queryable; admin force-logout is a single UPDATE (§5.1.4).
 - **Signed-cookie / server-side session** — cookie holds only the session ID (random 32-byte hex); all identity and role context lives in DB (§5.1.4).
 - **No row-level security (CR-003 M2/O1).** No `customer_id`, no `apply_scope()`, no `user_customer_access`; every authenticated analyst sees every deal. Global roles gate *functions*, not *rows*; `assigned_analyst_id` is a soft "my submissions" owner (§6).

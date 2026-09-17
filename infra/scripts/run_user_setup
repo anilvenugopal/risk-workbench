@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 # run_user_setup — interactive user provisioning CLI for Risk Workbench.
 #
-# Works in WSL2 (sources infra/.env) and on the production server
-# (where infra/.env holds production credentials).
+# Uses the deployed virtual environment directly; uv is not required.
 #
 # Usage:
 #   ./infra/scripts/run_user_setup
 #   make wsl-user-setup
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-source "$ROOT/infra/scripts/wsl-env.sh"
-exec uv run python "$ROOT/infra/scripts/user_setup.py" "$@"
+ROOT="${APP_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+if [ ! -x "$ROOT/.venv/bin/python" ]; then
+    echo "ERROR: $ROOT/.venv/bin/python not found; run rhel9-app-install.sh first." >&2
+    exit 1
+fi
+if [ ! -f "$ROOT/infra/.env" ]; then
+    echo "ERROR: $ROOT/infra/.env not found." >&2
+    exit 1
+fi
+set -a
+source "$ROOT/infra/.env"
+set +a
+cd "$ROOT"
+exec .venv/bin/python -m infra.scripts.user_setup "$@"

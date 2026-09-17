@@ -56,10 +56,16 @@ _ENGINES: Dict[Tuple[str, str], Engine] = {}
 _ENGINE_OVERRIDES: Dict[Tuple[str, str], Engine] = {}
 
 
-def _pool_kwargs() -> dict:
+def _pool_kwargs(connection_name: str) -> dict:
+    prefix = f"MSSQL_{connection_name.upper()}"
     return {
-        "pool_size": int(os.getenv("MSSQL_POOL_SIZE", "5")),
-        "max_overflow": int(os.getenv("MSSQL_POOL_MAX_OVERFLOW", "5")),
+        "pool_size": int(os.getenv(
+            f"{prefix}_POOL_SIZE", os.getenv("MSSQL_POOL_SIZE", "5")
+        )),
+        "max_overflow": int(os.getenv(
+            f"{prefix}_POOL_MAX_OVERFLOW",
+            os.getenv("MSSQL_POOL_MAX_OVERFLOW", "5"),
+        )),
         "pool_timeout": int(os.getenv("MSSQL_POOL_TIMEOUT", "30")),
         "pool_recycle": int(os.getenv("MSSQL_POOL_RECYCLE", "1800")),
         "pool_pre_ping": True,
@@ -87,7 +93,7 @@ def get_engine(connection_name: str, database: Optional[str] = None) -> Engine:
                 f"Kerberos ticket could be obtained (check KERBEROS_* env)."
             )
         url = build_sqlalchemy_url(config, database=database)
-        eng = create_engine(url, **_pool_kwargs())
+        eng = create_engine(url, **_pool_kwargs(connection_name))
         _attach_query_timing(eng)
 
         # Self-renew Kerberos on each new physical connection for WINDOWS targets.

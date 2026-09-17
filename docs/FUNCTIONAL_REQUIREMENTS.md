@@ -20,7 +20,7 @@ Plain statements of what the workbench is and does, organized by workflow area. 
 | Requirement | Implementation | Notes |
 |---|---|---|
 | Analysts sign in with SSO (Entra) in production. | Implemented |  |
-| Username/password login is a development-only fallback. | Implemented | Never reachable in production. |
+| Username/password login is available when `AUTH_MODE=password` or `both`. | Implemented | Supported in production; accounts use bcrypt hashes and server-side sessions. Login rate limiting is deferred. |
 | Every authenticated analyst sees every Submission. | Implemented | No row-level access control; roles gate functions, never rows. |
 | Submission ownership is a soft "my submissions" marker, not an access gate. | Implemented | See §1. |
 

@@ -139,7 +139,12 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def mail_enabled(self) -> bool:
-        return bool(self.mail_tenant_id and self.mail_client_id and self.mail_client_secret)
+        return bool(
+            self.mail_tenant_id
+            and self.mail_client_id
+            and self.mail_client_secret
+            and self.mail_sender_address
+        )
 
     @computed_field
     @property

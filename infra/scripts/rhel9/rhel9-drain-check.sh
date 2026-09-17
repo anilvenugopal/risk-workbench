@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # rhel9-drain-check.sh — poll rwb_job until no queue has pending/running rows,
-# or a timeout is hit (CR-004). Run after stopping the per-queue worker
-# processes (rhel9-stop.sh), before deploying new code.
+# or a timeout is hit (CR-004). Run while workers are still processing jobs,
+# then stop the application only after this script reports all queues empty.
 #
 # Run directly on RHEL9 — not over SSH, not from Ubuntu (same rule as
 # rhel9-start.sh/rhel9-stop.sh). Uses .venv/bin/python directly, not `uv run`.

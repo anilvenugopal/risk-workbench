@@ -2,9 +2,9 @@
 # rhel9-ssh-deploy.sh — push-based deployment to RHEL9 over SSH.
 #
 # Runs from wherever this script is invoked (a dev machine, or a CI/CD
-# runner) — NOT on the RHEL9 server itself. RHEL9 never talks to GitHub or
-# any package index directly; it only receives files pushed to it and runs
-# commands this script triggers remotely over SSH.
+# runner) — NOT on the RHEL9 server itself. RHEL9 does not need GitHub
+# access. rhel9-app-install.sh does require access to public PyPI unless the
+# operator supplies an internal pip index or a pre-populated pip cache.
 #
 # This deliberately does NOT call rhel9-pull-code.sh — that script is for
 # the separate, local/manual "log into the server and git pull yourself"
@@ -82,6 +82,15 @@ if ! ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" "[ -f $DEPLOY_DIR/infra/.env ]"; then
     exit 1
 fi
 
+echo "=== 0. Verify application processes are stopped ==="
+if ! ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" \
+    "if pgrep -f '[u]vicorn app.main:app|[d]ramatiq app.workers.entrypoint|[p]ython -m app.poller.run --loop'; then exit 1; fi"; then
+    echo "ERROR: uvicorn, a Dramatiq worker, or the poller is still running." >&2
+    echo "       Drain jobs, then run rhel9-stop.sh before deploying." >&2
+    exit 1
+fi
+
+echo ""
 echo "=== 1. Push code (rsync, git-tracked files only) ==="
 # rsync normally needs an explicit list of what to send and what to
 # exclude — error-prone, since a new server-only folder added later could
@@ -129,14 +138,9 @@ ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" \
      bash $DEPLOY_DIR/infra/scripts/rhel9/rhel9-check-prereqs.sh"
 
 echo ""
-echo "=== 2.a. Drain check (remote) ==="
-# Confirms no rwb_job of any type is still pending/running before installing
-# new code — assumes an operator has already stopped the per-queue worker
-# processes (rhel9-stop.sh) beforehand; this script does not stop them
-# itself. Aborts the deploy on timeout rather than installing/migrating over
-# work still in flight.
+echo "=== 2.a. Verify queues were drained before shutdown (remote) ==="
 ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" \
-    "APP_DIR=$DEPLOY_DIR bash $DEPLOY_DIR/infra/scripts/rhel9/rhel9-drain-check.sh"
+    "APP_DIR=$DEPLOY_DIR DRAIN_TIMEOUT_SECS=0 bash $DEPLOY_DIR/infra/scripts/rhel9/rhel9-drain-check.sh"
 
 echo ""
 echo "=== 3. Install dependencies and run migrations (remote) ==="
@@ -171,21 +175,7 @@ sudo systemctl reload nginx
 REMOTE_NGINX
 
 echo ""
-echo "=== 5. Health check ==="
-if ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" "curl -sf http://127.0.0.1:80/api/health" > /tmp/rhel9-deploy-health.json; then
-    echo "  Health check OK:"
-    cat /tmp/rhel9-deploy-health.json
-else
-    echo "  WARNING: health check did not return success. The app may not" >&2
-    echo "  have restarted yet — restarting uvicorn/worker/poller is still" >&2
-    echo "  a manual step (see docs/RHEL9/RHEL9_DEPLOYMENT.md Open items)." >&2
-fi
-
-echo ""
 echo "=== Deploy complete. ==="
-echo "NOTE: this script drains the rwb_job queues (step 2.5) but does NOT"
-echo "stop or start uvicorn/the per-queue workers/the poller itself. Before"
-echo "running this script, stop them (rhel9-stop.sh) so the drain check has"
-echo "something to confirm; after it completes, start them again"
-echo "(rhel9-start.sh). See docs/RHEL9/RHEL9_DEPLOYMENT.md Open items —"
-echo "systemd units for these processes are still unbuilt, deliberately."
+echo "Start and verify the application on RHEL9:"
+echo "  APP_DIR=$DEPLOY_DIR bash $DEPLOY_DIR/infra/scripts/rhel9/rhel9-start.sh"
+echo "  curl -sf http://127.0.0.1:8000/api/health"

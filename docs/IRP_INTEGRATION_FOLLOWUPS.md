@@ -3,10 +3,11 @@
 What `irp-integration` needs (or would benefit from) to fully serve the workbench.
 Older findings retain the wheel version they were tested against.
 
-## Package retirement dependency — confirmed 2026-08-12
+## Production package — updated 2026-09-16
 
-The active source is **TestPyPI `irp-integration` 0.4.0**. The lockfile resolves
-the `irp-testpypi` group to 0.4.0. The installed signature is:
+The tracked source is **PyPI `irp-integration` 0.8.0**. The lockfile and
+production requirements use the same exact version. The standalone RDM import
+signature first confirmed against 0.4.0 remains:
 
 ```python
 submit_rdm_import_job(rdm_name, rdm_file_path, exposure_set_name=...)

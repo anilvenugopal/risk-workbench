@@ -2,6 +2,20 @@
   Sync Impact Report
   ==================
 
+  --- Production password authentication (2026-09-16) ---
+  Version change: 4.0.0 → 4.1.0 (MINOR — Article 13 now permits password
+  authentication as a supported production identity mode.)
+
+  Changed: `AUTH_MODE=password`, `AUTH_MODE=oidc`, and `AUTH_MODE=both` are
+  supported deployment choices. Password authentication remains server-
+  enforced and audited, with bcrypt hashes, forced initial password change,
+  CSRF protection, and server-side sessions. Login rate limiting remains a
+  documented deferred requirement and is not claimed as an implemented
+  control.
+
+  Propagated to AGENTS.md, PRD.md, FUNCTIONAL_REQUIREMENTS.md, the login
+  sequence document, the RHEL9 deployment documents, and infra/.env.example.
+
   --- CR-004 (2026-08-25) ---
   Version change: 3.2.0 → 4.0.0  (MAJOR — CR-004: Article 10 redefined in
   place; "Single Worker by Default" replaced by "Concurrency Is Per-Queue,
@@ -372,8 +386,10 @@ state machine.
 
 ### Article 13 — Authentication & Secrets
 
-- Identity: Entra ID OIDC (v2). A gated, env-flagged (`AUTH_MODE=password`),
-  server-enforced, audited password login is permitted as v1 MVP fallback.
+- Identity: Entra ID OIDC (v2), server-enforced password authentication, or
+  both, selected with `AUTH_MODE=oidc`, `password`, or `both`. Password
+  authentication is an audited production option, not a development-only
+  fallback.
 - Sessions are signed-cookie identity only; roles are read from the DB on each
   request.
 - CSRF MUST be applied on all state-changing requests.
@@ -419,4 +435,4 @@ research begins.
 
 ---
 
-**Version**: 4.0.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-08-25
+**Version**: 4.1.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-16

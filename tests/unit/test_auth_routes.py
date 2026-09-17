@@ -110,11 +110,39 @@ class TestLoginSubmit:
 
     def test_unknown_email_returns_form(self, monkeypatch):
         import app.routers.auth as auth_mod
+        dummy_checks = []
         monkeypatch.setattr(auth_mod, "get_user_by_email", lambda e: None)
+        monkeypatch.setattr(auth_mod, "verify_dummy_password", lambda p: dummy_checks.append(p))
         monkeypatch.setattr(auth_mod, "log_attempt", lambda *a, **k: None)
         monkeypatch.setattr(auth_mod, "validate_csrf_token", lambda t: True)
         resp = self._post(monkeypatch)
         assert resp.status_code == 200
+        assert dummy_checks == ["Password1234!"]
+
+    def test_unknown_email_writes_one_audit_row(self, monkeypatch):
+        import app.routers.auth as auth_mod
+        attempts = []
+        monkeypatch.setattr(auth_mod, "get_user_by_email", lambda e: None)
+        monkeypatch.setattr(auth_mod, "verify_dummy_password", lambda p: None)
+        monkeypatch.setattr(auth_mod, "log_attempt", lambda *a, **k: attempts.append(a))
+        monkeypatch.setattr(auth_mod, "validate_csrf_token", lambda t: True)
+
+        self._post(monkeypatch)
+
+        assert len(attempts) == 1
+
+    def test_password_post_rejected_when_password_auth_disabled(self, monkeypatch):
+        import app.routers.auth as auth_mod
+        monkeypatch.setattr(auth_mod.settings, "auth_mode", "oidc")
+        monkeypatch.setattr(
+            auth_mod,
+            "get_user_by_email",
+            lambda email: pytest.fail("disabled password route queried a user"),
+        )
+
+        resp = self._post(monkeypatch)
+
+        assert resp.status_code == 404
 
     def test_wrong_password_returns_form(self, monkeypatch):
         import app.routers.auth as auth_mod

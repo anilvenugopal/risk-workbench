@@ -179,7 +179,7 @@ Full rules in the constitution. Key points for implementation:
 4. **Categoricals**: kind tables (`*_kind`) for all internal values. Plain VARCHAR for external-mirror columns only (listed in Article 3 carve-out).
 5. **IRP**: submission on request path is permitted. Polling and result work MUST be in the poller/workers — never in route handlers. `poll_*_to_completion` FORBIDDEN in poller; use `get_*` single-status-check only.
 6. **Frontend**: FastAPI + Jinja2 + HTMX. No SPA. `hx-boost` for top-level nav. Alpine.js only for small client slivers.
-7. **Auth**: `AUTH_MODE=password` is a gated v1 fallback; never reachable in production. Session cookie contains session ID only.
+7. **Auth**: `AUTH_MODE=password`, `oidc`, and `both` are supported production modes. Session cookie contains session ID only.
 8. **Approved plans are immutable**: when an async operation follows a user preview or confirmation, the worker executes the plan the user approved. Persist it and run it — never silently recompute inputs at execution time.
 
 ## Three Databases
@@ -193,13 +193,15 @@ Full rules in the constitution. Key points for implementation:
 
 ## Dev DB Strategy
 
-Drop-create-seed. Single revision `alembic/versions/0001_initial.py` until production cutover.
-Before each schema-affecting iteration, choose: **Rebuild** / **Refresh** / **Skip**.
+`alembic/versions/0001_initial.py` is the frozen production baseline. Add a new
+revision for every later Workbench schema change. Local development may still
+drop-create-seed by applying the full revision chain. Before each
+schema-affecting iteration, choose: **Rebuild** / **Refresh** / **Skip**.
 DATABRIDGE is never in schema scope (no DDL/migrations/bootstrap; reads only via irp-integration, worker-side).
 
-## irp-integration (source-switchable: PyPI / TestPyPI / local)
+## irp-integration (PyPI / optional local development checkout)
 
-- Source is switchable via uv dependency groups — `make irp-pypi` (PyPI `0.2.0`, production default), `make irp-testpypi` (newest TestPyPI dev build), `make irp-local` (editable checkout at `../../IRP/irp-integration`). `make irp-status` shows the active source. Confirm method signatures against the **active** wheel — it is pre-release and moves.
+- Production and CI use exact PyPI version `0.8.0`. `make irp-local` installs the checkout at `../../IRP/irp-integration` into the developer virtual environment without changing tracked dependency files. `make irp-pypi` restores the locked PyPI package. `make irp-status` shows the installed version and path.
 - `IRPClient()` reads all config from env vars — no constructor args
 - Batch analysis: `submit_portfolio_analysis_jobs(list)` → `List[int]` (ordered, positional)
 - Single analysis: `submit_portfolio_analysis_job()` → `Tuple[int, request_body]`; store `request_body["resourceUri"]` as `irp_job.resource_uri` immediately — not available in completion response

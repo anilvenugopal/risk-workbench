@@ -136,15 +136,32 @@ else
     set -a
     source "$ENV_FILE"
     set +a
-    # Bash can open a raw TCP connection to a "file" named
-    # /dev/tcp/HOST/PORT — a bash-only feature, no external tool needed.
-    # Redirecting into it and immediately closing (3<&- 3>&-) just tests
-    # whether the connection itself succeeds.
-    if timeout 5 bash -c "exec 3<>/dev/tcp/${MSSQL_WORKBENCH_SERVER}/${MSSQL_WORKBENCH_PORT} && exec 3<&- 3>&-" 2>/dev/null; then
-        check "SQL Server host:port reachable ($MSSQL_WORKBENCH_SERVER:$MSSQL_WORKBENCH_PORT)" "yes"
-    else
-        check "SQL Server host:port reachable ($MSSQL_WORKBENCH_SERVER:$MSSQL_WORKBENCH_PORT)" "no"
-    fi
+    check_sql_endpoint() {
+        local name="$1"
+        local required="$2"
+        local host_var="MSSQL_${name}_SERVER"
+        local port_var="MSSQL_${name}_PORT"
+        local host="${!host_var:-}"
+        local port="${!port_var:-1433}"
+        if [ -z "$host" ]; then
+            if [ "$required" = "yes" ]; then
+                check "$host_var is configured" "no"
+            else
+                echo "  [SKIP] $name endpoint not configured"
+            fi
+            return
+        fi
+        if timeout 5 bash -c "exec 3<>/dev/tcp/$host/$port && exec 3<&- 3>&-" 2>/dev/null; then
+            check "$name SQL endpoint reachable ($host:$port)" "yes"
+        else
+            check "$name SQL endpoint reachable ($host:$port)" "no"
+        fi
+    }
+
+    check_sql_endpoint WORKBENCH yes
+    check_sql_endpoint EXPOSURE yes
+    check_sql_endpoint LOSS yes
+    check_sql_endpoint DATABRIDGE no
 fi
 
 echo ""
