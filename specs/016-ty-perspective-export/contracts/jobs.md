@@ -5,9 +5,11 @@ Everything not named here is unchanged.
 
 ## 1. `rwb_job` rows
 
-No new job type. One `stage_results_export` and one `load_results_export` per
-analysis, keyed as in 014 §1. Both now act on **every eligible manifest row of
-(`export_id`, `irp_analysis_id`)**; a portfolio export has one such row.
+No new job type. One `submit_results_export` per export, and one
+`stage_results_export` and one `load_results_export` per analysis, keyed as in
+014 §1. All three now act on **every eligible manifest row of (`export_id`,
+`irp_analysis_id`)**; a portfolio export has one such row, a TY analysis one
+per ticked treaty.
 
 | | Change |
 |---|---|
@@ -24,21 +26,32 @@ treaties = irp_gateway.list_analysis_treaties(analysis_id=int(row["irp_id"]))
 
 A raised call → `JobResult.fail(f"treaties read failed: {exc}")` with
 `loss_results` untouched (no partial write, spec 011 T-04). The stored document
-gains `"treaties": [{"treaty_id", "treaty_number", "treaty_name"}, …]`
+gains `"treaties": [{"treaty_id", "treaty_number", "treaty_name", "treaty_type",
+"attachment_point", "occurrence_limit", "risk_limit"}, …]`
 ([data-model.md §3](../data-model.md#3-workbench-irp_analysislosss_results)).
 
 ## 3. `submit_results_export` body
 
-Step 2's request for a row with `perspective_code = 'TY'`:
+Rows are still selected by `stage_status = 'pending' AND irp_export_job_id IS
+NULL`, then **grouped by `irp_analysis_id`**: one Risk Modeler request per
+analysis, its id stamped on every row of the group, because an analysis's
+ticked treaties share one loss table. A rejection (`IRPAPIError`) fails every
+row of the group; the `submitted` and `failed` counters count requests. The
+poller enqueues one `stage_results_export` per terminal `irp_job`, so the
+shared job triggers one stage job.
+
+The request for a group whose `perspective_code` is `TY`:
 
 ```python
 loss_details=[{"metricType": "LOSS_TABLES", "outputLevels": ["Treaty"],
                "perspectiveCodes": [TY_REQUEST_PERSPECTIVE_CODE]}]   # "GR", P-08
 ```
 
-Every other row keeps `outputLevels ["Portfolio"]` and its own code. Rows are
-still selected by `stage_status = 'pending' AND irp_export_job_id IS NULL`;
-after a split, only a row whose Retry fell to the submit branch matches.
+Every other group keeps `outputLevels ["Portfolio"]` and its own code.
+
+`irp_job_service.find_export_job(export_id, irp_analysis_id)` answers only a
+job with `completed_at IS NULL`, so a crashed run's job is reused and a
+terminal one never is (T-14).
 
 ## 4. `stage_results_export` body
 
@@ -67,13 +80,11 @@ Every exit but success stamps each eligible row that is not yet staged
    zero rows → fail "Risk Modeler returned no treaty (TY) loss rows for this
    analysis" (FR-007). Combine per (`TreatyNum`, `TreatyName`, `EventId`) as
    [data-model.md §2](../data-model.md#2-treaty-data-set-values). Then, per
-   treaty in (`TreatyNum`, `TreatyName`) order:
-   - the row for the treaty is the existing row with that `treaty_number` and
-     `treaty_name`; else an eligible row with `treaty_number IS NULL` (the
-     pre-split row), which is `UPDATE`d with the treaty values and the composed
-     `data_name`; else a new sibling row `INSERT … SELECT` from the pre-split
-     row (or the first eligible row) with the treaty values;
-   - a row that is not eligible (already staged, loaded, or closed) is skipped;
+   combined treaty in (`TreatyNum`, `TreatyName`) order, `n` its 1-based
+   position in that order:
+   - the row is the eligible row whose `treaty_number` and `treaty_name` equal
+     the treaty's; no such row (the analyst did not tick it, or it is already
+     staged, loaded, or closed) → count it as skipped and move on;
    - the treaty's combined rows are written to
      `{top}/ELT/Treaty/TY/{source stem}__{n}.parquet` with the nine ELT
      columns (`PortInfoId` null, `PortInfoName` the treaty name, `PortInfoNum`
@@ -81,9 +92,9 @@ Every exit but success stamps each eligible row that is not yet staged
      `manifest_id` with `output_level = 'Treaty'`;
    - the row is stamped `stage_status = 'staged'`, `staged_at`,
      `staged_row_count`, `treaty_ids`, `aal`, `error_message = NULL`.
-   An eligible row whose treaty is not in the table (a re-run against a
-   different archive) is stamped failed: "treaty {number} {name} is not in the
-   loss table Risk Modeler returned".
+   One `INFO` line reports the skipped count when it is not zero. An eligible
+   row whose treaty is not in the table is stamped failed: "treaty {number}
+   {name} is not in the loss table Risk Modeler returned".
 7. Remove the working directory.
 8. `ensure_pending_rwb_job` for the analysis's one `load_results_export`
    (§1) and `dispatch.dispatch`. A failure stamps `load_status = 'failed'`
@@ -108,8 +119,9 @@ Every exit but success stamps each eligible row that is not yet staged
 
 | Function | Wraps | Notes |
 |---|---|---|
-| `list_analysis_treaties(*, analysis_id: int) -> list[dict]` | `client.analysis.search_analysis_treaties_paginated(analysis_id)` | Worker only. Returns `[{"treaty_id": str, "treaty_number": str \| None, "treaty_name": str \| None}]`; the wheel's `cedant`, `producer`, `treatyType` are dropped |
+| `list_analysis_treaties(*, analysis_id: int) -> list[dict]` | `client.analysis.search_analysis_treaties_paginated(analysis_id)` | Worker only. Returns `[{"treaty_id": str, "treaty_number", "treaty_name", "treaty_type", "attachment_point", "occurrence_limit", "risk_limit"}]`, the last four verbatim from `treatyType`, `attachmentPoint`, `occurrenceLimit`, `riskLimit` (T-16); the wheel's `cedant` and `producer` are dropped |
 
 `FakeIRP`: `set_analysis_treaties(analysis_id, [{"treatyId", "treatyNumber",
-"treatyName"}])` seeds the answer (default `[]`); `raise_on_analysis_treaties`
+"treatyName", "treatyType", "attachmentPoint", "occurrenceLimit",
+"riskLimit"}])` seeds the answer (default `[]`); `raise_on_analysis_treaties`
 makes the call raise; `treaty_calls` records the analysis IDs asked.

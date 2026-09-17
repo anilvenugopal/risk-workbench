@@ -52,19 +52,18 @@ Close. Two shapes were weighed.
 | Shape | Why not |
 |---|---|
 | A child table `stage.rwb_loss_result_treaty` with its own `stage_status`, `load_status`, `data_id`, counts, `closed_at`, `error_message` | Every piece of status machinery exists twice: `derive_status`, the two counts the exports section filters on, the procedure's claim, Retry's decision tree, and both screens' read models would each need a second path. The procedure would take a treaty ID as well as a manifest ID |
-| **Four nullable columns on the manifest** (`treaty_number`, `treaty_name`, `treaty_ids`, `aal`) with the pre-split analysis row becoming the first treaty's row and siblings copied from it | **Chosen.** A treaty row is a manifest row; everything downstream of the split (`usp_load_elt_result`, `derive_status`, the exports section, Retry, Close, the failed/loaded filters) runs unchanged. The one cost is that Retry and Close can no longer be keyed by analysis (R5) |
+| **Four nullable columns on the manifest** (`treaty_number`, `treaty_name`, `treaty_ids`, `aal`) | **Chosen.** A treaty row is a manifest row; everything downstream (`usp_load_elt_result`, `derive_status`, the exports section, Retry, Close, the failed/loaded filters) runs unchanged. The one cost is that Retry and Close can no longer be keyed by analysis (R5) |
 
 `UNIQUE (export_id, irp_analysis_id)` becomes `UNIQUE (export_id,
 irp_analysis_id, treaty_number, treaty_name)`. SQL Server treats `NULL` as a
-value in a unique constraint, so an export still holds at most one pre-split
-row per analysis; SQLite treats `NULL`s as distinct, which the unit tier
-accepts. `treaty_ids` is a comma-separated list because a group's table can
-carry one treaty under several analysis-time IDs (spec key entities) and the
-value is traceability only, never a join key (non-negotiable 2).
+value in a unique constraint, so an export still holds at most one
+portfolio-level row per analysis; SQLite treats `NULL`s as distinct, which the
+unit tier accepts. `treaty_ids` is a comma-separated list because a group's
+table can carry one treaty under several analysis-time IDs (spec key entities)
+and the value is traceability only, never a join key (non-negotiable 2).
 
-The pre-split row is reused rather than deleted and replaced so that
-`manifest_id` values referenced by a queued job, an `rwb_job.input_data`, or a
-DBA's note stay valid.
+Superseded 2026-09-17 (R7): the rows are written by `create_export`, one per
+ticked treaty, so there is no pre-split row to claim and no sibling to insert.
 
 ## R3 — Combine in the stage worker, not in the procedure (T-03)
 
@@ -153,24 +152,65 @@ overloaded with a query parameter, and the analysis-keyed routes go.
 
 ## R6 — Which archive a re-run stages (T-05)
 
-Sibling rows copy `irp_export_job_id` and `zip_file` from the pre-split row,
-so every row of an analysis names the same archive. A Retry that falls to the
+The submit worker stamps one `irp_export_job_id` on every row of an analysis
+(R7), and the stage worker stamps one `zip_file` on every row it acts on, so
+every row of an analysis names the same archive. A Retry that falls to the
 submit branch nulls one row's `irp_export_job_id`; the submit worker requests
-a new export for that row alone and stamps it, and the poller enqueues a stage
-job keyed by the new `irp_job`. The stage worker then prefers, among the rows
+a new export for that analysis, stamps every pending row of it, and the poller
+enqueues a stage job keyed by the new `irp_job`. The stage worker then prefers, among the rows
 it will act on, one whose `zip_file` is present on the share; failing that it
 downloads the job it was given into `{root}/{export_id}/{irp_analysis_id}/`,
 where the filename carries the new job id, and stamps `zip_file` on every row
 it stages. Rows already loaded keep the archive path they were loaded from.
 
-## Clarifications
+## R7 — The treaty selector, and what it moves out of the stage worker (T-15, T-16, T-17)
+
+Design note 31 (2026-09-16) reversed P-03 and the treaty-terms exclusion the
+morning they were written. Wendy: *"if there are 10 treaties, to pick the two I
+want to export… but I'd rather not go and click remove, remove, remove 8
+times"*, and *"I'm going to pick different options within each of those
+analyses"*. Ben's consequence: *"we need a data name per treaty for analysis.
+So we need that many rows and data name options."*
+
+**The terms are already in the response.** The wheel's docstring for
+`search_analysis_treaties_paginated` lists `treatyType`, `attachmentPoint`,
+`riskLimit`, and `occurrenceLimit`, and the wheel's own grouping module reads
+all four off the same rows. The gateway had been dropping them ("Identity
+only") — widening the mapping is the whole cost, and no EDM join or
+`irp_treaty` read is needed. The cart formats them with the helpers the
+Workbench already has: `treaty_service.display_value(code, key="treatyType")`
+for the type and `analysis_service.fmt_loss` for the amounts. Note 31 D26 is an
+explicit instruction not to build more than that: *"It's an identifier. We're
+going to rename it more than likely in the end anyway."*
+
+**Where the selection is stored.** Two shapes were weighed.
+
+| Shape | Why not |
+|---|---|
+| Keep one manifest row per analysis, carry the picks as JSON on it, and let the stage worker fan out as before | The exports table would show nothing for hours: the rows the analyst asked for exist only after the download. It also keeps the pre-split row, the sibling insert, and the name composition — the three pieces the selector otherwise deletes — and the picks would live in a column no screen reads |
+| **`create_export` inserts one row per ticked treaty** | **Chosen.** The analyst sees their rows the moment they click Export; `data_name` is what they typed, so nothing is composed later; the stage worker only matches and stamps. The unique key already covers `(export_id, irp_analysis_id, treaty_number, treaty_name)` |
+
+**Risk Modeler cannot filter the export.** The request takes an output level
+and perspective codes, no treaty list, so the whole treaty table still
+downloads and the stage worker writes only the ticked treaties. A treaty in
+the table that no row claims is counted and logged, not written.
+
+**One request per analysis (T-17).** The treaty rows of one analysis share one
+loss table, so the submit worker groups its pending rows by analysis. Grouping
+the submit loop exposed a defect of its own: `find_export_job` matched any
+`export` job of the export and analysis, including a terminal one, so Retry →
+submit re-stamped the FAILED job's id and the row sat at "in progress" for
+good. `AND completed_at IS NULL` is the fix (T-14); the crashed-run reuse it
+was written for only ever concerns a job that has not completed.
 
 ### Session 2026-09-16
 
 - **Q**: Should the TY data name repeat the treaty name when it equals the
   treaty number (the sample's `PR1`/`PR1`)? → **A** (plan): no. The name is
   the number, then the name only when it differs (T-07). P-06 asks that two
-  layers differ in the name, which the number alone gives.
+  layers differ in the name, which the number alone gives. **Reversed
+  2026-09-17** (note 31 D24): the analyst types the name per treaty and the
+  default is `{analysis name} {treaty number}`; T-07 is deleted.
 - **Q**: Does the 2026-09-15 session's amendment of 014 (flat exports table,
   decimal model version, engine-version override) gate this plan? → **A**: it
   is not in the codebase or 014's documents. This plan changes nothing in

@@ -14,7 +14,9 @@ story needs. Phases 2–4 are the three user stories from spec.md in priority
 order. Stories 1 and 2 are bundled into one implement pass: story 2's screens
 are the only way to see story 1's treaty rows (UI_WORKFLOW rule 2, "bundle two
 small related stories if splitting is silly"). No UI preview: no screen gains
-new layout, only a column and a note on already-styled components.
+new layout, only a column and a note on already-styled components. Phase 6 is
+the 2026-09-17 amendment (note 31 D23–D26): it does gain layout, and its
+preview was approved before the build.
 
 ## Format: `[ID] [P?] [Story] [Ref] Description`
 
@@ -53,14 +55,14 @@ gateway wrapper. Nothing user-visible yet.
 - [x] T006 [US1] [FR-001] [P-05] `app/services/export_service.py` `list_exportable_analyses`: `TY` appended to `perspectives` when `loss_results.treaties` is non-empty; `create_export`'s per-analysis message at TY reads "{name} was not run with treaties."
   - Proof: `tests/unit/test_ty_export.py::test_ty_is_offered_only_when_every_selected_analysis_ran_with_treaties`, `::test_create_export_refuses_ty_for_an_analysis_without_treaties`.
 - [x] T007 [US1] [FR-002] [FR-016] `app/templates/partials/export_form_fields.html`: the hint "TY writes one loss set per treaty, per analysis." under the select when `perspective == 'TY'`; the AAL line hidden at TY.
-  - Proof: `tests/unit/test_ty_export.py::test_fragment_at_ty_shows_the_note_and_no_aal`.
+  - Proof: `tests/unit/test_ty_export.py::test_fragment_at_ty_lists_the_treaties_with_their_terms_and_no_aal` (renamed by T022).
 
 ### Workers
 
 - [x] T008 [US1] [FR-004] [T-01] `app/workers/export_jobs.py` `_submit_results_export_body`: `TY_REQUEST_PERSPECTIVE_CODE = "GR"` (P-08 comment) and `outputLevels ["Treaty"]` for a TY row (contracts/jobs.md §3).
   - Proof: `tests/unit/test_ty_export.py::test_a_ty_row_requests_the_treaty_output_level_with_the_fixed_perspective`.
 - [x] T009 [US1] [FR-005] [FR-006] [FR-007] [FR-009] [FR-017] [T-02] [T-03] [T-05] [T-07] [T-08] [O-04] `app/workers/export_jobs.py` `_stage_results_export_body` and `_stage`: the row set of (`export_id`, `irp_analysis_id`), the eligibility rule, the archive choice (research R6), `_treaty_files`, `_read_treaty_table` (pandas, `TY_COLUMNS` check), `_combine_treaty_rows` (P-11 arithmetic, exposure max as O-04), `_treaty_row` (claim the pre-split row, else `INSERT … SELECT` a sibling), the derived per-treaty Parquet through `_stage_file` with `output_level 'Treaty'`, the composed `data_name`, `treaty_ids`, `aal`, the "no treaty (TY) loss rows" failure, the "treaty … is not in the loss table" failure, one load job per analysis (contracts/jobs.md §4).
-  - Proof: `tests/unit/test_ty_export.py::test_ty_archive_splits_into_one_staged_row_per_treaty`, `::test_ty_rows_of_one_treaty_under_two_treaty_ids_are_combined_per_event`, `::test_ty_archive_with_no_treaty_rows_fails_naming_ty`, `::test_retry_on_one_treaty_row_leaves_its_loaded_sibling_alone`, `::test_a_closed_treaty_row_is_never_re_staged`, `::test_ty_file_missing_columns_fails_naming_them`.
+  - Proof: `tests/unit/test_ty_export.py::test_each_ticked_treaty_row_is_staged_from_the_one_loss_table`, `::test_ty_rows_of_one_treaty_under_two_treaty_ids_are_combined_per_event`, `::test_ty_archive_with_no_treaty_rows_fails_every_row_naming_ty`, `::test_retry_on_one_treaty_row_leaves_its_loaded_sibling_alone`, `::test_a_closed_treaty_row_is_never_re_staged`, `::test_ty_file_missing_columns_fails_every_row_naming_them` (renamed by T024).
 - [x] T010 [US1] [FR-008] [FR-014] [T-05] `app/workers/export_jobs.py` `_load_results_export_body`: every eligible row of the analysis, one procedure call each, per-row failure stamp, `input_data` without `manifest_id`; `_enqueue_load` and `apply_retry` stop passing `manifest_id` (contracts/jobs.md §5).
   - Proof: `tests/unit/test_ty_export.py::test_every_staged_treaty_row_is_loaded_once_and_a_failure_stamps_only_its_row`, `::test_loaded_and_closed_rows_are_skipped_by_the_load`.
 
@@ -109,6 +111,39 @@ gateway wrapper. Nothing user-visible yet.
 
 ---
 
+## Phase 6: Treaty selection (note 31 D23–D26)
+
+**Purpose**: the analyst picks the treaties to export and names each one on the
+form, beside its terms. Reverses P-03 and the treaty-terms exclusion, moves the
+data name to the analysis-treaty grain, and deletes the stage worker's
+pre-split row, sibling insert, and name composition. Preview approved
+2026-09-17: `docs/ui_previews/export_form_ty_treaties.html`.
+
+**Independent Test**: quickstart.md Story 1 steps 2–6.
+
+- [x] T018 [US1] [P-12] [T-16] `app/services/irp_gateway.py` `list_analysis_treaties`: keep `treaty_type`, `attachment_point`, `occurrence_limit`, `risk_limit` beside identity; same keys in `tests/unit/fakes/fake_irp.py`; `tests/irp/test_treaty_export.py` asserts the seven keys.
+  - Proof: `tests/unit/test_ty_export.py::test_retrieval_stores_the_applied_treaties`.
+- [x] T019 [US1] [FR-002] [P-12] `app/services/export_service.py`: `ExportableAnalysis.treaties` (deduped by number and name) and `treaty_choices` → `TreatyChoice`, the type through `treaty_service.display_value` and the amounts through `analysis_service.fmt_loss`. No new formatting helper.
+  - Proof: `tests/unit/test_ty_export.py::test_the_cart_lists_each_treaty_once_with_its_terms`.
+- [x] T020 [US1] [FR-002] [FR-005] [FR-009] [P-03] [P-06] `app/services/export_service.py` `create_export`: the `treaty_picks` keyword, the three TY validation messages, and one manifest row per ticked treaty with `treaty_number`, `treaty_name`, and the typed or default `data_name`; `_MANIFEST_INSERT` gains the two treaty columns.
+  - Proof: `tests/unit/test_ty_export.py::test_create_export_refuses_an_analysis_with_no_treaty_ticked`, `::test_create_export_refuses_a_treaty_the_analysis_did_not_run_with`, `::test_one_manifest_row_per_ticked_treaty_with_the_typed_or_default_name`, `::test_an_untouched_treaty_is_not_exported`.
+- [x] T021 [US1] [FR-002] `app/routers/submissions.py`: `_treaty_picks` over `treaty[<analysis_id>]` and `treaty_data_name[<analysis_id>][<treaty_number>]`, in `_export_fields_context`, the fragment route, and the POST (contracts/routes.md §1).
+  - Proof: `tests/unit/test_export_routes.py::test_post_at_ty_writes_one_row_per_ticked_treaty`, `::test_post_at_ty_without_a_tick_rerenders_with_the_ticks_it_had`.
+- [x] T022 [US1] [FR-002] [P-12] [T-15] `app/templates/partials/export_form_fields.html`: the treaty list per cart row at TY (head with the ticked count and all / none, one row per treaty with number, name, type, terms, and the per-treaty Data name input), the reworded hint, and the per-analysis Data name field kept for every other perspective. `submission_export_new.html` and the fields partial add the two `hx-include` selectors and gate Export on `treatiesOk`; `app/static/js/app.js` `analysisPicks` gains `treatiesOk` and `tickTreaties`; `app/static/css/details.css` gains `.treaty-pick` / `.treaty-row`, the name field revealed by `:has(input:checked)`.
+  - Proof: `tests/unit/test_ty_export.py::test_fragment_at_ty_lists_the_treaties_with_their_terms_and_no_aal`, `::test_fragment_keeps_the_ticks_and_the_treaty_names_typed_before_the_next_change`.
+- [x] T023 [US1] [T-17] `app/workers/export_jobs.py` `_submit_results_export_body`: group the pending rows by analysis, one Risk Modeler request per group, its job id stamped on every row, a rejection failing the group (contracts/jobs.md §3).
+  - Proof: `tests/unit/test_ty_export.py::test_the_ticked_treaty_rows_share_one_export_request`, `::test_a_rejected_request_fails_every_treaty_row_of_the_analysis`, `::test_a_job_recorded_by_a_crashed_run_is_stamped_on_every_treaty_row`.
+- [x] T024 [US1] [FR-005] [FR-007] `app/workers/export_jobs.py` `_stage_treaties`: match each combined treaty to an eligible row by (number, name), skip and log the treaties no row claims, fail a row whose treaty the table lacks. Delete `_treaty_data_name`, `_TREATY_ROW_COPIED_COLUMNS`, `_insert_treaty_row`, the `rows` parameter of `_stage_treaties` and `_stage`, and the `DATA_NAME_MAX_LEN` import (contracts/jobs.md §4 step 6).
+  - Proof: `tests/unit/test_ty_export.py::test_each_ticked_treaty_row_is_staged_from_the_one_loss_table`, `::test_a_treaty_the_analyst_left_unticked_is_skipped_and_logged`, `::test_a_ticked_treaty_the_table_does_not_hold_fails_its_row_alone`, `::test_ty_archive_with_no_treaty_rows_fails_every_row_naming_ty`.
+- [x] T025 [US2] [T-14] `app/services/irp_job_service.py` `find_export_job`: `AND completed_at IS NULL`, so Retry → submit asks Risk Modeler again instead of re-stamping a terminal job id. Defect found while grouping the submit worker; user approved the fix 2026-09-17.
+  - Proof: `tests/unit/test_export_submit_worker.py::test_a_completed_job_is_never_reused_after_retry`.
+- [x] T026 [P] Documents: spec.md (Status, scope, P-03, P-06, P-09, new P-12 and O-05, FR-002, FR-005, FR-007, FR-009, FR-011, FR-013, stories 1–3, SC-001, SC-002), plan.md (design summary, T-02, T-07 deleted, T-14 to T-17, Testing), contracts/routes.md §1–§2, contracts/jobs.md §1–§4 and §6, data-model.md §1–§3 and §5, research.md R2, R6, new R7, quickstart.md stories 1–3, `docs/PRD.md` §17.4.
+
+**Checkpoint**: `uv run pytest tests/unit` green. **STOP.** The approver runs
+quickstart.md Story 1 steps 2–6 and Story 2 step 3 on the running stack.
+
+---
+
 ## Dependencies and execution order
 
 - **Phase 1** first; T002–T004 parallel after T001.
@@ -116,9 +151,11 @@ gateway wrapper. Nothing user-visible yet.
 - **Phase 3** after Phase 2 (its tests replace the analysis-keyed ones).
 - **Phase 4** is verification only, after Phase 3.
 - **Phase 5** any time after Phase 1; T017 last.
+- **Phase 6** after Phase 5: T018 → T019 → T020 → T021 → T022 (the form, in
+  that order); T023 → T024 (the workers); T025 alone. T026 last.
 
 ## What stays open after all tasks
 
 - Spec O-04 (exposure value when rows are combined): built as the largest value; one line to change.
-- Plan O-01 (the treaties endpoint on a group): closed by the Phase 4 checkpoint.
+- Spec O-05 / plan O-01 (the treaties endpoint on a group): the cart now lists what it returns, so a group at TY offers nothing to tick if it returns nothing. Closed by the Phase 4 checkpoint.
 - The 014 amendments of 2026-09-15 (FR-010): 014's to build; treaty rows inherit them.
