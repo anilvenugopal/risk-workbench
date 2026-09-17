@@ -199,7 +199,7 @@ DATABRIDGE is never in schema scope (no DDL/migrations/bootstrap; reads only via
 
 ## irp-integration (source-switchable: PyPI / TestPyPI / local)
 
-- Source is switchable via uv dependency groups — `make irp-pypi` (PyPI `0.2.0`, production default), `make irp-testpypi` (newest TestPyPI dev build), `make irp-local` (editable checkout at `../../IRP/irp-integration`). `make irp-status` shows the active source. Confirm method signatures against the **active** wheel — it is pre-release and moves.
+- Source is switchable via uv dependency groups — `make irp-pypi` (latest allowed stable PyPI release, production mode), `make irp-testpypi` (the pinned TestPyPI pre-release), `make irp-local` (editable checkout at `../../IRP/irp-integration`). `make irp-status` shows the active source and version; `uv.lock` records every resolved version. Confirm method signatures against the **active** wheel — it is pre-release and moves.
 - `IRPClient()` reads all config from env vars — no constructor args
 - Batch analysis: `submit_portfolio_analysis_jobs(list)` → `List[int]` (ordered, positional)
 - Single analysis: `submit_portfolio_analysis_job()` → `Tuple[int, request_body]`; store `request_body["resourceUri"]` as `irp_job.resource_uri` immediately — not available in completion response
