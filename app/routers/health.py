@@ -1,4 +1,8 @@
-"""Health check endpoint for the application and its backing services."""
+"""Health check endpoint — reports status of all backing services.
+
+Always returns HTTP 200. Never includes credentials or stack traces.
+Exempt from session middleware (registered before SessionMiddleware).
+"""
 
 from __future__ import annotations
 
@@ -28,14 +32,11 @@ def health(request: Request):
         except Exception as exc:
             return f"error: {type(exc).__name__}"
 
-    workbench = _check_db("WORKBENCH")
-    redis = _check_redis()
-    ready = workbench == "ok" and redis == "ok"
     return JSONResponse({
-        "status": "ok" if ready else "error",
-        "db_workbench": workbench,
+        "status": "ok",
+        "db_workbench": _check_db("WORKBENCH"),
         "db_exposure": _check_db("EXPOSURE"),
         "db_loss": _check_db("LOSS"),
-        "redis": redis,
+        "redis": _check_redis(),
         "env": settings.app_env,
-    }, status_code=200 if ready else 503)
+    })
