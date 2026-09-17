@@ -152,22 +152,23 @@ knowledge stays in the package.
 
 **Evidence.** `GroupingManager.inspect` rejects fewer than two ids
 (`_validate_analysis_ids`: "analysis_ids must contain at least two analysis
-IDs"), so the existing entry point cannot serve one analysis. The local
-checkout at `../irp-integration` is at the PR 33 merge that released 0.8.0.
+IDs"), so the existing entry point cannot serve one analysis. The initial
+investigation used the PR 33 checkout that released 0.8.0.
 
 `AnalysisManager.describe_run(analysis_id)` and its `RunDescription` /
-`AppliedTreaty` dataclasses now exist on the checkout's branch
-`feature/analysis-describe-run` (commit 243330f), which also moves `_inspect`'s
-reference lookups and region-row loop into `_ReferenceLookups` and
-`_region_facts` so the describe method and the grouping inspection share them.
-The tag and the TestPyPI publish are the user's to run; until they do,
-`make irp-testpypi` cannot pin the release and the workbench's active source
-stays TestPyPI 0.8.0, which carries no `describe_run`. Read live against the
-sandbox on 2026-09-11 through the checkout, the method and the gateway wrapper
-returned scheme 739 for 5741781, PET 12 "RMS 2020 Time-Dependent Rates" with
-1,978,459 periods for 5733173, and scheme 577 with treaties XPR_1_100_Fld and
-XPR_1_95_Fld for 5689560 — the fixtures' claims, re-checked
-(`tests/irp/test_describe_run.py`).
+`AppliedTreaty` dataclasses landed on `feature/analysis-describe-run`. The
+change also moved `_inspect`'s reference lookups and region-row loop into
+`_ReferenceLookups` and `_region_facts`, so the describe method and grouping
+inspection share them. The method is released under tag `v0.9.0rc1`; this
+branch pins the TestPyPI `0.9.0rc1` wheel, whose name and signature match the
+gateway contract. The production PyPI group still resolves stable `0.8.0` and
+must move to a compatible release before deployment.
+
+Read live against the sandbox on 2026-09-11 through the checkout, the method
+and gateway wrapper returned scheme 739 for 5741781, PET 12 "RMS 2020
+Time-Dependent Rates" with 1,978,459 periods for 5733173, and scheme 577 with
+treaties XPR_1_100_Fld and XPR_1_95_Fld for 5689560 — the fixtures' claims,
+re-checked (`tests/irp/test_describe_run.py`).
 
 **Alternatives.** A workbench module reimplementing the collapse over thin
 gateway reads: no package release needed, but the same shape logic in two
@@ -177,9 +178,9 @@ reads and problems pollute the result. A treaty-only gateway wrapper over
 group, but a second gateway method and fake to keep in step; rejected
 2026-09-11 — groups call the describe method and ignore its region facts.
 
-**Cost.** A package change, tag and TestPyPI release precede the worker task;
-`make irp-testpypi` then pins it. The method name and signature in the
-contract are Assumed until the wheel exists.
+**Cost.** The package change, tag, TestPyPI release, and development pin are
+complete. Production deployment still depends on publishing and pinning a
+compatible stable PyPI release.
 
 ## T-07 — Capture points and the failure rule
 

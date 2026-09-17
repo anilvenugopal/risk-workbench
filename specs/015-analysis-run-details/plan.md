@@ -8,9 +8,9 @@
 
 ## Plan status
 
-**Ready for tasks:** Yes. T-06's package method is a prerequisite task, not a
-blocker: its placement is approved, its signature stays Assumed until the
-TestPyPI wheel exists and is re-confirmed.
+**Ready for tasks:** Yes. `AnalysisManager.describe_run` is released in the
+TestPyPI `0.9.0rc1` wheel, pinned in this branch, and confirmed against the
+gateway contract. Production still needs a compatible stable PyPI release.
 **Blocked by:** Nothing.
 
 ## Design summary
@@ -20,7 +20,8 @@ TestPyPI wheel exists and is re-confirmed.
   response: the collapsed scheme or simulation set per region and peril
   (`partitions`) and the applied treaties (`treaties`) —
   [contracts/settings-metadata-resolved.md](contracts/settings-metadata-resolved.md)
-  (T-01). Risk Modeler's keys and every reader of them are untouched.
+  (T-01). Risk Modeler's keys stay unchanged; existing display fields read
+  the keys confirmed in the captured live responses.
 - **irp-integration grows a single-analysis describe method** reusing the
   grouping inspect's region, PET and scheme-naming code and returning the
   treaty name inspect drops (T-06). It is released to TestPyPI and pinned
@@ -65,8 +66,8 @@ TestPyPI wheel exists and is re-confirmed.
   [contracts/captures/](contracts/captures/); the knowledge-base fixtures
   `SETTINGS_FULL` / `SETTINGS_PARTIAL` are replaced.
 - `docs/DATA_MODEL.md` §6 states what each of the three JSON columns holds
-  per origin, including the two `submitted_settings` shapes (item vs compose
-  plan) and the `resolved` key.
+  per origin, including the origin-specific `submitted_settings` shapes and
+  the `resolved` key.
 
 ## Material changes
 
@@ -75,7 +76,7 @@ TestPyPI wheel exists and is re-confirmed.
 | Database | None. `settings_metadata` JSON gains the `resolved` key; the plan item in `submitted_settings` gains `treaty_names`. Dev DB choice: **Refresh** — no migration; analyses captured before the change show the new fields blank until recaptured (FR-015). |
 | Worker | `finalize_analysis` and `backfill_rdm_analyses` call `describe_analysis_run` and write `resolved`; `_claim_analysis` stores `treaty_names`. |
 | UI | `analysis_results_inline.html` settings grid: conditional Event rate scheme / Simulation set entry, group partition list, Treaties list. Compare modal metadata line reads the same field. |
-| Library | irp-integration: new `describe_run` (name Assumed) on `AnalysisManager`, TestPyPI release; workbench `irp_gateway` + `FakeIRP` gain `describe_analysis_run`. |
+| Library | irp-integration: `describe_run` on `AnalysisManager`, released as TestPyPI `0.9.0rc1`; workbench `irp_gateway` + `FakeIRP` gain `describe_analysis_run`. |
 | Docs | `docs/DATA_MODEL.md` §6 column semantics. |
 
 ## High-risk technical decisions
@@ -89,7 +90,7 @@ TestPyPI wheel exists and is re-confirmed.
 | T-03 | Group rows read the detail's `eventRateSchemes` / `simulationSets` property; `get_regions` is not used for groups; source selection is by payload content | Approved | [research](research.md#t-03--group-rows-the-details-additionalproperties-are-the-source) |
 | T-04 | Simulation set label is PET name plus simulation periods; PET named through model version + `get_pet_metadata_exact` | Approved | [research](research.md#t-04--simulation-set-label-pet-name-and-simulation-periods-spec-wording-amended) |
 | T-05 | Applied treaties from `search_analysis_treaties_paginated` stored as id, number, name, currency, occurrence limit, risk limit, attachment point and retention; the row shows number, name and currency; the plan item gains `treaty_names` | Approved | [research](research.md#t-05--treaties-applied-treaties-from-the-analysis-treaty-search-the-plan-item-records-the-requested-names) |
-| T-06 | The single-analysis collapse lives in irp-integration as a describe method; the gateway wraps one call | Approved (placement) · method signature **Assumed** until the wheel exists | [research](research.md#t-06--the-single-analysis-collapse-lives-in-irp-integration) |
+| T-06 | The single-analysis collapse lives in irp-integration as `AnalysisManager.describe_run`; the gateway wraps one call | Approved | [research](research.md#t-06--the-single-analysis-collapse-lives-in-irp-integration) |
 | T-07 | Capture in `finalize_analysis` and `backfill_rdm_analyses`; a failed describe read blanks and continues, never fails the job | Approved | [research](research.md#t-07--capture-points-and-the-failure-rule) |
 | T-08 | One reader for `resolved` serves the expanded row and the Compare line; `_event_rate_scheme` and six dead display fields deleted | Approved | [research](research.md#t-08--one-reader-dead-fields-deleted) |
 | T-09 | Expanded-row additions ship without a rendered preview | Assumed | [research](research.md#t-09--expanded-row-layout-no-preview) |
@@ -98,8 +99,9 @@ TestPyPI wheel exists and is re-confirmed.
 
 ## Technical Context
 
-**New dependencies**: irp-integration release carrying the describe method
-(TestPyPI, pinned via `make irp-testpypi`); no new Python packages.
+**New dependencies**: irp-integration TestPyPI `0.9.0rc1`, pinned via
+`make irp-testpypi`; no new Python packages. Production deployment requires a
+compatible stable PyPI release.
 **Databases touched**: `rwb_workbench` only — JSON content of two existing
 `irp_analysis` columns. DATABRIDGE untouched.
 

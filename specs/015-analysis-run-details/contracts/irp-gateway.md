@@ -1,11 +1,10 @@
 # Contract — package and gateway additions (spec 015, T-06)
 
-## irp-integration: `analysis.describe_run(analysis_id)` — Assumed until released
+## irp-integration: `analysis.describe_run(analysis_id)` — TestPyPI `0.9.0rc1`
 
-A single-analysis read that reuses `GroupingManager._inspect`'s region, PET
+A released single-analysis read that reuses `GroupingManager._inspect`'s region, PET
 and scheme-naming code (`irp_integration/grouping.py:686–960`) and adds the
-treaty name `GroupingTreaty` drops. Name and placement are the approver's
-call at package time; the shape below is what the workbench needs.
+treaty name `GroupingTreaty` drops. The released return shape is below.
 
 Calls, all reads: `analysis.get_analysis_by_id`, `analysis.get_regions`,
 `analysis.search_analysis_treaties_paginated`, and for naming
@@ -37,9 +36,10 @@ for 2.0 and 3.0 with different names); an unnamed id yields `pet_name`
 region list returns empty `regions`; treaty and reference failures raise
 `IRPAPIError` so the caller applies its own blank-and-continue rule.
 
-Release path: change in `../irp-integration`, tests with the workbench venv
-(`PYTHONPATH=.`), regenerate `docs/api.md`, tag, TestPyPI, then
-`make irp-testpypi` here and re-confirm the signature against the wheel.
+Release evidence: `v0.9.0rc1` in `../irp-integration`, generated API docs that
+include `describe_run`, and the TestPyPI `0.9.0rc1` wheel pinned by
+`make irp-testpypi`. The production PyPI source still needs a compatible
+stable release before deployment.
 
 ## Workbench gateway: `describe_analysis_run(*, analysis_id: int) -> ResolvedRun`
 

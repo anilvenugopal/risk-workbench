@@ -54,17 +54,17 @@ workbench gateway wrapper. Every capture path in Phases 3–6 calls
 `irp_gateway.describe_analysis_run`; nothing in a story can be verified end
 to end until this phase is done.
 
-**⚠️ CRITICAL**: T003–T006 change `../irp-integration`, not this repo. The
-method's name and signature are Assumed until the wheel exists; T008
-re-confirms them.
+**⚠️ CRITICAL**: T003–T006 change `../irp-integration`, not this repo. T006
+confirmed the released method name and signature before the workbench wrapper
+was accepted.
 
 - [X] T003 [T-06] Add a single-analysis describe method (working name `describe_run(analysis_id)`) to `../irp-integration/irp_integration/analysis.py` (or `grouping.py`, the approver's call) that reuses `GroupingManager._inspect`'s region, PET and scheme-naming code (`../irp-integration/irp_integration/grouping.py:686–960`) and returns a frozen `RunDescription(analysis_id, is_group, regions: tuple[GroupingRegionFact, ...], event_rate_scheme_names: Mapping[int, str], treaties: tuple[AppliedTreaty, ...])` per `contracts/irp-gateway.md`; `AppliedTreaty` carries `treaty_id`, `treaty_number`, `treaty_name` plus the terms `GroupingTreaty` normalizes; `is_group` is true when `isGroup` is true or the detail carries an `eventRateSchemes` / `simulationSets` property; a 404 on the analysis raises, a missing region list yields empty `regions`, treaty and reference failures raise `IRPAPIError`; the method's name and placement are closed by T006
   - Proof: package unit tests in T004
 - [X] T004 [T-06] [T-02] [T-04] Add package tests for the describe method in `../irp-integration/tests/` using the trimmed captures (`own_dlm` → 23 region rows all scheme 739, name resolved from `reference_data`; `own_hd` → one PLT row, `pet_id` 12 named "RMS 2020 Time-Dependent Rates" through model version 3.0 + `get_pet_metadata_exact`, `periods` 1,978,459; `broker_dlm` → scheme 577 and two treaties with `treaty_name` "XPR_1_100_Fld"; an unnamed PET id yields `pet_name` None and no `SimulationSet` row); run with the workbench venv and `PYTHONPATH=.` per memory note `irp-integration-local-checkout-testing`
   - Proof: package tests pass under the workbench venv
-- [ ] T005 [T-06] Regenerate `../irp-integration/docs/api.md` (`uv run --no-project`), tag the release and publish to TestPyPI
+- [X] T005 [T-06] Regenerate `../irp-integration/docs/api.md` (`uv run --no-project`), tag the release and publish to TestPyPI as `v0.9.0rc1`
   - Proof: the new version appears on TestPyPI
-- [ ] T006 [T-06] Pin the release here with `make irp-testpypi`; confirm `make irp-status` names it and the describe method's name and signature match `contracts/irp-gateway.md`; if they differ, update `contracts/irp-gateway.md` and plan.md T-06's status from Assumed to Approved
+- [X] T006 [T-06] Pin TestPyPI `0.9.0rc1` here with `make irp-testpypi`; confirm `make irp-status` names it and the describe method's name and signature match `contracts/irp-gateway.md`
   - Proof: `uv run python -c "from irp_integration import IRPClient; help(IRPClient().analysis.describe_run)"` (or the released name) prints the signature; `uv.lock` records the TestPyPI version
 - [X] T007 [T-06] [P-06] [P-07] Add `ResolvedPartition`, `AppliedTreaty` and `ResolvedRun` frozen dataclasses, a `describe_analysis_run(*, analysis_id: int) -> ResolvedRun` method on the `IRPGateway` Protocol (`app/services/irp_gateway.py:315`) and `_RealGateway` (`:437`), and the module function beside `get_analysis_metadata` (`:1342`); the wrapper calls the package method once and collapses `regions` to distinct (`region_code`, `peril_code`, `framework`), names each ELT partition from `event_rate_scheme_names` and each PLT partition from `pet_name`/`periods`, sorts partitions by `region_code` then `peril_code`, and reduces treaties to one per `treaty_id` sorted by `number`; `AppliedTreaty` carries `treaty_id`, `number`, `name`, `currency` (the code), `occurrence_limit`, `risk_limit`, `attachment_point`, `retention_amount` (T-05)
   - Proof: T009 gateway tests
