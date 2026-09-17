@@ -1518,6 +1518,17 @@ def test_results_fragment_lists_own_rows_across_edms_and_rdm_groups(client):
     assert '<time data-utc="2026-08-21T00:00:00"' in html
 
 
+def test_results_delete_confirmation_separates_the_two_outcomes(client):
+    """The Results grid can hold imported rows, which Delete takes off the deal
+    without deleting them in Risk Modeler (#101)."""
+    submission_id, _, _ = _seed_results_data(client)
+
+    html = client.get(f"/submissions/{submission_id}/analyses").text
+
+    assert ("Analyses you ran are also deleted in Risk Modeler; imported ones "
+            "are only removed from this deal." in html)
+
+
 def test_results_delete_soft_deletes_and_triggers_a_refetch(client, fake_irp):
     submission_id, _, _ = _seed_results_data(client)
     html = client.get(f"/submissions/{submission_id}/analyses").text
