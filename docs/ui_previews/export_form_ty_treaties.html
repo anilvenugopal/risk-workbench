@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Export form · TY treaty selection · UI preview · Risk Workbench</title>
+<!-- 2026-09-17: the cart at TY (design note 31 D23–D26). The left analyses table is
+     unchanged from export_form.html and is not repeated here. -->
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05);
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-red-700:#8B1E2F; --c-red-200:#F0B8C0; --c-red-050:#FCECEE;
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+  --color-danger:var(--c-red-700); --color-warning:var(--c-amber-700);
+  --font-ui:"IBM Plex Sans",system-ui,sans-serif; --font-mono:"IBM Plex Mono",monospace;
+  --fs-title:20px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-6:24px; --space-7:32px;
+  --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-pill:999px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5}
+.wrap{padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--c-amber-100);border:1px solid var(--c-amber-200);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6);max-width:900px}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.states{display:flex;gap:var(--space-7);align-items:flex-start;flex-wrap:wrap}
+.state{display:flex;flex-direction:column;gap:var(--space-3)}
+.state .eyebrow{margin:0;max-width:360px}
+/* form kit */
+.wf-field{display:grid;grid-template-columns:1fr;align-items:center}
+.wf-field label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);font:inherit;width:100%;min-width:0}
+.wf-field__req{color:var(--color-danger);margin-left:2px}
+.wf-field__msg{font-size:var(--fs-caption);margin-top:3px}
+.wf-field__error{color:var(--color-danger)} .wf-field__hint{color:var(--text-tertiary)}
+.wf-field__hint--warn{color:var(--color-warning)}
+.form-banner{border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-size:var(--fs-label)}
+.form-banner--error{background:var(--c-red-050);border:1px solid var(--c-red-200);color:var(--c-red-700)}
+.btn-sm{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);border:1px solid var(--border-default);background:transparent;color:var(--text-secondary);text-decoration:none;cursor:pointer;font:inherit}
+.btn-sm--primary{background:var(--c-navy-700);border-color:var(--c-navy-700);color:#fff}
+.btn-sm:disabled{opacity:.5;cursor:not-allowed}
+.status-controls{display:flex;gap:var(--space-2);align-items:center}
+.status-controls .wf-field__hint{margin:0}
+/* the cart (details.css) */
+.export-cart{width:360px;display:flex;flex-direction:column;gap:var(--space-2)}
+.bo-cart{border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden;background:var(--surface-panel)}
+.bo-cart__head{background:var(--surface-recessed);border-bottom:1px solid var(--border-default);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);padding:var(--space-2) var(--space-3)}
+.export-cart__rows{max-height:min(60vh,560px);overflow-y:auto}
+.bo-cart-row{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-faint);display:flex;flex-direction:column;gap:2px}
+.bo-cart-row:last-child{border-bottom:none}
+.bo-cart-row__top{display:flex;align-items:baseline;gap:var(--space-2)}
+.bo-cart-row__label{font-size:var(--fs-label);font-weight:var(--fw-semibold)}
+.bo-cart-row__remove{margin-left:auto;font:inherit;font-size:var(--fs-caption);color:var(--text-tertiary);background:none;border:none;cursor:pointer;flex:none}
+.bo-cart-row__meta{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.export-cart-row__name{display:flex;flex-direction:column;gap:2px;font-size:var(--fs-caption);color:var(--text-tertiary)}
+/* NEW — the treaty list inside a cart row at TY */
+.treaty-pick{margin-top:var(--space-1);border-top:1px solid var(--border-faint)}
+.treaty-pick__head{display:flex;align-items:baseline;gap:var(--space-2);padding:var(--space-1) 0;font-size:var(--fs-caption);color:var(--text-tertiary)}
+.treaty-pick__head .count{font-variant-numeric:tabular-nums}
+.treaty-pick__head .links{margin-left:auto}
+.treaty-pick__head .links a{color:var(--text-tertiary);text-decoration:none}
+.treaty-pick__head .links a:hover{color:var(--text-primary);text-decoration:underline}
+.treaty-row{display:grid;grid-template-columns:18px 1fr;column-gap:var(--space-2);padding:var(--space-1) 0;border-top:1px solid var(--border-faint)}
+.treaty-row input[type=checkbox]{margin:3px 0 0}
+.treaty-row__id{display:flex;align-items:baseline;gap:var(--space-2);font-size:var(--fs-label);line-height:1.3;cursor:pointer;min-width:0}
+.treaty-row__num{font-weight:var(--fw-semibold);font-family:var(--font-mono);font-size:12px;flex:none}
+.treaty-row__name{color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.treaty-row__type{margin-left:auto;flex:none;font-size:var(--fs-caption);color:var(--text-tertiary)}
+.treaty-row__terms{grid-column:2;font-size:var(--fs-caption);color:var(--text-tertiary);font-variant-numeric:tabular-nums}
+.treaty-row__terms b{font-weight:var(--fw-medium);color:var(--text-secondary)}
+.treaty-row__name-field{grid-column:2;margin-top:var(--space-1)}
+.treaty-row--off .treaty-row__id,.treaty-row--off .treaty-row__terms,.treaty-row--off .treaty-row__num,.treaty-row--off .treaty-row__name{color:var(--text-tertiary)}
+.treaty-row--off .treaty-row__terms b{color:var(--text-tertiary)}
+.treaty-row--none{font-size:var(--fs-caption);color:var(--color-warning);padding:var(--space-1) 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="scaffold-note"><strong>UI PREVIEW — spec 016 export cart at TY</strong> (/submissions/{id}/exports/new, the
+    #export-fields fragment). When the perspective is TY each cart row lists the treaties the analysis ran with, from
+    <code>loss_results.treaties</code>. Nothing is ticked until the analyst ticks it (note 31 D23). A ticked treaty
+    shows its own Data name input (D24); blank means analysis name + treaty number, shown as the placeholder (D20).
+    Terms per treaty: type, then <b>risk limit · attachment</b> side by side so 3M · 2M reads as a 3x2, then the
+    occurrence limit, in millions with no symbol (D25, D26). Export is disabled until every analysis in the cart has at
+    least one treaty ticked. The left analyses table is unchanged (export_form.html).</div>
+
+  <div class="states">
+
+    <div class="state">
+      <div class="eyebrow">State 1 — TY just picked: treaties listed, nothing ticked, Export disabled</div>
+      <div class="export-cart">
+        <div class="wf-field"><label>PERSPECTIVE <span class="wf-field__req">*</span></label>
+          <select class="wf-field__input"><option>GU</option><option>GR</option><option selected>TY</option></select>
+          <div class="wf-field__msg wf-field__hint">TY writes one loss set per ticked treaty, per analysis.</div></div>
+        <div class="bo-cart">
+          <div class="bo-cart__head">Selected analyses (2)</div>
+          <div class="export-cart__rows">
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top"><span class="bo-cart-row__label">CRE_US Southeast Wind_US HU DLM v25</span>
+                <button type="button" class="bo-cart-row__remove">remove</button></div>
+              <div class="treaty-pick">
+                <div class="treaty-pick__head"><span>Treaties</span><span class="count">0 of 3 ticked</span>
+                  <span class="links"><a href="#">all</a> · <a href="#">none</a></span></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">PR1</span><span class="treaty-row__name">Per Risk Layer 1</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>3M</b> · att <b>2M</b> · occ <b>9M</b></div></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">PR2</span><span class="treaty-row__name">Per Risk Layer 2</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>5M</b> · att <b>5M</b> · occ <b>10M</b></div></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">FAC-0417</span><span class="treaty-row__name">Facultative — Riverside Tower</span><span class="treaty-row__type">Facultative</span></label>
+                  <div class="treaty-row__terms">risk <b>1.5M</b> · att <b>0.25M</b> · occ —</div></div>
+              </div>
+            </div>
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top"><span class="bo-cart-row__label">GC_AmFam_HU_2026</span>
+                <button type="button" class="bo-cart-row__remove">remove</button></div>
+              <div class="treaty-pick">
+                <div class="treaty-pick__head"><span>Treaties</span><span class="count">0 of 2 ticked</span>
+                  <span class="links"><a href="#">all</a> · <a href="#">none</a></span></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">1</span><span class="treaty-row__name">treaty one</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>3M</b> · att <b>2M</b> · occ <b>9M</b></div></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">2</span><span class="treaty-row__name">treaty 2</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>5M</b> · att <b>5M</b> · occ <b>10M</b></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="status-controls"><button class="btn-sm btn-sm--primary" disabled>Export</button> <a class="btn-sm" href="#">Cancel</a>
+          <span class="wf-field__msg wf-field__hint">Tick at least one treaty in each analysis.</span></div>
+      </div>
+    </div>
+
+    <div class="state">
+      <div class="eyebrow">State 2 — treaties ticked, data names typed beside the terms they encode</div>
+      <div class="export-cart">
+        <div class="wf-field"><label>PERSPECTIVE <span class="wf-field__req">*</span></label>
+          <select class="wf-field__input"><option>GU</option><option>GR</option><option selected>TY</option></select>
+          <div class="wf-field__msg wf-field__hint">TY writes one loss set per ticked treaty, per analysis.</div></div>
+        <div class="bo-cart">
+          <div class="bo-cart__head">Selected analyses (2)</div>
+          <div class="export-cart__rows">
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top"><span class="bo-cart-row__label">CRE_US Southeast Wind_US HU DLM v25</span>
+                <button type="button" class="bo-cart-row__remove">remove</button></div>
+              <div class="treaty-pick">
+                <div class="treaty-pick__head"><span>Treaties</span><span class="count">2 of 3 ticked</span>
+                  <span class="links"><a href="#">all</a> · <a href="#">none</a></span></div>
+                <div class="treaty-row"><input type="checkbox" checked>
+                  <label class="treaty-row__id"><span class="treaty-row__num">PR1</span><span class="treaty-row__name">Per Risk Layer 1</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>3M</b> · att <b>2M</b> · occ <b>9M</b></div>
+                  <label class="export-cart-row__name treaty-row__name-field">Data name
+                    <input class="wf-field__input" type="text" value="AmFam HU 3x2 2026"></label></div>
+                <div class="treaty-row"><input type="checkbox" checked>
+                  <label class="treaty-row__id"><span class="treaty-row__num">PR2</span><span class="treaty-row__name">Per Risk Layer 2</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>5M</b> · att <b>5M</b> · occ <b>10M</b></div>
+                  <label class="export-cart-row__name treaty-row__name-field">Data name
+                    <input class="wf-field__input" type="text" placeholder="CRE_US Southeast Wind_US HU DLM v25 PR2"></label></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">FAC-0417</span><span class="treaty-row__name">Facultative — Riverside Tower</span><span class="treaty-row__type">Facultative</span></label>
+                  <div class="treaty-row__terms">risk <b>1.5M</b> · att <b>0.25M</b> · occ —</div></div>
+              </div>
+              <div class="wf-field__msg wf-field__hint wf-field__hint--warn">Already exported for TY (1 time), last 2026-09-16 16:02 by bbailey@premiumiq.com · loaded — <a href="#">open that submission's exports</a>. Exporting again creates a new data set.</div>
+            </div>
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top"><span class="bo-cart-row__label">GC_AmFam_HU_2026</span>
+                <button type="button" class="bo-cart-row__remove">remove</button></div>
+              <div class="treaty-pick">
+                <div class="treaty-pick__head"><span>Treaties</span><span class="count">1 of 2 ticked</span>
+                  <span class="links"><a href="#">all</a> · <a href="#">none</a></span></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">1</span><span class="treaty-row__name">treaty one</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>3M</b> · att <b>2M</b> · occ <b>9M</b></div></div>
+                <div class="treaty-row"><input type="checkbox" checked>
+                  <label class="treaty-row__id"><span class="treaty-row__num">2</span><span class="treaty-row__name">treaty 2</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>5M</b> · att <b>5M</b> · occ <b>10M</b></div>
+                  <label class="export-cart-row__name treaty-row__name-field">Data name
+                    <input class="wf-field__input" type="text" value="GC AmFam HU 5x5 2026"></label></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="status-controls"><button class="btn-sm btn-sm--primary">Export</button> <a class="btn-sm" href="#">Cancel</a></div>
+      </div>
+    </div>
+
+    <div class="state">
+      <div class="eyebrow">State 3 — submitted with an analysis whose treaties are all unticked (server re-render, 422)</div>
+      <div class="export-cart">
+        <div class="form-banner form-banner--error">Tick at least one treaty for GC_AmFam_HU_2026.</div>
+        <div class="wf-field"><label>PERSPECTIVE <span class="wf-field__req">*</span></label>
+          <select class="wf-field__input"><option>GU</option><option>GR</option><option selected>TY</option></select>
+          <div class="wf-field__msg wf-field__hint">TY writes one loss set per ticked treaty, per analysis.</div></div>
+        <div class="bo-cart">
+          <div class="bo-cart__head">Selected analyses (2)</div>
+          <div class="export-cart__rows">
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top"><span class="bo-cart-row__label">CRE_US Southeast Wind_US HU DLM v25</span>
+                <button type="button" class="bo-cart-row__remove">remove</button></div>
+              <div class="treaty-pick">
+                <div class="treaty-pick__head"><span>Treaties</span><span class="count">1 of 3 ticked</span>
+                  <span class="links"><a href="#">all</a> · <a href="#">none</a></span></div>
+                <div class="treaty-row"><input type="checkbox" checked>
+                  <label class="treaty-row__id"><span class="treaty-row__num">PR1</span><span class="treaty-row__name">Per Risk Layer 1</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>3M</b> · att <b>2M</b> · occ <b>9M</b></div>
+                  <label class="export-cart-row__name treaty-row__name-field">Data name
+                    <input class="wf-field__input" type="text" value="AmFam HU 3x2 2026"></label></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">PR2</span><span class="treaty-row__name">Per Risk Layer 2</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>5M</b> · att <b>5M</b> · occ <b>10M</b></div></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">FAC-0417</span><span class="treaty-row__name">Facultative — Riverside Tower</span><span class="treaty-row__type">Facultative</span></label>
+                  <div class="treaty-row__terms">risk <b>1.5M</b> · att <b>0.25M</b> · occ —</div></div>
+              </div>
+            </div>
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top"><span class="bo-cart-row__label">GC_AmFam_HU_2026</span>
+                <button type="button" class="bo-cart-row__remove">remove</button></div>
+              <div class="treaty-pick">
+                <div class="treaty-pick__head"><span>Treaties</span><span class="count">0 of 2 ticked</span>
+                  <span class="links"><a href="#">all</a> · <a href="#">none</a></span></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">1</span><span class="treaty-row__name">treaty one</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>3M</b> · att <b>2M</b> · occ <b>9M</b></div></div>
+                <div class="treaty-row treaty-row--off"><input type="checkbox">
+                  <label class="treaty-row__id"><span class="treaty-row__num">2</span><span class="treaty-row__name">treaty 2</span><span class="treaty-row__type">Per risk</span></label>
+                  <div class="treaty-row__terms">risk <b>5M</b> · att <b>5M</b> · occ <b>10M</b></div></div>
+                <div class="treaty-row--none">No treaty ticked.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="status-controls"><button class="btn-sm btn-sm--primary" disabled>Export</button> <a class="btn-sm" href="#">Cancel</a>
+          <span class="wf-field__msg wf-field__hint">Tick at least one treaty in each analysis.</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="eyebrow">Notes</div>
+  <ul style="font-size:var(--fs-label);color:var(--text-secondary);max-width:760px;margin:0;padding-left:1.2em">
+    <li>Any other perspective: the cart row is exactly as today (one Data name per analysis, AAL line). The treaty list appears only at TY.</li>
+    <li>Type is Risk Modeler's <code>treatyType</code> code shown as a word (WORK → Per risk, CATA → Cat, QUOT → Quota share, SURP → Surplus, CORP → Corporate cat, STOP → Stop loss, NCAT → Non-cat); the code itself when unknown.</li>
+    <li>Values are Risk Modeler's <code>riskLimit</code>, <code>attachmentPoint</code>, <code>occurrenceLimit</code> in millions, one decimal when not whole, "—" when absent. Currency is the analysis currency already shown in the table.</li>
+    <li>Ticks and typed names travel with every fragment re-render, as the analysis data names do today, so a tick made before the next change is not lost.</li>
+    <li>A group analysis lists each treaty once, by number and name, whatever member treaty IDs it carries.</li>
+  </ul>
+</div>
+</body>
+</html>
