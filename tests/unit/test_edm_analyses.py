@@ -344,6 +344,17 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     assert "data-analyses-section" in html
 
 
+def test_merged_section_delete_confirmation_names_risk_modeler(client):
+    """Every deletable row on the EDM grid was run from this EDM, so Delete
+    reaches Risk Modeler too — unlike the submission's Results grid (#101)."""
+    edm_id = _seed_edm()
+    _seed_executed(edm_id=edm_id, name="Ready one", loss_results=_extract())
+
+    html = client.get(f"/edms/{edm_id}/analyses").text
+
+    assert "They are also deleted in Risk Modeler." in html
+
+
 def test_merged_section_status_filter_rides_the_poll_url(client):
     edm_id = _seed_edm()
     _seed_executed(edm_id=edm_id, name="Ready one", loss_results=_extract(),

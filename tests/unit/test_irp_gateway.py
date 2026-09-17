@@ -787,3 +787,30 @@ def test_the_fake_and_the_real_wrapper_collapse_one_description_alike():
 
     assert (fake.describe_analysis_run(analysis_id=5733173)
             == gw.describe_analysis_run(analysis_id=5733173))
+
+
+# ── resolve_app_analysis_id (#101) ──────────────────────────────────────────────
+
+def _search_gw(rows):
+    calls = []
+
+    def search_analyses_paginated(filter=""):
+        calls.append(filter)
+        return rows
+
+    gw = _gw(analysis=SimpleNamespace(
+        search_analyses_paginated=search_analyses_paginated))
+    return gw, calls
+
+
+def test_resolve_app_analysis_id_returns_the_platform_id_on_one_match():
+    gw, calls = _search_gw([{"analysisId": 90001, "appAnalysisId": 35774}])
+
+    assert gw.resolve_app_analysis_id(app_analysis_id=35774) == "90001"
+    assert calls == ["appAnalysisId=35774"]
+
+
+def test_resolve_app_analysis_id_raises_on_no_match():
+    gw, _ = _search_gw([])
+    with pytest.raises(LookupError):
+        gw.resolve_app_analysis_id(app_analysis_id=99999)
