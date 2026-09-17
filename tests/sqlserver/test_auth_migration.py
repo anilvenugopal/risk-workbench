@@ -131,3 +131,49 @@ class TestSessionLifecycle:
             "DELETE FROM app_user WHERE id = :uid", {"uid": user_id},
             connection="WORKBENCH",
         )
+
+
+class TestUserAdminService:
+    def test_create_and_reset_password_user(self):
+        import uuid
+
+        from app.services.user_admin_service import create_user, reset_password
+
+        email = f"cli_{uuid.uuid4().hex[:12]}@example.com"
+        user_id = create_user(email, "CLI Administrator", "admin", "Temporary123")
+        try:
+            row = execute(
+                """
+                SELECT u.email, u.password_hash, u.must_change_password, ur.role_code
+                FROM app_user u
+                JOIN user_role ur ON ur.user_id = u.id
+                WHERE u.id = :user_id
+                """,
+                {"user_id": user_id},
+                connection="WORKBENCH",
+            )[0]
+            assert row["email"] == email
+            assert row["password_hash"].startswith("$2")
+            assert row["must_change_password"] is True
+            assert row["role_code"] == "admin"
+
+            original_hash = row["password_hash"]
+            reset_password(user_id, "Replacement123")
+            changed = execute(
+                "SELECT password_hash, must_change_password FROM app_user WHERE id = :user_id",
+                {"user_id": user_id},
+                connection="WORKBENCH",
+            )[0]
+            assert changed["password_hash"] != original_hash
+            assert changed["must_change_password"] is True
+        finally:
+            execute_command(
+                "DELETE FROM user_role WHERE user_id = :user_id",
+                {"user_id": user_id},
+                connection="WORKBENCH",
+            )
+            execute_command(
+                "DELETE FROM app_user WHERE id = :user_id",
+                {"user_id": user_id},
+                connection="WORKBENCH",
+            )
