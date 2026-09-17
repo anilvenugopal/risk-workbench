@@ -408,9 +408,6 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
                 "characters.")
     export_id = str(uuid.uuid4())
     now = _utcnow()
-    # Where the results came from and where they were requested: the Risk Modeler
-    # web UI origin and the Workbench database, both written through to dbo.Data
-    # so a loaded row names its source without the Workbench (9/11 D11, D12).
     server = _rm_ui_root()
     database = get_connection_config("WORKBENCH")["database"] or None
     with get_connection("LOSS") as conn, conn.begin():

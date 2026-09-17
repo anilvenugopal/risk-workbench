@@ -320,10 +320,13 @@ On that wheel:
   would otherwise write the archive to local disk under an unmounted share
   path.
 
-**Open evidence**: no export job has been submitted and downloaded end to
-end by this codebase. The IRP sandbox test in [quickstart.md](quickstart.md)
-is the spike; it is opt-in and needs credentials in `linux-box`. T-23 stays
-Assumed until it passes.
+**Observed result (T-23 Approved 2026-09-16)**: the running stack has
+submitted, downloaded, and staged real archives since 2026-09-10 (the
+manifests 7 and 8 failures that day were the `engine_type` truncation at
+stage, after a successful download), and loaded them in every design session
+since (9/11, 9/14, 9/15, 9/16; note 31 §5 shows RiskLink 23 analyses loaded
+with historical rows found). `tests/irp/test_export_download.py` is the
+repeatable form of the same check, opt-in with a finished sandbox analysis.
 
 ## R8 — Loss repository DDL lives in two files; `bootstrap-loss` is new (T-22)
 
