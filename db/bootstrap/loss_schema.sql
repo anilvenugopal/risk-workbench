@@ -1,13 +1,33 @@
 -- The Workbench's stage schema in CIC's loss repository (CRE_Trial_ELT_Repository;
 -- dev mirror rwb_loss). Installed by a db_owner login; the Workbench never runs DDL
 -- against CIC. Re-running the file is safe: it creates the tables only when they
--- are absent and replaces the procedure. A later release that changes a table
--- ships its own ALTER TABLE block. Names no database, so the same file installs in
--- dev and at CIC.
--- Contract: specs/014-results-export/contracts/load-procedure.md.
+-- are absent and replaces the procedure. This file is the definitive schema and
+-- installs a fresh repository by itself. A release that alters an installed table
+-- also ships one numbered script in db/bootstrap/changes/; the DBA runs this file
+-- first, then the change scripts above MAX(version) in stage.rwb_loss_schema_version.
+-- Names no database, so the same file installs in dev and at CIC.
+-- Contract: specs/014-results-export/contracts/load-procedure.md §4.
 -- Schema:   specs/014-results-export/data-model.md §4.
 
 IF SCHEMA_ID('stage') IS NULL EXEC('CREATE SCHEMA stage AUTHORIZATION dbo');
+GO
+
+-- Stamped by a fresh install (no manifest table yet) with this file's version, and
+-- by each change script with its own number. A repository installed before this
+-- table existed gets the empty table and runs every change script.
+IF OBJECT_ID('stage.rwb_loss_schema_version') IS NULL
+BEGIN
+    CREATE TABLE stage.rwb_loss_schema_version (
+        version     INT           NOT NULL
+            CONSTRAINT pk_rwb_loss_schema_version PRIMARY KEY,
+        applied_at  DATETIME2     NOT NULL
+            CONSTRAINT df_rwb_loss_schema_version_applied_at DEFAULT SYSUTCDATETIME(),
+        description NVARCHAR(200) NOT NULL
+    );
+    IF OBJECT_ID('stage.rwb_loss_result_manifest') IS NULL
+        INSERT INTO stage.rwb_loss_schema_version (version, description)
+        VALUES (1, 'fresh install: engine_type VARCHAR(5) with GROUP');
+END
 GO
 
 IF OBJECT_ID('stage.rwb_loss_result_manifest') IS NULL

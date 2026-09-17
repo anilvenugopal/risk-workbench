@@ -320,3 +320,24 @@ def test_the_worker_time_limit_stamps_the_row_and_re_raises(staging, monkeypatch
     m = _manifest(staging)
     assert m["stage_status"] == "failed"
     assert m["error_message"] == "the run exceeded the worker time limit"
+
+
+def _set_schema_version(version):
+    execute_command("DELETE FROM stage.rwb_loss_schema_version", {}, connection="LOSS")
+    if version is not None:
+        execute_command("INSERT INTO stage.rwb_loss_schema_version (version, description) "
+                        "VALUES (:v, 'test')", {"v": version}, connection="LOSS")
+
+
+def test_a_repository_behind_this_release_fails_before_any_write(staging, fake_irp):
+    _set_schema_version(None)
+    _fail(staging, "loss repository is at stage schema version 0; this release needs "
+                   f"{export_jobs.REQUIRED_LOSS_SCHEMA_VERSION}: apply db/bootstrap/changes/ "
+                   f"through {export_jobs.REQUIRED_LOSS_SCHEMA_VERSION:03d}")
+    assert fake_irp.export_downloads == []
+
+
+def test_a_repository_ahead_of_this_release_stages(staging):
+    _set_schema_version(export_jobs.REQUIRED_LOSS_SCHEMA_VERSION + 1)
+    _run_stage()
+    assert _manifest(staging)["stage_status"] == "staged"

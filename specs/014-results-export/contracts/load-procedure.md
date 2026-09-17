@@ -89,9 +89,28 @@ Returns `"WITH (READUNCOMMITTED)"` when the resolved engine dialect is
   `dbo.RMS_HistoricalRDS`.
 - Re-runnable: `IF SCHEMA_ID('stage') IS NULL CREATE SCHEMA stage AUTHORIZATION dbo`;
   `IF OBJECT_ID(...) IS NULL CREATE TABLE ...`; `CREATE OR ALTER PROCEDURE`.
-  The table guards create a table only when it is absent, so the file
-  installs the first version of each table; a later release that changes a
-  table ships an explicit `ALTER TABLE` block in the same file.
+  The table guards create a table only when it is absent, so the file alone
+  installs a fresh repository and never alters an installed table.
+- **Versions.** `stage.rwb_loss_schema_version` (`version INT` PK,
+  `applied_at`, `description`) records what is installed;
+  `SELECT MAX(version) FROM stage.rwb_loss_schema_version` names it. A fresh
+  install of `loss_schema.sql` stamps the file's version (the number of the
+  newest script in `db/bootstrap/changes/`). Each release that alters an
+  installed table ships one numbered, re-runnable script there
+  (`001-engine-type-varchar5.sql`, …), and each script stamps its own
+  number. The stage worker refuses to stage an analysis while `MAX(version)`
+  is below the release's `REQUIRED_LOSS_SCHEMA_VERSION`
+  (`app/workers/export_jobs.py`), naming both numbers; a repository ahead of
+  the release passes.
+- **Fresh install:** run `loss_schema.sql`; nothing else.
+- **Upgrade:** run `loss_schema.sql` (it replaces the procedure and creates
+  the version table when absent, stamping nothing), then every script in
+  `db/bootstrap/changes/` numbered above `MAX(version)`, in order, then
+  re-check `MAX(version)`. `tests/sqlserver/test_loss_schema_changes.py`
+  asserts that a fresh install and an upgrade end at the same columns and
+  check constraints. In dev, `make bootstrap-loss` is the upgrade: it applies
+  `loss_schema.sql` and then every change script, so an existing `rwb_loss`
+  keeps its manifests and gets its version stamped.
 - The file names no database and nothing else that is environment-specific;
   it installs unchanged in dev and at CIC (T-21). The procedure reads
   `dbo.Lookup_RMS_HistoricalRDS` by two-part name under ownership chaining,

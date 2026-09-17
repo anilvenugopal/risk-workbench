@@ -65,6 +65,20 @@ No schema change.
 
 All DDL in `db/bootstrap/loss_schema.sql`, idempotent, `CREATE SCHEMA stage
 AUTHORIZATION dbo`. Categorical columns carry `CHECK` constraints (T-19).
+A release that alters an installed table also ships one numbered script in
+`db/bootstrap/changes/` (contracts/load-procedure.md §4, O-12).
+
+### 4.0 `stage.rwb_loss_schema_version` — what is installed
+
+| Column | Type | Written by |
+|---|---|---|
+| `version` | `INT` PK | A fresh install of `loss_schema.sql` (the file's version); each change script (its own number) |
+| `applied_at` | `DATETIME2` NOT NULL DEFAULT `SYSUTCDATETIME()` | — |
+| `description` | `NVARCHAR(200)` NOT NULL | The script |
+
+`MAX(version)` is the installed version. The stage worker reads it once per
+analysis and fails the stage step when it is below
+`export_jobs.REQUIRED_LOSS_SCHEMA_VERSION` (contracts/jobs.md §4 step 0).
 
 ### 4.1 `stage.rwb_loss_result_manifest` — one row per analysis, grouped by export
 

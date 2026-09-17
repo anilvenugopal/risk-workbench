@@ -44,6 +44,9 @@ ELT_COLUMN_MAP = {
 }
 _SIX_HOURS_MS = 6 * 60 * 60 * 1000
 _CHUNK_SUFFIX = re.compile(r"_(\d+)\.parquet$", re.IGNORECASE)
+# The highest script number in db/bootstrap/changes/, which loss_schema.sql stamps
+# on a fresh install. A repository below it fails the stage step before any write.
+REQUIRED_LOSS_SCHEMA_VERSION = 1
 
 
 class StageFailure(Exception):
@@ -130,6 +133,16 @@ def _remove_dir(path: Path) -> None:
         pass
     except OSError:
         logger.exception("could not remove working directory %s", path)
+
+
+def _check_loss_schema_version() -> None:
+    installed = execute_one("SELECT MAX(version) AS v FROM stage.rwb_loss_schema_version",
+                            {}, connection="LOSS")["v"]
+    if installed is None or int(installed) < REQUIRED_LOSS_SCHEMA_VERSION:
+        raise StageFailure(
+            f"loss repository is at stage schema version {installed or 0}; this release "
+            f"needs {REQUIRED_LOSS_SCHEMA_VERSION}: apply db/bootstrap/changes/ through "
+            f"{REQUIRED_LOSS_SCHEMA_VERSION:03d}")
 
 
 def _discard_partial_stage(manifest_id: int, work_dir: Path) -> None:
@@ -317,6 +330,7 @@ def _stage_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
         # Every exit but success stamps the row: Retry is offered from the
         # manifest alone, so an unstamped failure would be stuck for good.
         try:
+            _check_loss_schema_version()
             _discard_partial_stage(manifest_id, _working_dir(export_id, analysis_id))
             _stage(manifest, context["irp_job_id"])
         except TimeLimitExceeded:
@@ -418,7 +432,7 @@ def run_pending(*, worker_id: str = "worker") -> int:
 
 
 __all__ = [
-    "ELT_COLUMN_MAP", "StageFailure",
+    "ELT_COLUMN_MAP", "REQUIRED_LOSS_SCHEMA_VERSION", "StageFailure",
     "submit_results_export", "stage_results_export", "load_results_export",
     "run_one", "run_pending",
 ]
