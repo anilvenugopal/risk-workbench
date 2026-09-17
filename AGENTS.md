@@ -102,7 +102,7 @@ Read these before any implementation work:
 
 - [docs/PRD.md](docs/PRD.md) — product requirements, feature scope, iteration roadmap
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — canonical entity and relationship definitions
-- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v3.0.0); all compliance gates
+- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v4.1.0); all compliance gates
 
 ## Specification Workflow
 
@@ -177,7 +177,7 @@ Full rules in the constitution. Key points for implementation:
 2. **No row-level security** (CR-003, Article 6 v3.0.0): no `customer_id`, no `apply_scope()`, no `user_customer_access`. Every authenticated analyst sees every deal. `submission.assigned_analyst_id` is a soft "my submissions" owner, not an access gate. Roles gate *functions*, never *rows*.
 3. **Status**: `submission.status_code` is event-sourced (insert `submission_status_event` + stamp the cached column in one transaction via `get_connection("WORKBENCH")` with an explicit `conn.begin()`). All other status columns are updated in place.
 4. **Categoricals**: kind tables (`*_kind`) for all internal values. Plain VARCHAR for external-mirror columns only (listed in Article 3 carve-out).
-5. **IRP**: submission on request path is permitted. Polling and result work MUST be in the poller/workers — never in route handlers. `poll_*_to_completion` FORBIDDEN in poller; use `get_*` single-status-check only.
+5. **IRP**: submission on request path is permitted, as is a bounded, single-analysis `get_analysis_metadata` read that answers a point-of-action validation the analyst is waiting on (Art. 11 v4.1.0). All other polling and result work MUST be in the poller/workers — never in route handlers. `poll_*_to_completion` FORBIDDEN in poller; use `get_*` single-status-check only.
 6. **Frontend**: FastAPI + Jinja2 + HTMX. No SPA. `hx-boost` for top-level nav. Alpine.js only for small client slivers.
 7. **Auth**: `AUTH_MODE=password` is a gated v1 fallback; never reachable in production. Session cookie contains session ID only.
 8. **Approved plans are immutable**: when an async operation follows a user preview or confirmation, the worker executes the plan the user approved. Persist it and run it — never silently recompute inputs at execution time.
