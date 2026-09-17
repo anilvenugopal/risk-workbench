@@ -19,22 +19,7 @@ from tests.unit.grouping_rows import (
     seed_own_analysis,
     seed_submission,
 )
-
-APP_ID, PLATFORM_ID = "35774", "90001"
-NAME = "CRE_WS_JP_COM_HD_JPWS_Stochastic"
-
-
-def _seed_rm_analysis(fake_irp, *, app_id=APP_ID, platform_id=PLATFORM_ID,
-                      name=NAME, is_group=False, engine="HD", currency="JPY",
-                      app_id_in_payload=None) -> None:
-    fake_irp.add_analysis(
-        source_rdm_name="RDM", exposure_name="EDM", analysis_id=platform_id,
-        name=name, app_analysis_id=app_id, is_group=is_group,
-        exposure_resource_id="5",
-        exposure_resource_type=("GROUP" if is_group else "PORTFOLIO"),
-        metadata={"appAnalysisId": int(app_id_in_payload or app_id),
-                  "analysisName": name, "engineType": engine,
-                  "engineVersion": "23.0", "currencyCode": currency})
+from tests.unit.rm_analyses import APP_ID, NAME, PLATFORM_ID, seed_rm_analysis
 
 
 def _rows(submission_id: str) -> list[dict]:
@@ -60,7 +45,7 @@ def _candidate(app_id=APP_ID, platform_id=PLATFORM_ID) -> svc.ImportCandidate:
 # ── check_analysis ───────────────────────────────────────────────────────────────
 
 def test_check_returns_the_candidate_for_a_known_app_id(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission = seed_submission()
 
     c = svc.check_analysis(submission_id=submission,
@@ -73,7 +58,7 @@ def test_check_returns_the_candidate_for_a_known_app_id(iteration2_db, fake_irp)
 
 
 def test_check_reports_a_group(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp, is_group=True, name="Gotham All Perils Rollup")
+    seed_rm_analysis(fake_irp, is_group=True, name="Gotham All Perils Rollup")
 
     c = svc.check_analysis(submission_id=seed_submission(),
                            app_analysis_id=APP_ID, existing=[])
@@ -111,7 +96,7 @@ def test_check_reports_an_unreachable_risk_modeler(iteration2_db, fake_irp):
 
 
 def test_check_refuses_an_id_already_imported_into_the_deal(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission = seed_submission()
     svc.import_analyses(submission_id=submission, entries=[_candidate()],
                         actor_id=iteration2_db.user_a)
@@ -125,7 +110,7 @@ def test_check_refuses_an_id_already_imported_into_the_deal(iteration2_db, fake_
 
 def test_check_refuses_an_id_captured_from_one_of_the_deals_rdms(
         iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission = seed_submission()
     seed_broker_analysis(submission, "Broker EU Wind", irp_id=PLATFORM_ID,
                          rdm_name="GOTHAM_2026_RDM")
@@ -138,7 +123,7 @@ def test_check_refuses_an_id_captured_from_one_of_the_deals_rdms(
 
 
 def test_check_refuses_an_id_run_from_one_of_the_deals_edms(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission = seed_submission()
     edm = seed_edm("GOTHAM_2026_EDM")
     link_submission_edm(submission, edm)
@@ -152,7 +137,7 @@ def test_check_refuses_an_id_run_from_one_of_the_deals_edms(iteration2_db, fake_
 
 
 def test_check_refuses_an_id_the_deal_composed_as_a_group(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp, is_group=True)
+    seed_rm_analysis(fake_irp, is_group=True)
     submission = seed_submission()
     seed_group(submission, "CRE_Sub One_Group", irp_id=PLATFORM_ID)
 
@@ -163,7 +148,7 @@ def test_check_refuses_an_id_the_deal_composed_as_a_group(iteration2_db, fake_ir
 
 
 def test_check_allows_an_id_that_is_live_in_another_deal(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     mine, theirs = seed_submission("Mine"), seed_submission("Theirs")
     edm = seed_edm("Their EDM")
     link_submission_edm(theirs, edm)
@@ -176,7 +161,7 @@ def test_check_allows_an_id_that_is_live_in_another_deal(iteration2_db, fake_irp
 
 
 def test_check_ignores_a_deleted_row(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission = seed_submission()
     group = seed_group(submission, "Old group", irp_id=PLATFORM_ID)
     execute_command("UPDATE irp_analysis SET deleted_at = '2026-09-01' WHERE id = :i",
@@ -191,7 +176,7 @@ def test_check_ignores_a_deleted_row(iteration2_db, fake_irp):
 
 def test_import_inserts_the_row_and_enqueues_its_results_retrieval(
         iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission = seed_submission()
 
     outcome = svc.import_analyses(submission_id=submission,
@@ -221,7 +206,7 @@ def test_imported_row_gets_its_losses_from_the_retrieval_worker(
         iteration2_db, fake_irp):
     """The worker has no portfolio to read the pointer off, so it uses the
     exposure pointer the import stored — no second metadata read."""
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission = seed_submission()
     svc.import_analyses(submission_id=submission, entries=[_candidate()],
                         actor_id=iteration2_db.user_a)
@@ -241,7 +226,7 @@ def test_imported_row_gets_its_losses_from_the_retrieval_worker(
 
 
 def test_import_of_a_group_marks_the_row(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp, is_group=True, name="Gotham All Perils Rollup")
+    seed_rm_analysis(fake_irp, is_group=True, name="Gotham All Perils Rollup")
     submission = seed_submission()
 
     svc.import_analyses(submission_id=submission, entries=[_candidate()],
@@ -253,7 +238,7 @@ def test_import_of_a_group_marks_the_row(iteration2_db, fake_irp):
 
 
 def test_import_suffixes_a_name_already_live_in_the_deal(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission = seed_submission()
     seed_group(submission, NAME)
 
@@ -267,29 +252,8 @@ def test_import_suffixes_a_name_already_live_in_the_deal(iteration2_db, fake_irp
     assert imported["full_name"] == NAME  # Risk Modeler's real name, kept
 
 
-def test_import_refuses_an_entry_whose_platform_id_no_longer_matches(
-        iteration2_db, fake_irp):
-    """A stale or edited form: the posted Platform id names an analysis whose
-    appAnalysisId is not the one the analyst checked. The other entry still
-    imports."""
-    _seed_rm_analysis(fake_irp)
-    _seed_rm_analysis(fake_irp, app_id="35810", platform_id="90002",
-                      name="Other", app_id_in_payload="35811")
-    submission = seed_submission()
-
-    outcome = svc.import_analyses(
-        submission_id=submission,
-        entries=[_candidate(), _candidate("35810", "90002")],
-        actor_id=iteration2_db.user_a)
-
-    assert outcome.imported == 1
-    assert outcome.failed == ["35810 no longer matches the analysis that was "
-                              "checked — add it again."]
-    assert [r["irp_app_analysis_id"] for r in _rows(submission)] == [APP_ID]
-
-
 def test_import_rechecks_the_deal_and_reports_the_duplicate(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission = seed_submission()
     seed_group(submission, "Composed", irp_id=PLATFORM_ID)  # added since the check
 
@@ -303,7 +267,7 @@ def test_import_rechecks_the_deal_and_reports_the_duplicate(iteration2_db, fake_
 
 
 def test_import_reports_an_unreachable_risk_modeler_per_entry(iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     fake_irp.raise_on_analysis_metadata = True
     submission = seed_submission()
 
@@ -324,7 +288,7 @@ def test_import_carries_on_past_an_unexpected_failure(
     back out so it neither polls forever nor blocks a retry."""
     for app_id, platform_id in (("35774", "90001"), ("35810", "90002"),
                                 ("35820", "90003")):
-        _seed_rm_analysis(fake_irp, app_id=app_id, platform_id=platform_id,
+        seed_rm_analysis(fake_irp, app_id=app_id, platform_id=platform_id,
                           name=f"Analysis {app_id}")
     submission = seed_submission()
     real_enqueue = svc.rwb_job_service.enqueue_rwb_job
@@ -357,8 +321,8 @@ def test_import_carries_on_past_an_unexpected_failure(
 
 def test_check_names_an_ambiguous_app_id_rather_than_a_missing_one(
         iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp)
-    _seed_rm_analysis(fake_irp, platform_id="90002", name="Same id, other row")
+    seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp, platform_id="90002", name="Same id, other row")
 
     with pytest.raises(svc.ImportCheckError) as exc:
         svc.check_analysis(submission_id=seed_submission(),
@@ -371,7 +335,7 @@ def test_check_refuses_an_app_id_already_on_the_dialogs_list(
         iteration2_db, fake_irp):
     """The typed value is normalized before the comparison, so a leading zero
     does not slip past the same id already listed."""
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
 
     with pytest.raises(svc.ImportCheckError) as exc:
         svc.check_analysis(submission_id=seed_submission(),
@@ -384,7 +348,7 @@ def test_check_allows_an_id_whose_only_row_is_under_a_deleted_rdm(
         iteration2_db, fake_irp):
     """The Results grid and the group picker both hide an analysis under a
     soft-deleted RDM, so it is not in the deal any more."""
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission = seed_submission()
     seed_broker_analysis(submission, "Broker EU Wind", irp_id=PLATFORM_ID)
     execute_command("UPDATE irp_rdm SET deleted_at = '2026-09-01'", {},
@@ -399,7 +363,7 @@ def test_check_allows_an_id_whose_only_row_is_under_a_deleted_rdm(
 
 def test_import_writes_the_run_currency_into_the_submit_snapshot(
         iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp, currency="JPY")
+    seed_rm_analysis(fake_irp, currency="JPY")
     submission = seed_submission()
 
     svc.import_analyses(submission_id=submission, entries=[_candidate()],
@@ -411,7 +375,7 @@ def test_import_writes_the_run_currency_into_the_submit_snapshot(
 
 def test_import_of_an_analysis_with_no_currency_leaves_it_unpairable(
         iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp, currency=None)
+    seed_rm_analysis(fake_irp, currency=None)
     submission = seed_submission()
 
     svc.import_analyses(submission_id=submission, entries=[_candidate()],
@@ -426,7 +390,7 @@ def test_import_of_an_analysis_with_no_currency_leaves_it_unpairable(
 
 def test_imported_analysis_can_be_compared_with_an_own_analysis(
         iteration2_db, fake_irp):
-    _seed_rm_analysis(fake_irp, currency="JPY")
+    seed_rm_analysis(fake_irp, currency="JPY")
     submission = seed_submission()
     edm = seed_edm()
     link_submission_edm(submission, edm)

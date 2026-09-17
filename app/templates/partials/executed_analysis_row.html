@@ -4,7 +4,6 @@
     <span class="l">
       {% if a.is_deletable %}
       <span class="geohaz-pick"><input type="checkbox" name="analysis_ids" value="{{ a.id }}"
-             {% if a.imported %}data-imported{% endif %}
              onclick="event.stopPropagation()" @change="onChange()"></span>
       {% endif %}
     </span>

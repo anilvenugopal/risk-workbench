@@ -111,9 +111,10 @@ _ELIGIBLE_SELECT = """
 def list_eligible_members(submission_id: Any) -> list[GroupMember]:
     """Every analysis of the submission a group may contain (FR-003): own
     analyses at ``ready``, captured broker analyses (every capture is a
-    finished run), finished groups (nesting, FR-018), and analyses imported
-    by Risk Modeler id (#101). Running/failed rows never appear. Broker handles are deduped by RM ``analysisId`` — the same
-    analysis captured under two of the submission's RDMs is one member."""
+    finished run), finished groups (nesting, FR-018), and analyses imported by
+    Risk Modeler id (#101). Running/failed rows never appear. Broker handles
+    are deduped by RM ``analysisId`` — the same analysis captured under two of
+    the submission's RDMs is one member."""
     from app.services.analysis_service import (  # noqa: PLC0415 — display only; avoids a cycle
         _submitted_view,
         _to_display,
@@ -135,8 +136,6 @@ def list_eligible_members(submission_id: Any) -> list[GroupMember]:
                 else "imported" if is_imported else "own")
         settings = _parse_json_dict(r["settings_metadata"], "settings_metadata")
         display = _to_display(settings)
-        # Broker rows have no submit-time snapshot; their run currency is the
-        # Risk Modeler metadata's (the FR-005 rule).
         currency = (display.currency if is_broker
                     else _submitted_view(r["submitted_settings"]).currency)
         app_analysis_id = (r["irp_app_analysis_id"]

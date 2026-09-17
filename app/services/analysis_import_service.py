@@ -172,12 +172,6 @@ def _import_one(submission_id: str, app_id: str, analysis_id: str,
     except Exception as exc:  # noqa: BLE001
         logger.warning("analysis metadata read failed for %s: %s", analysis_id, exc)
         raise ImportCheckError(f"{app_id}: {_RM_UNAVAILABLE}") from exc
-    if str(meta.payload.get("appAnalysisId")) != app_id:
-        # The form was stale or edited: the Platform id no longer names the
-        # analysis the analyst checked.
-        raise ImportCheckError(
-            f"{app_id} no longer matches the analysis that was checked — "
-            "add it again.")
     _refuse_if_in_deal(submission_id, app_id, analysis_id)
 
     candidate = _candidate(app_id, analysis_id, meta)

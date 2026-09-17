@@ -42,9 +42,6 @@ def test_app_analysis_id_resolves_and_round_trips_through_the_metadata():
     assert _to_display(meta.payload).currency
 
 
-@pytest.mark.skipif(
-    not _APP_ANALYSIS_ID.isdigit(),
-    reason="set IRP_TEST_APP_ANALYSIS_ID to run this check")
 def test_unknown_app_analysis_id_is_a_lookup_error():
     with pytest.raises(LookupError):
         irp_gateway._RealGateway().resolve_app_analysis_id(

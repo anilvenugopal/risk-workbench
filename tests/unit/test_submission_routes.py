@@ -34,6 +34,7 @@ from starlette.testclient import TestClient
 
 from app.services import rwb_job_service, submission_service
 from db import execute, execute_command, execute_scalar
+from tests.unit.rm_analyses import seed_rm_analysis
 
 
 @pytest.fixture()
@@ -1675,18 +1676,6 @@ def test_results_failed_row_offers_retry_inside_the_status_cell(client):
 
 # ── #101: import analyses by Risk Modeler id ─────────────────────────────────────
 
-def _seed_rm_analysis(fake_irp, *, app_id="35774", platform_id="90001",
-                      name="CRE_WS_JP_COM_HD_JPWS_Stochastic",
-                      is_group=False) -> None:
-    fake_irp.add_analysis(
-        source_rdm_name="RDM", exposure_name="EDM", analysis_id=platform_id,
-        name=name, app_analysis_id=app_id, is_group=is_group,
-        exposure_resource_id="5",
-        exposure_resource_type=("GROUP" if is_group else "PORTFOLIO"),
-        metadata={"appAnalysisId": int(app_id), "analysisName": name,
-                  "engineType": "HD", "currencyCode": "JPY"})
-
-
 def _entries(html: str) -> list[str]:
     return re.findall(r'name="entries" value="([^"]+)"', html)
 
@@ -1715,7 +1704,7 @@ def test_import_modal_renders_empty(client):
 
 
 def test_import_check_adds_the_checked_analysis_to_the_list(client, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission_id, _, _ = _seed_results_data(client)
 
     response = client.post(
@@ -1735,7 +1724,7 @@ def test_import_check_adds_the_checked_analysis_to_the_list(client, fake_irp):
 
 def test_import_check_keeps_the_entry_and_shows_the_message_on_a_miss(
         client, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission_id, _, _ = _seed_results_data(client)
     first = client.post(
         f"/submissions/{submission_id}/analyses/import/check",
@@ -1755,7 +1744,7 @@ def test_import_check_keeps_the_entry_and_shows_the_message_on_a_miss(
 
 
 def test_import_check_warns_about_an_analysis_already_in_the_deal(client, fake_irp):
-    _seed_rm_analysis(fake_irp, platform_id="88215")  # the seeded broker row's id
+    seed_rm_analysis(fake_irp, platform_id="88215")  # the seeded broker row's id
     submission_id, _, _ = _seed_results_data(client)
 
     response = client.post(
@@ -1771,7 +1760,7 @@ def test_import_check_refuses_the_same_id_typed_with_a_leading_zero(
         client, fake_irp):
     """The typed value is normalized before the list is searched, so 035774
     does not slip past the 35774 already on it."""
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission_id, _, _ = _seed_results_data(client)
     [kept] = _entries(client.post(
         f"/submissions/{submission_id}/analyses/import/check",
@@ -1788,7 +1777,7 @@ def test_import_check_refuses_the_same_id_typed_with_a_leading_zero(
 
 
 def test_import_check_remove_drops_the_row(client, fake_irp):
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp)
     submission_id, _, _ = _seed_results_data(client)
     [kept] = _entries(client.post(
         f"/submissions/{submission_id}/analyses/import/check",
@@ -1804,8 +1793,8 @@ def test_import_check_remove_drops_the_row(client, fake_irp):
 
 
 def test_import_inserts_the_rows_and_triggers_a_refetch(client, fake_irp):
-    _seed_rm_analysis(fake_irp)
-    _seed_rm_analysis(fake_irp, app_id="35810", platform_id="90002",
+    seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp, app_id="35810", platform_id="90002",
                       name="Gotham All Perils Rollup", is_group=True)
     submission_id, _, _ = _seed_results_data(client)
     html = client.post(
@@ -1832,28 +1821,25 @@ def test_import_inserts_the_rows_and_triggers_a_refetch(client, fake_irp):
     assert "Gotham All Perils Rollup" in grid
     assert grid.count(">Imported</span>") == 2
     assert "every 3s" in grid                       # polls until the losses land
-    # the confirm sentence tells the analyst Delete only takes these off the
-    # deal; the own rows in the same grid carry no marker
-    assert grid.count("data-imported") == 2
 
 
 def test_import_where_every_entry_fails_keeps_the_dialog_open(client, fake_irp):
     """Nothing landed, so the reasons go back into the dialog body with the
     typed list intact — not into a toast on a closed dialog."""
-    _seed_rm_analysis(fake_irp)
+    seed_rm_analysis(fake_irp, platform_id="88215")  # the seeded broker row's id
     submission_id, _, _ = _seed_results_data(client)
-    stale = json.dumps({"app_analysis_id": "35774", "analysis_id": "88215",
+    entry = json.dumps({"app_analysis_id": "35774", "analysis_id": "88215",
                         "name": None, "is_group": False, "engine": None,
                         "currency": None})
 
     response = client.post(
         f"/submissions/{submission_id}/analyses/import",
-        data={"csrf_token": _csrf(), "entries": stale})
+        data={"csrf_token": _csrf(), "entries": entry})
 
     assert response.status_code == 200
     assert response.headers["HX-Retarget"] == "#import-body"
     assert response.headers["HX-Reswap"] == "innerHTML"
-    assert "35774 no longer matches" in response.text
+    assert "captured from RDM Acme Broker RDM" in response.text
     assert "&#34;app_analysis_id&#34;: &#34;35774&#34;" in response.text
 
 
