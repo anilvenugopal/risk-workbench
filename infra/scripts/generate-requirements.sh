@@ -35,10 +35,10 @@ MODE="${1:-}"
 # this project committed to) and writes them out in the plain format pip
 # understands — no uv needed to READ this output later, only to CREATE it.
 # --frozen means "use uv.lock exactly as it is, don't re-resolve or update
-# anything." The remaining flags exclude the development dependency group
-# and the editable risk-workbench package itself while retaining the locked
-# irp-pypi runtime group.
-GENERATED="$(uv export --frozen --no-dev --no-emit-project)"
+# anything." --no-dev excludes developer-only tools (test runners, etc.) —
+# matching what a real deployment actually needs, not what a developer's
+# own machine needs.
+GENERATED="$(uv export --frozen --no-dev)"
 
 if [ "$MODE" = "--check" ]; then
     echo "=== Checking requirements.txt is up to date ==="
