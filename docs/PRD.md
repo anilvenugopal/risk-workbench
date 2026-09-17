@@ -55,7 +55,7 @@ Every submission follows three sequential phases. The workbench covers all three
 #### Phase C — Results Management
 1. **Results review** — view analysis outputs (ELT summary, EP numbers, AAL, return periods) per financial perspective. Compare own results against broker-supplied RDM results and prior-year benchmarks.
 2. **Results grouping** — combine or break out results by geography or other dimensions (e.g., county → state rollups).
-3. **Downstream upload** — push finalized **own** loss sets to the Loss Repository SQL Server (pushing broker results to the Loss Repository is out of MVP — FR §7).
+3. **Downstream upload** — export finished analyses' event loss tables to the Loss Repository SQL Server (own, broker, and group analyses alike — spec 014 P-10; scope in `specs/014-results-export/spec.md`).
 
 ### 1.4 Core domain glossary
 
@@ -594,7 +594,7 @@ saved note.
 
 - **Import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, rdm_file_path, exposure_set_name=rdm_name)` → `irp_job_type = import_rdm` (uploads to S3 first). The import runs once per RDM and does not accept an EDM.
 - **Retrieve broker results (REST)** — once imported, the RDM's broker analyses are cached as `irp_analysis` rows with `rdm_id` set; their loss numbers are retrieved via the **same REST result endpoints as own results** (§15.3) into each row's `loss_results` extract, once per `rdm_id` by construction (§16.1, §17.2). **Not** a DataBridge query.
-- ~~Export to Loss Repository~~ — pushing broker results to the Loss Repository is **out of MVP** (FR §7; §17.4).
+- **Export to Loss Repository** — a broker analysis exports the same way as an own analysis, from the export form on a submission's analyses page (spec 014 P-10; §17.4).
 
 ### 9.3 EDM library & RDM library
 
@@ -991,7 +991,7 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch oper
 **Workers** submit one entity-scoped `upload_edm` or `upload_rdm`, backfill EDM
 detail or RDM analyses after successful imports, and retrieve loss results after
 analysis jobs finish and after RDM imports complete (§15.3). Association detach runs on the request path and never enqueues a worker.
-**Out of MVP:** `push_rdm_to_loss_repo` and `push_exposure_summary`.
+**Out of MVP:** `push_exposure_summary` (exposure summaries to the Exposure Repository). Loss results reach the Loss Repository through the three `*_results_export` workers of spec 014 (§16.3).
 
 **Chaining without a depends_on column.** The poller writes only **head** rows. Each worker, on success, creates the next `rwb_job` via idempotent insert with `requestor_type='rwb_job'`, `requestor_id=` its own `rwb_job.id`. `retrieve_analysis_results` never races `finalize_analysis` — it does not exist until the parent succeeds; if the parent fails after Dramatiq retries, the chain stops.
 
@@ -1082,18 +1082,17 @@ Analysis job submission requires both `edm_name` and `portfolio_name` — IRP re
 
 ## 16. Feature: Results management & repositories
 
-### 16.1 Analysis results storage — bounded extract for viewing; Parquet + SQL metadata for export only
+### 16.1 Analysis results storage — bounded extract for viewing; row-level data only in the loss repository
 
 **Viewing (DATA_MODEL §6 governs).** The `retrieve_analysis_results` worker stores a bounded extract as JSON on `irp_analysis.loss_results`: per perspective (GR, RL, WX, QS, GU), the AAL, standard deviation, and OEP/AEP losses at 11 fixed return periods (5 / 10 / 25 / 50 / 100 / 250 / 500 / 1000 / 2000 / 5000 / 10000) — a few KB per analysis. A perspective the analysis did not produce is present with an explicitly empty value (not a retrieval failure). Every results view reads this extract; **no Risk Modeler call serves a page render**, and no row-level data is stored for viewing. Evidence and rejected alternatives: spec 011 `research.md#R3`.
 
-**Export (DATA_MODEL §9 governs — not built until the export iteration).** Row-level data (ELT, EP, PLT) as **Parquet files on disk** plus an **`analysis_result_meta`** SQL row per (result, `perspective_code`) recording the file paths. Design note 19 D5 (2026-08-25) removed ELTs from viewing scope — they exist only for export to the Loss Repository. **Retrieval is a Risk Modeler export job returning Parquet, pre-fetched (2026-08-28, design note 22 D28/D29 — supersedes the paginated `get_elt()` framing from 8/27).** The workbench submits a job naming the analysis, the ELT at portfolio output level, and the perspective codes; a zip returns one Parquet file per perspective. Pre-fetching puts the file on disk before the analyst opens the export, so the loss-greater-than-exposure check runs on demand at review with no wait. Consequences: `analysis_result_meta.elt_record_count` is a **post-read count of the Parquet file** (`get_elt()` is out of the path entirely — its stated source is wrong twice over); `result_export.location` must hold both the Parquet intermediate and the repository target for one export (the grain question, O21-7); and the **pre-fetch trigger is an open decision (O22-10)** — analysis completion is eager (most perspectives are never exported) and needs storage sizing at 100+ analyses × several perspectives under `{submission_outputs_dir}`. Keep `irp_job_type_kind`'s `export` (this Risk-Modeler-side Parquet job) distinct from `push_results_to_loss_repo` in the seed table and in code.
+**Export (spec 014).** Row-level loss data is never stored in `rwb_workbench` or on disk as a Workbench table: the export requests Risk Modeler's Parquet loss-table export job for one analysis and one perspective when the analyst clicks Export, keeps the archive on a shared drive, and stages every event in CIC's loss repository under the Workbench's `stage` schema before the load procedure writes CIC's tables (§16.3; `specs/014-results-export/data-model.md`). Nothing is pre-fetched. Keep `irp_job_type_kind`'s `export` (the Risk-Modeler-side Parquet job) distinct from the three `rwb_job` types `submit_results_export` / `stage_results_export` / `load_results_export`.
 
 > **Superseded:** earlier drafts of this section listed row-level SQL tables (`analysis_result`, `elt_record`, `ep_curve`, `plt_record`). Those predate the Parquet-hybrid decision (§23 locked decisions, 2026-07-10) and are **not** built. The 2026-08-25 revision narrowed the hybrid itself to export.
 
 **Broker (RDM) results are deduplicated by `rdm_id`.** A standalone RDM import
 captures each Risk Modeler analysis once by `(rdm_id, irp_id)`, so the viewing
 extract on that row is once-per-RDM automatically. Own results stay per-analysis.
-DATA_MODEL §9 defines the export-only Parquet and SQL metadata storage.
 
 ### 16.2 Results review UI
 
@@ -1127,26 +1126,15 @@ Metrics shown (FR §7):
 
 ### 16.3 Loss Repository
 
-The Loss Repository is CIC's production SQL Server holding finalized loss sets, read by downstream reporting. It is an **existing system whose schema is given, not designed here** (A19; design note 20 D19): the workbench connects via `get_connection("LOSS")` and writes designated tables; `db/bootstrap/loss_schema.sql` is a **local dev mirror** of that foreign schema and must never target production.
+The Loss Repository is CIC's production SQL Server database `CRE_Trial_ELT_Repository`, holding finalized loss sets read by downstream reporting. Its five tables are **an existing system whose schema is given, not designed here** (A19; design note 20 D19). The Workbench connects via `get_connection("LOSS")`, installs its own `stage` schema there from `db/bootstrap/loss_schema.sql` (a CIC DBA runs the file; the app never runs DDL against CIC), and writes CIC's tables only through the load procedure in that schema. `db/bootstrap/loss_dev_mirror.sql` recreates CIC's five tables in the dev database `rwb_loss`.
 
-**Direction settled (2026-08-27, design note 21 D1, re-confirming 8/26 D18).** The workbench owns the whole export: read results from the Risk Modeler API, transform, write the repository tables — the `push_results_to_loss_repo` worker path. Reusing CIC's workflow tool was raised and rejected: it only sees analyses that live in RiskLink, which would mean exporting Risk Modeler results back to RDM and keeping RMS servers alive. DataBridge is not in the path. Treat as settled; do not reopen when the ELT-retrieval cost bites.
+**Direction settled (2026-08-27, design note 21 D1, re-confirming 8/26 D18).** The workbench owns the whole export: request the event loss table from Risk Modeler, stage it, classify and correct it, write the repository tables. Reusing CIC's workflow tool was raised and rejected: it only sees analyses that live in RiskLink, which would mean exporting Risk Modeler results back to RDM and keeping RMS servers alive. DataBridge is not in the path. Treat as settled.
 
 **The export ends at the repository, and the analyst leaves (2026-09-11, design note 29 D4).** CIC pushes loss sets to their simulation engine, Analyze Re, from their own workflow tool, which is out of MVP. So after every export the analyst moves to that tool: Wendy — "I will then go over to our workflow tool, enter their parameters and upload to our simulation engine." A browser over the repository inside the Workbench was proposed the same day and deferred for the same reason (§21, Loss Repository Explorer).
 
-**Write targets** (schema screenshots received 2026-08-27, with CIC's population notes):
+**What the export does** is specified in `specs/014-results-export/spec.md` (Iteration 11): one or more finished analyses at one financial perspective for one client; the Parquet loss-table export job per analysis; one header row in `dbo.Data` per analysis, stochastic events in `dbo.RMSELT`, historical events in `dbo.RMS_HistoricalRDS` (classified by CIC's `dbo.Lookup_RMS_HistoricalRDS` on event ID and the export's model version, every analysis's historical rows written, none opt-in); the two automatic corrections (exposure raised to loss, negative standard deviation zeroed on stochastic rows) with counts; no review step; a repeat export writes a second data set under a new data ID. `dbo.Client` is **read-only** (design note 22 D25): clients are created upstream in CIC's workflow tool during exposure work. `dbo.Data.ArchiveFile`, `AReLossSet`, `LOB`, and `Geography` are not populated. AAL is never written; the repository calculates it (design note 22 D16).
 
-- **`dbo.Data`** — the header row. `DataID` (int, auto-increment) identifies the export; the workbench inserts the row and reads the ID back — it never generates it. Populated: `ClientID`, `TreatyIncept`, `DataVintage` (date), `DataName`, `DataModelVendor`, `DataModelVersion`, `DataCurrency`, `Server`, `Database`, `AnalysisID`, `Name`, `Description`, `Perspective`, `CRMID`. **Not populated:** `ArchiveFile`, `AReLossSet` (the out-of-MVP Analyze Re upload), `LOB`, `Geography`.
-- **`dbo.RMSELT`** — `DataID`, `EventID`, `Loss`, `StdDevI`, `StdDevC`, `ExpValue`. **Stochastic events only.** The loss-greater-than-exposure cap (FR §7) writes into this data; which columns the check compares needs written confirmation (design note 21 O21-12).
-- **`dbo.RMS_HistoricalRDS`** — `DataID`, `ClientID`, `Peril`, `ModelVersion`, `TreatyYear`, `TreatyIncept`, `DataInforce`, `EventID`, `Type`, `Event_Name`, `Loss`, `PCS`, `Perspective`, `AReLossSet`. The historical event IDs and metadata, sourced from the RiskLink reference data tables in SQL. Written **only when the analyst opts in** via a commit-time checkbox.
-- **The client table** — same database, **read-only** (**reversed 2026-08-28, design note 22 D25** — retracts the 8/27 INSERT requirement; the insert-statement ask is withdrawn). Searched by name on the export screen; clients are created upstream in Cheng's workflow tool during exposure work, so the client exists before the workbench reaches the export. This returns `workbench_is_active` to being the **only** carve-out to the "app never writes to a synced/foreign surface" invariant. `bootstrap-loss` still mirrors the table for local reads. Shape still owed from Cheryl (O21-13).
-
-Only the data ID is carried from the header into the loss tables. The export record captures the data ID, the parameters entered, whether the historical table was written, and how many rows the cap adjusted. Where the selected **client ID** is recorded against the export is still undecided (`result_export` holds only `delivery_code` and `location` — O21-7/O22-9).
-
-**Retrieval is a Parquet export job, pre-fetched** (**revised 2026-08-28, D28/D29** — the paginated `get_elt()` framing from 8/27 is abandoned; FR §7 Delivery carries the row-level requirements). The workbench submits a Risk Modeler export job naming the analysis, the ELT at portfolio output level, and the perspective codes; a zip returns one Parquet file per perspective, queried with Python. Pre-fetching means the data is local before the analyst opens the export, so the integrity checks and the review run on demand — no waiting phase. The flow is request → commit writes the three tables; the review step went with spec 014 P-14, and the export form's cart shows each analysis's AAL at the chosen perspective (spec 014 P-20, design session 9/11 D6, reversing D17). AAL is never written; the repository calculates it (D16). A repeated export creates a new data set under a fresh data ID.
-
-> **Event type — narrowed 2026-08-28 (D30/D31; was the O21-5 blocker).** The type is not in the Parquet and not selectable on the export job, but Risk Modeler's **reference data APIs** return it per event (found live in the RM UI's network calls). Plan: retroactive enrichment — read every event ID from the Parquet, fetch each type, add a type column. Open (O22-11): bulk endpoint vs. one call per event; Moody's answer on `event info` visibility (permissions vs. absence — Cheryl doubts the reference tables exist on DataBridge; fallback is exporting them from RiskLink 25); Cheryl's CSV cross-check of a small ELT against RiskLink's event info table, which may collapse the problem. Design rule (D31): the split is validated against a source, never inferred from analysis type, model profile, or event rate scheme.
-
-**Own results only.** Pushing **broker** RDM results to the Loss Repository is **out of MVP** (FR §7; §17.4), as is the treaty-level (TY, "part B") export mode — treaty selection with cross-analysis aggregation within one EDM (FR §7). Analysts can also **copy / paste** results out for ad-hoc use (FR §7). Uploading loss sets to Analyze Re is a separate API and out of MVP.
+**Own, broker, and group analyses export the same way** (spec 014 P-10, 2026-09-09; reverses the 8/28 "own results only" line). The treaty-level TY perspective is spec 016. Analysts can also **copy / paste** results out for ad-hoc use (FR §7). Uploading loss sets to Analyze Re is a separate API and out of MVP.
 
 ### 16.4 Results grouping
 
@@ -1207,11 +1195,11 @@ Importing a broker RDM creates broker analyses as `irp_analysis` rows keyed (`rd
 
 > **Portfolio↔analysis linking is not solved — deliberately deferred** (FR §7). It doesn't exist today either; analysts rely on naming conventions and broker documentation to know which portfolio a result ran against. (See also DATA_MODEL §14: whether `analysis_result_meta` should carry an `irp_portfolio` FK is an open decision.)
 
-### 17.4 Push to Loss Repository — **out of MVP**
+### 17.4 Export to Loss Repository — every analysis origin
 
-Pushing **broker** results to the Loss Repository (`push_rdm_to_loss_repo`) is **out of MVP** (FR §7). Only **own** finalized results are pushed (§16.3). The worker name remains a defined `rwb_job_type` for when this is picked up.
+Broker (RDM) and group analyses export to the Loss Repository the same way as own analyses (spec 014 P-10, 2026-09-09; supersedes the "out of MVP" line of FR §7). The export form on a submission's analyses page offers every finished analysis related to that submission, whatever its origin; scope, rules, and open decisions are in `specs/014-results-export/spec.md`.
 
-**Also out of MVP (FR §7):** Post-Analysis Treaty (PATE — adding a cat treaty onto broker results and re-simulating; rare, portfolio-level only, O5-4); formal loss validation against broker/cedant (confirm the informal multi-analysis view is enough); and carrying CRM-ID tags through to the repository upload.
+**Out of MVP (FR §7):** Post-Analysis Treaty (PATE — adding a cat treaty onto broker results and re-simulating; rare, portfolio-level only, O5-4); formal loss validation against broker/cedant (confirm the informal multi-analysis view is enough); and carrying the submission's CRM-ID tag set through to the repository automatically (one CRM ID is entered on the export form and lands on `dbo.Data.CRMID`).
 
 ---
 
@@ -1489,9 +1477,9 @@ This prompt applies independently to each of the three app-managed databases (`W
 >
 > **Revised (2026-08-28, design note 22).** Retrieval is the Parquet export job, pre-fetched (D28/D29 — the paginated `get_elt()` path is abandoned); the client table is **read-only** (D25 — client create retracted); event type comes from the reference data APIs via retroactive Parquet enrichment (D30/D31 — the O21-5 blocker narrowed to resolved-pending-volume).
 
-**In:** the export flow (§16.3; FR §7 Delivery): client search / select against CIC's **read-only** client table; the parameter form (treaty year + inception date auto-populated from the submission and editable, data vintage, CRM ID); perspective validity resolved per analysis, intersected across the selection, one perspective per batch, property scope; the Parquet export job (`export` `irp_job_type` — one Parquet file per perspective, ELT at portfolio output level) with a decided pre-fetch trigger (O22-10); event-type enrichment of the Parquet via the reference data APIs; the transform + the loss-greater-than-exposure cap; the review step (per-analysis identity fields + capped-row counts), on demand against the pre-fetched data; commit writing `dbo.Data` / `dbo.RMSELT` / `dbo.RMS_HistoricalRDS` (opt-in) and reading the data ID back; §16.1 / DATA_MODEL §9 storage where it feeds the export.
+**In (spec 014, built 2026-09; scope in `specs/014-results-export/spec.md`):** the export form on a submission's analyses page — one or more finished analyses of any origin, one perspective from the configured set that every selected analysis has results for, a client from CIC's read-only client table, treaty inception and CRM ID pre-filled from the submission, an optional data name per analysis, a required data vintage, and one model version chosen from CIC's historical event lookup; automatic processing per analysis with no review step (Parquet export job, download, stage, classify by the lookup, the two corrections, load through `stage.usp_load_elt_result`); one flat exports table on the submission page with Retry and Close; the archive kept permanently on a shared drive.
 
-**Out:** treaty-level (TY, part B) export (FR §7 — source now located: `RDM_TREATY` + description join, its own retrieval call; deferred again 8/28 at Ben's request, D27); pushing broker results (out of MVP, §17.4); the event-catalog check unless CIC confirms it is still needed (O21-8); an analyst-facing Parquet file download (not an MVP deliverable unless separately requested); client creation (upstream, in Cheng's workflow tool — D25).
+**Out:** HD analyses and period loss tables; editing or deleting a loaded data set; cancelling an accepted export; client creation (upstream, in CIC's workflow tool — design note 22 D25); the treaty-level TY perspective (spec 016).
 
 **Blocked on:** event-type enrichment viability (bulk endpoint vs. one call per event, and Cheryl's CSV cross-check — O22-11); written confirmation of the capped-value columns (O21-12); a test treaty that takes loss, which gates the WX and TY validations (O22-14).
 
