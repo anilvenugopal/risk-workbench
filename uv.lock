@@ -1395,6 +1395,7 @@ dependencies = [
     { name = "bcrypt" },
     { name = "dramatiq", extra = ["redis"] },
     { name = "fastapi" },
+    { name = "inquirerpy" },
     { name = "itsdangerous" },
     { name = "jinja2" },
     { name = "msal" },
@@ -1405,6 +1406,7 @@ dependencies = [
     { name = "pyodbc" },
     { name = "python-multipart" },
     { name = "redis" },
+    { name = "rich" },
     { name = "sqlalchemy" },
     { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
@@ -1414,11 +1416,9 @@ dependencies = [
 dev = [
     { name = "debugpy" },
     { name = "httpx" },
-    { name = "inquirerpy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
-    { name = "rich" },
     { name = "ruff" },
 ]
 irp-local = [
@@ -1437,6 +1437,7 @@ requires-dist = [
     { name = "bcrypt" },
     { name = "dramatiq", extras = ["redis"] },
     { name = "fastapi" },
+    { name = "inquirerpy" },
     { name = "itsdangerous" },
     { name = "jinja2" },
     { name = "msal" },
@@ -1447,6 +1448,7 @@ requires-dist = [
     { name = "pyodbc" },
     { name = "python-multipart" },
     { name = "redis" },
+    { name = "rich" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "sse-starlette" },
     { name = "uvicorn", extras = ["standard"] },
@@ -1456,11 +1458,9 @@ requires-dist = [
 dev = [
     { name = "debugpy" },
     { name = "httpx" },
-    { name = "inquirerpy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
-    { name = "rich" },
     { name = "ruff" },
 ]
 irp-local = [{ name = "irp-integration", extras = ["databridge"] }]

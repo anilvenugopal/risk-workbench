@@ -111,14 +111,14 @@ differently (`--no-editable` still produces an unhashed local-path line
 for the same structural reason); see the script's own comments for the
 full reasoning.
 
-irp-integration's pinned version currently lives on TestPyPI rather than
-PyPI — the script's `--extra-index-url` accounts for this; see AGENTS.md's
-irp-integration section for why, and the Open items below for reconciling
-it with PyPI as the stated production default.
+`requirements.txt` pins `irp-integration` 0.9.0 from PyPI. The server needs
+HTTPS access to PyPI during installation unless the packages are staged on
+the server before the deployment.
 
-`rhel9-app-install.sh` also creates the app's 3 databases (skips existing)
-and verifies `pyodbc` can see `ODBC Driver 18 for SQL Server` and that
-`app.config` imports cleanly — no separate steps needed for any of this.
+The three application databases must already exist. `rhel9-app-install.sh`
+does not create databases; it applies the Workbench Alembic migrations and
+verifies `pyodbc` can see `ODBC Driver 18 for SQL Server` and that
+`app.config` imports cleanly.
 
 ## 5. Start Redis/Valkey
 
@@ -241,9 +241,10 @@ does, over SSH:
 
 This deliberately does **not** call `rhel9-pull-code.sh` — that script is
 for the separate, local/manual "log into the server and `git pull`
-yourself" flow (steps 1-4 above, run individually). RHEL9 never needs
-outbound internet access or GitHub credentials with this script, since it
-receives files pushed to it rather than fetching them itself.
+yourself" flow (steps 1-4 above, run individually). RHEL9 does not need
+GitHub access or GitHub credentials with this script because it receives
+the application files through `rsync`. The dependency installation still
+needs PyPI access unless the packages are staged on the server.
 
 **Requires `rsync` installed on RHEL9 itself**, not just the pushing
 machine — confirmed the hard way on the first real attempt (`rsync:
@@ -304,7 +305,3 @@ still does not stop/start them.
   --filter=':- .gitignore'` was identified as the correct mechanism (reads
   `.gitignore` directly, rather than a hand-maintained exclude list that
   can silently fall out of date) but not yet implemented in any script.
-- **irp-integration source**: this runbook installs from TestPyPI to match
-  what the current lockfile resolves to. AGENTS.md states PyPI `0.2.0` as
-  the production default — reconcile which source production actually uses
-  before deploying for real.

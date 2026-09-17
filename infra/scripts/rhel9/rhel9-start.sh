@@ -36,7 +36,6 @@ require_port_free() {
 }
 
 echo "=== 1. Checking ports are free ==="
-require_port_free 6379 "Valkey"
 require_port_free 8000 "uvicorn"
 echo "  OK."
 
@@ -45,6 +44,7 @@ echo "=== 2. Starting Valkey ==="
 if valkey-cli ping > /dev/null 2>&1; then
     echo "  Already running."
 else
+    require_port_free 6379 "Valkey"
     VALKEY_DIR=/var/lib/risk-workbench/valkey
     valkey-server \
         --daemonize yes \

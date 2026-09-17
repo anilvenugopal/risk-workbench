@@ -27,6 +27,10 @@ dependencies = [
     # Config
     "pydantic-settings",
 
+    # User administration CLI
+    "InquirerPy",
+    "rich",
+
     # Workers / queue
     "dramatiq[redis]",
     "redis",
@@ -53,8 +57,6 @@ dev = [
     "httpx",
     "ruff",
     "debugpy",
-    "InquirerPy",
-    "rich",
 ]
 
 # ── irp-integration source selector — pick exactly ONE (they conflict, see [tool.uv]) ──
