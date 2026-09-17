@@ -233,7 +233,8 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
     assert "Analyst A" in html
     # the fields the condensed grid or the template now says are gone (O-11)
     for label in ("<dt>Peril</dt>", "Analysis template", "<dt>Currency</dt>",
-                  "Min loss threshold", "Franchise deductible"):
+                  "Min loss threshold", "Franchise deductible",
+                  "Unrecognized construction / occupancy"):
         assert label not in html
     assert "USD · RMS · RL25" not in html
     # the perspective toggle defaults to Pre-Cat Net (FR-012, D9) and lists
@@ -244,7 +245,6 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
         assert label in html
     # a long value wraps in CSS; the cell carries the full text as its tooltip
     assert f'title="{_LONG_SCHEME}"' in html
-    assert "Treat as unknown" in html
 
 
 def test_expanded_row_shows_results_pending_while_retrieval_runs(client):

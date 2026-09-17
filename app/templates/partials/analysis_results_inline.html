@@ -19,7 +19,6 @@
       ('Analysis type', d.analysis_type),
       ('Subperil', d.peril_secondary),
       ('Framework', d.framework),
-      ('Unrecognized construction / occupancy', s.construction_occupancy if s else None),
       ('Run by', a.run_by if a.run_by is defined else None),
     ] %}
     {% if val %}<div><dt>{{ label }}</dt><dd title="{{ val }}">{{ val }}</dd></div>

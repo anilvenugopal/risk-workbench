@@ -298,15 +298,14 @@ def test_broker_row_renders_link_date_and_not_returned_fields(monkeypatch):
     assert '<time data-utc="2026-08-20T14:02:11.000Z"' in html
     # results still pending
     assert "Results pending — retrieval is queued or running." in html
-    # the fields Risk Modeler never returns are listed, not hidden (FR-022) —
-    # Run by included: a broker analysis was not run by a workbench analyst
-    assert "Unrecognized construction / occupancy" in html
+    # A broker analysis was not run by a workbench analyst.
+    assert "Unrecognized construction / occupancy" not in html
     assert "<dt>Run by</dt>" in html
     # a row captured before spec 015 knows neither what it resolved on nor
     # which treaties it applied (FR-015)
     assert '<dt>Run details</dt><dd class="blank">not returned</dd>' in html
     assert '<dt>Treaties</dt><dd class="blank">not returned</dd>' in html
-    assert html.count("not returned") >= 5
+    assert html.count("not returned") >= 4
     # no broker row names a portfolio (FR-020) — its one name takes both the
     # Portfolio and Template tracks, and the hidden sibling keeps the copied
     # row rectangular against the own rows (D5)
