@@ -1,6 +1,6 @@
 # Contract — package and gateway additions (spec 015, T-06)
 
-## irp-integration: `analysis.describe_run(analysis_id)` — TestPyPI `0.9.0rc1`
+## irp-integration: `analysis.describe_run(analysis_id)` — PyPI `0.9.0`
 
 A released single-analysis read that reuses `GroupingManager._inspect`'s region, PET
 and scheme-naming code (`irp_integration/grouping.py:686–960`) and adds the
@@ -36,10 +36,9 @@ for 2.0 and 3.0 with different names); an unnamed id yields `pet_name`
 region list returns empty `regions`; treaty and reference failures raise
 `IRPAPIError` so the caller applies its own blank-and-continue rule.
 
-Release evidence: `v0.9.0rc1` in `../irp-integration`, generated API docs that
-include `describe_run`, and the TestPyPI `0.9.0rc1` wheel pinned by
-`make irp-testpypi`. The production PyPI source still needs a compatible
-stable release before deployment.
+Release evidence: tag `v0.9.0rc1` in `../irp-integration`, generated API docs
+that include `describe_run`, and the PyPI `0.9.0` wheel pinned by
+`make irp-pypi` — the branch's committed source.
 
 ## Workbench gateway: `describe_analysis_run(*, analysis_id: int) -> ResolvedRun`
 

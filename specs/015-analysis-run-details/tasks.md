@@ -49,8 +49,8 @@ Single project: `app/` (services, workers, templates), `tests/unit`,
 
 ## Phase 2: Foundational
 
-**Purpose**: The package describe method, its TestPyPI release, and the
-workbench gateway wrapper. Every capture path in Phases 3–6 calls
+**Purpose**: The package describe method, its release, and the workbench
+gateway wrapper. Every capture path in Phases 3–6 calls
 `irp_gateway.describe_analysis_run`; nothing in a story can be verified end
 to end until this phase is done.
 
@@ -62,10 +62,10 @@ was accepted.
   - Proof: package unit tests in T004
 - [X] T004 [T-06] [T-02] [T-04] Add package tests for the describe method in `../irp-integration/tests/` using the trimmed captures (`own_dlm` → 23 region rows all scheme 739, name resolved from `reference_data`; `own_hd` → one PLT row, `pet_id` 12 named "RMS 2020 Time-Dependent Rates" through model version 3.0 + `get_pet_metadata_exact`, `periods` 1,978,459; `broker_dlm` → scheme 577 and two treaties with `treaty_name` "XPR_1_100_Fld"; an unnamed PET id yields `pet_name` None and no `SimulationSet` row); run with the workbench venv and `PYTHONPATH=.` per memory note `irp-integration-local-checkout-testing`
   - Proof: package tests pass under the workbench venv
-- [X] T005 [T-06] Regenerate `../irp-integration/docs/api.md` (`uv run --no-project`), tag the release and publish to TestPyPI as `v0.9.0rc1`
-  - Proof: the new version appears on TestPyPI
-- [X] T006 [T-06] Pin TestPyPI `0.9.0rc1` here with `make irp-testpypi`; confirm `make irp-status` names it and the describe method's name and signature match `contracts/irp-gateway.md`
-  - Proof: `uv run python -c "from irp_integration import IRPClient; help(IRPClient().analysis.describe_run)"` (or the released name) prints the signature; `uv.lock` records the TestPyPI version
+- [X] T005 [T-06] Regenerate `../irp-integration/docs/api.md` (`uv run --no-project`), tag the release and publish it as TestPyPI `0.9.0rc1`, then as stable PyPI `0.9.0`
+  - Proof: both versions appear on their index
+- [X] T006 [T-06] Pin the release here — TestPyPI `0.9.0rc1` during the build, PyPI `0.9.0` with `make irp-pypi` as the committed source; confirm `make irp-status` names it and the describe method's name and signature match `contracts/irp-gateway.md`
+  - Proof: `uv run python -c "from irp_integration import IRPClient; help(IRPClient().analysis.describe_run)"` prints `(analysis_id: int) -> RunDescription`; `uv.lock` records `0.9.0` from PyPI
 - [X] T007 [T-06] [P-06] [P-07] Add `ResolvedPartition`, `AppliedTreaty` and `ResolvedRun` frozen dataclasses, a `describe_analysis_run(*, analysis_id: int) -> ResolvedRun` method on the `IRPGateway` Protocol (`app/services/irp_gateway.py:315`) and `_RealGateway` (`:437`), and the module function beside `get_analysis_metadata` (`:1342`); the wrapper calls the package method once and collapses `regions` to distinct (`region_code`, `peril_code`, `framework`), names each ELT partition from `event_rate_scheme_names` and each PLT partition from `pet_name`/`periods`, sorts partitions by `region_code` then `peril_code`, and reduces treaties to one per `treaty_id` sorted by `number`; `AppliedTreaty` carries `treaty_id`, `number`, `name`, `currency` (the code), `occurrence_limit`, `risk_limit`, `attachment_point`, `retention_amount` (T-05)
   - Proof: T009 gateway tests
 - [X] T008 [P] [T-06] [FR-013] Add `describe_analysis_run` to `FakeIRP` in `tests/unit/fakes/fake_irp.py`: `add_analysis(...)` gains `regions=`, `treaties=`, `scheme_names=`, `pet_names=` seeds shaped like the captures and the method returns the collapsed `ResolvedRun` from them; add `raise_on_describe_run: set[str]` keyed by analysis id for the blank-and-continue tests; record each call in the fake's call log so a render test can assert zero gateway calls
@@ -76,7 +76,7 @@ was accepted.
   - Proof: `make shell` then `uv run pytest tests/irp -k describe --run-irp` — this tier does not run in CI; report it as not run when `linux-box` is down
 
 **Checkpoint**: `uv run pytest tests/unit` green; `make irp-status` names the
-TestPyPI release. Story work may begin.
+release. Story work may begin.
 
 ---
 
@@ -267,8 +267,7 @@ Task: "T020 Compare line cases in tests/unit/test_results_comparison.py"
 ## Implementation Strategy
 
 1. Phase 1 + Phase 2: fixtures, package release, gateway wrapper, fake. Stop
-   when `make irp-status` names the TestPyPI release and the unit tier is
-   green.
+   when `make irp-status` names the release and the unit tier is green.
 2. Phase 3 (US1) — the MVP: broker scheme visible, `resolved` pipeline
    complete for own and broker analyses, `_event_rate_scheme` gone. Approver
    clicks.

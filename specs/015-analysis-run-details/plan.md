@@ -8,9 +8,9 @@
 
 ## Plan status
 
-**Ready for tasks:** Yes. `AnalysisManager.describe_run` is released in the
-TestPyPI `0.9.0rc1` wheel, pinned in this branch, and confirmed against the
-gateway contract. Production still needs a compatible stable PyPI release.
+**Ready for tasks:** Yes. `AnalysisManager.describe_run` is released in
+irp-integration `0.9.0` on PyPI, pinned in this branch, and confirmed against
+the gateway contract.
 **Blocked by:** Nothing.
 
 ## Design summary
@@ -24,9 +24,9 @@ gateway contract. Production still needs a compatible stable PyPI release.
   the keys confirmed in the captured live responses.
 - **irp-integration grows a single-analysis describe method** reusing the
   grouping inspect's region, PET and scheme-naming code and returning the
-  treaty name inspect drops (T-06). It is released to TestPyPI and pinned
-  with `make irp-testpypi` before the worker work starts. The workbench
-  gateway wraps it as `describe_analysis_run`, worker-only
+  treaty name inspect drops (T-06). It is released to PyPI as `0.9.0` and
+  pinned with `make irp-pypi`. The workbench gateway wraps it as
+  `describe_analysis_run`, worker-only
   ([contracts/irp-gateway.md](contracts/irp-gateway.md)).
 - **Own and broker analyses** get `partitions` by collapsing the describe
   method's region facts to distinct (region, peril, framework), each named
@@ -76,7 +76,7 @@ gateway contract. Production still needs a compatible stable PyPI release.
 | Database | None. `settings_metadata` JSON gains the `resolved` key; the plan item in `submitted_settings` gains `treaty_names`. Dev DB choice: **Refresh** — no migration; analyses captured before the change show the new fields blank until recaptured (FR-015). |
 | Worker | `finalize_analysis` and `backfill_rdm_analyses` call `describe_analysis_run` and write `resolved`; `_claim_analysis` stores `treaty_names`. |
 | UI | `analysis_results_inline.html` settings grid: conditional Event rate scheme / Simulation set entry, group partition list, Treaties list. Compare modal metadata line reads the same field. |
-| Library | irp-integration: `describe_run` on `AnalysisManager`, released as TestPyPI `0.9.0rc1`; workbench `irp_gateway` + `FakeIRP` gain `describe_analysis_run`. |
+| Library | irp-integration: `describe_run` on `AnalysisManager`, released as PyPI `0.9.0`; workbench `irp_gateway` + `FakeIRP` gain `describe_analysis_run`. |
 | Docs | `docs/DATA_MODEL.md` §6 column semantics. |
 
 ## High-risk technical decisions
@@ -99,9 +99,8 @@ gateway contract. Production still needs a compatible stable PyPI release.
 
 ## Technical Context
 
-**New dependencies**: irp-integration TestPyPI `0.9.0rc1`, pinned via
-`make irp-testpypi`; no new Python packages. Production deployment requires a
-compatible stable PyPI release.
+**New dependencies**: irp-integration `0.9.0` from PyPI, the branch's
+committed source (`make irp-pypi`); no new Python packages.
 **Databases touched**: `rwb_workbench` only — JSON content of two existing
 `irp_analysis` columns. DATABRIDGE untouched.
 
@@ -143,7 +142,7 @@ specs/015-analysis-run-details/
     ├── irp-gateway.md                  # package describe method + gateway wrapper + FakeIRP
     └── captures/*.json                 # trimmed live payloads → unit fixtures
 
-../irp-integration/irp_integration/analysis.py (or grouping.py)   # describe method (T-06), released to TestPyPI
+../irp-integration/irp_integration/analysis.py (or grouping.py)   # describe method (T-06), released as 0.9.0
 
 app/services/irp_gateway.py            # describe_analysis_run + ResolvedRun types + resolved_capture, which both writers call
 app/services/analysis_service.py       # resolved reader; _event_rate_scheme and dead fields removed

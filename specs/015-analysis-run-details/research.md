@@ -159,10 +159,9 @@ investigation used the PR 33 checkout that released 0.8.0.
 `AppliedTreaty` dataclasses landed on `feature/analysis-describe-run`. The
 change also moved `_inspect`'s reference lookups and region-row loop into
 `_ReferenceLookups` and `_region_facts`, so the describe method and grouping
-inspection share them. The method is released under tag `v0.9.0rc1`; this
-branch pins the TestPyPI `0.9.0rc1` wheel, whose name and signature match the
-gateway contract. The production PyPI group still resolves stable `0.8.0` and
-must move to a compatible release before deployment.
+inspection share them. The method shipped as TestPyPI `0.9.0rc1` under tag
+`v0.9.0rc1` and then as stable `0.9.0` on PyPI; this branch pins the PyPI
+`0.9.0` wheel, whose name and signature match the gateway contract.
 
 Read live against the sandbox on 2026-09-11 through the checkout, the method
 and gateway wrapper returned scheme 739 for 5741781, PET 12 "RMS 2020
@@ -178,9 +177,8 @@ reads and problems pollute the result. A treaty-only gateway wrapper over
 group, but a second gateway method and fake to keep in step; rejected
 2026-09-11 — groups call the describe method and ignore its region facts.
 
-**Cost.** The package change, tag, TestPyPI release, and development pin are
-complete. Production deployment still depends on publishing and pinning a
-compatible stable PyPI release.
+**Cost.** The package change, the tag, the TestPyPI pre-release, the stable
+PyPI release and the pin here are all complete.
 
 ## T-07 — Capture points and the failure rule
 
