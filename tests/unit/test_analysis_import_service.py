@@ -20,6 +20,7 @@ from tests.unit.grouping_rows import (
     seed_submission,
 )
 from tests.unit.rm_analyses import APP_ID, NAME, PLATFORM_ID, seed_rm_analysis
+from tests.unit.run_details_fixtures import captured_run
 
 
 def _rows(submission_id: str) -> list[dict]:
@@ -28,12 +29,12 @@ def _rows(submission_id: str) -> list[dict]:
         {"s": submission_id}, connection="WORKBENCH")]
 
 
-def _retrieval_jobs(analysis_id: str) -> list[dict]:
+def _jobs(analysis_id: str, rwb_job_type: str) -> list[dict]:
     return [dict(r) for r in execute(
         "SELECT link_type, link_id, status_code, input_data FROM rwb_job "
         "WHERE requestor_type = 'irp_analysis' AND requestor_id = :a "
-        "AND rwb_job_type = 'retrieve_analysis_results'",
-        {"a": analysis_id}, connection="WORKBENCH")]
+        "AND rwb_job_type = :t",
+        {"a": analysis_id, "t": rwb_job_type}, connection="WORKBENCH")]
 
 
 def _candidate(app_id=APP_ID, platform_id=PLATFORM_ID) -> svc.ImportCandidate:
@@ -174,7 +175,7 @@ def test_check_ignores_a_deleted_row(iteration2_db, fake_irp):
 
 # ── import_analyses ──────────────────────────────────────────────────────────────
 
-def test_import_inserts_the_row_and_enqueues_its_results_retrieval(
+def test_import_inserts_the_row_and_enqueues_its_finalize(
         iteration2_db, fake_irp):
     seed_rm_analysis(fake_irp)
     submission = seed_submission()
@@ -188,28 +189,53 @@ def test_import_inserts_the_row_and_enqueues_its_results_retrieval(
     assert row["irp_id"] == PLATFORM_ID
     assert row["irp_app_analysis_id"] == APP_ID
     assert row["name"] == NAME and row["full_name"] == NAME
-    assert row["status_code"] == "ready"
+    assert row["status_code"] == "pending"
     assert row["is_group"] == 0
     assert row["edm_id"] is None and row["rdm_id"] is None
     assert row["imported_at"] is not None
     assert row["exposure_resource_id"] == "5"
     assert row["inserted_by"] == iteration2_db.user_a
-    assert json.loads(row["settings_metadata"])["engineType"] == "HD"
-    [job] = _retrieval_jobs(row["id"])
+    assert row["settings_metadata"] is None   # finalize_analysis writes it
+    [job] = _jobs(row["id"], "finalize_analysis")
     assert job["link_type"] == "submission"
     assert job["link_id"].lower() == submission
     assert job["status_code"] == "pending"
-    assert json.loads(job["input_data"]) == {"analysis_id": row["id"]}
+    assert json.loads(job["input_data"]) == {"analysis_id": row["id"],
+                                             "rm_analysis_id": PLATFORM_ID}
+
+
+def test_finalize_writes_the_settings_and_the_run_details_it_resolved_on(
+        iteration2_db, fake_irp):
+    """An imported analysis reaches ``ready`` through the same worker an
+    executed one does, so its ``settings_metadata`` carries the spec-015
+    ``resolved`` key too — the expanded row reads run details off it."""
+    seed_rm_analysis(fake_irp, run_details=captured_run("own_hd"))
+    submission = seed_submission()
+    svc.import_analyses(submission_id=submission, entries=[_candidate()],
+                        actor_id=iteration2_db.user_a)
+
+    assert analysis_jobs.run_pending(worker_id="w1") == 1
+
+    [row] = _rows(submission)
+    assert row["status_code"] == "ready"
+    settings = json.loads(row["settings_metadata"])
+    assert settings["engineType"] == "HD"
+    assert settings["resolved"]["partitions"]
+    [displayed] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+    assert displayed.resolved.single_label == "Simulation set"
+    assert displayed.resolved.single_value
 
 
 def test_imported_row_gets_its_losses_from_the_retrieval_worker(
         iteration2_db, fake_irp):
-    """The worker has no portfolio to read the pointer off, so it uses the
-    exposure pointer the import stored — no second metadata read."""
+    """The retrieval worker has no portfolio to read the pointer off, so it uses
+    the exposure pointer the import stored — no second metadata read."""
     seed_rm_analysis(fake_irp)
     submission = seed_submission()
     svc.import_analyses(submission_id=submission, entries=[_candidate()],
                         actor_id=iteration2_db.user_a)
+    assert analysis_jobs.run_pending(worker_id="w1") == 1   # finalize_analysis
     fake_irp.raise_on_analysis_metadata = True   # a re-read would fail the job
 
     [row_before] = analysis_service.list_submission_executed_analyses(

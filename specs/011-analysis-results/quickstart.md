@@ -23,11 +23,10 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
    merged table in US3; the collapsed row is unchanged in US1.)
 3. In the expansion — left: the source line carrying the full analysis name,
    then Metadata (engine version, analysis type, subperil, framework, event rate
-   scheme, unrecognized construction and occupancy, run by) — the construction
-   and occupancy value matches what the run was submitted with, and editing the
-   template afterwards does not change it. Fields today's expansion shows that
-   are gone by decision (O-11): Construction, Line of business, Term, Loss
-   amplification (PLA), currency, min loss threshold, franchise deductible.
+   scheme, run by). Fields today's expansion shows that are gone by decision
+   (O-11): unrecognized construction and occupancy, Construction, Line of
+   business, Term, Loss amplification (PLA), currency, min loss threshold,
+   franchise deductible.
    Engine type, Region, Peril, Portfolio and Template are not gone — they read
    from the merged table's columns. Right: the selected EP type at
    50/100/250/500/1000/10000, then AAL and Std dev, with the perspective toggle
@@ -54,9 +53,9 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
    numbers on both copies (SC-002) —
    `SELECT rdm_id, irp_id, loss_results FROM irp_analysis WHERE rdm_id='<rdm>'`
    shows one row per source analysis.
-4. Expand a broker row: the analysis template and all four analysis settings are
-   listed and read as not returned (FR-022); the row carries a Risk Modeler link
-   and a Submitted date from the broker's own run (FR-024/FR-025).
+4. Expand a broker row: Run by reads as not returned (FR-022); the row carries a
+   Risk Modeler link and a Submitted date from the broker's own run
+   (FR-024/FR-025).
 5. No broker row anywhere names a portfolio (FR-020).
 
 ## US3 — merged table (P2)

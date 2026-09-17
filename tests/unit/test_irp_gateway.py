@@ -25,6 +25,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.services import irp_gateway
+from tests.unit import run_details_fixtures
+from tests.unit.fakes.fake_irp import FakeIRP
 
 
 class _StubClient:
@@ -686,6 +688,105 @@ def test_lob_lists_over_the_free_text_cap_are_not_stored():
     # breakout enumerates from breakout_values, so lob must not survive it.
     assert "lob" not in summary["1"]["breakout_values"]
     assert "lob" in summary["2"]["breakout_values"]
+
+
+# ── spec 015: the describe-run collapse (T-06, P-06, P-07) ────────────────────
+
+def test_run_details_fixtures_load_every_capture():
+    for name in run_details_fixtures.CAPTURE_NAMES:
+        assert run_details_fixtures._load(name)
+    for name in run_details_fixtures.ANALYSIS_CAPTURES:
+        assert run_details_fixtures.capture(name).detail
+
+
+def _collapse(name: str, **kwargs) -> irp_gateway.ResolvedRun:
+    return irp_gateway.collapse_run_description(
+        run_details_fixtures.captured_run(name, **kwargs))
+
+
+def test_own_dlm_sub_region_rows_collapse_to_one_named_elt_partition():
+    # 5741781 returns 23 region rows, one per state, identical apart from
+    # subRegion (research T-02).
+    run = _collapse("own_dlm", fan_out=23)
+
+    [partition] = run.partitions
+    assert (partition.region_code, partition.peril_code) == ("NA", "WS")
+    assert partition.framework == "ELT"
+    assert partition.event_rate_scheme_id == 739
+    assert partition.event_rate_scheme_name == "RMS 2025 Stochastic Event Rates"
+    assert partition.simulation_set_id is None
+    assert partition.periods is None
+
+
+def test_own_hd_collapses_to_one_plt_partition_named_by_its_pet():
+    run = _collapse("own_hd")
+
+    [partition] = run.partitions
+    assert (partition.region_code, partition.peril_code) == ("NZ", "EQ")
+    assert partition.framework == "PLT"
+    # The PET id, never a SimulationSet row id (FR-005), with the periods the
+    # region row reported (T-04).
+    assert partition.simulation_set_id == 12
+    assert partition.simulation_set_name == "RMS 2020 Time-Dependent Rates"
+    assert partition.periods == 1_978_459
+    assert partition.event_rate_scheme_id is None
+
+
+def test_an_unnamed_scheme_or_pet_id_keeps_the_partition_with_a_null_name():
+    elt = _collapse("own_dlm", scheme_names={})
+    plt = _collapse("own_hd", pet_names={})
+
+    assert elt.partitions[0].event_rate_scheme_id == 739
+    assert elt.partitions[0].event_rate_scheme_name is None
+    assert plt.partitions[0].simulation_set_id == 12
+    assert plt.partitions[0].simulation_set_name is None
+    assert plt.partitions[0].periods == 1_978_459
+
+
+def test_partitions_sort_by_region_then_peril():
+    # The group capture's four region rows cover JP·WS, NA·EQ and NA·WS; Risk
+    # Modeler returned them NA·WS, NA·EQ, NA·WS, JP·WS (P-06).
+    run = _collapse("group_mixed_rm_made")
+
+    assert [(p.region_code, p.framework) for p in run.partitions] == [
+        ("JP", "PLT"), ("NA", "ELT"), ("NA", "ELT")]
+
+
+def test_broker_treaties_sort_by_number_and_carry_the_applied_terms():
+    run = _collapse("broker_dlm", fan_out=23)
+
+    assert [t.number for t in run.treaties] == ["XPR_1_100_Fld", "XPR_1_95_Fld"]
+    first = run.treaties[0]
+    assert (first.treaty_id, first.name) == (31482, "XPR_1_100_Fld")
+    assert first.currency == "USD"
+    assert first.occurrence_limit == 10_000_000.0
+    assert first.risk_limit == 5_000_000.0
+    assert first.attachment_point == 5_000_000.0
+    assert first.retention_amount == 0.0
+
+
+def test_one_entry_per_treaty_id_however_many_members_applied_it():
+    # A group's treaty search returns its members' rows; two members applying
+    # the same treaty return it twice (P-07).
+    described = run_details_fixtures.captured_run("group_mixed_rm_made")
+    doubled = irp_gateway.collapse_run_description(
+        SimpleNamespace(regions=described.regions,
+                        event_rate_scheme_names=described.event_rate_scheme_names,
+                        treaties=described.treaties + described.treaties))
+
+    assert [t.number for t in doubled.treaties] == ["PR1", "PR2", "QS_JP"]
+
+
+def test_the_fake_and_the_real_wrapper_collapse_one_description_alike():
+    described = run_details_fixtures.captured_run("own_hd")
+    fake = FakeIRP()
+    fake.add_analysis(analysis_id="5733173", source_rdm_name="-",
+                      exposure_name="E", run_details=described)
+
+    gw = _gw(analysis=SimpleNamespace(describe_run=lambda _id: described))
+
+    assert (fake.describe_analysis_run(analysis_id=5733173)
+            == gw.describe_analysis_run(analysis_id=5733173))
 
 
 # ── resolve_app_analysis_id (#101) ──────────────────────────────────────────────

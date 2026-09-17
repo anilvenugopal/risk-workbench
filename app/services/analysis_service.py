@@ -6,11 +6,11 @@ an RDM analysis to an EDM portfolio, and every broker-provided analysis carries
 the worker — it is defensible only for analyses CIC runs itself — but nothing
 reads or displays it.
 
-The curated ``AnalysisSettings`` view model reads the documented RM payload
-fields defensively (``analysisType``/``engineType``/``engineVersion``/
-``peril``/``subperil``/``region``/``currencyCode``/…); term / PLA / event-rate
-fields have NO documented source and stay blank until the sandbox confirms
-their spelling.
+The curated ``AnalysisSettings`` view model reads the key the live
+GET-analysis response carries for each field, the same key for every origin —
+own run, broker import and group (spec 015 research.md § Readers and their key
+chains). ``peril`` and ``region`` are the only fields with an alternate: the
+code when Risk Modeler sends one, the display name otherwise.
 """
 
 from __future__ import annotations
@@ -41,7 +41,6 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AnalysisSettings:
     analysis_type: str | None = None
-    analysis_mode: str | None = None
     framework: str | None = None
     engine_type: str | None = None
     engine_version: str | None = None
@@ -49,12 +48,6 @@ class AnalysisSettings:
     peril_secondary: str | None = None
     region: str | None = None
     currency: str | None = None
-    construction: str | None = None
-    line_of_business: str | None = None
-    term: str | None = None
-    pla: str | None = None
-    event_rate_scheme: str | None = None
-    rate_vintage: str | None = None
 
     @property
     def engine(self) -> str | None:
@@ -172,6 +165,81 @@ def _perspective_results(loss_results_raw: Any, perspectives: list[dict],
 
 
 @dataclass
+class ResolvedDetails:
+    """What the expanded row and the Compare modal's metadata line show from
+    ``settings_metadata.resolved`` (spec 015). One reader serves both views
+    (FR-016), and both report what the capture recorded — no id is re-resolved
+    here (P-03).
+
+    Either half is ``None`` when that half of the capture failed; ``treaties``
+    ``[]`` means the read succeeded and the analysis applied none (FR-012)."""
+    # One entry per partition, in stored order (already sorted at write time).
+    partitions: list[str] | None = None
+    treaties: list[str] | None = None
+    # Set only when the run resolved on exactly one partition (P-08). The label
+    # comes from the framework, never from which value resolved, so a PLT
+    # partition whose set is missing still reads Simulation set (FR-006).
+    single_label: str | None = None
+    single_value: str | None = None
+    summary: str | None = None
+
+
+def _simulation_set_label(block: Any) -> str | None:
+    """``<PET name> (<N> periods)``, falling back to ``PET <id>`` for a PET the
+    capture could not name — the label the grouping compose screen uses."""
+    if not isinstance(block, dict) or not block.get("id"):
+        return None
+    name = block.get("name") or f"PET {block['id']}"
+    periods = block.get("periods")
+    return f"{name} ({periods:,} periods)" if periods else name
+
+
+def _scheme_name(block: Any) -> str | None:
+    if not isinstance(block, dict) or not block.get("id"):
+        return None
+    return block.get("name")
+
+
+def _partition_entry(partition: dict) -> str:
+    """``NA · EQ — <scheme> — <set> (<N> periods)``, omitting a half the
+    partition does not carry."""
+    halves = [f"{partition.get('region_code')} · {partition.get('peril_code')}"]
+    halves += [h for h in (_scheme_name(partition.get("event_rate_scheme")),
+                           _simulation_set_label(partition.get("simulation_set")))
+               if h]
+    return " — ".join(halves)
+
+
+def _treaty_entry(treaty: dict) -> str:
+    return " · ".join(str(v) for v in (treaty.get("number"), treaty.get("name"),
+                                       treaty.get("currency")) if v)
+
+
+def _resolved_view(settings: dict | None) -> ResolvedDetails:
+    resolved = (settings or {}).get("resolved") or {}
+    stored = resolved.get("partitions")
+    treaties = resolved.get("treaties")
+    view = ResolvedDetails(
+        treaties=([_treaty_entry(t) for t in treaties]
+                  if isinstance(treaties, list) else None))
+    if not isinstance(stored, list):
+        return view
+    view.partitions = [_partition_entry(p) for p in stored]
+    if len(stored) == 1:
+        only = stored[0]
+        if only.get("framework") == "PLT":
+            view.single_label = "Simulation set"
+            view.single_value = _simulation_set_label(only.get("simulation_set"))
+        else:
+            view.single_label = "Event rate scheme"
+            view.single_value = _scheme_name(only.get("event_rate_scheme"))
+        view.summary = view.single_value
+    else:
+        view.summary = "; ".join(view.partitions) or None
+    return view
+
+
+@dataclass
 class BrokerAnalysis:
     """One broker analysis (deduped across its M (RDM×EDM) handle rows)."""
     id: str                      # workbench row id of the representative handle
@@ -182,6 +250,7 @@ class BrokerAnalysis:
     is_group: bool = False
     settings: dict | None = None            # parsed raw snapshot (R2)
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
+    resolved: ResolvedDetails = field(default_factory=ResolvedDetails)
     rm_url: str | None = None    # Risk Modeler link-out from the snapshot's
                                  # appAnalysisId, as own rows build theirs (FR-025)
     app_analysis_id: str | None = None  # the snapshot's appAnalysisId — the id shown
@@ -239,6 +308,7 @@ class ExecutedAnalysis:
     rm_url: str | None = None   # Risk Modeler link-out; None without irp_app_analysis_id
     settings: dict | None = None
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
+    resolved: ResolvedDetails = field(default_factory=ResolvedDetails)
     irp_job_id: str | None = None       # latest linked irp_job
     job_status: str | None = None       # latest irp_job.status; None before submit
     submission_attempt_count: int = 0
@@ -366,44 +436,17 @@ def _text(value: Any) -> str | None:
     return str(value)
 
 
-def _event_rate_scheme(p: dict) -> str | None:
-    """Own analyses list their scheme in ``eventRateSchemeNames``. A group's
-    list is empty; its schemes (one per member region/peril) sit in
-    ``additionalProperties`` under key ``eventRateSchemes``, each property's
-    ``value`` an object with ``eventRateSchemeName``."""
-    named = _text(p.get("eventRateSchemeNames"))
-    if named:
-        return named
-    for prop in p.get("additionalProperties") or []:
-        if isinstance(prop, dict) and prop.get("key") == "eventRateSchemes":
-            names = []
-            for entry in prop.get("properties") or []:
-                value = entry.get("value") if isinstance(entry, dict) else None
-                name = value.get("eventRateSchemeName") if isinstance(value, dict) else None
-                if name and name not in names:
-                    names.append(name)
-            return ", ".join(names) or None
-    return None
-
-
 def _to_display(settings: dict | None) -> AnalysisSettings:
     p = settings or {}
     return AnalysisSettings(
-        analysis_type=_text(_first(p, "analysisType", "type")),
-        analysis_mode=_text(_first(p, "analysisMode", "mode")),
+        analysis_type=_text(_first(p, "analysisType")),
         framework=_text(_first(p, "analysisFramework")),
         engine_type=_text(_first(p, "engineType")),
-        engine_version=_text(_first(p, "engineVersion", "modelVersion")),
+        engine_version=_text(_first(p, "engineVersion")),
         peril=_text(_first(p, "perilCode", "peril")),
-        peril_secondary=_text(_first(p, "subperil", "subPeril", "secondaryPeril")),
+        peril_secondary=_text(_first(p, "subPeril")),
         region=_text(_first(p, "regionCode", "region")),
-        currency=_text(_first(p, "currencyCode", "currencyName", "currency")),
-        construction=_text(_first(p, "construction")),
-        line_of_business=_text(_first(p, "lineOfBusiness", "lob")),
-        term=_text(_first(p, "term", "timeDependency", "rateTimeDependency")),
-        pla=_text(_first(p, "lossAmplification", "pla", "plaEnabled")),
-        event_rate_scheme=_event_rate_scheme(p),
-        rate_vintage=_text(_first(p, "rateVintage", "eventRateSchemeVersion")),
+        currency=_text(_first(p, "currency")),
     )
 
 
@@ -497,6 +540,7 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
                 rdm_id=_uid(r["rdm_id"]), rdm_name=r["rdm_name"],
                 is_group=bool(r["is_group"]), settings=settings,
                 display=_to_display(settings),
+                resolved=_resolved_view(settings),
                 rm_url=_rm_analysis_url((settings or {}).get("appAnalysisId")),
                 app_analysis_id=_text((settings or {}).get("appAnalysisId")),
                 created_at=(settings or {}).get("createDate"),
@@ -510,6 +554,7 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
             if settings is not None:
                 existing.settings = settings
                 existing.display = _to_display(settings)
+                existing.resolved = _resolved_view(settings)
                 existing.rm_url = _rm_analysis_url(settings.get("appAnalysisId"))
                 existing.app_analysis_id = _text(settings.get("appAnalysisId"))
                 existing.created_at = settings.get("createDate")
@@ -622,7 +667,7 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
             app_analysis_id=(irp_app_analysis_id
                              or _text((parsed or {}).get("appAnalysisId"))),
             rm_url=_rm_analysis_url(irp_app_analysis_id), settings=parsed,
-            display=_to_display(parsed),
+            display=_to_display(parsed), resolved=_resolved_view(parsed),
             irp_job_id=(_uid(r["irp_job_id"]) if r["irp_job_id"] else None),
             job_status=r["job_status"],
             submission_attempt_count=int(r["submission_attempt_count"] or 0),
@@ -1032,9 +1077,10 @@ class ComparableAnalysis:
     rdm_name: str | None
     run_currency: str | None
     results_state: str
-    # The row's metadata line — settings_metadata via _to_display, so own and
-    # broker rows read the same fields.
-    event_rate_scheme: str | None = None
+    # The row's metadata line — the same ``settings_metadata.resolved`` summary
+    # the expanded row shows, so no field reads one way here and another there
+    # (FR-016, FR-017).
+    run_details: str | None = None
     peril: str | None = None
     engine: str | None = None
     submitted_at: Any = None  # own: submit request time; broker: RM createDate
@@ -1077,7 +1123,7 @@ def list_comparable_analyses(
         id=a.id, name=a.full_name or a.name, rdm_name=None,
         run_currency=a.run_currency,
         results_state=a.results_state,
-        event_rate_scheme=a.display.event_rate_scheme,
+        run_details=a.resolved.summary,
         peril=a.display.peril, engine=a.display.engine,
         submitted_at=a.inserted_at) for a in own]
     if submission_id is not None:
@@ -1088,7 +1134,7 @@ def list_comparable_analyses(
                     id=a.id, name=a.name, rdm_name=group.rdm_name,
                     run_currency=a.display.currency,
                     results_state=a.results_state,
-                    event_rate_scheme=a.display.event_rate_scheme,
+                    run_details=a.resolved.summary,
                     peril=a.display.peril, engine=a.display.engine,
                     submitted_at=a.created_at))
     return rows

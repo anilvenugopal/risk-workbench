@@ -240,15 +240,29 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
                        rdm_id, exc)
         return runtime.JobResult.fail(f"analysis enumeration failed: {exc}")
     meta_by_id: dict[str, Any] = {}
+    resolved_by_id: dict[str, dict] = {}
     metadata_failures = 0
+    run_details_failures = 0
     for hit in hits:
         try:
-            meta_by_id[hit.analysis_id] = irp_gateway.get_analysis_metadata(
+            meta = irp_gateway.get_analysis_metadata(
                 analysis_id=int(hit.analysis_id))
         except Exception as exc:  # noqa: BLE001 — blank, never error (US3 acc. 3)
             logger.warning("backfill_rdm_analyses: metadata read failed "
                            "(analysis=%s): %s", hit.analysis_id, exc)
             metadata_failures += 1
+            continue
+        meta_by_id[hit.analysis_id] = meta
+        # A broker group (the INGP shape) reaches here too: its partitions come
+        # from its own detail property, not from the describe call.
+        resolved, error = irp_gateway.resolved_capture(
+            meta.payload or {}, analysis_id=int(hit.analysis_id))
+        if error is not None:
+            logger.warning("backfill_rdm_analyses: run details read failed "
+                           "(analysis=%s): %s", hit.analysis_id, error)
+            run_details_failures += 1
+        if resolved is not None:
+            resolved_by_id[hit.analysis_id] = resolved
 
     now = _utcnow()
     pruned = 0
@@ -288,9 +302,13 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
                 key = {"rdm": str(rdm_id),
                        "irp": str(hit.analysis_id), "x": pointer, "now": now}
                 if meta is not None:
+                    payload = meta.payload or {}
+                    resolved = resolved_by_id.get(hit.analysis_id)
+                    if resolved is not None:
+                        payload = {**payload, "resolved": resolved}
                     conn.execute(text(_UPDATE_ANALYSIS_DETAIL), {
                         **key,
-                        "sm": (json.dumps(meta.payload) if meta.payload else None),
+                        "sm": (json.dumps(payload) if payload else None),
                         "grp": (1 if meta.is_group else 0)})
                 elif pointer is not None:
                     # metadata read failed — refresh the pointer only when
@@ -325,6 +343,8 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
         out["pruned"] = pruned
     if metadata_failures:
         out["metadata_failures"] = metadata_failures
+    if run_details_failures:
+        out["run_details_failures"] = run_details_failures
     return out
 
 

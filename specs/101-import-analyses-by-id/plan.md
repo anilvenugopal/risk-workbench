@@ -28,7 +28,10 @@ amendment that resolves it.
   re-checks the deal, and inserts one `irp_analysis` row per entry on the
   `submission_id` leg of `ck_irp_analysis_origin` — `submission_id` set,
   `edm_id`/`rdm_id` NULL, `imported_at` stamped — then enqueues
-  `retrieve_analysis_results` for it. Entries are independent: one refusal is
+  `finalize_analysis` for it, the worker an executed analysis reaches `ready`
+  through: it writes `settings_metadata` (including the run details spec 015
+  captures), `irp_app_analysis_id` and `ready`, then chains
+  `retrieve_analysis_results`. Entries are independent: one refusal is
   reported and the rest still import. An enqueue failure soft-deletes the row
   it just inserted, so the analyst can import the id again.
 - `imported_at` is the column that separates the two kinds of row on the
@@ -72,12 +75,13 @@ Material interactions — where an article actively shapes this design:
   fragment fetched over HTMX; checked entries round-trip as hidden inputs, so
   the modal holds no client-side state the server does not render.
 - **Article 10 (SQL Table Is the Queue)**: each imported row enqueues one
-  existing `retrieve_analysis_results` `rwb_job`, on the existing queue with
-  its atomic claim.
+  existing `finalize_analysis` `rwb_job`, on the existing queue with its
+  atomic claim.
 - **Article 11 (IRP Behind the Gateway)**: `resolve_app_analysis_id` is a
   search, not a `get_*`, and has precedent on the request path in
   `app/services/name_check.py`. `get_analysis_metadata` is the amended
-  clause's permitted call. Results retrieval stays worker-side.
+  clause's permitted call. The run-details read `describe_analysis_run` makes
+  and the results retrieval both stay worker-side.
 
 No new architecture guard test. Enforcement of the Article 11 interface
 contract stays with review, as it already is for `edm_service.list_edms` and
