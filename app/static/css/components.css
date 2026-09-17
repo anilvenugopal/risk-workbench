@@ -122,6 +122,32 @@
 .modal-card--group > form { display: flex; flex-direction: column; min-height: 0; }
 .modal-card--group .modal-body { overflow-y: auto; }
 .modal-card--group .modal-pane { display: flex; flex-direction: column; gap: var(--space-3); }
+/* Import analyses dialog (#101): one entry field, the checked list below it. */
+.modal-card--import { width: min(560px, 94vw); }
+.modal-card--import .modal-body { gap: var(--space-2); }
+.import-entry { display: flex; gap: var(--space-2); align-items: flex-end; }
+.import-entry .wf-field { flex: 1; }
+.import-entry .wf-field__input { width: 100%; min-width: 0; }
+.import-check { display: none; align-items: center; gap: var(--space-2);
+  font-size: var(--fs-caption); color: var(--text-tertiary); }
+.import-check.htmx-request { display: flex; }
+.import-check .spin { width: 13px; height: 13px; }
+.import-msg { font-size: var(--fs-caption); border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3); border: 1px solid transparent; }
+.import-msg--error { color: var(--color-negative); background: var(--color-negative-bg);
+  border-color: var(--color-negative-border); }
+.import-msg--warning { color: var(--color-warning); background: var(--color-warning-bg);
+  border-color: var(--color-warning-border); }
+.import-list { display: flex; flex-direction: column; border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); overflow: hidden; }
+.import-row { display: grid; grid-template-columns: 64px 1fr auto auto 28px; align-items: center;
+  gap: var(--space-2); padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-faint); font-size: var(--fs-label); }
+.import-row:first-child { border-top: none; }
+.import-row__id { font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-tertiary); }
+.import-row__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-row__meta { color: var(--text-tertiary); font-size: var(--fs-caption); white-space: nowrap; }
+.import-count { flex: 1; font-size: var(--fs-caption); color: var(--text-tertiary); }
 /* Step indicator in the modal header: the three screens are a sequence. */
 .steps { display: flex; align-items: center; gap: var(--space-2); margin-right: var(--space-4); }
 .step { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-caption);

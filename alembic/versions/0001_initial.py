@@ -509,10 +509,16 @@ def upgrade() -> None:
         # fetched yet; a perspective the analysis did not produce is present
         # inside the JSON with value null.
         sa.Column("loss_results", sa.NVARCHAR(None), nullable=True),
+        # Spec 012's submission leg carries two kinds of row: a group the
+        # Workbench composed, and an analysis the analyst pulled in by Risk
+        # Modeler id (#101). Stamped only on the second.
+        sa.Column("imported_at", DATETIME2, nullable=True),
         # Spec 011 (T-09): the approved plan item this analysis was submitted
         # with, written once by _claim_analysis and never updated — a template
-        # edited later must not change what a finished run reports. NULL on
-        # broker rows (Risk Modeler returns none of these fields).
+        # edited later must not change what a finished run reports. An imported
+        # analysis (#101) carries only the currency code Risk Modeler reports
+        # for it. NULL on broker rows (Risk Modeler returns none of these
+        # fields).
         sa.Column("submitted_settings", sa.NVARCHAR(None), nullable=True),
         # Stamped when a successful analysis refresh no longer returns the row.
         sa.Column("deleted_at", DATETIME2, nullable=True),
@@ -558,6 +564,12 @@ def upgrade() -> None:
     )
     op.create_index("ix_irp_analysis_submission_id", "irp_analysis",
                     ["submission_id"])
+    # The import duplicate check and the delete guard (#101) look a Risk
+    # Modeler analysisId up across every origin.
+    irp_analysis_irp_id = sa.text("irp_id IS NOT NULL")
+    op.create_index("ix_irp_analysis_irp_id", "irp_analysis", ["irp_id"],
+                    mssql_where=irp_analysis_irp_id,
+                    sqlite_where=irp_analysis_irp_id)
     # One live group per (submission, name) — the group-row mirror of
     # uq_irp_analysis_live_edm_name (spec 012, T-04).
     irp_analysis_live_submission_name = sa.text(

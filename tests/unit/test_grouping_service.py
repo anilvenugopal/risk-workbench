@@ -646,3 +646,31 @@ def test_inspect_grouping_wraps_a_platform_read_failure(iteration2_db, fake_irp)
                              member_ids=[ctx["a1"], ctx["a2"]])
 
     assert exc.value.errors == ["Inspection failed: region lookup timed out"]
+
+
+def test_imported_analysis_is_an_eligible_member(iteration2_db):
+    """#101: a row pulled in by Risk Modeler id sits on the submission leg
+    like a group, with its run currency read off the Risk Modeler metadata."""
+    import uuid
+    ctx = _submission_with_two_ready(iteration2_db)
+    imported = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_analysis (id, submission_id, irp_id, irp_app_analysis_id, "
+        "name, full_name, status_code, is_group, settings_metadata, "
+        "submitted_settings, imported_at, inserted_at) "
+        "VALUES (:id, :sub, '90001', '35774', 'CRE_WS_JP', "
+        "'CRE_WS_JP', 'ready', 0, :settings, :submitted, "
+        "'2026-09-10T00:00:00', '2026-09-10T00:00:00')",
+        {"id": imported, "sub": ctx["submission_id"],
+         "settings": json.dumps({"engineType": "HD", "currencyCode": "JPY"}),
+         "submitted": json.dumps({"currency": {"code": "JPY"}})},
+        connection="WORKBENCH")
+
+    members = {m.id: m for m in svc.list_eligible_members(ctx["submission_id"])}
+
+    member = members[imported]
+    assert member.kind == "imported"
+    assert member.irp_id == 90001
+    assert member.engine == "HD"
+    assert member.currency == "JPY"
+    assert member.app_analysis_id == "35774"

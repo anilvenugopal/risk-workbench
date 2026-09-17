@@ -1234,3 +1234,89 @@ def test_sort_analyses_default_and_unknown_keys_keep_the_query_order():
     assert analysis_service.sort_analyses(rows, "", True) == rows
     assert analysis_service.sort_analyses(rows, "nonsense", True) == rows
     assert analysis_service.sort_analyses(rows, "submitted", False) == rows[::-1]
+
+
+# ── #101: analyses imported by Risk Modeler id ───────────────────────────────────
+
+
+def _imported(submission_id: str, *, name="CRE_WS_JP", irp_id="90001",
+              loss_results=None) -> str:
+    return _mk("irp_analysis", submission_id=submission_id, irp_id=irp_id,
+               irp_app_analysis_id="35774", name=name, full_name=name,
+               status_code="ready", is_group=0,
+               settings_metadata=json.dumps({"engineType": "HD",
+                                             "currencyCode": "JPY"}),
+               loss_results=(json.dumps(loss_results) if loss_results else None),
+               imported_at=_utcnow())
+
+
+def test_imported_row_reads_imported_and_polls_until_its_losses_land(iteration2_db):
+    submission = seed_submission("Sub One")
+    analysis = _imported(submission)
+
+    [row] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+
+    assert row.imported is True
+    assert row.run_state == "imported"
+    assert row.status_label == "Imported"
+    assert row.status_chip == "ready"
+    assert row.group_key == "ready"
+    assert row.is_deletable is True
+    assert row.is_live is True                     # results still pending
+    assert row.portfolio_name is None and row.edm_name is None
+    assert row.app_analysis_id == "35774"
+    assert row.display.engine == "HD"
+
+    execute_command("UPDATE irp_analysis SET loss_results = :lr WHERE id = :i",
+                    {"lr": json.dumps(_extract()), "i": analysis},
+                    connection="WORKBENCH")
+    [row] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+    assert row.results_state == "ready" and row.is_live is False
+
+
+def test_imported_row_is_not_read_by_the_edm_grid(iteration2_db):
+    submission = seed_submission("Sub One")
+    edm = _edm()
+    link_submission_edm(submission, edm)
+    _imported(submission)
+
+    assert analysis_service.list_executed_analyses(edm_id=edm) == []
+    [row] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+    assert row.imported is True
+
+
+def test_deleting_an_imported_row_leaves_it_in_risk_modeler(
+        iteration2_db, fake_irp):
+    """The deal did not create the analysis and another deal may hold it too,
+    so Delete only takes it off this deal. An own row in the same batch is
+    still deleted in Risk Modeler."""
+    submission = seed_submission("Sub One")
+    edm = _edm()
+    link_submission_edm(submission, edm)
+    own = _executed(edm_id=edm, name="Own", status_code="ready", irp_id="8100")
+    imported = _imported(submission)
+
+    outcome = analysis_service.delete_submission_analyses(
+        submission_id=submission, analysis_ids=[imported, own],
+        actor_id=iteration2_db.user_a)
+
+    assert outcome.deleted == 2
+    assert fake_irp.deleted_analyses == ["8100"]
+    assert _deleted_at(imported) is not None and _deleted_at(own) is not None
+
+
+def test_own_and_group_rows_are_not_imported(iteration2_db):
+    submission = seed_submission("Sub One")
+    edm = _edm()
+    link_submission_edm(submission, edm)
+    _executed(edm_id=edm, name="Own", status_code="ready")
+    seed_group(submission, "CRE_Sub One_Group")
+
+    rows = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+
+    assert [r.imported for r in rows] == [False, False]
+    assert {r.run_state for r in rows} == {"submitting"}

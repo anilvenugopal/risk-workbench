@@ -1,0 +1,23 @@
+{# Import analyses dialog (#101), rendered into #import-modal by
+   GET /submissions/{sid}/analyses/import. One form: the Add button posts it to
+   the check route, which re-renders #import-body (entry, message, list,
+   footer) with the new candidate; the list lives in the hidden ``entries``
+   inputs, so there is no server-side draft. The submit posts the same form to
+   the import route, which answers 204 with analyses-changed and a toast, and
+   the dialog closes itself. When nothing imported, that route answers 200 with
+   the body instead, and the dialog stays open on the reasons. #}
+<div class="modal-overlay" @click.self="document.getElementById('import-modal').replaceChildren()">
+  <div class="modal-card modal-card--import" role="dialog" aria-modal="true" aria-labelledby="import-modal-title" x-data>
+    <div class="modal-header">
+      <span id="import-modal-title" class="modal-title">Import analyses &middot; {{ submission.name }}</span>
+      <button class="icon-btn" type="button" aria-label="Close" @click="document.getElementById('import-modal').replaceChildren()">×</button>
+    </div>
+    <form method="post" action="{{ import_url }}" hx-post="{{ import_url }}" hx-swap="none"
+          @htmx:after-request="if ($event.detail.elt === $el && $event.detail.xhr.status === 204) document.getElementById('import-modal').replaceChildren()">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <div id="import-body">
+        {% include "partials/analysis_import_body.html" %}
+      </div>
+    </form>
+  </div>
+</div>

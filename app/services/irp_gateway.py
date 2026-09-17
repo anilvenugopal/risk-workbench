@@ -393,6 +393,8 @@ class IRPGateway(Protocol):
 
     def get_analysis_by_name_only(self, name: str) -> AnalysisHit: ...
 
+    def resolve_app_analysis_id(self, *, app_analysis_id: int) -> str: ...
+
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
                            exposure_resource_id: int) -> list[dict]: ...
 
@@ -1090,6 +1092,16 @@ class _RealGateway:
                 if r.get("exposureResourceId") is not None else None),
             exposure_resource_type=r.get("exposureResourceType"))
 
+    def resolve_app_analysis_id(self, *, app_analysis_id: int) -> str:
+        # The Risk Modeler UI shows appAnalysisId; every other call here takes
+        # the Platform analysisId.
+        rows = self._client().analysis.search_analyses_paginated(
+            filter=f"appAnalysisId={int(app_analysis_id)}")
+        if not rows:
+            raise LookupError(
+                f"no analysis with appAnalysisId {app_analysis_id}")
+        return str(rows[0]["analysisId"])
+
     # ── spec-011 result reads (worker-only; contracts/irp-gateway.md) ─────────
 
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
@@ -1427,6 +1439,10 @@ def get_analysis_by_name_only(name: str) -> AnalysisHit:
     return _active().get_analysis_by_name_only(name)
 
 
+def resolve_app_analysis_id(*, app_analysis_id: int) -> str:
+    return _active().resolve_app_analysis_id(app_analysis_id=app_analysis_id)
+
+
 def get_analysis_stats(*, analysis_id: int, perspective_code: str,
                        exposure_resource_id: int) -> list[dict]:
     return _active().get_analysis_stats(
@@ -1519,6 +1535,7 @@ __all__ = [
     "find_portfolio_by_name",
     "inspect_grouping", "submit_grouping", "get_grouping_job",
     "count_analyses_named", "get_analysis_by_name_only",
+    "resolve_app_analysis_id",
     "GroupingInspection", "GroupingMember", "GroupingRegionFact",
     "GroupingPartition", "GroupingPartitionKey", "EventRateSchemeOption",
     "GroupingProblem",
