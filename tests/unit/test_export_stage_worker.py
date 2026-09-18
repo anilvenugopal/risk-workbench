@@ -332,8 +332,8 @@ def _set_schema_version(version):
 def test_a_repository_behind_this_release_fails_before_any_write(staging, fake_irp):
     _set_schema_version(None)
     _fail(staging, "loss repository is at stage schema version 0; this release needs "
-                   f"{export_jobs.REQUIRED_LOSS_SCHEMA_VERSION}: apply db/bootstrap/changes/ "
-                   f"through {export_jobs.REQUIRED_LOSS_SCHEMA_VERSION:03d}")
+                   f"{export_jobs.REQUIRED_LOSS_SCHEMA_VERSION}: apply "
+                   "db/bootstrap/loss_schema.sql")
     assert fake_irp.export_downloads == []
 
 

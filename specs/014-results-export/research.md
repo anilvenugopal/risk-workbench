@@ -693,7 +693,7 @@ Four mechanisms were weighed on 2026-09-11.
 
 | Mechanism | Why it was not chosen |
 |---|---|
-| One numbered change script per release beside the definitive file | **Chosen.** Costs one small file per change; the column definition then exists in two places, closed by T049 |
+| One numbered change script per release beside the definitive file | **Chosen.** Costs one small file per change; the column definition then exists in two places, which the drift test closes when the first change script ships |
 | The DBA diffs the file against the database with Redgate SQL Compare or SSDT Schema Compare | Neither tool reads a loose `.sql` file — SSDT needs a database project, Redgate a scripts folder — so `loss_schema.sql` becomes a directory of one object per file with the `IF OBJECT_ID` guards removed, which also ends `bootstrap_loss.py`'s re-runnability. And CIC would have to own one of the tools; their DBA tooling is unknown while O-05 is open |
 | Ship a `.dacpac` and have the DBA run `sqlpackage /Action:Script` then `/Action:Publish` | Strongest guarantee, because the tool refuses on drift rather than skipping, but it adds a `.sqlproj` and a build step here and `sqlpackage` at CIC, for three tables and one procedure |
 | Converge logic inside `loss_schema.sql` (`IF COL_LENGTH(...) <> 5 ALTER ...`) | Turns the definitive schema into an append-only migration log. Rejected by the approver on 2026-09-10, and the same objection removed the block added that day |
@@ -705,10 +705,17 @@ chosen one and removes the second copy of each column definition — a question
 for CIC before cutover, not one to guess at.
 
 **Decision**: `db/bootstrap/loss_schema.sql` stays the definitive schema and
-installs a fresh repository by itself; a release that alters an installed
-table ships one numbered script in `db/bootstrap/changes/`;
-`stage.rwb_loss_schema_version` records what has been applied, so both the DBA
-and the stage worker can tell which version a repository is at (T048–T050).
+installs a fresh repository by itself; `stage.rwb_loss_schema_version` records
+what is installed, so both the DBA and the stage worker can tell which version
+a repository is at (T048, T050). A release that alters an installed table
+ships one numbered script in `db/bootstrap/changes/` — documented, unbuilt
+(T062, 2026-09-18). `001-engine-type-varchar5.sql` and its drift test
+`tests/sqlserver/test_loss_schema_changes.py` were written on 2026-09-16 and
+folded back into `loss_schema.sql` before the first release: until the
+Workbench is deployed, no installed repository holds manifests worth keeping
+and every release reinstalls, so the scripts would be written and run for
+nothing. The pattern returns with its drift test on the first release that
+alters a table CIC is already using (contracts/load-procedure.md §4).
 
 ## R19 — The export chooses the model version; options come from the lookup (D11–D14)
 

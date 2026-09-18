@@ -32,7 +32,7 @@
 | Area | Change |
 |---|---|
 | Database (Workbench) | `irp_job.export_id` (Uuid, nullable, indexed); seed rows added and removed in `alembic/versions/0001_initial.py`; no new table. |
-| Database (loss repository) | New `stage` schema: `rwb_loss_result_manifest`, `rwb_loss_result_file`, `rwb_loss_result_elt_data`, `rwb_loss_schema_version` (stamped by a fresh install and by each script in `db/bootstrap/changes/`), procedure `usp_load_elt_result`. `rwb_loss_result_plt_data` designed, not built. Dev mirror of CIC's five tables. |
+| Database (loss repository) | New `stage` schema: `rwb_loss_result_manifest`, `rwb_loss_result_file`, `rwb_loss_result_elt_data`, `rwb_loss_schema_version` (stamped by `loss_schema.sql`), procedure `usp_load_elt_result`. `rwb_loss_result_plt_data` designed, not built. Dev mirror of CIC's five tables. |
 | Worker | Three actors in `app/workers/export_jobs.py`; poller getter and terminal handler for `export`; gateway wrappers for submit, status, download; `FakeIRP` equivalents. |
 | Service | New `app/services/export_service.py`: exportable-analysis list, perspective intersection, duplicate check, manifest insert, exports list and detail read models, status derivation, Retry decision. |
 | UI | Export button on the analyses section; export form page; the exports table on the submission page; one hidden nav node; small `details.css`/`components.css` extensions; `tableToTsv` in `app.js` copies `.drow-static` rows and skips the checkbox column only on a `.dtable--selectable` table. Rendered preview first (UI_WORKFLOW). |
@@ -91,7 +91,7 @@
 | O-08 | HD/PLT: destination table, `HDv2.1` as model version, classification for HD, ELT vs PLT choice | Deferred | `loss_table_type`/`engine_type` recorded; PLT table designed only; an HD archive fails at stage with "loss table type PLT not supported" |
 | O-10 | Which share, its mount point on the VM, and the service account's write grant (Ross, Randy). `Data.ArchiveFile` stays unpopulated (decided 2026-09-09); no screen shows the path (P-21) | Open | `EXPORT_ARCHIVE_DIR` under the `rwb-data` volume in dev; production value is the mount. Blocks CIC verification only |
 | O-11 | Repeated `EventID` within one `ModelVersion` in CIC's lookup (the peril-code half closed 2026-09-10: the join has no peril term, R4) | Closed 2026-09-14 | One repeat, `15000012`, both rows `EQ`, so a peril term would not separate them; the one-match assertion (50003) is the protection. The repeat itself is O-15 |
-| O-12 | Which CIC DBA runs `loss_schema.sql` (a `db_owner` login) and reviews it. Mechanism decided 2026-09-09 and extended 2026-09-11: the DBA installs the repo file before each Workbench release that changes it, and once the repository holds real manifests a release that alters an installed table ships one numbered script in `db/bootstrap/changes/` instead, with `stage.rwb_loss_schema_version` recording what is applied (T048–T050). `loss_schema.sql` stays the definitive schema and the Workbench never runs DDL against CIC | Open (who at CIC) | Mechanism built 2026-09-16: `db/bootstrap/changes/001-engine-type-varchar5.sql`, the version table, the drift test, and the stage worker's version check (contracts/load-procedure.md §4). The DBA is still unnamed (O-05) |
+| O-12 | Which CIC DBA runs `loss_schema.sql` (a `db_owner` login) and reviews it. Mechanism decided 2026-09-09 and extended 2026-09-11: the DBA installs the repo file before each Workbench release that changes it, and once the repository holds real manifests a release that alters an installed table ships one numbered script in `db/bootstrap/changes/` instead, with `stage.rwb_loss_schema_version` recording what is applied (T048–T050) | Open (who at CIC) | `loss_schema.sql` is the whole schema and the Workbench never runs DDL against CIC. Before the first release nothing installed holds manifests worth keeping, so the change scripts are documented and not built (T062): `db/bootstrap/changes/` is empty, the version table and the stage worker's version check are built (contracts/load-procedure.md §4). The DBA is still unnamed (O-05) |
 | O-14 | Whether `Data.DataModelVersion` should come from the analysis's engine version rather than the archive's `ModelVersion` (design session 9/11 D9; the seed-rebuild half, D10, closed 2026-09-14 under T-30) | Closed 2026-09-15 | They are the same number. The 9/11 recording has Cheryl sending Ben off the model data version (18.1, off the model profile) and onto the engine version for both the header and the lookup join — "we don't maintain that data model version, we maintain this version, what you have here, which is actually what RMS is referring to as the engine version" — and confirming the loaded value on screen: "the data model version for every single one of these that I've loaded is 25" / "That's expected." The archive's `metadata.csv` `ModelVersion` is that engine version (the failed export's `23.0` likewise). 9/15 D11–D14: the lookup holds the decimal form (`25.0`), and the export chooses the version on the form instead of the worker reading the archive's (T-35) |
 | O-13 | Whether CIC's `Lookup_RMS_HistoricalRDS` holds the `EventID` of each storm's `HIST` row or of its `STOC` twin | Closed 2026-09-14 | The `STOC` twin, the id the ELT reports: CIC's export holds `2847001` and not `2896402` (R17). The reseed makes the join match on dev data |
 | O-15 | `EventID` 15000012 appears twice in CIC's lookup (`EQ`/`HIST`/1952, `PCS#` 5227 and 5229, R16); any v25 analysis whose ELT carries it fails the load with 50003 until CIC deletes one row | Open | The seed copies both rows; only CIC can fix its table |
@@ -206,7 +206,6 @@ db/
 ├── execute.py                         # execute_procedure, read_uncommitted_hint
 └── bootstrap/                         # NEW directory
     ├── loss_schema.sql                # stage schema, tables, version stamp, procedure (CIC install)
-    ├── changes/001-engine-type-varchar5.sql   # NEW: one re-runnable script per altered table (O-12)
     ├── loss_dev_mirror.sql            # dbo.Client/Data/RMSELT/RMS_HistoricalRDS/Lookup_RMS_HistoricalRDS (dev)
     └── seed/lookup_rms_historical_rds.csv   # NEW: CIC's Lookup_RMS_HistoricalRDS, 2,589 rows (T-30)
 infra/
@@ -284,10 +283,7 @@ partials, one SQLite mirror module for tests.
   `CATCH` writing `failed` and rolling back all target rows, `loaded` only
   on commit; `db.execute_procedure` autocommit behavior; `upload_parquet`
   into `stage.rwb_loss_result_elt_data` with `extra_columns`; migration
-  shape for `irp_job.export_id` and the seed changes; a fresh
-  `loss_schema.sql` install and the same install plus every
-  `db/bootstrap/changes/` script end at the same columns, check constraints,
-  and stamped version.
+  shape for `irp_job.export_id` and the seed changes.
 - **IRP sandbox** (`uv run pytest tests/irp --run-irp` inside `linux-box`):
   submit an export for a finished sandbox analysis, bounded status polling,
   download through the gateway, assert the archive layout and `metadata.csv`

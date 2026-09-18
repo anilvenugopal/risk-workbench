@@ -3,7 +3,8 @@
 Applies db/bootstrap/loss_dev_mirror.sql (CIC's five tables),
 db/bootstrap/loss_schema.sql (the Workbench's stage schema and load procedure),
 and every script in db/bootstrap/changes/ in name order (the DBA's upgrade
-path, contracts/load-procedure.md §4) over the LOSS connection, then seeds dbo.Client with three made-up clients and
+path, contracts/load-procedure.md §4) over the LOSS connection, then seeds
+dbo.Client with three made-up clients and
 dbo.Lookup_RMS_HistoricalRDS from db/bootstrap/seed/lookup_rms_historical_rds.csv.
 Idempotent: a second run leaves every row count unchanged. ``--reset-stage``
 drops the stage tables first, so a changed column definition in
@@ -98,6 +99,9 @@ def main() -> int:
     execute_script_file(BOOTSTRAP_DIR / "loss_dev_mirror.sql", connection="LOSS")
     print("bootstrap-loss: applying loss_schema.sql")
     execute_script_file(BOOTSTRAP_DIR / "loss_schema.sql", connection="LOSS")
+    # db/bootstrap/changes/ holds no script and does not exist until a release
+    # alters a table CIC is already using (contracts/load-procedure.md §4), so
+    # the glob finds nothing today.
     for script in sorted((BOOTSTRAP_DIR / "changes").glob("*.sql")):
         print(f"bootstrap-loss: applying changes/{script.name}")
         execute_script_file(script, connection="LOSS")

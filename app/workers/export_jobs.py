@@ -44,8 +44,8 @@ ELT_COLUMN_MAP = {
 }
 _SIX_HOURS_MS = 6 * 60 * 60 * 1000
 _CHUNK_SUFFIX = re.compile(r"_(\d+)\.parquet$", re.IGNORECASE)
-# The highest script number in db/bootstrap/changes/, which loss_schema.sql stamps
-# on a fresh install. A repository below it fails the stage step before any write.
+# The version db/bootstrap/loss_schema.sql stamps. A repository below it fails the
+# stage step before any write.
 REQUIRED_LOSS_SCHEMA_VERSION = 1
 
 
@@ -141,8 +141,7 @@ def _check_loss_schema_version() -> None:
     if installed is None or int(installed) < REQUIRED_LOSS_SCHEMA_VERSION:
         raise StageFailure(
             f"loss repository is at stage schema version {installed or 0}; this release "
-            f"needs {REQUIRED_LOSS_SCHEMA_VERSION}: apply db/bootstrap/changes/ through "
-            f"{REQUIRED_LOSS_SCHEMA_VERSION:03d}")
+            f"needs {REQUIRED_LOSS_SCHEMA_VERSION}: apply db/bootstrap/loss_schema.sql")
 
 
 def _discard_partial_stage(manifest_id: int, work_dir: Path) -> None:

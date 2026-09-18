@@ -103,7 +103,7 @@ re-raises after stamping).
    `NULL` or below `REQUIRED_LOSS_SCHEMA_VERSION` fail, before the partial
    stage is cleared or anything is written, with "loss repository is at
    stage schema version {n}; this release needs {m}: apply
-   db/bootstrap/changes/ through {m:03d}" (contracts/load-procedure.md §4).
+   db/bootstrap/loss_schema.sql" (contracts/load-procedure.md §4).
    A repository ahead of the release passes.
 1. Read the `export` `irp_job`; if `status <> 'FINISHED'` fail with the
    job's failure text (from `last_completion_result`) or "Risk Modeler export

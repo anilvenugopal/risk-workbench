@@ -93,24 +93,27 @@ Returns `"WITH (READUNCOMMITTED)"` when the resolved engine dialect is
   installs a fresh repository and never alters an installed table.
 - **Versions.** `stage.rwb_loss_schema_version` (`version INT` PK,
   `applied_at`, `description`) records what is installed;
-  `SELECT MAX(version) FROM stage.rwb_loss_schema_version` names it. A fresh
-  install of `loss_schema.sql` stamps the file's version (the number of the
-  newest script in `db/bootstrap/changes/`). Each release that alters an
-  installed table ships one numbered, re-runnable script there
-  (`001-engine-type-varchar5.sql`, …), and each script stamps its own
-  number. The stage worker refuses to stage an analysis while `MAX(version)`
-  is below the release's `REQUIRED_LOSS_SCHEMA_VERSION`
-  (`app/workers/export_jobs.py`), naming both numbers; a repository ahead of
-  the release passes.
-- **Fresh install:** run `loss_schema.sql`; nothing else.
-- **Upgrade:** run `loss_schema.sql` (it replaces the procedure and creates
-  the version table when absent, stamping nothing), then every script in
-  `db/bootstrap/changes/` numbered above `MAX(version)`, in order, then
-  re-check `MAX(version)`. `tests/sqlserver/test_loss_schema_changes.py`
-  asserts that a fresh install and an upgrade end at the same columns and
-  check constraints. In dev, `make bootstrap-loss` is the upgrade: it applies
-  `loss_schema.sql` and then every change script, so an existing `rwb_loss`
-  keeps its manifests and gets its version stamped.
+  `SELECT MAX(version) FROM stage.rwb_loss_schema_version` names it.
+  `loss_schema.sql` stamps its own version (1). The stage worker refuses to
+  stage an analysis while `MAX(version)` is below the release's
+  `REQUIRED_LOSS_SCHEMA_VERSION` (`app/workers/export_jobs.py`), naming both
+  numbers; a repository ahead of the release passes.
+- **Install:** run `loss_schema.sql`; nothing else. It carries the whole
+  schema, so a repository with no `stage` tables ends at the current version
+  from this file alone. In dev that is `make bootstrap-loss`, with
+  `make bootstrap-loss-reset` when a column definition changed.
+- **Altering an installed table — the change-script pattern, not built.**
+  `loss_schema.sql` creates a table only when it is absent and never alters
+  one, so a release that changes a column reaches an installed repository
+  only through a second file. Once CIC's repository holds manifests worth
+  keeping, that release bumps the version stamped in `loss_schema.sql` and
+  ships one numbered, re-runnable script in `db/bootstrap/changes/` making
+  the same change over an installed table and stamping its own number; the
+  DBA runs `loss_schema.sql` first, then each script above `MAX(version)` in
+  order, then re-checks `MAX(version)`, and a SQL Server test asserts that an
+  install and an upgrade end at the same columns and check constraints. Until
+  CIC's repository holds manifests, the folder does not exist and every
+  release reinstalls (research R18).
 - The file names no database and nothing else that is environment-specific;
   it installs unchanged in dev and at CIC (T-21). The procedure reads
   `dbo.Lookup_RMS_HistoricalRDS` by two-part name under ownership chaining,
@@ -139,7 +142,8 @@ run a load by hand.
 - `infra/scripts/bootstrap_loss.py`: refuses unless `MSSQL_LOSS_DATABASE ==
   "rwb_loss"`; applies `db/bootstrap/loss_dev_mirror.sql` (CIC's five
   tables into `rwb_loss`, seed rows), then
-  `db/bootstrap/loss_schema.sql`, both through
+  `db/bootstrap/loss_schema.sql`, then every script in
+  `db/bootstrap/changes/` in name order — none today — all through
   `db.scripts.execute_script_file(..., connection="LOSS")`.
 - `--reset-stage` drops `stage.rwb_loss_result_elt_data`,
   `stage.rwb_loss_result_file`, and `stage.rwb_loss_result_manifest` before
