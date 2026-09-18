@@ -663,12 +663,13 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Treaty year on the submissions list (D16). Typed, not picked — there is no list
-  // of years to offer. A year outside the range never becomes a chip, so it never
+  // A typed chip list (D16): treaty years and CRM IDs on the submissions list and
+  // the libraries. Typed, not picked — there is no list to offer. With minYear /
+  // maxYear set, a value outside the range never becomes a chip, so it never
   // reaches the query: the box shows the message and the committed chips stand.
-  Alpine.data('yearChips', (minYear, maxYear) => ({
+  Alpine.data('chipInput', ({ name, minYear = null, maxYear = null } = {}) => ({
     error: '',
-    get years() {
+    get values() {
       return Array.from(this.$refs.chips.querySelectorAll('input')).map(
         (input) => input.value);
     },
@@ -698,30 +699,32 @@ document.addEventListener('alpine:init', () => {
     commit() {
       const typed = this.$refs.entry.value.trim();
       if (!typed) return;
-      const year = Number(typed);
-      if (!/^\d{4}$/.test(typed) || year < minYear || year > maxYear) {
-        this.error = `Enter a 4-digit year between ${minYear} and ${maxYear}.`;
-        return;
+      if (minYear !== null) {
+        const year = Number(typed);
+        if (!/^\d{4}$/.test(typed) || year < minYear || year > maxYear) {
+          this.error = `Enter a 4-digit year between ${minYear} and ${maxYear}.`;
+          return;
+        }
       }
       this.error = '';
       this.$refs.entry.value = '';
-      if (this.years.includes(typed)) return;   // already applied — nothing changes
+      if (this.values.includes(typed)) return;   // already applied — nothing changes
       this.$refs.chips.appendChild(this.chip(typed));
       this.apply();
     },
-    chip(year) {
+    chip(value) {
       const chip = document.createElement('span');
       chip.className = 'filter-chip';
-      chip.textContent = year;
+      chip.textContent = value;
       const input = document.createElement('input');
       input.type = 'hidden';
-      input.name = 'treaty_year';
-      input.value = year;
+      input.name = name;
+      input.value = value;
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'filter-chip__x';
       remove.textContent = '×';
-      remove.setAttribute('aria-label', `Remove ${year}`);
+      remove.setAttribute('aria-label', `Remove ${value}`);
       chip.append(input, remove);
       return chip;
     },
@@ -811,6 +814,7 @@ document.addEventListener('alpine:init', () => {
     total: 0,
     brokerCount: 0,
     picked: [],
+    treatiesOk: true,
     term: '',
     shown: 0,
     rowCount: 0,
@@ -833,6 +837,11 @@ document.addEventListener('alpine:init', () => {
       this.picked = checked.map((box) => box.value);
       this.brokerCount = checked.filter(
         (box) => box.dataset.broker !== undefined).length;
+      // The export form at TY (spec 016 D23): every analysis in the cart needs
+      // at least one treaty ticked before Export is offered. No treaty list on
+      // the page means nothing to gate.
+      this.treatiesOk = Array.from(this.$root.querySelectorAll('.treaty-pick')).every(
+        (pick) => pick.querySelector('input[type=checkbox]:checked'));
       const selectAll = this.$refs.selectAll;
       if (!selectAll) return;
       selectAll.checked = this.total > 0 && this.count === this.total;
@@ -872,6 +881,14 @@ document.addEventListener('alpine:init', () => {
       if (!this.rowCount) return '';
       return this.term ? `${this.shown} of ${this.rowCount} analyses`
         : `${this.rowCount} analyses`;
+    },
+    // The all / none links over one analysis's treaty list.
+    tickTreaties(pick, checked) {
+      if (!pick) return;
+      pick.querySelectorAll('input[type=checkbox]').forEach((box) => {
+        box.checked = checked;
+      });
+      this.onChange();
     },
     // Removing an analysis from the export cart. The bubbling change is what
     // refetches the cart fragment, exactly as ticking the box does.

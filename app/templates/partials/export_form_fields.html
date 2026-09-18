@@ -1,15 +1,17 @@
 {# The export cart (contracts/routes.md §3): the perspective every selected
    analysis shares, and one cart row per selected analysis carrying its AAL at
-   that perspective and its optional data name. An analysis already exported for
-   the chosen perspective is warned about in its cart row and still exports — the
-   repeat writes a second data set (FR-004). #}
+   that perspective and its optional data name. At TY the cart row lists the
+   analysis's treaties instead: the analyst ticks the ones to export and names
+   each one while its terms are on screen (P-03, P-06, P-12). An analysis
+   already exported for the chosen perspective is warned about in its cart row
+   and still exports — the repeat writes a second data set (FR-004). #}
 <div id="export-fields" class="export-cart">
   <div class="wf-field">
     <label>PERSPECTIVE <span class="wf-field__req" title="Required">*</span></label>
     <select class="wf-field__input" name="perspective" required
             {% if not choices %}disabled{% endif %}
             hx-get="/submissions/{{ submission_id }}/exports/new/fields" hx-trigger="change"
-            hx-include="[name='analysis_ids'], [name^='data_name']"
+            hx-include="[name='analysis_ids'], [name^='data_name'], [name^='treaty['], [name^='treaty_data_name[']"
             hx-target="#export-fields" hx-swap="outerHTML">
       <option value="">{% if selected and not choices %}No shared perspective{% else %}Select…{% endif %}</option>
       {% for code in choices %}
@@ -18,6 +20,8 @@
     </select>
     {% if selected and not choices %}
     <div class="wf-field__msg wf-field__error">The selected analyses share no exportable perspective</div>
+    {% elif perspective == 'TY' %}
+    <div class="wf-field__msg wf-field__hint">TY writes one loss set per ticked treaty, per analysis.</div>
     {% elif not selected %}
     <div class="wf-field__msg wf-field__hint">Tick at least one analysis to choose a perspective.</div>
     {% endif %}
@@ -28,18 +32,45 @@
     {% if selected %}
     <div class="export-cart__rows">
       {% for a in selected %}
+      {% set picked = treaty_picks.get(a.id, {}) %}
       <div class="bo-cart-row">
         <div class="bo-cart-row__top">
           <span class="bo-cart-row__label">{{ a.name }}</span>
           <button type="button" class="bo-cart-row__remove" @click="untick('{{ a.id }}')">remove</button>
         </div>
-        {% if perspective %}
+        {# No AAL at TY: the value exists only per treaty, on the loaded row (P-10). #}
+        {% if perspective and perspective != 'TY' %}
         <div class="bo-cart-row__meta" title="{{ a.aal.get(perspective) }}">AAL {{ a.aal_display(perspective) }}</div>
         {% endif %}
+        {% if perspective == 'TY' %}
+        <div class="treaty-pick">
+          <div class="treaty-pick__head"><span>Treaties</span>
+            <span class="links">
+              <a href="#" @click.prevent="tickTreaties($el.closest('.treaty-pick'), true)">all</a> ·
+              <a href="#" @click.prevent="tickTreaties($el.closest('.treaty-pick'), false)">none</a></span>
+          </div>
+          {% for t in a.treaty_choices %}
+          <div class="treaty-row">
+            <input type="checkbox" name="treaty[{{ a.id }}]" value="{{ t.number }}"
+                   {% if t.number in picked %}checked{% endif %} @change="onChange()">
+            <label class="treaty-row__id"><span class="treaty-row__num">{{ t.number }}</span>
+              <span class="treaty-row__name">{{ t.name }}</span>
+              <span class="treaty-row__type">{{ t.type_label }}</span></label>
+            <div class="treaty-row__terms">risk <b>{{ t.risk_limit }}</b> · att <b>{{ t.attachment_point }}</b> · occ <b>{{ t.occurrence_limit }}</b></div>
+            <label class="export-cart-row__name treaty-row__name-field">Data name
+              <input class="wf-field__input" type="text" maxlength="{{ data_name_max }}"
+                     name="treaty_data_name[{{ a.id }}][{{ t.number }}]"
+                     placeholder="{{ a.analysis_name }} {{ t.number }}"
+                     value="{{ picked.get(t.number, '') }}"></label>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
         <label class="export-cart-row__name">Data name
           <input class="wf-field__input" type="text" name="data_name[{{ a.id }}]"
                  maxlength="{{ data_name_max }}" placeholder="Optional"
                  value="{{ data_names.get(a.id, '') if data_names is defined else '' }}"></label>
+        {% endif %}
         {% if a.exported %}
         <div class="wf-field__msg wf-field__hint wf-field__hint--warn">Already exported for {{ perspective }}
           ({{ a.exported.earlier_count }} time{{ 's' if a.exported.earlier_count != 1 }}),

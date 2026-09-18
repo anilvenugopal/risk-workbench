@@ -1,37 +1,107 @@
-<div id="crm-tags" class="crm-tags">
-  {# Add form comes first so its position is fixed — the chip list grows to the
-     right of it instead of pushing the input around. #}
+{# The CRM band of the deal card: one vertical list, one row per CRM ID —
+   CRM ID · inception → expiration · row actions (spec 017 FR-004, FR-005).
+   Every date reads the same whether the CRM ID carries its own or inherits the
+   deal's. Add is a button until it is pressed; a row's pencil and × appear on
+   hover and on keyboard focus. Every CRM route swaps this wrapper, so a
+   successful write closes whichever editor was open. Add, edit and remove are
+   absent when Modeling status is not Active. #}
+<div id="crm-tags" class="crm-band" x-data="{ adding: false }"
+     hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }">
+  {% if crm_error %}
+  <div class="form-banner form-banner--error" role="alert">{{ crm_error }}</div>
+  {% endif %}
+
+  <div class="crm-band__head">
+    <span class="crm-band__label">CRM IDs{% if crm_tags %} ({{ crm_tags|length }}){% endif %}</span>
+    {% if is_active %}
+    <span class="crm-band__actions">
+      <button class="btn-sm" type="button" x-show="!adding" @click="adding = true">+ Add CRM ID</button>
+      {% if crm_tags | rejectattr('inception_inherited') | list
+            or crm_tags | rejectattr('expiration_inherited') | list %}
+      <form method="post" action="/submissions/{{ submission.id }}/crm-ids/same-dates"
+            hx-post="/submissions/{{ submission.id }}/crm-ids/same-dates"
+            hx-target="#crm-tags" hx-swap="outerHTML"
+            hx-confirm="Reset every CRM ID to the deal's inception and expiration?">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm" type="submit">Make dates the same</button>
+      </form>
+      {% endif %}
+    </span>
+    {% endif %}
+  </div>
+
   {% if is_active %}
-  {# The swap replaces this whole wrapper, so a successful add re-renders the
-     input empty on its own — no client-side reset needed. #}
-  <form class="crm-add" method="post" action="/submissions/{{ submission.id }}/crm-ids"
+  {# The dates start on the deal's; one left as the deal's is stored as
+     inheritance, so the CRM ID follows a later change to the deal's term. #}
+  <form class="crm-edit" method="post" action="/submissions/{{ submission.id }}/crm-ids"
         hx-post="/submissions/{{ submission.id }}/crm-ids"
-        hx-target="#crm-tags" hx-swap="outerHTML">
+        hx-target="#crm-tags" hx-swap="outerHTML" x-show="adding" x-cloak>
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-    <input class="crm-add__input" type="text" name="crm_id" placeholder="Add CRM ID"
-           autocomplete="off">
-    <button class="btn-sm" type="submit">Add</button>
+    <input type="text" name="crm_id" placeholder="CRM ID" autocomplete="off"
+           aria-label="CRM ID">
+    <input type="date" name="inception_date" aria-label="Inception"
+           value="{{ submission.inception_date or '' }}">
+    <span class="crm-row__arrow">&rarr;</span>
+    <input type="date" name="expiration_date" aria-label="Expiration"
+           value="{{ submission.expiration_date or '' }}">
+    <button class="btn-sm btn-sm--primary" type="submit">Add</button>
+    <button class="btn-sm" type="button" @click="adding = false">Cancel</button>
+    <span class="crm-edit__hint">Dates start on the deal's; clear one to inherit it.</span>
   </form>
   {% endif %}
 
-  <div class="crm-tags__list">
+  {% if crm_tags %}
+  <div class="crm-list">
+    <div class="crm-row crm-row--head">
+      <span></span><span>Inception</span><span></span><span>Expiration</span><span></span>
+    </div>
     {% for t in crm_tags %}
-      {# div, not span: the remove form is flow content and may not sit in a span. #}
-      <div class="crm-tag">
-        <span class="crm-tag__text">{{ t.crm_id }}</span>
+    <div class="crm-row" x-data="{ editing: false }">
+      <span class="crm-row__id">{{ t.crm_id }}</span>
+      <span class="crm-date">{{ t.effective_inception_date or '—' }}</span>
+      <span class="crm-row__arrow">&rarr;</span>
+      <span class="crm-date">{{ t.effective_expiration_date or '—' }}</span>
+      <span class="crm-row__actions">
         {% if is_active %}
+        <button class="icon-btn icon-btn--xs" type="button" x-show="!editing"
+                @click="editing = true" title="Edit dates"
+                aria-label="Edit the dates of {{ t.crm_id }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </button>
         <form method="post"
               action="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/delete"
               hx-post="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/delete"
               hx-target="#crm-tags" hx-swap="outerHTML">
           <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-          <button class="crm-tag__del" type="submit"
+          <button class="crm-row__del" type="submit"
                   title="Remove {{ t.crm_id }}" aria-label="Remove {{ t.crm_id }}">×</button>
         </form>
         {% endif %}
-      </div>
-    {% else %}
-      <span class="tag-empty">No CRM IDs.</span>
+      </span>
+      {% if is_active %}
+      {# The override pair, blank when inherited: a blank date saved inherits the
+         deal's date again (per column, P-03). #}
+      <form class="crm-edit" method="post"
+            action="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/dates"
+            hx-post="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/dates"
+            hx-target="#crm-tags" hx-swap="outerHTML" x-show="editing" x-cloak>
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <input type="date" name="inception_date" aria-label="Inception"
+               value="{{ t.inception_date or '' }}">
+        <span class="crm-row__arrow">&rarr;</span>
+        <input type="date" name="expiration_date" aria-label="Expiration"
+               value="{{ t.expiration_date or '' }}">
+        <button class="btn-sm btn-sm--primary" type="submit">Save</button>
+        <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
+        <span class="crm-edit__hint">Blank inherits the deal's date.</span>
+      </form>
+      {% endif %}
+    </div>
     {% endfor %}
   </div>
+  {% else %}
+  <div class="crm-empty">No CRM IDs yet.</div>
+  {% endif %}
 </div>

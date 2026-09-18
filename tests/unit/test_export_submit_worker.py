@@ -1,8 +1,9 @@
 """Unit tests for the ``submit_results_export`` worker (spec 014 T031) with
-``fake_irp``: one Risk Modeler export request per pending manifest row, the
+``fake_irp``: one Risk Modeler export request per pending analysis, the
 ``export`` irp_job written with ``export_id``, a per-analysis rejection marking
-that row failed, an unreachable Risk Modeler stopping the run, and rows that
-already have a job id being skipped on a re-run."""
+that row failed, an unreachable Risk Modeler stopping the run, rows that already
+have a job id being skipped on a re-run, and a completed job never being reused
+after Retry (spec 016 T-14)."""
 
 from __future__ import annotations
 
@@ -121,6 +122,22 @@ def test_rows_with_a_job_id_are_skipped_on_a_rerun(export, fake_irp):
     assert len(fake_irp.export_submits) == 2
     assert json.loads(_submit_job(export["export_id"])["output_data"]) == {
         "submitted": 0, "failed": 0}
+
+
+def test_a_completed_job_is_never_reused_after_retry(export, fake_irp):
+    """Retry on the submit branch clears the row's job id and asks for a fresh
+    Risk Modeler export; reusing the terminal job would leave the row reading in
+    progress for good (T-14)."""
+    from tests.unit.export_rows import seed_export_job
+
+    seed_export_job(export_id=export["export_id"], irp_analysis_id=export["a"], irp_id="77",
+                    edm_id=export["edm_id"], status="FAILED",
+                    completed_at="2026-09-10 09:00:00")
+
+    export_jobs.run_pending(worker_id="w1")
+
+    assert [s["analysis_id"] for s in fake_irp.export_submits] == [41958, 41959]
+    assert _manifests(export["export_id"])[export["a"]]["irp_export_job_id"] == "1"
 
 
 def test_a_job_recorded_by_a_crashed_run_is_reused_not_resubmitted(export, fake_irp):

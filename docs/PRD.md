@@ -477,9 +477,14 @@ association and does not delete or re-import the Risk Modeler resource.
 
 A submission's progress is derived from its jobs and entity state (§12–14: IRP Jobs, RWB Jobs, and the prerequisite gate), not from a stored workflow.
 
-### 7.2a Submission status
+### 7.2a Modeling status and Submission status
 
-Three values only, event-sourced (insert `submission_status_event` + stamp cached `submission.status_code`, in one transaction, per the standard convention):
+A submission carries two statuses that never share a label, a filter or a menu (spec 017):
+
+- **Modeling status** (`submission.status_code`) — where the modeling stands. Three values only, event-sourced (insert `submission_status_event` + stamp cached `submission.status_code`, in one transaction, per the standard convention). Its rules follow.
+- **Submission status** (`submission.deal_status_code` → `deal_status_kind`) — where the deal stands with the cedant: `WON`, `LOST` or `IN_PROCESS` (In Process on creation). Set by hand until a CRM sync exists, updated in place with the `updated_at` concurrency check, no reason and no history, and editable in every Modeling status: the cedant's Won / Lost answer usually arrives after modeling is Completed (P-02, P-12). "In force as of a date" is Submission status = Won plus a CRM ID's effective inception and expiration, computed at query time and never stored (P-09).
+
+Modeling status:
 
 | Status | Meaning |
 |---|---|
@@ -489,7 +494,7 @@ Three values only, event-sourced (insert `submission_status_event` + stamp cache
 
 Rules:
 - **Reopening to `ACTIVE` is allowed from either `COMPLETED` or `CANCELLED`** — set it back to `ACTIVE` and work resumes. Neither closed state is a one-way door; because there is no delete (below), reopening is also how a mistaken `CANCELLED` is recovered.
-- **Both closed states are fully read-only.** `COMPLETED` and `CANCELLED` alike block edits to the submission's own fields, CRM-ID tags, and EDM/RDM associations. The only actions on a closed submission are viewing and reopening.
+- **Both closed states are fully read-only.** `COMPLETED` and `CANCELLED` alike block edits to the submission's own fields, CRM-ID tags and their dates, and EDM/RDM associations. The only actions on a closed submission are viewing, reopening and setting Submission status (spec 017 P-12).
 - **No system-enforced precondition on any transition.** The analyst decides when a submission is done or withdrawn. The system does not block `ACTIVE → COMPLETED` because an import is still running.
 - **There is no file-inventory scanning to keep running on a `COMPLETED` submission** — the scanner subsystem is dropped (CR-003 M5, §8); the only ongoing operation is viewing.
 - **There is no delete, ever.** A submission can carry EDMs/RDMs with real Risk Modeler identity by the time anyone would want to remove it — deleting the row would orphan or mis-audit that Risk Modeler-side state. `CANCELLED` exists specifically as the "this isn't happening" outcome in place of a delete.
@@ -1136,7 +1141,7 @@ The Loss Repository is CIC's production SQL Server database `CRE_Trial_ELT_Repos
 
 **What the export does** is specified in `specs/014-results-export/spec.md` (Iteration 11): one or more finished analyses at one financial perspective for one client; the Parquet loss-table export job per analysis; one header row in `dbo.Data` per analysis, stochastic events in `dbo.RMSELT`, historical events in `dbo.RMS_HistoricalRDS` (classified by CIC's `dbo.Lookup_RMS_HistoricalRDS` on event ID and the export's model version, every analysis's historical rows written, none opt-in); the two automatic corrections (exposure raised to loss, negative standard deviation zeroed on stochastic rows) with counts; no review step; a repeat export writes a second data set under a new data ID. `dbo.Client` is **read-only** (design note 22 D25): clients are created upstream in CIC's workflow tool during exposure work. `dbo.Data.ArchiveFile`, `AReLossSet`, `LOB`, and `Geography` are not populated. AAL is never written; the repository calculates it (design note 22 D16).
 
-**Own, broker, and group analyses export the same way** (spec 014 P-10, 2026-09-09; reverses the 8/28 "own results only" line). The treaty-level TY perspective is spec 016. Analysts can also **copy / paste** results out for ad-hoc use (FR §7). Uploading loss sets to Analyze Re is a separate API and out of MVP.
+**Own, broker, and group analyses export the same way** (spec 014 P-10, 2026-09-09; reverses the 8/28 "own results only" line). The treaty-level (TY) export is spec 016 (`specs/016-ty-perspective-export/`, 2026-09-16, amended 2026-09-17): one data set per **ticked** treaty per analysis from Risk Modeler's treaty output level; cross-analysis aggregation is by grouping first in Risk Modeler. The analyst picks the treaties and names each data set in the cart, beside that treaty's type, risk limit, attachment point, and occurrence limit, which is the point Cheryl made for it: *"it is keeping your head into the treaty information at the time that you're interacting with it… if Cheng hadn't put that name on there, there was no way for me to get back to that information"* (design session 9/16 D23, D24). Analysts can also **copy / paste** results out for ad-hoc use (FR §7). Uploading loss sets to Analyze Re is a separate API and out of MVP.
 
 ### 16.4 Results grouping
 
@@ -1277,7 +1282,7 @@ filter state in the URL.
 `submission_id`, `edm_id`, `rdm_id`, `status`, and `job_type`. Each list accepts
 the subset that applies and ignores the rest.
 
-**`status` means something different on every list — this is expected, not a conflict.** Submission status (`ACTIVE`/`COMPLETED`/`CANCELLED`, §7.2a), RWB job status (`rwb_job_status_kind`: `pending`/`running`/`succeeded`/`failed`), IRP job status (`irp_job.status`: the IRP job-status vocabulary, §14.4), and any future list's status are independent domains that happen to share a param name because they never appear on the same list at the same time. Each list defines and validates its own `status` domain against its own data; there is no shared "status" enum anywhere in the system.
+**`status` means something different on every list — this is expected, not a conflict.** Modeling status on the submissions list (`status`: `ACTIVE`/`COMPLETED`/`CANCELLED`, §7.2a; Submission status is its own `deal_status` param, `WON`/`LOST`/`IN_PROCESS`), RWB job status (`rwb_job_status_kind`: `pending`/`running`/`succeeded`/`failed`), IRP job status (`irp_job.status`: the IRP job-status vocabulary, §14.4), and any future list's status are independent domains that happen to share a param name because they never appear on the same list at the same time. Each list defines and validates its own `status` domain against its own data; there is no shared "status" enum anywhere in the system.
 
 ### 20.5 Master-detail layout
 
@@ -1348,7 +1353,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 **In:**
 - §7 (Submission as the top-level deal: `cedant_name`/`treaty_type_code`/`inception_date`/`treaty_year`/`renews_from_submission_id`/`directory_path`, assigned analyst as soft owner, master-detail, list ergonomics)
 - §7.2 (`submission_crm_id` CRM-ID tag set — add/edit/remove tags)
-- §7.2a (submission status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced; closed states are fully read-only and reopenable to `ACTIVE`; no delete)
+- §7.2a (Modeling status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced; closed states are fully read-only and reopenable to `ACTIVE`; no delete)
 - §7.2b (submission identity: surrogate `id` key, non-unique `name` label + soft duplicate warning)
 - §6.1 (global roles gating functions) + §6.2 (analyst-centric "my submissions" filter)
 - **§9.4 Package structure (schema only, DATA_MODEL §4/§5):** the `package` and `submission_package` tables, the submission↔package M:N, the `package_id` FK on `irp_edm`/`irp_rdm` (bundle membership), soft-delete (`deleted_at`), plus the `db/` access functions and tests. Membership FKs live on `irp_edm`/`irp_rdm`, whose tables are created with the initial schema; their *entity management* (import, IRP) is Iteration 2. The **≥1-member rule is an app-enforced invariant** (no column CHECK — membership spans two child tables). **No package creation/sync/delete behavior here** — exercising a non-empty package waits for the EDM/RDM import plumbing in Iteration 2.
@@ -1481,7 +1486,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **In (spec 014, built 2026-09; scope in `specs/014-results-export/spec.md`):** the export form on a submission's analyses page — one or more finished analyses of any origin, one perspective from the configured set that every selected analysis has results for, a client from CIC's read-only client table, treaty inception and CRM ID pre-filled from the submission, an optional data name per analysis, a required data vintage, and one model version chosen from CIC's historical event lookup; automatic processing per analysis with no review step (Parquet export job, download, stage, classify by the lookup, the two corrections, load through `stage.usp_load_elt_result`); one flat exports table on the submission page with Retry and Close; the archive kept permanently on a shared drive.
 
-**Out:** HD analyses and period loss tables; editing or deleting a loaded data set; cancelling an accepted export; client creation (upstream, in CIC's workflow tool — design note 22 D25); the treaty-level TY perspective (spec 016).
+**Out:** HD analyses and period loss tables; editing or deleting a loaded data set; cancelling an accepted export; client creation (upstream, in CIC's workflow tool — design note 22 D25); the treaty-level TY perspective — spec 016, built on the Risk Modeler treaty output level rather than `RDM_TREATY`.
 
 **Blocked on:** event-type enrichment viability (bulk endpoint vs. one call per event, and Cheryl's CSV cross-check — O22-11); written confirmation of the capped-value columns (O21-12); a test treaty that takes loss, which gates the WX and TY validations (O22-14).
 

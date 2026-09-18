@@ -90,15 +90,15 @@ def failed(iteration2_db, loss_db, monkeypatch, tmp_path):
 def test_404_when_the_export_was_not_requested_from_this_submission(failed):
     f = failed(stage_status="failed")
     with pytest.raises(svc.ExportNotFound):
-        svc.apply_retry(str(uuid.uuid4()), f["export_id"], f["analysis_id"])
+        svc.apply_retry(str(uuid.uuid4()), f["export_id"], f["manifest_id"])
     with pytest.raises(svc.ExportNotFound):
-        svc.apply_retry(f["submission_id"], f["export_id"], str(uuid.uuid4()))
+        svc.apply_retry(f["submission_id"], f["export_id"], 999999)
 
 
 def test_409_when_not_failed_names_the_data_id_for_a_loaded_row(failed):
     f = failed(job_status="FINISHED", stage_status="staged", load_status="loaded", data_id=4127)
     with pytest.raises(svc.ExportActionRefused) as exc:
-        svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"])
+        svc.apply_retry(f["submission_id"], f["export_id"], f["manifest_id"])
     assert str(exc.value) == "already loaded as data ID 4127"
     assert rwb_jobs("load_results_export") == []
 
@@ -106,7 +106,7 @@ def test_409_when_not_failed_names_the_data_id_for_a_loaded_row(failed):
 def test_409_for_a_row_waiting_on_risk_modeler(failed):
     f = failed(job_status="RUNNING")
     with pytest.raises(svc.ExportActionRefused) as exc:
-        svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"])
+        svc.apply_retry(f["submission_id"], f["export_id"], f["manifest_id"])
     assert str(exc.value) == "the analysis is in progress, not failed"
 
 
@@ -114,7 +114,7 @@ def test_409_while_the_stage_worker_has_not_stamped_a_failed_risk_modeler_job(fa
     # The poller has enqueued the stage job; only that job may fail the row.
     f = failed(job_status="FAILED", stage_status="pending")
     with pytest.raises(svc.ExportActionRefused) as exc:
-        svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"])
+        svc.apply_retry(f["submission_id"], f["export_id"], f["manifest_id"])
     assert str(exc.value) == "the analysis is in progress, not failed"
     assert rwb_jobs("submit_results_export") == []
     assert manifest_row(f["manifest_id"])["irp_export_job_id"] == "500"
@@ -130,20 +130,19 @@ def test_load_branch_rearms_the_load_job_keyed_by_the_stage_job(failed):
     rwb_job_service.claim_rwb_job(rwb_job_id=stage_job, worker_id="w1")
     rwb_job_service.complete_rwb_job(rwb_job_id=stage_job, status="succeeded")
 
-    assert svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"]) == "load"
+    assert svc.apply_retry(f["submission_id"], f["export_id"], f["manifest_id"]) == "load"
 
     jobs = rwb_jobs("load_results_export")
     assert len(jobs) == 1
     assert jobs[0]["requestor_type"] == "rwb_job" and jobs[0]["requestor_id"] == stage_job
     assert jobs[0]["link_type"] == "edm" and jobs[0]["link_id"] == f["edm_id"]
     assert json.loads(jobs[0]["input_data"]) == {
-        "export_id": f["export_id"], "irp_analysis_id": f["analysis_id"],
-        "manifest_id": f["manifest_id"]}
+        "export_id": f["export_id"], "irp_analysis_id": f["analysis_id"]}
     # the row is back in progress and a second Retry is refused
     row = manifest_row(f["manifest_id"])
     assert row["load_status"] == "pending" and row["error_message"] is None
     with pytest.raises(svc.ExportActionRefused):
-        svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"])
+        svc.apply_retry(f["submission_id"], f["export_id"], f["manifest_id"])
     assert len(rwb_jobs("load_results_export")) == 1
 
 
@@ -160,7 +159,7 @@ def test_stage_branch_rearms_the_stage_job(failed):
                                      error_detail="Archive root x is not available")
     with __import__("unittest.mock", fromlist=["patch"]).patch(
             "app.services.export_service._utcnow", return_value=datetime(2026, 9, 10, 8)):
-        assert svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"]) == "stage"
+        assert svc.apply_retry(f["submission_id"], f["export_id"], f["manifest_id"]) == "stage"
 
     jobs = rwb_jobs("stage_results_export")
     assert len(jobs) == 1 and jobs[0]["status_code"] == "pending"
@@ -181,7 +180,7 @@ def test_submit_branch_resets_the_row_and_rearms_the_export_submit(failed):
     rwb_job_service.claim_rwb_job(rwb_job_id=submit_job, worker_id="w1")
     rwb_job_service.complete_rwb_job(rwb_job_id=submit_job, status="succeeded")
 
-    assert svc.apply_retry(f["submission_id"], f["export_id"], f["analysis_id"]) == "submit"
+    assert svc.apply_retry(f["submission_id"], f["export_id"], f["manifest_id"]) == "submit"
 
     row = manifest_row(f["manifest_id"])
     assert row["irp_export_job_id"] is None and row["stage_status"] == "pending"

@@ -209,7 +209,7 @@ def test_create_export_never_writes_back_to_the_submission(deal):
 @pytest.mark.parametrize("overrides, message", [
     ({"analysis_ids": []}, "Select at least one analysis"),
     ({"perspective_code": "RP"}, "A long has no RP results"),
-    ({"perspective_code": "TY"}, "Choose a perspective"),
+    ({"perspective_code": "XX"}, "Choose a perspective"),
     ({"client_id": 99}, "Choose a client"),
     ({"treaty_incept": None}, "Treaty inception is required"),
     ({"data_vintage": None}, "Data vintage is required"),

@@ -10,17 +10,20 @@
    Live list: while any row is still moving
    under a worker (`live`), this wrapper polls its own render every 3s and swaps
    itself, so a pending → importing → ready row updates without a reload. The
-   filters stay outside the wrapper, so a swap never disturbs what's typed; their
-   current values ride along on the poll URL. The server stops emitting the trigger
+   filters stay outside the wrapper, so a swap never disturbs what's typed; the
+   request's own query string (`query_string`) rides along on the poll URL, so a
+   filtered view keeps polling filtered. The server stops emitting the trigger
    once every row is terminal, so polling ends on its own. The filter form swaps
    this same wrapper (hx-select), so filtering also keeps the fields focused. #}
 <div id="lib-live"
   {%- if live %}
-  hx-get="{{ list_route }}/table?{{ {'q': filter_values.q, 'status': filter_values.status} | urlencode }}"
+  hx-get="{{ list_route }}/table?{{ query_string }}"
   hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
 
-  {% if rows %}
+  {% if validation_error %}
+  <div class="banner banner--error" role="alert">{{ validation_error }}</div>
+  {% elif rows %}
   <div class="lib-intro"><span class="muted">Count: {{ rows | length }}</span></div>
   {% endif %}
 
@@ -57,7 +60,7 @@
         <td>{{ (row.inserted_at | string)[:10] if row.inserted_at else '' }}</td>
       </tr>
       {% else %}
-        {% if filter_values.q or filter_values.status %}
+        {% if is_filtered %}
         <tr><td colspan="6" class="empty">No {{ entity_label }}s match —
           <a class="clear-filters" href="{{ list_route }}">clear filters</a>.</td></tr>
         {% else %}

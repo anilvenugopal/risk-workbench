@@ -20,7 +20,9 @@ Runs on the SQLite unit mirror (``iteration2_db``).
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from types import SimpleNamespace as NS
+from urllib.parse import urlencode
 
 import pytest
 from fastapi.templating import Jinja2Templates
@@ -174,7 +176,9 @@ def _render_table(*, statuses, filters=None):
         rows=[NS(id=f"e{i}", name=f"E{i}", status=s, source_file_path="/x/E.bak",
                  irp_id=None, inserted_at="2026-01-01", submissions=[])
               for i, s in enumerate(statuses)],
-        filter_values=filter_values, live=live,
+        filter_values=filter_values, live=live, validation_error=None,
+        is_filtered=any(filter_values.values()),
+        query_string=urlencode(list(filter_values.items()), doseq=True),
         list_route="/edms", detail_prefix="/edms", entity_label="EDM")
     return 'hx-trigger="every 3s"' in html, html
 
@@ -191,9 +195,13 @@ def test_list_stops_polling_when_every_row_is_terminal():
 
 
 def test_poll_url_carries_the_active_filters():
+    """The poll URL is the request's own query string, so every filter param —
+    not only name and status — keeps applying while the list polls (spec 017)."""
     _, html = _render_table(statuses=["importing"],
-                            filters={"q": "meridian re", "status": "importing"})
-    assert "/edms/table?q=meridian+re&amp;status=importing" in html
+                            filters={"q": "meridian re", "status": "importing",
+                                     "crm_id": ["T-1", "T-2"], "deal_status": ["WON"]})
+    assert ("/edms/table?q=meridian+re&amp;status=importing&amp;crm_id=T-1"
+            "&amp;crm_id=T-2&amp;deal_status=WON" in html)
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
@@ -207,7 +215,8 @@ def test_transient_statuses_exclude_terminal_ones(mod, table):
     (edm_service, "list_edms", "/edms"),
     (rdm_service, "list_rdms", "/rdms"),
 ], ids=["edm", "rdm"])
-def test_table_route_renders_the_swap_unit_alone(mod, list_fn, prefix, monkeypatch):
+def test_table_route_renders_the_swap_unit_alone(iteration2_db, mod, list_fn, prefix,
+                                                 monkeypatch):
     """The poll/filter target is a fragment, and the literal path must stay declared
     ahead of ``/{id}`` — if that order ever flips this 404s instead."""
     monkeypatch.setattr(mod, list_fn, lambda **kwargs: [])
@@ -215,3 +224,81 @@ def test_table_route_renders_the_swap_unit_alone(mod, list_fn, prefix, monkeypat
     assert r.status_code == 200
     assert 'id="lib-live"' in r.text
     assert "<html" not in r.text  # no page shell
+
+
+
+# ── spec 017 US3: submission-attribute filters (FR-015, FR-016) ──────────────
+
+def _deal(*, name, owner, deal_status="IN_PROCESS", crm_ids=(), expiration=None):
+    from app.services import submission_service
+
+    sid = submission_service.create_submission(
+        name=name, cedant_name=f"{name} Re", treaty_type_code="per_risk_xol",
+        inception_date=date(2026, 1, 1), expiration_date=expiration,
+        crm_ids=list(crm_ids), actor_id=owner, confirmed=True).submission_id
+    if deal_status != "IN_PROCESS":
+        submission_service.set_statuses(
+            submission_id=sid, deal_status=deal_status,
+            expected_updated_at=submission_service.get_submission(sid).updated_at,
+            actor_id=owner)
+    return sid
+
+
+@pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
+def test_entity_matches_when_one_linked_submission_satisfies_every_filter(
+        iteration2_db, mod, table):
+    cheryl, ben = iteration2_db.user_a, iteration2_db.user_b
+    shared = _entity(table, name="Shared")
+    _attach(_deal(name="Won by Cheryl", owner=cheryl, deal_status="WON",
+                  crm_ids=["T-100", "T-200"]), table, shared)
+    _attach(_deal(name="Open by Ben", owner=ben, crm_ids=["T-300"]), table, shared)
+    solo = _entity(table, name="Solo")
+
+    def names(**filters):
+        return [r.name for r in _list(mod, submission_filters=filters)]
+
+    assert names(deal_status_codes=["WON"], owner_ids=[cheryl]) == ["Shared"]
+    assert names(deal_status_codes=["WON"], owner_ids=[ben]) == []
+    assert names(crm_ids=["T-100", "T-300"]) == ["Shared"]        # listed once
+    assert names(crm_ids=["T-10"]) == []                            # whole id only
+    assert set(names()) == {"Shared", "Solo"}                       # no filter: all
+    assert set(names(owner_ids=[], crm_ids=[])) == {"Shared", "Solo"}
+    assert names(owner_ids=[ben]) == ["Shared"] and solo            # Solo drops out
+
+
+@pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
+def test_name_and_status_stay_on_the_entity_row(iteration2_db, mod, table):
+    ready = _entity(table, name="Meridian ready", status="ready")
+    _entity(table, name="Meridian error", status="error")
+    _attach(_deal(name="Won", owner=iteration2_db.user_a, deal_status="WON"), table, ready)
+    assert [r.name for r in _list(mod, name="meridian", status="ready",
+                                  submission_filters={"deal_status_codes": ["WON"]})] == [
+        "Meridian ready"]
+
+
+@pytest.mark.parametrize("prefix", ["/edms", "/rdms"])
+def test_library_filters_reach_the_query_and_the_cap_message(iteration2_db, prefix):
+    body = _client().get(f"{prefix}?" + "&".join(f"crm_id=T-{i}" for i in range(21))).text
+    assert "CRM ID accepts 20 values or fewer." in body
+    assert "<tbody" not in body.split('id="lib-live"')[1].split("</div>")[0]
+    page = _client().get(f"{prefix}?deal_status=WON&in_force=1&as_of=2026-06-01").text
+    assert 'id="deal_status-label">Submission status</span>' in page
+    assert 'id="crm_id-label">CRM ID</span>' in page
+    assert 'name="as_of" aria-label="As of date"\n           value="2026-06-01"' in page
+    assert "Modeling status" not in page                            # P-13
+    assert 'id="owner-label">Owner</span>' in page and "Any owner" in page
+    table = _client().get(f"{prefix}/table?deal_status=WON&crm_id=T-1").text
+    assert 'id="lib-live"' in table
+
+
+def test_edm_library_lists_the_edm_the_filters_keep(iteration2_db):
+    cheryl = iteration2_db.user_a
+    shared = _entity("irp_edm", name="Kept EDM")
+    _attach(_deal(name="Won by Cheryl", owner=cheryl, deal_status="WON",
+                  crm_ids=["T-100"], expiration=date(2099, 1, 1)), "irp_edm", shared)
+    _entity("irp_edm", name="Dropped EDM")
+    body = _client().get(f"/edms?crm_id=t-100&deal_status=WON&owner={cheryl}").text
+    assert "Kept EDM" in body and "Dropped EDM" not in body
+    in_force = _client().get("/edms?in_force=1&as_of=2027-01-01").text
+    assert "Kept EDM" in in_force and "Dropped EDM" not in in_force
+    assert "Kept EDM" in _client().get("/edms").text and "Dropped EDM" in _client().get("/edms").text

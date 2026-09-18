@@ -179,6 +179,7 @@ def upload_parquet(
     # 3. Stream data via pyarrow batches and insert via pyodbc fast_executemany
     engine = get_engine(connection, database=database)
     raw_conn = engine.raw_connection()
+    cursor = None
     total_rows = 0
 
     try:
@@ -231,6 +232,13 @@ def upload_parquet(
             f"Failed during parquet bulk upload to {schema}.{table_name}: {e}"
         ) from e
     finally:
+        # Close the cursor before the connection goes back to the pool. The pool
+        # keeps the pyodbc connection open, so an open cursor still holding the
+        # row counts fast_executemany produced leaves the connection busy, and
+        # the next checkout fails its pre-ping with "Connection is busy with
+        # results for another command".
+        if cursor is not None:
+            cursor.close()
         raw_conn.close()  # Return pooled connection
 
 
