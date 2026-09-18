@@ -42,11 +42,12 @@
           <span class="export-pick__count" x-text="filterLabel"></span>
         </div>
         {# Ticking re-renders the perspective select and the cart
-           (contracts/routes.md §3). The data-name inputs travel with the
-           request so a name typed before the next tick is not lost. #}
+           (contracts/routes.md §3). The data-name inputs, the treaty ticks, and
+           the per-treaty names travel with the request so nothing typed or
+           ticked before the next tick is lost. #}
         <div class="dtable-shell"
              hx-get="/submissions/{{ submission.id }}/exports/new/fields" hx-trigger="change"
-             hx-include="[name='analysis_ids'], [name='perspective'], [name^='data_name']"
+             hx-include="[name='analysis_ids'], [name='perspective'], [name^='data_name'], [name^='treaty['], [name^='treaty_data_name[']"
              hx-target="#export-fields" hx-swap="outerHTML">
           <div class="dtable dtable--selectable dtable--wraphead"
                style="--cols: var(--pick-w) minmax(360px,2fr) 70px 90px 80px 130px minmax(200px,1.5fr); min-width: 1010px">
@@ -127,8 +128,9 @@
 
     <div class="status-controls">
       <button class="btn-sm btn-sm--primary" type="submit" id="export-submit"
-              :disabled="!count">Export</button>
+              :disabled="!count || !treatiesOk">Export</button>
       <a href="/submissions/{{ submission.id }}" class="btn-sm">Cancel</a>
+      <span class="wf-field__msg wf-field__hint" x-cloak x-show="count && !treatiesOk">Tick at least one treaty in each analysis.</span>
     </div>
   </form>
   {% endif %}

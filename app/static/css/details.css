@@ -390,6 +390,24 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .export-cart__rows { max-height: min(46vh, 420px); overflow-y: auto; }
 .export-cart-row__name { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-caption); color: var(--text-tertiary); }
 .export-cart-row__name input { width: 100%; min-width: 0; }
+/* the treaty list inside a cart row at TY (spec 016 D23–D26): terms cheap, the
+   Data name field revealed by the tick itself rather than a server-side class */
+.treaty-pick { margin-top: var(--space-1); border-top: 1px solid var(--border-faint); }
+.treaty-pick__head { display: flex; align-items: baseline; gap: var(--space-2); padding: var(--space-1) 0; font-size: var(--fs-caption); color: var(--text-tertiary); }
+.treaty-pick__head .links { margin-left: auto; }
+.treaty-pick__head .links a { color: var(--text-tertiary); text-decoration: none; }
+.treaty-pick__head .links a:hover { color: var(--text-primary); text-decoration: underline; }
+.treaty-row { display: grid; grid-template-columns: 18px 1fr; column-gap: var(--space-2); padding: var(--space-1) 0; border-top: 1px solid var(--border-faint); }
+.treaty-row input[type=checkbox] { margin: 3px 0 0; }
+.treaty-row__id { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--fs-label); line-height: 1.3; cursor: pointer; min-width: 0; }
+.treaty-row__num { font-weight: var(--fw-semibold); font-family: var(--font-mono); font-size: 12px; flex: none; }
+.treaty-row__name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.treaty-row__type { margin-left: auto; flex: none; font-size: var(--fs-caption); color: var(--text-tertiary); }
+.treaty-row__terms { grid-column: 2; font-size: var(--fs-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.treaty-row__terms b { font-weight: var(--fw-medium); color: var(--text-secondary); }
+.treaty-row__name-field { grid-column: 2; margin-top: var(--space-1); display: none; }
+.treaty-row:has(input:checked) .treaty-row__name-field { display: flex; }
+.treaty-row:not(:has(input:checked)) .treaty-row__name, .treaty-row:not(:has(input:checked)) .treaty-row__terms b { color: var(--text-tertiary); }
 /* the exports table: the 44px ordinal column and the analysis name beside it both stay frozen */
 .export-analyses .dtable__head > :nth-child(2), .export-analyses .drow-static > :nth-child(2) { position: sticky; left: 44px; z-index: 1; background: var(--surface-panel); box-shadow: 1px 0 0 var(--border-default); }
 .export-analyses .dtable__head > :nth-child(2) { z-index: 7; background: var(--surface-recessed); }

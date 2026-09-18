@@ -67,7 +67,7 @@ class TestOidcAuthEnabled:
 
 class TestExportSettings:
     def test_perspective_codes_default_in_order(self):
-        assert _make_settings().export_perspective_codes == ["GU", "GR", "RL", "RP"]
+        assert _make_settings().export_perspective_codes == ["GU", "GR", "RL", "RP", "TY"]
 
     def test_perspective_codes_parse_a_comma_list(self, monkeypatch):
         monkeypatch.setenv("EXPORT_PERSPECTIVE_CODES", "gr, rl,GU")
