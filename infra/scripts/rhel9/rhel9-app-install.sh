@@ -90,13 +90,7 @@ grep -v '^-e \.' requirements.txt > /tmp/requirements-deps.txt
 # real integrity guarantee: nobody can quietly swap in a different package
 # version without this failing loudly.
 #
-# --extra-index-url adds a second place pip is allowed to look for packages,
-# in addition to the normal public PyPI. This project's irp-integration
-# dependency currently needs this — its pinned version lives on TestPyPI
-# (a pre-release testing index), not the main PyPI. See AGENTS.md's
-# irp-integration section; this is flagged there as something to revisit.
-pip install --require-hashes --extra-index-url https://test.pypi.org/simple/ \
-    -r /tmp/requirements-deps.txt
+pip install --require-hashes -r /tmp/requirements-deps.txt
 
 # Now install the project's own code, separately, as a normal (not
 # editable) package — --no-deps means "don't try to re-figure-out and
@@ -126,7 +120,6 @@ set -a
 source infra/.env
 set +a
 
-"$PYTHON_BIN" infra/scripts/bootstrap_db.py
 alembic upgrade head
 
 echo ""

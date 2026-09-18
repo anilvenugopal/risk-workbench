@@ -1,14 +1,35 @@
 -- The Workbench's stage schema in CIC's loss repository (CRE_Trial_ELT_Repository;
 -- dev mirror rwb_loss). Installed by a db_owner login; the Workbench never runs DDL
 -- against CIC. Re-running the file is safe: it creates the tables only when they
--- are absent and replaces the procedure. A later release that changes a table
--- ships its own ALTER TABLE block. Names no database, so the same file installs in
+-- are absent and replaces the procedure. This file is the whole schema: it installs
+-- a fresh repository by itself and stamps its version into
+-- stage.rwb_loss_schema_version. Names no database, so the same file installs in
 -- dev and at CIC.
--- Contract: specs/014-results-export/contracts/load-procedure.md.
+-- Contract: specs/014-results-export/contracts/load-procedure.md §4, which also
+--           carries the change-script pattern a later release will use once CIC's
+--           repository holds manifests worth keeping.
 -- Schema:   specs/014-results-export/data-model.md §4; the treaty columns
 --           specs/016-ty-perspective-export/data-model.md §1.
 
 IF SCHEMA_ID('stage') IS NULL EXEC('CREATE SCHEMA stage AUTHORIZATION dbo');
+GO
+
+-- MAX(version) is what the repository is at: the DBA reads it, and the stage worker
+-- refuses to write while it is below app/workers/export_jobs.py's
+-- REQUIRED_LOSS_SCHEMA_VERSION.
+IF OBJECT_ID('stage.rwb_loss_schema_version') IS NULL
+    CREATE TABLE stage.rwb_loss_schema_version (
+        version     INT           NOT NULL
+            CONSTRAINT pk_rwb_loss_schema_version PRIMARY KEY,
+        applied_at  DATETIME2     NOT NULL
+            CONSTRAINT df_rwb_loss_schema_version_applied_at DEFAULT SYSUTCDATETIME(),
+        description NVARCHAR(200) NOT NULL
+    );
+GO
+
+IF NOT EXISTS (SELECT 1 FROM stage.rwb_loss_schema_version WHERE version = 1)
+    INSERT INTO stage.rwb_loss_schema_version (version, description)
+    VALUES (1, 'initial stage schema');
 GO
 
 IF OBJECT_ID('stage.rwb_loss_result_manifest') IS NULL

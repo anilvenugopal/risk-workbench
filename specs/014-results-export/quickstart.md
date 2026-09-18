@@ -141,5 +141,5 @@ because CIC's load of the five tables failed (plan O-05); RCSI is off there
 | Tier | Command | Covers |
 |---|---|---|
 | Unit | `uv run pytest tests/unit` | Form validation, intersection, duplicate check, manifest insert, three workers with `fake_irp` and a fixture archive, poller handler, status derivation, Retry, route renders (plan.md Testing) |
-| SQL Server | `make test-sql` | `usp_load_elt_result` behavior, `execute_procedure` autocommit, `upload_parquet` into `stage`, migration shape. Unverified until run |
-| IRP sandbox | `make shell`, then `uv run pytest tests/irp --run-irp -k export` | Submit, status, download, archive layout (the T-23 spike) |
+| SQL Server | `make test-sql` (CI runs it on every push) | `usp_load_elt_result` behavior, `execute_procedure` autocommit, `upload_parquet` into `stage`, migration shape |
+| IRP sandbox | `make shell`, then `IRP_TEST_EXPORT_ANALYSIS_ID=… IRP_TEST_EXPORT_APP_ANALYSIS_ID=… uv run pytest tests/irp --run-irp -k export` | Submit, status, download, archive layout checked by the stage worker's own functions |

@@ -21,6 +21,7 @@ analyst approved on the form.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import logging
 import re
@@ -64,6 +65,9 @@ TY_COLUMNS = ("TreatyId", "TreatyNum", "TreatyName", "EventId", "Rate", "Loss",
 TY_REQUEST_PERSPECTIVE_CODE = "GR"
 _SIX_HOURS_MS = 6 * 60 * 60 * 1000
 _CHUNK_SUFFIX = re.compile(r"_(\d+)\.parquet$", re.IGNORECASE)
+# The version db/bootstrap/loss_schema.sql stamps. A repository below it fails the
+# stage step before any write.
+REQUIRED_LOSS_SCHEMA_VERSION = 1
 
 
 class StageFailure(Exception):
@@ -186,12 +190,27 @@ def _working_dir(export_id: str, irp_analysis_id: str) -> Path:
 
 
 def _remove_dir(path: Path) -> None:
+    """Remove one analysis's working directory, then the export directory above
+    it once its last analysis is gone. The export directory is shared with the
+    other analyses of the same export, which stage on their own threads, so
+    ``rmdir`` is expected to refuse while any of them is still working."""
     try:
         shutil.rmtree(path)
     except FileNotFoundError:
         pass
     except OSError:
         logger.exception("could not remove working directory %s", path)
+    with contextlib.suppress(OSError):
+        path.parent.rmdir()
+
+
+def _check_loss_schema_version() -> None:
+    installed = execute_one("SELECT MAX(version) AS v FROM stage.rwb_loss_schema_version",
+                            {}, connection="LOSS")["v"]
+    if installed is None or int(installed) < REQUIRED_LOSS_SCHEMA_VERSION:
+        raise StageFailure(
+            f"loss repository is at stage schema version {installed or 0}; this release "
+            f"needs {REQUIRED_LOSS_SCHEMA_VERSION}: apply db/bootstrap/loss_schema.sql")
 
 
 def _discard_partial_stage(manifest_id: int) -> None:
@@ -430,7 +449,12 @@ def _stage(targets: list[dict], irp_job_id: str, work_dir: Path) -> list[str]:
                   targets[0])
     archive = _archive_path(anchor, job, root)
 
-    work_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        work_dir.mkdir(parents=True, exist_ok=True)
+    except FileNotFoundError:
+        # A sibling analysis of this export removed the export directory between
+        # this call's own two mkdir syscalls. Making it again is ours to do.
+        work_dir.mkdir(parents=True, exist_ok=True)
     try:
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(work_dir)
@@ -510,6 +534,7 @@ def _stage_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
     if targets:
         work_dir = _working_dir(export_id, analysis_id)
         try:
+            _check_loss_schema_version()
             for row in targets:
                 _discard_partial_stage(row["manifest_id"])
             _remove_dir(work_dir)
@@ -636,7 +661,8 @@ def run_pending(*, worker_id: str = "worker") -> int:
 
 
 __all__ = [
-    "ELT_COLUMN_MAP", "TY_COLUMNS", "TY_REQUEST_PERSPECTIVE_CODE", "StageFailure",
+    "ELT_COLUMN_MAP", "TY_COLUMNS", "TY_REQUEST_PERSPECTIVE_CODE",
+    "REQUIRED_LOSS_SCHEMA_VERSION", "StageFailure",
     "submit_results_export", "stage_results_export", "load_results_export",
     "run_one", "run_pending",
 ]

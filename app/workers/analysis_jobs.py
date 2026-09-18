@@ -76,7 +76,8 @@ def free_name_attempts(full_name: str, *, scope_column: str, scope_value: Any,
 
 
 def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
-                    execution_id: str, actor_id: str | None) -> dict:
+                    treaty_names: list[str], execution_id: str,
+                    actor_id: str | None) -> dict:
     """Resume-or-claim the ``irp_analysis`` row for one work unit
     ``(execution_id, portfolio, item_no)``. A row already claimed (crash between
     the claim and the submit record) is reused with its recorded name; otherwise
@@ -108,10 +109,13 @@ def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
                 ), {"id": analysis_id, "edm": edm_id, "portfolio": portfolio["id"],
                     "template": item["template_id"], "execution": execution_id,
                     "item_no": item["item_no"], "name": name, "full": full_name,
-                    # The plan item verbatim: the values this run is submitted
-                    # with, never re-read from analysis_template later — a template
-                    # edit must not change what a finished run reports.
-                    "submitted": json.dumps(item),
+                    # The plan item verbatim, plus the treaty names the batch
+                    # plan selected (spec 015 T-05): the values this run is
+                    # submitted with, never re-read from analysis_template or
+                    # irp_treaty later — a template or treaty edit must not
+                    # change what a finished run reports.
+                    "submitted": json.dumps(
+                        {**item, "treaty_names": list(treaty_names)}),
                     "now": now, "by": actor_id})
         except Exception as exc:  # noqa: BLE001 — a UNIQUE race means try the next suffix
             if is_unique_violation(exc):
@@ -135,6 +139,7 @@ def _submit_one(*, edm_id: str, edm_name: str, execution_id: str, portfolio: dic
         return "skipped"
 
     claimed = _claim_analysis(edm_id=edm_id, portfolio=portfolio, item=item,
+                              treaty_names=treaty_names,
                               execution_id=execution_id, actor_id=actor_id)
     submit_kwargs = {
         "edm_name": edm_name, "portfolio_name": portfolio["name"],
@@ -274,13 +279,22 @@ def _finalize_analysis_body(rwb_job_id: Any) -> runtime.JobResult:
                        "(analysisId=%s): %s", analysis_id, rm_id, exc)
         return _fail_analysis(analysis_id, f"analysis resolve failed: {exc}")
 
-    irp_app_analysis_id = (meta.payload or {}).get("appAnalysisId")
+    payload = meta.payload or {}
+    resolved, error = irp_gateway.resolved_capture(payload,
+                                                   analysis_id=int(rm_id))
+    if error is not None:
+        logger.warning("finalize_analysis: run details read failed for %s "
+                       "(analysisId=%s): %s", analysis_id, rm_id, error)
+    if resolved is not None:
+        payload = {**payload, "resolved": resolved}
+
+    irp_app_analysis_id = payload.get("appAnalysisId")
     execute_command(
         "UPDATE irp_analysis SET irp_app_analysis_id = :app, "
         "settings_metadata = :sm, status_code = 'ready', updated_at = :now "
         "WHERE id = :id",
         {"app": (str(irp_app_analysis_id) if irp_app_analysis_id is not None else None),
-         "sm": (json.dumps(meta.payload) if meta.payload else None),
+         "sm": (json.dumps(payload) if payload else None),
          "now": _utcnow(), "id": analysis_id},
         connection="WORKBENCH")
     # Chain the results retrieval: the queue's UNIQUE key dedups, so a re-fired
@@ -383,11 +397,10 @@ def _retrieve_analysis_results_body(rwb_job_id: Any) -> runtime.JobResult:
     settings = (json.loads(row["settings_metadata"])
                 if row["settings_metadata"] else None)
     # Own rows point at the RM portfolio the analysis ran against; broker rows
-    # (rdm_id set) at RM's own reported pointer captured at RDM backfill.
-    # One metadata re-read when the pointer is NULL (also filling the engine
-    # fields when settings_metadata is NULL too).
-    pointer = (row["exposure_resource_id"] if row["rdm_id"] is not None
-               else row["portfolio_irp_id"])
+    # and imported rows (#101) at RM's own reported pointer, stored when the
+    # row was written. One metadata re-read when neither is set (also filling
+    # the engine fields when settings_metadata is NULL too).
+    pointer = row["portfolio_irp_id"] or row["exposure_resource_id"]
     if pointer is None:
         try:
             meta = irp_gateway.get_analysis_metadata(analysis_id=int(row["irp_id"]))

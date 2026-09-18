@@ -1,11 +1,13 @@
 """Set up the development loss repository (rwb_loss).
 
-Applies db/bootstrap/loss_dev_mirror.sql (CIC's five tables) and
-db/bootstrap/loss_schema.sql (the Workbench's stage schema and load procedure)
-over the LOSS connection, then seeds dbo.Client with three made-up clients and
+Applies db/bootstrap/loss_dev_mirror.sql (CIC's five tables),
+db/bootstrap/loss_schema.sql (the Workbench's stage schema and load procedure),
+and every script in db/bootstrap/changes/ in name order (the DBA's upgrade
+path, contracts/load-procedure.md §4) over the LOSS connection, then seeds
+dbo.Client with three made-up clients and
 dbo.Lookup_RMS_HistoricalRDS from db/bootstrap/seed/lookup_rms_historical_rds.csv.
 Idempotent: a second run leaves every row count unchanged. ``--reset-stage``
-drops the three stage tables first, so a changed column definition in
+drops the stage tables first, so a changed column definition in
 loss_schema.sql takes effect; every manifest, file, and staged loss row in
 rwb_loss is lost. At CIC the DBA applies loss_schema.sql by hand and the
 tables are never dropped (contracts/load-procedure.md §4).
@@ -74,7 +76,7 @@ def _seed_lookup(conn) -> int:
 
 def _drop_stage_tables(conn) -> None:
     for table in ("rwb_loss_result_elt_data", "rwb_loss_result_file",
-                  "rwb_loss_result_manifest"):
+                  "rwb_loss_result_manifest", "rwb_loss_schema_version"):
         conn.execute(text(f"DROP TABLE IF EXISTS stage.{table}"))
 
 
@@ -97,6 +99,12 @@ def main() -> int:
     execute_script_file(BOOTSTRAP_DIR / "loss_dev_mirror.sql", connection="LOSS")
     print("bootstrap-loss: applying loss_schema.sql")
     execute_script_file(BOOTSTRAP_DIR / "loss_schema.sql", connection="LOSS")
+    # db/bootstrap/changes/ holds no script and does not exist until a release
+    # alters a table CIC is already using (contracts/load-procedure.md §4), so
+    # the glob finds nothing today.
+    for script in sorted((BOOTSTRAP_DIR / "changes").glob("*.sql")):
+        print(f"bootstrap-loss: applying changes/{script.name}")
+        execute_script_file(script, connection="LOSS")
 
     with get_connection("LOSS") as conn, conn.begin():
         _seed_clients(conn)

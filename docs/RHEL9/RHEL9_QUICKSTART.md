@@ -160,9 +160,10 @@ ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47 \
 Starts/stops Valkey, uvicorn, one Dramatiq worker process per queue (one per
 `rwb_job_type` — CR-004; each queue gets its own PID file
 `worker-<queue>.pid` and log `worker-<queue>.log`), and the poller.
-Refuses to start if a port is already occupied; verifies ports are free
-after stopping. nginx is left alone (managed separately via `systemctl`
-and the deploy script's reload step).
+Accepts an already-running Valkey instance when `valkey-cli ping` succeeds.
+Refuses to start when another process occupies port 6379 or when port 8000
+is occupied; verifies ports are free after stopping. nginx is left alone
+(managed separately via `systemctl` and the deploy script's reload step).
 
 `rhel9-stop.sh` now requires `APP_DIR` (it didn't before this feature) —
 stopping the per-queue workers means running `.venv/bin/python -m

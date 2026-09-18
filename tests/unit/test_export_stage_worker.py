@@ -124,7 +124,7 @@ def test_happy_path_stages_files_and_rows_and_enqueues_the_load(staging, fake_ir
     assert load[0]["context_type"] == "irp_analysis"
     assert json.loads(load[0]["input_data"]) == {
         "export_id": staging["export_id"], "irp_analysis_id": staging["analysis_id"]}
-    assert not any(Path(settings.export_staging_dir).rglob("*.parquet"))
+    assert list(Path(settings.export_staging_dir).iterdir()) == []
 
 
 def test_several_chunks_stage_in_order(staging, fake_irp):
@@ -319,3 +319,38 @@ def test_the_worker_time_limit_stamps_the_row_and_re_raises(staging, monkeypatch
     m = _manifest(staging)
     assert m["stage_status"] == "failed"
     assert m["error_message"] == "the run exceeded the worker time limit"
+
+
+def _set_schema_version(version):
+    execute_command("DELETE FROM stage.rwb_loss_schema_version", {}, connection="LOSS")
+    if version is not None:
+        execute_command("INSERT INTO stage.rwb_loss_schema_version (version, description) "
+                        "VALUES (:v, 'test')", {"v": version}, connection="LOSS")
+
+
+def test_a_repository_behind_this_release_fails_before_any_write(staging, fake_irp):
+    _set_schema_version(None)
+    _fail(staging, "loss repository is at stage schema version 0; this release needs "
+                   f"{export_jobs.REQUIRED_LOSS_SCHEMA_VERSION}: apply "
+                   "db/bootstrap/loss_schema.sql")
+    assert fake_irp.export_downloads == []
+
+
+def test_a_repository_ahead_of_this_release_stages(staging):
+    _set_schema_version(export_jobs.REQUIRED_LOSS_SCHEMA_VERSION + 1)
+    _run_stage()
+    assert _manifest(staging)["stage_status"] == "staged"
+
+
+def test_the_export_directory_goes_with_its_last_analysis(tmp_path):
+    export_dir = tmp_path / "export-1"
+    first, second = export_dir / "analysis-1", export_dir / "analysis-2"
+    for work_dir in (first, second):
+        work_dir.mkdir(parents=True)
+        (work_dir / "chunk_0.parquet").write_bytes(b"x")
+
+    export_jobs._remove_dir(first)
+    assert not first.exists() and export_dir.is_dir()
+
+    export_jobs._remove_dir(second)
+    assert not export_dir.exists() and tmp_path.is_dir()

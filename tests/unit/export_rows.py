@@ -83,7 +83,7 @@ def seed_analysis(*, edm_id: str | None = None, rdm_id: str | None = None,
     settings = {"perilCode": peril, "regionCode": region, "engineType": "DLM",
                 "engineVersion": "RL25", "appAnalysisId": irp_app_analysis_id}
     if currency:
-        settings["currencyCode"] = currency
+        settings["currency"] = {"currencyCode": currency, "currencyName": currency}
     execute_command(
         "INSERT INTO irp_analysis (id, edm_id, rdm_id, irp_id, irp_app_analysis_id, name, "
         "full_name, status_code, settings_metadata, is_group, loss_results, inserted_at, "

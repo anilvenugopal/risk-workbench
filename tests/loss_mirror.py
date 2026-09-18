@@ -1,7 +1,7 @@
 """SQLite mirror of the loss repository for the unit tier (spec 014, T-27).
 
 Two attached in-memory databases stand in for SQL Server schemas: ``stage``
-holds the Workbench's three tables from db/bootstrap/loss_schema.sql, ``dbo``
+holds the Workbench's tables from db/bootstrap/loss_schema.sql, ``dbo``
 holds CIC's five tables from db/bootstrap/loss_dev_mirror.sql. Application SQL
 names both by two-part name, so it runs unchanged over this mirror. The load
 procedure is not mirrored: the unit tier fakes ``db.execute_procedure`` and the
@@ -11,6 +11,13 @@ SQL Server tier runs the real one.
 from __future__ import annotations
 
 LOSS_STAGE_SCHEMA = [
+    """CREATE TABLE stage.rwb_loss_schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        description TEXT NOT NULL
+    )""",
+    # A fresh install's stamp, as loss_schema.sql writes it.
+    "INSERT INTO stage.rwb_loss_schema_version (version, description) VALUES (1, 'fresh install')",
     """CREATE TABLE stage.rwb_loss_result_manifest (
         manifest_id INTEGER PRIMARY KEY AUTOINCREMENT,
         export_id TEXT NOT NULL,

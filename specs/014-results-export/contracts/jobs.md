@@ -99,6 +99,12 @@ stage, or the actor time limit → `UPDATE` manifest `stage_status = 'failed',
 error_message = <reason>`; `JobResult.fail(reason)` (the time limit
 re-raises after stamping).
 
+0. `SELECT MAX(version) FROM stage.rwb_loss_schema_version`; when it is
+   `NULL` or below `REQUIRED_LOSS_SCHEMA_VERSION` fail, before the partial
+   stage is cleared or anything is written, with "loss repository is at
+   stage schema version {n}; this release needs {m}: apply
+   db/bootstrap/loss_schema.sql" (contracts/load-procedure.md §4).
+   A repository ahead of the release passes.
 1. Read the `export` `irp_job`; if `status <> 'FINISHED'` fail with the
    job's failure text (from `last_completion_result`) or "Risk Modeler export
    job {irp_id} ended {status}".

@@ -1,0 +1,177 @@
+{
+ "_captured": "2026-09-11 via irp-integration 0.8.0 against the sandbox tenant",
+ "_analysis_id": 5741781,
+ "get_analysis_by_id": {
+  "analysisId": 5741781,
+  "appAnalysisId": 42336,
+  "analysisName": "CRE_HU_US_US HU wSS wDS - PROP Stochastic",
+  "createDate": "2026-09-10T15:58:27",
+  "sourceRdmName": "",
+  "exposureName": "TY2608_SampleCo_0825_25EDM",
+  "exposureResourceId": 5,
+  "exposureResourceType": "PORTFOLIO",
+  "engineType": "DLM",
+  "engineVersion": "RL25",
+  "analysisFramework": "ELT",
+  "analysisType": "Exceedance Probability",
+  "analysisMode": "Distributed",
+  "isGroup": false,
+  "groupType": "ANLS",
+  "peril": "Windstorm",
+  "perilCode": "WS",
+  "subPeril": "Surge + Wind",
+  "region": "North Atlantic (including Hawaii)",
+  "regionCode": "NA",
+  "currency": {
+   "currencyName": "US Dollar",
+   "currencyCode": "USD",
+   "currencyScheme": "RMS",
+   "currencyAsOfDate": "2025-05-28T00:00:00Z",
+   "currencyVintage": "RL25"
+  },
+  "lossAmplification": "Building, Contents, BI",
+  "eventRateSchemeNames": [
+   {
+    "id": 0,
+    "code": "0",
+    "name": "RMS 2025 Stochastic Event Rates"
+   }
+  ],
+  "simulationSetId": 0,
+  "simulationPeriods": 0,
+  "modelProfile": {
+   "id": 5250,
+   "code": "",
+   "name": "US HU wSS wDS - PROP"
+  },
+  "additionalProperties": [
+   {
+    "key": "exposure",
+    "properties": [
+     {
+      "id": 5,
+      "name": "HU_US",
+      "value": "TY2608_SampleCo_0825_25EDM"
+     }
+    ]
+   },
+   {
+    "key": "minimumLossThreshold",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": "1.0"
+     }
+    ]
+   },
+   {
+    "key": "franchiseDeductible",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": "FALSE"
+     }
+    ]
+   },
+   {
+    "key": "unrecognizedConstructionOccupancyTypes",
+    "properties": [
+     {
+      "id": 0,
+      "name": "Treat As Unknown",
+      "value": 1
+     }
+    ]
+   },
+   {
+    "key": "dataVersion",
+    "properties": [
+     {
+      "id": 0,
+      "name": "",
+      "value": "22.0.0"
+     }
+    ]
+   },
+   {
+    "key": "eventRateSchemeId",
+    "properties": [
+     {
+      "id": 739,
+      "name": "",
+      "value": ""
+     }
+    ]
+   }
+  ]
+ },
+ "get_regions": [
+  {
+   "_note": "23 rows in the live response, one per subRegion ['AL', 'CT', 'D1', 'DC', 'FL', 'GA']\u2026; identical otherwise",
+   "region": "NA",
+   "subRegion": "P1",
+   "peril": "Windstorm",
+   "eventRateSchemeId": 739,
+   "framework": "ELT",
+   "analysisId": 5741781,
+   "modelProfileId": 5250,
+   "petId": 0,
+   "numSamples": 0,
+   "periods": 0,
+   "applyContractFlag": false,
+   "engineVersion": "RL25"
+  }
+ ],
+ "search_analysis_treaties_paginated": [
+  {
+   "treatyId": 33833,
+   "treatyNumber": "PR1",
+   "treatyName": "PR1",
+   "treatyType": "WORK",
+   "currency": {
+    "id": 0,
+    "code": "USD",
+    "name": "US Dollar"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 1000000.0,
+   "attachmentPoint": 250000.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 250000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2026-01-01T00:00:00.000Z",
+   "expirationDate": "2026-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 5741781,
+   "uri": "/platform/riskdata/v1/analyses/5741781/treaties/33833"
+  },
+  {
+   "treatyId": 33832,
+   "treatyNumber": "PR2",
+   "treatyName": "PR2",
+   "treatyType": "WORK",
+   "currency": {
+    "id": 0,
+    "code": "USD",
+    "name": "US Dollar"
+   },
+   "attachmentBasis": "L",
+   "attachmentLevel": "POL",
+   "occurrenceLimit": 1000000.0,
+   "attachmentPoint": 500000.0,
+   "retentionAmount": 0.0,
+   "riskLimit": 500000.0,
+   "percentageRiShare": 100.0,
+   "percentagePlaced": 100.0,
+   "effectiveDate": "2026-01-01T00:00:00.000Z",
+   "expirationDate": "2026-12-31T00:00:00.000Z",
+   "isValid": true,
+   "analysisId": 5741781,
+   "uri": "/platform/riskdata/v1/analyses/5741781/treaties/33832"
+  }
+ ]
+}

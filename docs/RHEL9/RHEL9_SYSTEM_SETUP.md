@@ -61,8 +61,9 @@ git --version
 **Decided**: this project's deploy mechanism is push-based —
 [rhel9-ssh-deploy.sh](../../infra/scripts/rhel9/rhel9-ssh-deploy.sh) pushes code to
 the server via `rsync` over SSH; the server never runs `git clone`/`git
-pull` against GitHub, and never needs outbound internet access or GitHub
-credentials. `git` is still installed on the server (for the separate,
+pull` against GitHub and does not need GitHub credentials. Installing Python
+dependencies still needs PyPI access unless the packages are staged on the
+server. `git` is still installed on the server (for the separate,
 manual/local `rhel9-pull-code.sh` flow, and general troubleshooting
 convenience), but production deploys do not depend on it being there.
 
@@ -505,10 +506,10 @@ one before starting the other. Diagnose with
 ### Order of operations
 
 ```bash
-bash infra/scripts/rhel9/rhel9-setup.sh                    # once
+DEPLOY_USER=cinreadm APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup.sh  # once
 cp <your .env> infra/.env                             # once
 bash infra/scripts/rhel9/rhel9-setup-podman-mssql.sh         # once, if wanted
-bash infra/scripts/rhel9/rhel9-start.sh                      # every session
+APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start.sh         # every session
 bash infra/scripts/rhel9/rhel9-start-podman-mssql.sh         # every session, if wanted
 ```
 
