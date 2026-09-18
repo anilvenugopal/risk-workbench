@@ -122,11 +122,14 @@ Returns `"WITH (READUNCOMMITTED)"` when the resolved engine dialect is
 | Grant | Why |
 |---|---|
 | `SELECT ON dbo.Client` | The export form's client list and the exports section's client name |
+| `SELECT ON dbo.Lookup_RMS_HistoricalRDS` | The export form's model version choices, read by `export_service.model_version_choices()` over `LOSS` (T-35) |
 | `CONTROL ON SCHEMA::stage` (or `SELECT, INSERT, UPDATE, DELETE` on the stage tables) | Manifest, file, and stage rows |
 | `EXECUTE ON stage.usp_load_elt_result` | The load |
 
-No grant on `dbo.Lookup_RMS_HistoricalRDS`, `dbo.Data`, `dbo.RMSELT`, or
-`dbo.RMS_HistoricalRDS`: only the procedure touches them.
+No grant on `dbo.Data`, `dbo.RMSELT`, or `dbo.RMS_HistoricalRDS`: only the
+procedure touches them, under ownership chaining. The lookup is the one `dbo`
+table the procedure and the request path both read, so it needs the grant even
+though the procedure's own read is chained.
 
 The client team's own accounts need `EXECUTE ON stage.usp_load_elt_result` to
 run a load by hand.
