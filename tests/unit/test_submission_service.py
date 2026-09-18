@@ -70,6 +70,15 @@ def _bump():
     time.sleep(0.01)
 
 
+def _day(value):
+    """The ISO day of a date column. The SQLite mirror stores dates as TEXT and
+    reads them back as ``'2026-04-01'``; SQL Server reads the same column back as
+    ``datetime.date(2026, 4, 1)``. This suite runs on both (tests/sqlserver/
+    test_submission_service_integration.py re-collects it), so date assertions
+    compare the day, not the driver's Python type."""
+    return None if value is None else str(value)[:10]
+
+
 # ── US1: create / get / cedant autocomplete ──────────────────────────────────
 
 def test_create_writes_submission_and_initial_active_event(iteration1_db):
@@ -363,13 +372,13 @@ def test_closed_submission_rejects_association_writes(iteration2_db, drive):
 
 
 def test_cedant_suggestions_distinct_and_sorted(iteration1_db):
-    _mk(iteration1_db, name="A", cedant="Acme Mutual", tt="cat_xol",
+    _mk(iteration1_db, name="A", cedant="Acme Mutual", tt="per_occurrence_cat_xol",
         inc=date(2026, 1, 1))
-    _mk(iteration1_db, name="B", cedant="Acme Mutual", tt="quota_share",
+    _mk(iteration1_db, name="B", cedant="Acme Mutual", tt="aggregate_xol",
         inc=date(2026, 2, 1))   # same cedant, distinct attrs (no dup warning)
-    _mk(iteration1_db, name="C", cedant="Acadia Re", tt="cat_xol",
+    _mk(iteration1_db, name="C", cedant="Acadia Re", tt="per_occurrence_cat_xol",
         inc=date(2026, 3, 1))
-    _mk(iteration1_db, name="D", cedant="Beta Insurance", tt="surplus",
+    _mk(iteration1_db, name="D", cedant="Beta Insurance", tt="stop_loss",
         inc=date(2026, 4, 1))
     # cedant_suggestions is a global DISTINCT with no owner scope, so restrict the
     # equality check to the cedants this test created — unrelated "Ac…" cedants in
@@ -384,15 +393,15 @@ def test_cedant_suggestions_distinct_and_sorted(iteration1_db):
 
 def test_cedant_suggestions_match_anywhere_in_the_name(iteration1_db):
     # CR7: prefix matching never found "American Family Mutual" from "fam".
-    _mk(iteration1_db, name="AF", cedant="American Family Mutual", tt="cat_xol",
-        inc=date(2026, 5, 1))
+    _mk(iteration1_db, name="AF", cedant="American Family Mutual",
+        tt="per_occurrence_cat_xol", inc=date(2026, 5, 1))
     assert "American Family Mutual" in cedant_suggestions("fam")
 
 
 def test_cedant_suggestions_treat_wildcards_literally(iteration1_db):
-    _mk(iteration1_db, name="Pct", cedant="50% Quota Co", tt="surplus",
+    _mk(iteration1_db, name="Pct", cedant="50% Quota Co", tt="stop_loss",
         inc=date(2026, 6, 1))
-    _mk(iteration1_db, name="Plain", cedant="Zeta Re", tt="surplus",
+    _mk(iteration1_db, name="Plain", cedant="Zeta Re", tt="stop_loss",
         inc=date(2026, 7, 1))
     out = cedant_suggestions("0%")
     assert "50% Quota Co" in out and "Zeta Re" not in out
@@ -401,7 +410,7 @@ def test_cedant_suggestions_treat_wildcards_literally(iteration1_db):
 def test_suggestions_ignore_a_one_character_term(iteration1_db):
     # A one-character LIKE '%a%' scans every submission for a menu the analyst
     # cannot read; both searches wait for the second character.
-    _mk(iteration1_db, name="Solo", cedant="Solo Re", tt="surplus",
+    _mk(iteration1_db, name="Solo", cedant="Solo Re", tt="stop_loss",
         inc=date(2026, 8, 1))
     assert cedant_suggestions("S") == []
     assert cedant_suggestions("  s  ") == []
@@ -412,7 +421,7 @@ def test_suggestions_ignore_a_one_character_term(iteration1_db):
 def test_suggestions_cap_the_row_count_in_the_query(iteration1_db):
     for index in range(6):
         _mk(iteration1_db, name=f"Capped {index}", cedant=f"Capped Re {index}",
-            tt="surplus", inc=date(2026, 9, 1))
+            tt="stop_loss", inc=date(2026, 9, 1))
     assert len(cedant_suggestions("Capped Re", limit=3)) == 3
     assert len(search_submissions_for_link("Capped", limit=2)) == 2
 
@@ -437,23 +446,24 @@ def test_list_owner_predicate_is_not_an_access_gate(iteration1_db):
 
 def test_list_filters_combine(iteration1_db):
     a = iteration1_db.user_a
-    _mk(iteration1_db, owner=a, name="X", cedant="Acme", tt="cat_xol",
+    _mk(iteration1_db, owner=a, name="X", cedant="Acme", tt="per_occurrence_cat_xol",
         inc=date(2026, 1, 1), ty=2026)
-    _mk(iteration1_db, owner=a, name="Y", cedant="Acme", tt="quota_share",
+    _mk(iteration1_db, owner=a, name="Y", cedant="Acme", tt="aggregate_xol",
         inc=date(2026, 6, 1), ty=2026)
-    _mk(iteration1_db, owner=a, name="Z", cedant="Beta", tt="cat_xol",
+    _mk(iteration1_db, owner=a, name="Z", cedant="Beta", tt="per_occurrence_cat_xol",
         inc=date(2025, 1, 1), ty=2025)
 
     # Scope every filter query to this test's throwaway owner so rows already
     # present in a shared dev DB can't skew the counts. owner_ids is itself just
     # another AND-predicate, so this still exercises filter combination.
     assert len(list_submissions(owner_ids=[a], cedant_name="Acme").rows) == 2
-    assert len(list_submissions(owner_ids=[a], treaty_type_codes=["cat_xol"]).rows) == 2
+    assert len(list_submissions(
+        owner_ids=[a], treaty_type_codes=["per_occurrence_cat_xol"]).rows) == 2
     assert len(list_submissions(owner_ids=[a], inception_date=date(2026, 6, 1)).rows) == 1
     assert len(list_submissions(owner_ids=[a], treaty_years=[2025]).rows) == 1
-    # combined AND: Acme + cat_xol → only X
+    # combined AND: Acme + per_occurrence_cat_xol → only X
     combo = list_submissions(
-        owner_ids=[a], cedant_name="Acme", treaty_type_codes=["cat_xol"]).rows
+        owner_ids=[a], cedant_name="Acme", treaty_type_codes=["per_occurrence_cat_xol"]).rows
     assert len(combo) == 1 and combo[0].name == "X"
 
 
@@ -605,8 +615,10 @@ def _four_mixed_deals(db):
     a = db.user_a
     made = {}
     for name, treaty_type, year in (
-            ("Cat 2025", "cat_xol", 2025), ("Cat 2026", "cat_xol", 2026),
-            ("Quota 2025", "quota_share", 2025), ("Surplus 2027", "surplus", 2027)):
+            ("Cat 2025", "per_occurrence_cat_xol", 2025),
+            ("Cat 2026", "per_occurrence_cat_xol", 2026),
+            ("Agg 2025", "aggregate_xol", 2025),
+            ("Stop 2027", "stop_loss", 2027)):
         made[name] = _mk(db, owner=a, name=name, cedant=name, tt=treaty_type,
                          inc=date(year, 4, 1), ty=year).submission_id
     return a, made
@@ -615,18 +627,18 @@ def _four_mixed_deals(db):
 def test_list_ors_within_a_multi_value_filter(iteration1_db):
     a, _ = _four_mixed_deals(iteration1_db)
     assert {r.name for r in list_submissions(
-        owner_ids=[a], treaty_type_codes=["cat_xol", "quota_share"]).rows} == {
-        "Cat 2025", "Cat 2026", "Quota 2025"}
+        owner_ids=[a], treaty_type_codes=["per_occurrence_cat_xol", "aggregate_xol"]).rows} == {
+        "Cat 2025", "Cat 2026", "Agg 2025"}
     assert {r.name for r in list_submissions(
         owner_ids=[a], treaty_years=[2025, 2027]).rows} == {
-        "Cat 2025", "Quota 2025", "Surplus 2027"}
+        "Cat 2025", "Agg 2025", "Stop 2027"}
 
 
 def test_list_ands_one_multi_value_filter_against_another(iteration1_db):
     a, _ = _four_mixed_deals(iteration1_db)
     assert {r.name for r in list_submissions(
-        owner_ids=[a], treaty_type_codes=["cat_xol", "quota_share"],
-        treaty_years=[2025, 2027]).rows} == {"Cat 2025", "Quota 2025"}
+        owner_ids=[a], treaty_type_codes=["per_occurrence_cat_xol", "aggregate_xol"],
+        treaty_years=[2025, 2027]).rows} == {"Cat 2025", "Agg 2025"}
 
 
 def test_list_treats_an_empty_list_as_no_filter(iteration1_db):
@@ -638,14 +650,14 @@ def test_list_treats_an_empty_list_as_no_filter(iteration1_db):
 
 def test_list_filters_on_several_statuses(iteration1_db):
     a, made = _four_mixed_deals(iteration1_db)
-    for name in ("Cat 2025", "Quota 2025"):
+    for name in ("Cat 2025", "Agg 2025"):
         set_status(submission_id=made[name], to_status="COMPLETED", reason=None,
                    expected_updated_at=_marker(made[name]), actor_id=a)
     set_status(submission_id=made["Cat 2026"], to_status="CANCELLED", reason=None,
                expected_updated_at=_marker(made["Cat 2026"]), actor_id=a)
     assert {r.name for r in list_submissions(
         owner_ids=[a], status_codes=["COMPLETED", "CANCELLED"]).rows} == {
-        "Cat 2025", "Quota 2025", "Cat 2026"}
+        "Cat 2025", "Agg 2025", "Cat 2026"}
 
 
 def test_list_filters_on_several_owners(iteration1_db):
@@ -826,7 +838,7 @@ def test_crm_blank_rejected_duplicates_are_silent_noops(iteration1_db):
 def test_create_stores_crm_ids_dropping_blanks_and_repeats(iteration1_db):
     res = create_submission(
         name="TY2604_CrmAtCreate", cedant_name="Acme Mutual",
-        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+        treaty_type_code="per_occurrence_cat_xol", inception_date=date(2026, 4, 1),
         crm_ids=["CRM-1", " ", "CRM-2", " crm-1 "],
         actor_id=iteration1_db.user_a, confirmed=True,
     )
@@ -849,7 +861,7 @@ def test_crm_mutations_gated_when_closed(iteration1_db):
 
 def test_find_similar_name_and_attribute_arms(iteration1_db):
     first = _mk(iteration1_db, name="TY2604_Acme", cedant="Acme Mutual",
-                tt="cat_xol", inc=date(2026, 4, 1)).submission_id
+                tt="per_occurrence_cat_xol", inc=date(2026, 4, 1)).submission_id
     # find_similar is a global dedup lookup with no owner scope; assert our
     # planted row's presence/absence rather than exact result sets, so unrelated
     # look-alikes already in a shared dev DB don't fail the test.
@@ -859,16 +871,16 @@ def test_find_similar_name_and_attribute_arms(iteration1_db):
     assert first in {r.id for r in by_name}
     # attribute-match arm (different name)
     by_attr = find_similar(name="Totally Different", cedant_name="Acme Mutual",
-                           treaty_type_code="cat_xol", inception_date=date(2026, 4, 1))
+                           treaty_type_code="per_occurrence_cat_xol", inception_date=date(2026, 4, 1))
     assert first in {r.id for r in by_attr}
     # genuinely new deal → our row is not a look-alike
     assert first not in {r.id for r in find_similar(
         name="Brand New", cedant_name="Nobody Re",
-        treaty_type_code="surplus", inception_date=date(2031, 1, 1))}
+        treaty_type_code="stop_loss", inception_date=date(2031, 1, 1))}
     # exclude_id skips the row being renamed
     assert first not in {r.id for r in find_similar(
         name="TY2604_Acme", cedant_name="Acme Mutual",
-        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+        treaty_type_code="per_occurrence_cat_xol", inception_date=date(2026, 4, 1),
         exclude_id=first)}
 
 
@@ -883,9 +895,9 @@ def test_create_duplicate_warns_then_confirms(iteration1_db):
 
 def test_update_rename_warns_then_confirms(iteration1_db):
     a = iteration1_db.user_a
-    first = _mk(iteration1_db, name="Alpha", cedant="C1", tt="cat_xol",
+    first = _mk(iteration1_db, name="Alpha", cedant="C1", tt="per_occurrence_cat_xol",
                 inc=date(2026, 1, 1)).submission_id
-    second = _mk(iteration1_db, name="Beta", cedant="C2", tt="surplus",
+    second = _mk(iteration1_db, name="Beta", cedant="C2", tt="stop_loss",
                  inc=date(2026, 2, 1)).submission_id
     # rename second → Alpha collides with first (name arm)
     r = update_submission(submission_id=second, expected_updated_at=_marker(second),
@@ -912,7 +924,7 @@ def test_create_with_an_unknown_link_target_is_rejected(iteration1_db, link_valu
     with pytest.raises(UnknownLinkError):
         create_submission(
             name="Stale link", cedant_name="American Family",
-            treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+            treaty_type_code="per_occurrence_cat_xol", inception_date=date(2026, 4, 1),
             links_to_submission_id=link_value, actor_id=iteration1_db.user_a,
             confirmed=True)
     # Scoped to this test's throwaway owner, so the assertion is "the deal was not
@@ -1084,17 +1096,24 @@ def test_view_emits_one_row_per_crm_id_and_one_blank_row_for_a_deal_with_none(
     bare = _mk(iteration1_db, owner=a, name="Bare", inc=date(2026, 7, 1)).submission_id
     add_crm_id(submission_id=tagged, crm_id="T-100", actor_id=a)
     add_crm_id(submission_id=tagged, crm_id="T-200", actor_id=a)
-    rows = execute("SELECT * FROM v_submission_crm_id ORDER BY submission_name, crm_id",
-                   {}, connection="WORKBENCH")
+    # Scoped to this test's two deals: the view is global, and a shared dev DB
+    # carries other analysts' rows.
+    rows = execute(
+        "SELECT * FROM v_submission_crm_id WHERE submission_id IN (:tagged, :bare) "
+        "ORDER BY submission_name, crm_id",
+        {"tagged": tagged, "bare": bare}, connection="WORKBENCH")
     assert [(r["submission_name"], r["crm_id"]) for r in rows] == [
         ("Bare", None), ("Tagged", "T-100"), ("Tagged", "T-200")]
     bare_row = rows[0]
-    assert bare_row["submission_id"] == bare and bare_row["crm_tag_id"] is None
-    assert bare_row["effective_inception_date"] == "2026-07-01"
+    # Read straight off the view, so the id is the driver's: SQL Server returns
+    # uniqueidentifier UPPERCASE, while the service lowercases every id it hands out.
+    assert str(bare_row["submission_id"]).lower() == bare
+    assert bare_row["crm_tag_id"] is None
+    assert _day(bare_row["effective_inception_date"]) == "2026-07-01"
     assert bare_row["effective_expiration_date"] is None
     assert bare_row["modeling_status_code"] == "ACTIVE"
     assert bare_row["deal_status_code"] == "IN_PROCESS"
-    assert {r["effective_inception_date"] for r in rows[1:]} == {"2026-04-01"}
+    assert {_day(r["effective_inception_date"]) for r in rows[1:]} == {"2026-04-01"}
 
 
 def test_list_crm_ids_reports_effective_dates_and_inherited_flags(iteration1_db):
@@ -1106,9 +1125,9 @@ def test_list_crm_ids_reports_effective_dates_and_inherited_flags(iteration1_db)
         {"x": date(2029, 4, 1), "id": tag}, connection="WORKBENCH")
     [crm] = list_crm_ids(sid)
     assert crm.inception_inherited and not crm.expiration_inherited
-    assert crm.effective_inception_date == "2026-04-01"
-    assert crm.effective_expiration_date == "2029-04-01"
-    assert crm.inception_date is None and crm.expiration_date == "2029-04-01"
+    assert _day(crm.effective_inception_date) == "2026-04-01"
+    assert _day(crm.effective_expiration_date) == "2029-04-01"
+    assert crm.inception_date is None and _day(crm.expiration_date) == "2029-04-01"
 
 
 def test_filter_clauses_prefix_every_parameter_and_read_the_given_alias(iteration1_db):
@@ -1176,10 +1195,10 @@ def test_crm_expiration_override_wins_while_inception_stays_inherited(iteration1
                       expiration_date=date(2029, 4, 1), actor_id=a)
     tags = {t.id: t for t in list_crm_ids(sid)}
     assert tags[t1].inception_inherited and not tags[t1].expiration_inherited
-    assert tags[t1].effective_inception_date == "2026-04-01"
-    assert tags[t1].effective_expiration_date == "2029-04-01"
+    assert _day(tags[t1].effective_inception_date) == "2026-04-01"
+    assert _day(tags[t1].effective_expiration_date) == "2029-04-01"
     assert tags[t2].inception_inherited and tags[t2].expiration_inherited
-    assert tags[t2].effective_expiration_date == "2027-04-01"
+    assert _day(tags[t2].effective_expiration_date) == "2027-04-01"
 
 
 def test_reset_crm_dates_nulls_every_override(iteration1_db):
