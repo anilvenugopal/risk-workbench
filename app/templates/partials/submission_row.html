@@ -19,5 +19,6 @@
   <td>{{ row.inception_date }}</td>
   <td>{{ row.treaty_year or '—' }}</td>
   <td><span class="status-chip status-chip--{{ row.status_code|lower }}">{{ row.status_label or row.status_code }}</span></td>
+  <td>{{ row.deal_status_label or row.deal_status_code }}</td>
   <td class="muted">{{ row.assigned_analyst_name or '—' }}</td>
 </tr>

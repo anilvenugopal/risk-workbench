@@ -1,37 +1,87 @@
-<div id="crm-tags" class="crm-tags">
-  {# Add form comes first so its position is fixed — the chip list grows to the
-     right of it instead of pushing the input around. #}
-  {% if is_active %}
-  {# The swap replaces this whole wrapper, so a successful add re-renders the
-     input empty on its own — no client-side reset needed. #}
-  <form class="crm-add" method="post" action="/submissions/{{ submission.id }}/crm-ids"
-        hx-post="/submissions/{{ submission.id }}/crm-ids"
-        hx-target="#crm-tags" hx-swap="outerHTML">
-    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-    <input class="crm-add__input" type="text" name="crm_id" placeholder="Add CRM ID"
-           autocomplete="off">
-    <button class="btn-sm" type="submit">Add</button>
-  </form>
+{# The deal's CRM IDs, one row each: CRM ID · effective inception · effective
+   expiration · actions (spec 017 FR-004, FR-005). A date the CRM ID inherits
+   from the deal carries `crm-date--inherited`; an entered one renders plain.
+   Every CRM route swaps this wrapper, so a successful write re-renders the add
+   box empty and closes any open date editor. Add, edit and remove render
+   read-only when Modeling status is not Active. #}
+<div id="crm-tags" class="crm-tags"
+     hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }">
+  {% if crm_error %}
+  <div class="form-banner form-banner--error" role="alert">{{ crm_error }}</div>
   {% endif %}
 
-  <div class="crm-tags__list">
-    {% for t in crm_tags %}
-      {# div, not span: the remove form is flow content and may not sit in a span. #}
-      <div class="crm-tag">
-        <span class="crm-tag__text">{{ t.crm_id }}</span>
-        {% if is_active %}
-        <form method="post"
-              action="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/delete"
-              hx-post="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/delete"
-              hx-target="#crm-tags" hx-swap="outerHTML">
-          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-          <button class="crm-tag__del" type="submit"
-                  title="Remove {{ t.crm_id }}" aria-label="Remove {{ t.crm_id }}">×</button>
-        </form>
-        {% endif %}
-      </div>
-    {% else %}
-      <span class="tag-empty">No CRM IDs.</span>
-    {% endfor %}
+  {% if crm_tags %}
+  <div class="crm-row crm-row--head">
+    <span>CRM ID</span><span>Inception</span><span>Expiration</span><span></span>
   </div>
+  {% for t in crm_tags %}
+  <div class="crm-row" x-data="{ editing: false }">
+    <span class="crm-row__id mono">{{ t.crm_id }}</span>
+    <span class="crm-date{% if t.inception_inherited %} crm-date--inherited{% endif %}"
+          {% if t.inception_inherited %}title="Inherited from the deal"{% endif %}>
+      {{ t.effective_inception_date or '—' }}</span>
+    <span class="crm-date{% if t.expiration_inherited %} crm-date--inherited{% endif %}"
+          {% if t.expiration_inherited %}title="Inherited from the deal"{% endif %}>
+      {{ t.effective_expiration_date or '—' }}</span>
+    <span class="crm-row__actions">
+      {% if is_active %}
+      <button class="btn-sm" type="button" x-show="!editing" @click="editing = true"
+              aria-label="Edit the dates of {{ t.crm_id }}">Edit dates</button>
+      <form method="post"
+            action="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/delete"
+            hx-post="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/delete"
+            hx-target="#crm-tags" hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="crm-row__del" type="submit"
+                title="Remove {{ t.crm_id }}" aria-label="Remove {{ t.crm_id }}">×</button>
+      </form>
+      {% endif %}
+    </span>
+    {% if is_active %}
+    {# The override pair, blank when inherited: a blank date saved inherits the
+       deal's date again (per column, P-03). #}
+    <form class="crm-dates-edit" method="post"
+          action="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/dates"
+          hx-post="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/dates"
+          hx-target="#crm-tags" hx-swap="outerHTML" x-show="editing" x-cloak>
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <label>Inception
+        <input class="wf-field__input" type="date" name="inception_date"
+               value="{{ t.inception_date or '' }}"></label>
+      <label>Expiration
+        <input class="wf-field__input" type="date" name="expiration_date"
+               value="{{ t.expiration_date or '' }}"></label>
+      <button class="btn-sm btn-sm--primary" type="submit">Save</button>
+      <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
+      <span class="filters__hint">Blank inherits the deal's date.</span>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% else %}
+  <p class="crm-empty muted">No CRM IDs.</p>
+  {% endif %}
+
+  {% if is_active %}
+  <div class="crm-actions">
+    <form class="crm-add" method="post" action="/submissions/{{ submission.id }}/crm-ids"
+          hx-post="/submissions/{{ submission.id }}/crm-ids"
+          hx-target="#crm-tags" hx-swap="outerHTML">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <input class="crm-add__input" type="text" name="crm_id" placeholder="Add CRM ID"
+             autocomplete="off" aria-label="Add CRM ID">
+      <button class="btn-sm" type="submit">Add</button>
+    </form>
+    {% if crm_tags | rejectattr('inception_inherited') | list
+          or crm_tags | rejectattr('expiration_inherited') | list %}
+    <form method="post" action="/submissions/{{ submission.id }}/crm-ids/same-dates"
+          hx-post="/submissions/{{ submission.id }}/crm-ids/same-dates"
+          hx-target="#crm-tags" hx-swap="outerHTML"
+          hx-confirm="Reset every CRM ID to the deal's inception and expiration?">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm" type="submit">Make them all the same</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>

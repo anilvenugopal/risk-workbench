@@ -25,7 +25,8 @@ TEXT_FILTERS = {
 }
 MULTI_FILTERS = {
     "owner": ("Owner", "owner_ids"),
-    "status": ("Status", "status_codes"),
+    "status": ("Modeling status", "status_codes"),
+    "deal_status": ("Submission status", "deal_status_codes"),
     "treaty_type": ("Treaty type", "treaty_type_codes"),
     "treaty_year": ("Treaty year", "treaty_years"),
 }

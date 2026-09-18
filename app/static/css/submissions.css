@@ -196,29 +196,52 @@
 .status-history__by { color: var(--text-tertiary); }
 .status-history__reason { color: var(--text-secondary); }
 
-/* ── Header band (CRM IDs + owner reassign, inline under the deal strip) ── */
-.detail-band { display: flex; flex-wrap: wrap; align-items: center;
-  gap: var(--space-2) var(--space-6); margin-top: var(--space-3); }
-.detail-band__group { display: flex; flex-wrap: wrap; align-items: center;
-  gap: var(--space-2); }
-.detail-band__label { font-size: var(--fs-caption); text-transform: uppercase;
+/* ── Deal metadata section (spec 017 T-10) ──────────────────────────────── */
+/* One labelled grid from Modeling status to Expiration; the deal-dates form
+   takes its own full row under the grid while it is open. */
+.deal-meta {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: var(--space-3) var(--space-5); margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); background: var(--surface-panel);
+}
+.deal-meta__item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.deal-meta dt { font-size: var(--fs-caption); text-transform: uppercase;
   letter-spacing: .04em; color: var(--text-tertiary); font-weight: var(--fw-medium); }
+.deal-meta dd { margin: 0; font-size: var(--fs-label); color: var(--text-primary);
+  font-weight: var(--fw-medium); display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--space-2); }
+.deal-meta .wf-field__input { font-size: var(--fs-label); padding: 4px var(--space-2); }
+.deal-status-form select { min-width: 130px; }
+.deal-dates-form { grid-column: 1 / -1; display: flex; flex-wrap: wrap;
+  align-items: center; gap: var(--space-2) var(--space-3); font-size: var(--fs-label);
+  color: var(--text-secondary); }
+.deal-dates-form label { display: inline-flex; align-items: center; gap: var(--space-2); }
+.deal-crm { margin-bottom: var(--space-5); }
 
-/* ── CRM tags ────────────────────────────────────────────────────────────── */
-.crm-tags { display: flex; flex-wrap: wrap; align-items: center;
-  gap: 6px var(--space-3); }
-.crm-tags__list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.crm-tag {
-  display: inline-flex; align-items: center; gap: 2px;
-  padding: 3px var(--space-2); border-radius: var(--radius-sm);
-  background: var(--surface-recessed); font-size: var(--fs-label);
-  color: var(--text-primary); width: fit-content;
-}
-.crm-tag__del {
-  border: 0; background: none; color: var(--text-tertiary); cursor: pointer;
-  line-height: 1; padding: 0 2px; font-size: var(--fs-label);
-}
-.crm-tag__del:hover { color: var(--color-danger); }
+/* ── CRM IDs: one row per CRM ID with its effective dates ─────────────────── */
+.crm-tags { display: flex; flex-direction: column; gap: 0; }
+.crm-row { display: grid; grid-template-columns: minmax(140px, 1fr) 120px 120px auto;
+  align-items: center; gap: var(--space-1) var(--space-3); padding: 6px 0;
+  border-bottom: 1px solid var(--border-faint); font-size: var(--fs-label); }
+.crm-row--head span { font-size: var(--fs-eyebrow); letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
+.crm-date { font-variant-numeric: tabular-nums; color: var(--text-primary); }
+/* Inherited from the deal (FR-004): the value is the deal's, shown quieter. */
+.crm-date--inherited { color: var(--text-tertiary); font-style: italic; }
+.crm-row__actions { display: flex; align-items: center; justify-content: flex-end;
+  gap: var(--space-2); }
+.crm-row__del { border: 0; background: none; color: var(--text-tertiary); cursor: pointer;
+  line-height: 1; padding: 0 2px; font-size: var(--fs-label); }
+.crm-row__del:hover { color: var(--color-danger); }
+.crm-dates-edit { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--space-2) var(--space-3); padding: var(--space-1) 0 var(--space-2);
+  color: var(--text-secondary); }
+.crm-dates-edit label { display: inline-flex; align-items: center; gap: var(--space-2); }
+.crm-dates-edit .wf-field__input { font-size: var(--fs-label); padding: 4px var(--space-2); }
+.crm-empty { margin: 0 0 var(--space-2); font-size: var(--fs-label); }
+.crm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
+  margin-top: var(--space-3); }
 .crm-add { display: flex; gap: var(--space-2); }
 .crm-add__input {
   width: 11rem; padding: 5px var(--space-2); font-size: var(--fs-label);

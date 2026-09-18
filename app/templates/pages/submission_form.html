@@ -100,6 +100,18 @@
           {% endif %}
         </div>
 
+        {# The deal-level expiration is every CRM ID's default; a CRM ID may
+           carry its own on the submission page (P-03). #}
+        <div class="wf-field">
+          <label>EXPIRATION DATE</label>
+          <input class="wf-field__input{% if field_errors.expiration_date %} wf-field__input--error{% endif %}"
+                 type="date" name="expiration_date"
+                 value="{{ form.expiration_date or '' }}">
+          {% if field_errors.expiration_date %}
+          <div class="wf-field__msg wf-field__error">{{ field_errors.expiration_date }}</div>
+          {% endif %}
+        </div>
+
         <div class="wf-field">
           <label>TREATY YEAR</label>
           <input class="wf-field__input{% if field_errors.treaty_year %} wf-field__input--error{% endif %}"

@@ -394,7 +394,7 @@ def create_submission(
     *, name: str, cedant_name: str, treaty_type_code: str, inception_date: Any,
     treaty_year: int | None = None, links_to_submission_id: Any = None,
     directory_path: str | None = None, crm_ids: list[str] | None = None,
-    actor_id: Any, confirmed: bool = False,
+    expiration_date: Any = None, actor_id: Any, confirmed: bool = False,
 ) -> CreateResult:
     """Create an ACTIVE submission owned by ``actor_id``.
 
@@ -432,6 +432,7 @@ def create_submission(
         "cedant": cedant_name,
         "tt": treaty_type_code,
         "inc": parsed_inception,
+        "exp": _as_date(expiration_date),
         "ty": _default_treaty_year(treaty_year, parsed_inception),
         "lt": link_target,
         "dir": directory_path,
@@ -443,11 +444,11 @@ def create_submission(
             """
             INSERT INTO submission
                 (id, assigned_analyst_id, name, cedant_name, treaty_type_code,
-                 inception_date, treaty_year, links_to_submission_id,
-                 directory_path, status_code, inserted_at, updated_at,
-                 inserted_by, updated_by)
+                 inception_date, expiration_date, treaty_year,
+                 links_to_submission_id, directory_path, status_code,
+                 inserted_at, updated_at, inserted_by, updated_by)
             VALUES
-                (:id, :owner, :name, :cedant, :tt, :inc, :ty, :lt, :dir,
+                (:id, :owner, :name, :cedant, :tt, :inc, :exp, :ty, :lt, :dir,
                  'ACTIVE', :now, :now, :actor, :actor)
             """
         ), params)
@@ -773,6 +774,7 @@ def list_submissions(
     cedant_name: str | None = None, crm_id: str | None = None,
     treaty_type_codes: list[str] | None = None, inception_date: Any = None,
     treaty_years: list[int] | None = None, status_codes: list[str] | None = None,
+    deal_status_codes: list[str] | None = None,
     page: int = 1, sort: str = DEFAULT_SORT, descending: bool = True,
 ) -> SubmissionPage:
     """One page of the master list. Filters AND-combine as bound predicates
@@ -797,7 +799,7 @@ def list_submissions(
         "owner_ids": owner_ids, "name": name, "cedant_name": cedant_name,
         "crm_id": crm_id, "treaty_type_codes": treaty_type_codes,
         "inception_date": inception_date, "treaty_years": treaty_years,
-        "status_codes": status_codes,
+        "status_codes": status_codes, "deal_status_codes": deal_status_codes,
     })
     page = max(1, int(page or 1))
     # One row past the page: its presence is what "there is a next page" means,
@@ -866,6 +868,11 @@ def submission_filter_clauses(
         params |= more
     if filters.get("status_codes"):
         clause, more = _in_clause(f"{s}.status_code", filters["status_codes"], "ms")
+        clauses.append(clause)
+        params |= more
+    if filters.get("deal_status_codes"):
+        clause, more = _in_clause(
+            f"{s}.deal_status_code", filters["deal_status_codes"], "ds")
         clauses.append(clause)
         params |= more
     return clauses, params
@@ -981,7 +988,7 @@ def search_submissions_global(term: str, *, limit: int = 10) -> list[SubmissionR
 # ── Edit / reassign (gated + concurrency-checked) ────────────────────────────
 
 _MUTABLE_FIELDS = (
-    "name", "cedant_name", "treaty_type_code", "inception_date",
+    "name", "cedant_name", "treaty_type_code", "inception_date", "expiration_date",
     "treaty_year", "links_to_submission_id", "directory_path",
 )
 
@@ -999,7 +1006,7 @@ def update_submission(
     sid = str(submission_id)
     current = execute_one(
         "SELECT status_code, name, cedant_name, treaty_type_code, inception_date, "
-        "treaty_year, links_to_submission_id, directory_path "
+        "expiration_date, treaty_year, links_to_submission_id, directory_path "
         "FROM submission WHERE id = :id",
         {"id": sid}, connection="WORKBENCH",
     )
@@ -1012,6 +1019,7 @@ def update_submission(
         if f in fields:
             merged[f] = fields[f]
     merged["inception_date"] = _as_date(merged["inception_date"])
+    merged["expiration_date"] = _as_date(merged["expiration_date"])
     merged["treaty_year"] = _default_treaty_year(
         merged["treaty_year"], merged["inception_date"]
     )
@@ -1034,7 +1042,7 @@ def update_submission(
         """
         UPDATE submission
         SET name = :name, cedant_name = :cedant, treaty_type_code = :tt,
-            inception_date = :inc, treaty_year = :ty,
+            inception_date = :inc, expiration_date = :exp, treaty_year = :ty,
             links_to_submission_id = :lt, directory_path = :dir,
             updated_at = :now, updated_by = :actor
         WHERE id = :id AND updated_at = :expected
@@ -1044,6 +1052,7 @@ def update_submission(
             "cedant": merged["cedant_name"],
             "tt": merged["treaty_type_code"],
             "inc": merged["inception_date"],
+            "exp": merged["expiration_date"],
             "ty": merged["treaty_year"],
             "lt": links_to,
             "dir": merged["directory_path"],
@@ -1080,6 +1089,36 @@ def reassign_owner(
         """,
         {
             "new": str(new_owner_id), "now": _utcnow(), "actor": str(actor_id),
+            "id": sid, "expected": expected_updated_at,
+        },
+        connection="WORKBENCH",
+    )
+    if rows_affected == 0:
+        raise ConcurrencyConflict(
+            "This deal changed since you opened it — reload and re-apply."
+        )
+
+
+def set_deal_status(
+    *, submission_id: Any, to_status: str, expected_updated_at: Any, actor_id: Any,
+) -> None:
+    """Submission status — Won / Lost / In Process — set in place with the R1
+    concurrency check, in every Modeling status, with no reason and no event
+    row (P-02, P-12; Article 4 "other status"). ``ValueError`` on a code that is
+    not in ``deal_status_kind``."""
+    if to_status not in {code for code, _ in deal_status_kinds()}:
+        raise ValueError(f"unknown Submission status {to_status!r}")
+    sid = str(submission_id)
+    if _load_status(sid) is None:
+        raise LookupError(f"submission {sid} not found")
+    rows_affected = execute_command(
+        """
+        UPDATE submission
+        SET deal_status_code = :ds, updated_at = :now, updated_by = :actor
+        WHERE id = :id AND updated_at = :expected
+        """,
+        {
+            "ds": to_status, "now": _utcnow(), "actor": str(actor_id),
             "id": sid, "expected": expected_updated_at,
         },
         connection="WORKBENCH",
@@ -1195,6 +1234,39 @@ def remove_crm_id(*, crm_tag_id: Any, actor_id: Any) -> None:
     execute_command(
         "DELETE FROM submission_crm_id WHERE id = :id",
         {"id": str(crm_tag_id)}, connection="WORKBENCH",
+    )
+
+
+def set_crm_dates(
+    *, crm_tag_id: Any, inception_date: Any, expiration_date: Any, actor_id: Any,
+) -> None:
+    """One CRM ID's override pair; a blank date stores NULL, so that column
+    inherits the deal's date again (FR-003, FR-004). Gated on Modeling status
+    Active like add and remove."""
+    row = execute_one(
+        "SELECT submission_id FROM submission_crm_id WHERE id = :id",
+        {"id": str(crm_tag_id)}, connection="WORKBENCH",
+    )
+    if row is None:
+        raise LookupError(f"CRM ID {crm_tag_id} not found")
+    _require_active(_load_status(row["submission_id"]))
+    execute_command(
+        "UPDATE submission_crm_id SET inception_date = :inc, expiration_date = :exp "
+        "WHERE id = :id",
+        {"inc": _as_date(inception_date), "exp": _as_date(expiration_date),
+         "id": str(crm_tag_id)},
+        connection="WORKBENCH",
+    )
+
+
+def reset_crm_dates(*, submission_id: Any, actor_id: Any) -> None:
+    """"Make them all the same" (FR-005): every CRM ID of the deal inherits both
+    deal-level dates again."""
+    _require_active(_load_status(submission_id))
+    execute_command(
+        "UPDATE submission_crm_id SET inception_date = NULL, expiration_date = NULL "
+        "WHERE submission_id = :id",
+        {"id": str(submission_id)}, connection="WORKBENCH",
     )
 
 

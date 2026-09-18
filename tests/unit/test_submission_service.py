@@ -1113,3 +1113,121 @@ def test_filter_clauses_prefix_every_parameter_and_read_the_given_alias(iteratio
     assert "s." not in " ".join(clauses)
     assert set(params) == {"owner0", "n0", "n1", "c0", "crm", "tt0", "inc", "ty0", "ms0"}
     assert svc.submission_filter_clauses({}) == ([], {})
+
+
+# ── spec 017 US1: Submission status and dates per CRM ID ─────────────────────
+
+def test_set_deal_status_saves_with_no_reason_and_leaves_modeling_status_alone(
+        iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db).submission_id
+    svc.set_deal_status(submission_id=sid, to_status="LOST",
+                        expected_updated_at=_marker(sid), actor_id=a)
+    sub = get_submission(sid)
+    assert sub.deal_status_code == "LOST" and sub.deal_status_label == "Lost"
+    assert sub.status_code == "ACTIVE"
+    assert len(get_status_history(sid)) == 1
+
+
+@pytest.mark.parametrize("modeling", ["COMPLETED", "CANCELLED"])
+def test_set_deal_status_is_accepted_in_every_modeling_status(iteration1_db, modeling):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db).submission_id
+    set_status(submission_id=sid, to_status=modeling, reason="done",
+               expected_updated_at=_marker(sid), actor_id=a)
+    svc.set_deal_status(submission_id=sid, to_status="WON",
+                        expected_updated_at=_marker(sid), actor_id=a)
+    sub = get_submission(sid)
+    assert sub.deal_status_code == "WON" and sub.status_code == modeling
+
+
+def test_set_deal_status_stale_marker_conflicts_and_unknown_code_is_refused(
+        iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db).submission_id
+    with pytest.raises(ConcurrencyConflict):
+        svc.set_deal_status(submission_id=sid, to_status="WON",
+                            expected_updated_at=STALE, actor_id=a)
+    with pytest.raises(ValueError):
+        svc.set_deal_status(submission_id=sid, to_status="HOLD",
+                            expected_updated_at=_marker(sid), actor_id=a)
+    assert get_submission(sid).deal_status_code == "IN_PROCESS"
+
+
+def test_crm_expiration_override_wins_while_inception_stays_inherited(iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db).submission_id
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid), actor_id=a,
+                      expiration_date=date(2027, 4, 1))
+    t1 = add_crm_id(submission_id=sid, crm_id="T-100", actor_id=a)
+    t2 = add_crm_id(submission_id=sid, crm_id="T-200", actor_id=a)
+    svc.set_crm_dates(crm_tag_id=t1, inception_date=None,
+                      expiration_date=date(2029, 4, 1), actor_id=a)
+    tags = {t.id: t for t in list_crm_ids(sid)}
+    assert tags[t1].inception_inherited and not tags[t1].expiration_inherited
+    assert tags[t1].effective_inception_date == "2026-04-01"
+    assert tags[t1].effective_expiration_date == "2029-04-01"
+    assert tags[t2].inception_inherited and tags[t2].expiration_inherited
+    assert tags[t2].effective_expiration_date == "2027-04-01"
+
+
+def test_reset_crm_dates_nulls_every_override(iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db).submission_id
+    for crm in ("T-100", "T-200"):
+        tag = add_crm_id(submission_id=sid, crm_id=crm, actor_id=a)
+        svc.set_crm_dates(crm_tag_id=tag, inception_date=date(2026, 5, 1),
+                          expiration_date=date(2027, 5, 1), actor_id=a)
+    svc.reset_crm_dates(submission_id=sid, actor_id=a)
+    assert all(t.inception_inherited and t.expiration_inherited
+               for t in list_crm_ids(sid))
+
+
+def test_crm_date_writes_are_refused_when_not_active(iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db).submission_id
+    tag = add_crm_id(submission_id=sid, crm_id="T-100", actor_id=a)
+    set_status(submission_id=sid, to_status="COMPLETED", reason=None,
+               expected_updated_at=_marker(sid), actor_id=a)
+    with pytest.raises(SubmissionClosed):
+        svc.set_crm_dates(crm_tag_id=tag, inception_date=date(2026, 5, 1),
+                          expiration_date=None, actor_id=a)
+    with pytest.raises(SubmissionClosed):
+        svc.reset_crm_dates(submission_id=sid, actor_id=a)
+
+
+def test_a_removed_crm_id_takes_its_dates_with_it(iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db).submission_id
+    tag = add_crm_id(submission_id=sid, crm_id="T-100", actor_id=a)
+    svc.set_crm_dates(crm_tag_id=tag, inception_date=date(2026, 5, 1),
+                      expiration_date=None, actor_id=a)
+    remove_crm_id(crm_tag_id=tag, actor_id=a)
+    assert execute_scalar("SELECT COUNT(*) FROM submission_crm_id WHERE id = :id",
+                          {"id": tag}, connection="WORKBENCH") == 0
+    assert list_crm_ids(sid) == []
+
+
+def test_deal_level_inception_still_drives_sort_and_treaty_year(iteration1_db):
+    a = iteration1_db.user_a
+    older = _mk(iteration1_db, owner=a, name="Older", inc=date(2025, 1, 1), ty=None)
+    newer = _mk(iteration1_db, owner=a, name="Newer", inc=date(2026, 6, 1), ty=None)
+    tag = add_crm_id(submission_id=older.submission_id, crm_id="T-1", actor_id=a)
+    svc.set_crm_dates(crm_tag_id=tag, inception_date=date(2027, 1, 1),
+                      expiration_date=None, actor_id=a)
+    rows = list_submissions(owner_ids=[a]).rows
+    assert [r.name for r in rows] == ["Newer", "Older"]
+    assert get_submission(older.submission_id).treaty_year == 2025
+    assert get_submission(newer.submission_id).treaty_year == 2026
+
+
+def test_list_filters_on_submission_status(iteration1_db):
+    a = iteration1_db.user_a
+    won = _mk(iteration1_db, owner=a, name="Won").submission_id
+    _mk(iteration1_db, owner=a, name="Open", inc=date(2026, 7, 1))
+    svc.set_deal_status(submission_id=won, to_status="WON",
+                        expected_updated_at=_marker(won), actor_id=a)
+    assert [r.id for r in list_submissions(
+        owner_ids=[a], deal_status_codes=["WON"]).rows] == [won]
+    assert len(list_submissions(
+        owner_ids=[a], deal_status_codes=["WON", "IN_PROCESS"]).rows) == 2

@@ -8,7 +8,8 @@ and is rejected without a session (Article 13). Decision references:
 
 | Route | Form fields | Gate | Success | Errors |
 |---|---|---|---|---|
-| `POST /submissions/{sid}/deal-status` | `to_status` ∈ `deal_status_kind.code`, `expected_updated_at` | none on Modeling status (T-02) | re-render the metadata section (fragment id fixed when the T-10 preview is approved) with the new value; full-page redirect without HTMX | 409 banner on `updated_at` mismatch; 422 on an unknown code |
+| `POST /submissions/{sid}/deal-status` | `to_status` ∈ `deal_status_kind.code`, `expected_updated_at` | none on Modeling status (T-02) | re-render `#deal-head` (the block from the title to the Modeling status history, `partials/submission_head.html`) with the new value; full-page redirect without HTMX | 409 banner on `updated_at` mismatch; 422 on an unknown code |
+| `POST /submissions/{sid}/dates` | `inception_date` (ISO, required), `expiration_date` (ISO or blank), `updated_at` | Modeling status Active | the deal-level dates edited in place through `update_submission`; re-render `#deal-head` | 409 banner on `SubmissionClosed` or `updated_at` mismatch; 422 on an unparseable date |
 | `POST /submissions/{sid}/crm-ids/{tag_id}/dates` | `inception_date` (ISO or blank), `expiration_date` (ISO or blank) | Modeling status Active | re-render `#crm-tags`; blank clears that override (inherits) | 409 `SubmissionClosed`; 422 on an unparseable date |
 | `POST /submissions/{sid}/crm-ids/same-dates` | none | Modeling status Active; `hx-confirm` on the button | re-render `#crm-tags` with every row inherited | 409 `SubmissionClosed` |
 
@@ -16,7 +17,9 @@ Existing `POST /submissions/{sid}/crm-ids` and `…/crm-ids/{tag_id}/delete` are
 unchanged; a removed CRM ID takes its override columns with it (FR-004).
 
 `#crm-tags` renders one row per CRM ID: CRM ID · effective inception ·
-effective expiration · actions. An inherited date carries the `crm-date--inherited`
+effective expiration · actions. `POST /submissions/{sid}/reassign` and
+`POST /submissions/{sid}/status` answer HTMX with `#deal-head` too, so every
+`updated_at` marker in the block is the one the last write produced. An inherited date carries the `crm-date--inherited`
 class and the title "Inherited from the deal"; an entered one renders plain.
 
 ## 2. Create / edit form — new fields

@@ -1,0 +1,181 @@
+{# The submission page from the title to the Modeling status history (spec 017
+   T-10, P-14): the metadata section and its controls. Every POST in this
+   block answers with this fragment, so each form's `updated_at` marker is the
+   one the last write produced. Context: `_head_context` in
+   app/routers/submissions.py. The before-swap hook lets htmx swap a 409 or
+   422 re-render in, banner included. #}
+<div id="deal-head"
+     hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }">
+  <div class="detail-head">
+    <h1>{{ submission.name }}</h1>
+    <div class="deal-head__created">Created
+      <time data-utc="{{ submission.inserted_at }}"
+            title="{{ submission.inserted_at }} UTC">{{ submission.inserted_at }}</time>
+      {% if submission.links_to_submission_id %}
+      <span class="crumb__sep">·</span>
+      <span>links to
+        <a href="/submissions/{{ submission.links_to_submission_id }}">
+          {{ link_target.name if link_target else submission.links_to_submission_id }}</a></span>
+      {% endif %}
+      {% if submission.directory_path %}
+      <span class="crumb__sep">·</span>
+      <span class="mono" title="{{ submission.directory_path }}">{{ submission.directory_path }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if head_error %}
+  <div class="form-banner form-banner--error" role="alert">{{ head_error }}</div>
+  {% endif %}
+  {% if not is_active %}
+  <div class="form-banner form-banner--readonly">
+    This deal is {{ submission.status_label or submission.status_code }} — read-only.
+    Submission status can still be set; reopen the deal to change anything else.
+  </div>
+  {% endif %}
+
+  <dl class="deal-meta">
+    <div class="deal-meta__item">
+      <dt>Modeling status</dt>
+      <dd><span class="status-chip status-chip--{{ submission.status_code|lower }}">
+        {{ submission.status_label or submission.status_code }}</span></dd>
+    </div>
+    <div class="deal-meta__item">
+      <dt><label for="deal-status-select">Submission status</label></dt>
+      <dd>
+        {# Live in every Modeling status (P-12): a plain select, saved on change,
+           no reason asked. #}
+        <form class="deal-status-form" method="post"
+              action="/submissions/{{ submission.id }}/deal-status"
+              hx-post="/submissions/{{ submission.id }}/deal-status"
+              hx-trigger="change" hx-target="#deal-head" hx-swap="outerHTML">
+          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+          <input type="hidden" name="expected_updated_at" value="{{ submission.updated_at }}">
+          <select id="deal-status-select" class="wf-field__input" name="to_status">
+            {% for code, label in deal_statuses %}
+            <option value="{{ code }}"{% if code == submission.deal_status_code %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" hidden>Save</button>
+        </form>
+      </dd>
+    </div>
+    <div class="deal-meta__item">
+      <dt>Owner</dt>
+      <dd>
+        {% if is_active %}
+        <form method="post" action="/submissions/{{ submission.id }}/reassign"
+              hx-post="/submissions/{{ submission.id }}/reassign"
+              hx-target="#deal-head" hx-swap="outerHTML" class="reassign-form">
+          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+          <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+          <select class="wf-field__input" name="new_owner_id" aria-label="Owner">
+            {% for a in analysts %}
+            <option value="{{ a.id }}"{% if a.id|string == submission.assigned_analyst_id %} selected{% endif %}>
+              {{ a.display_name }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn-sm" type="submit">Reassign</button>
+        </form>
+        {% else %}
+        {{ submission.assigned_analyst_name or '—' }}
+        {% endif %}
+      </dd>
+    </div>
+    <div class="deal-meta__item">
+      <dt>Cedant</dt>
+      <dd>{{ submission.cedant_name or '—' }}</dd>
+    </div>
+    <div class="deal-meta__item">
+      <dt>Client</dt>
+      <dd>{{ client_display or '—' }}</dd>
+    </div>
+    <div class="deal-meta__item">
+      <dt>Treaty type</dt>
+      <dd>{{ submission.treaty_type_label or submission.treaty_type_code or '—' }}</dd>
+    </div>
+    <div class="deal-meta__item">
+      <dt>Treaty year</dt>
+      <dd>{{ submission.treaty_year or '—' }}</dd>
+    </div>
+    {# The deal-level dates are every CRM ID's default (P-03). Edited in place
+       when the deal is Active; the form is one row under the grid. #}
+    <div class="deal-meta__dates" x-data="{ editing: false }" style="display: contents">
+      <div class="deal-meta__item">
+        <dt>Inception</dt>
+        <dd>{{ submission.inception_date or '—' }}</dd>
+      </div>
+      <div class="deal-meta__item">
+        <dt>Expiration</dt>
+        <dd>{{ submission.expiration_date or '—' }}
+          {% if is_active %}
+          <button class="btn-sm deal-meta__edit" type="button" x-show="!editing"
+                  @click="editing = true">Edit dates</button>
+          {% endif %}
+        </dd>
+      </div>
+      {% if is_active %}
+      <form class="deal-dates-form" method="post"
+            action="/submissions/{{ submission.id }}/dates"
+            hx-post="/submissions/{{ submission.id }}/dates"
+            hx-target="#deal-head" hx-swap="outerHTML" x-show="editing" x-cloak>
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+        <label>Inception
+          <input class="wf-field__input" type="date" name="inception_date" required
+                 value="{{ submission.inception_date or '' }}"></label>
+        <label>Expiration
+          <input class="wf-field__input" type="date" name="expiration_date"
+                 value="{{ submission.expiration_date or '' }}"></label>
+        <button class="btn-sm btn-sm--primary" type="submit">Save dates</button>
+        <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
+      </form>
+      {% endif %}
+    </div>
+  </dl>
+
+  <div class="deal-crm">
+    <div class="section-head"><h2>CRM IDs</h2></div>
+    {% include "partials/crm_tags.html" %}
+  </div>
+
+  <div class="section-head"><h2>Modeling status</h2></div>
+  <div class="status-controls">
+    {% if is_active %}
+    <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+      <input type="hidden" name="to_status" value="COMPLETED">
+      <button class="btn-sm" type="submit">Mark complete</button>
+    </form>
+    <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+      <input type="hidden" name="to_status" value="CANCELLED">
+      <input class="status-form__reason" type="text" name="reason"
+             placeholder="reason (optional)">
+      <button class="btn-sm btn-sm--danger" type="submit">Cancel deal</button>
+    </form>
+    {% else %}
+    <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+      <input type="hidden" name="to_status" value="ACTIVE">
+      <button class="btn-sm btn-sm--primary" type="submit">Reopen</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <ul class="status-history">
+    {% for e in status_history %}
+    <li class="status-history__item">
+      <span class="status-chip status-chip--{{ e.status_code|lower }}">
+        {{ e.status_label or e.status_code }}</span>
+      <span class="status-history__at">{{ e.at }}</span>
+      {% if e.inserted_by_name %}
+      <span class="status-history__by">by {{ e.inserted_by_name }}</span>{% endif %}
+      {% if e.reason %}<span class="status-history__reason">— {{ e.reason }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>

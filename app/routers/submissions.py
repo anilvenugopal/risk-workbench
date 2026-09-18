@@ -44,6 +44,7 @@ from app.services import (
     analysis_import_service,
     analysis_service,
     auth_service,
+    client_service,
     edm_service,
     export_service,
     grouping_service,
@@ -122,10 +123,10 @@ def _parse_int(value: str | None) -> int | None:
 
 def _validate_submission_form(
     *, name: str, cedant_name: str, treaty_type_code: str, inception_date: str,
-    treaty_year: str, directory_path: str,
-) -> tuple[dict[str, str], date | None, int | None]:
-    """One message per bad field (CR4), plus the parsed inception date and treaty
-    year so the caller does not parse twice. An empty dict means valid."""
+    expiration_date: str, treaty_year: str, directory_path: str,
+) -> tuple[dict[str, str], date | None, date | None, int | None]:
+    """One message per bad field (CR4), plus the parsed dates and treaty year so
+    the caller does not parse twice. An empty dict means valid."""
     errors: dict[str, str] = {}
     if not name.strip():
         errors["name"] = "Enter a name for this submission."
@@ -139,6 +140,10 @@ def _validate_submission_form(
         errors["inception_date"] = (
             "Enter an inception date." if not inception_date.strip()
             else "Enter a valid date.")
+
+    parsed_expiration_date = _parse_date(expiration_date)
+    if expiration_date.strip() and parsed_expiration_date is None:
+        errors["expiration_date"] = "Enter a valid date."
 
     parsed_treaty_year = _parse_int(treaty_year)
     if treaty_year.strip() and not (
@@ -157,7 +162,7 @@ def _validate_submission_form(
                 "That folder is no longer on the shared drive — browse and pick it "
                 "again.")
 
-    return errors, parsed_inception_date, parsed_treaty_year
+    return errors, parsed_inception_date, parsed_expiration_date, parsed_treaty_year
 
 
 def _error_banner(field_errors: dict[str, str], action: str) -> list[str]:
@@ -729,12 +734,40 @@ def contextual_analyses_compare(request: Request, submission_id: str,
                                   edm_id=edm_id)
 
 
+def _head_context(submission, *, head_error: str | None = None) -> dict:
+    """What ``partials/submission_head.html`` reads: the block from the title to
+    the Modeling status history (spec 017 T-10). Every POST in that block
+    re-renders it, so the ``updated_at`` marker each form carries is current."""
+    return {
+        "submission": submission,
+        "status_history": submission_service.get_status_history(submission.id),
+        "crm_tags": submission_service.list_crm_ids(submission.id),
+        "link_target": submission_service.get_submission(
+            submission.links_to_submission_id),
+        "analysts": auth_service.list_active_analysts(),
+        "deal_statuses": submission_service.deal_status_kinds(),
+        "client_display": client_service.display(
+            submission.client_id, submission.client_name),
+        "is_active": submission.status_code == submission_service.ACTIVE,
+        "head_error": head_error,
+    }
+
+
+def _head_partial(request: Request, submission_id: str, *,
+                  head_error: str | None = None, status_code: int = 200):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    return _partial(request, "partials/submission_head.html",
+                    _head_context(submission, head_error=head_error),
+                    status_code=status_code)
+
+
 def _detail_context(request: Request, submission_id: str) -> dict | None:
     """Assemble the full detail-view context, or None if the id is unknown."""
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return None
-    analysts = auth_service.list_active_analysts()
     sort_state = _entity_sort_state(request)
     edm_sort, edm_descending = sort_state["edm"]
     rdm_sort, rdm_descending = sort_state["rdm"]
@@ -744,9 +777,7 @@ def _detail_context(request: Request, submission_id: str) -> dict | None:
         submission_id, sort=rdm_sort, descending=rdm_descending)
     sort_query = _entity_sort_query(sort_state)
     return {
-        "submission": submission,
-        "status_history": submission_service.get_status_history(submission_id),
-        "crm_tags": submission_service.list_crm_ids(submission_id),
+        **_head_context(submission),
         "submission_edms": submission_edms,
         "submission_rdms": submission_rdms,
         "edm_backfill_running": _entity_backfill_running("edm", submission_edms),
@@ -755,11 +786,6 @@ def _detail_context(request: Request, submission_id: str) -> dict | None:
         "rdm_sort_links": _entity_sort_links(submission_id, "rdm", sort_state),
         "edm_table_url": f"/submissions/{submission_id}/edms/table?{sort_query}",
         "rdm_table_url": f"/submissions/{submission_id}/rdms/table?{sort_query}",
-        "link_target": submission_service.get_submission(
-            submission.links_to_submission_id),
-        "analysts": analysts,
-        "treaty_types": TREATY_TYPES,
-        "is_active": submission.status_code == submission_service.ACTIVE,
         "results_section": _results_section_context(
             request, submission_id, submission),
     }
@@ -919,7 +945,7 @@ def _not_found(request: Request):
 # list and the nav shell for htmx to discard is the cost of a keystroke otherwise.
 _LIST_TARGET = "sub-list"
 # Each multi-select menu writes one input per picked value (D16).
-_MULTI_PARAMS = ("treaty_type", "treaty_year", "status", "owner")
+_MULTI_PARAMS = ("treaty_type", "treaty_year", "status", "deal_status", "owner")
 _TEXT_PARAMS = ("q", "cedant", "crm_id")
 
 
@@ -1027,6 +1053,7 @@ def list_submissions_page(request: Request):
         **list_ctx,
         "treaty_types": TREATY_TYPES,
         "statuses": submission_service.status_kinds(),
+        "deal_statuses": submission_service.deal_status_kinds(),
         "owner_options": [(analyst["id"], analyst["display_name"])
                           for analyst in auth_service.list_active_analysts()],
         "filter_values": filter_values,
@@ -1114,6 +1141,7 @@ def create(
     cedant_name: str = Form(""),
     treaty_type_code: str = Form(""),
     inception_date: str = Form(""),
+    expiration_date: str = Form(""),
     treaty_year: str = Form(""),
     directory_path: str = Form(""),
     crm_ids: str = Form(""),
@@ -1127,6 +1155,7 @@ def create(
     form = {
         "name": name, "cedant_name": cedant_name,
         "treaty_type_code": treaty_type_code, "inception_date": inception_date,
+        "expiration_date": expiration_date,
         "treaty_year": treaty_year, "directory_path": directory_path,
         "crm_ids": crm_ids,
         "links_to_submission_id": links_to_submission_id,
@@ -1137,10 +1166,11 @@ def create(
                       nav_key="submissions.all", form=form, submission=None,
                       links_to=links_to)
 
-    field_errors, parsed_inception_date, parsed_treaty_year = (
+    field_errors, parsed_inception_date, parsed_expiration_date, parsed_treaty_year = (
         _validate_submission_form(
             name=name, cedant_name=cedant_name,
             treaty_type_code=treaty_type_code, inception_date=inception_date,
+            expiration_date=expiration_date,
             treaty_year=treaty_year, directory_path=directory_path,
         )
     )
@@ -1153,6 +1183,7 @@ def create(
             name=name.strip(), cedant_name=cedant_name.strip(),
             treaty_type_code=treaty_type_code,
             inception_date=parsed_inception_date,
+            expiration_date=parsed_expiration_date,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
             crm_ids=crm_ids.split(","),
@@ -1386,6 +1417,7 @@ def edit_form(request: Request, submission_id: str):
         "name": submission.name, "cedant_name": submission.cedant_name,
         "treaty_type_code": submission.treaty_type_code,
         "inception_date": str(submission.inception_date),
+        "expiration_date": str(submission.expiration_date or ""),
         "treaty_year": submission.treaty_year or "",
         "directory_path": submission.directory_path or "",
         "links_to_submission_id": submission.links_to_submission_id or "",
@@ -1405,6 +1437,7 @@ def update(
     cedant_name: str = Form(""),
     treaty_type_code: str = Form(""),
     inception_date: str = Form(""),
+    expiration_date: str = Form(""),
     treaty_year: str = Form(""),
     directory_path: str = Form(""),
     links_to_submission_id: str = Form(""),
@@ -1422,6 +1455,7 @@ def update(
     form = {
         "name": name, "cedant_name": cedant_name,
         "treaty_type_code": treaty_type_code, "inception_date": inception_date,
+        "expiration_date": expiration_date,
         "treaty_year": treaty_year, "directory_path": directory_path,
         "links_to_submission_id": links_to_submission_id,
     }
@@ -1431,10 +1465,11 @@ def update(
                       nav_key="submissions.detail", form=form,
                       submission=submission, links_to=links_to)
 
-    field_errors, parsed_inception_date, parsed_treaty_year = (
+    field_errors, parsed_inception_date, parsed_expiration_date, parsed_treaty_year = (
         _validate_submission_form(
             name=name, cedant_name=cedant_name,
             treaty_type_code=treaty_type_code, inception_date=inception_date,
+            expiration_date=expiration_date,
             treaty_year=treaty_year, directory_path=directory_path,
         )
     )
@@ -1448,6 +1483,7 @@ def update(
             actor_id=request.state.user.id, confirmed=(confirmed == "1"),
             name=name.strip(), cedant_name=cedant_name.strip(),
             treaty_type_code=treaty_type_code, inception_date=parsed_inception_date,
+            expiration_date=parsed_expiration_date,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
             links_to_submission_id=links_to,
@@ -1489,14 +1525,83 @@ def reassign(
             submission_id=submission_id, new_owner_id=new_owner_id,
             expected_updated_at=updated_at, actor_id=request.state.user.id,
         )
-    except (SubmissionClosed, ConcurrencyConflict):
-        return _detail_response(request, submission_id, status_code=409)
+    except (SubmissionClosed, ConcurrencyConflict) as exc:
+        return _head_partial(request, submission_id, head_error=str(exc),
+                             status_code=409)
     if _is_htmx(request):
-        return _detail_response(request, submission_id)
+        return _head_partial(request, submission_id)
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 
-# ── Status lifecycle ───────────────────────────────────────────────────────────
+# ── Deal dates, in place (spec 017 FR-003; contracts/routes.md §1) ─────────────
+
+@router.post("/submissions/{submission_id}/dates")
+def change_deal_dates(
+    request: Request,
+    submission_id: str,
+    inception_date: str = Form(""),
+    expiration_date: str = Form(""),
+    updated_at: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    """The deal-level inception and expiration edited on the submission page.
+    The same ``update_submission`` write the edit form uses, with the other
+    fields untouched; the look-alike warning is a creation-time check and does
+    not apply to a date edit on an existing deal."""
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    parsed_inception = _parse_date(inception_date)
+    parsed_expiration = _parse_date(expiration_date)
+    if parsed_inception is None or (expiration_date.strip() and parsed_expiration is None):
+        return _head_partial(
+            request, submission_id, status_code=422,
+            head_error="Enter a valid inception date; expiration may be blank.")
+    try:
+        submission_service.update_submission(
+            submission_id=submission_id, expected_updated_at=updated_at,
+            actor_id=request.state.user.id, confirmed=True,
+            inception_date=parsed_inception, expiration_date=parsed_expiration)
+    except (SubmissionClosed, ConcurrencyConflict) as exc:
+        return _head_partial(request, submission_id, head_error=str(exc),
+                             status_code=409)
+    if _is_htmx(request):
+        return _head_partial(request, submission_id)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+# ── Submission status (spec 017 T-02; contracts/routes.md §1) ──────────────────
+
+@router.post("/submissions/{submission_id}/deal-status")
+def change_deal_status(
+    request: Request,
+    submission_id: str,
+    to_status: str = Form(""),
+    expected_updated_at: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    """Won / Lost / In Process, in every Modeling status, no reason (P-12)."""
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    try:
+        submission_service.set_deal_status(
+            submission_id=submission_id, to_status=to_status,
+            expected_updated_at=expected_updated_at,
+            actor_id=request.state.user.id)
+    except ValueError:
+        return _head_partial(
+            request, submission_id, status_code=422,
+            head_error="Choose Won, Lost or In Process.")
+    except ConcurrencyConflict as exc:
+        return _head_partial(request, submission_id, head_error=str(exc),
+                             status_code=409)
+    if _is_htmx(request):
+        return _head_partial(request, submission_id)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+# ── Modeling status lifecycle ──────────────────────────────────────────────────
 
 @router.post("/submissions/{submission_id}/status")
 def change_status(
@@ -1510,23 +1615,27 @@ def change_status(
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
     if to_status not in ("ACTIVE", "COMPLETED", "CANCELLED"):
-        return _detail_response(request, submission_id, status_code=422)
+        return _head_partial(
+            request, submission_id, status_code=422,
+            head_error="Modeling status is Active, Completed or Cancelled.")
     try:
         submission_service.set_status(
             submission_id=submission_id, to_status=to_status,
             reason=reason.strip() or None, expected_updated_at=updated_at,
             actor_id=request.state.user.id,
         )
-    except ConcurrencyConflict:
-        return _detail_response(request, submission_id, status_code=409)
+    except ConcurrencyConflict as exc:
+        return _head_partial(request, submission_id, head_error=str(exc),
+                             status_code=409)
     if _is_htmx(request):
-        return _detail_response(request, submission_id)
+        return _head_partial(request, submission_id)
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 
 # ── CRM tags ────────────────────────────────────────────────────────────────────
 
-def _crm_partial(request: Request, submission_id: str, status_code: int = 200):
+def _crm_partial(request: Request, submission_id: str, status_code: int = 200,
+                 crm_error: str | None = None):
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _not_found(request)
@@ -1534,7 +1643,69 @@ def _crm_partial(request: Request, submission_id: str, status_code: int = 200):
         "submission": submission,
         "crm_tags": submission_service.list_crm_ids(submission_id),
         "is_active": submission.status_code == submission_service.ACTIVE,
+        "crm_error": crm_error,
     }, status_code=status_code)
+
+
+_CRM_CLOSED_MESSAGE = "Reopen this submission before changing its CRM IDs."
+
+
+@router.post("/submissions/{submission_id}/crm-ids/same-dates")
+def reset_crm_dates(
+    request: Request,
+    submission_id: str,
+    csrf_token: str = Form(...),
+):
+    """"Make them all the same" (FR-005): every CRM ID inherits the deal's dates."""
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    try:
+        submission_service.reset_crm_dates(
+            submission_id=submission_id, actor_id=request.state.user.id)
+    except SubmissionClosed:
+        return _crm_partial(request, submission_id, status_code=409,
+                            crm_error=_CRM_CLOSED_MESSAGE)
+    if _is_htmx(request):
+        return _crm_partial(request, submission_id)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+@router.post("/submissions/{submission_id}/crm-ids/{tag_id}/dates")
+def change_crm_dates(
+    request: Request,
+    submission_id: str,
+    tag_id: str,
+    inception_date: str = Form(""),
+    expiration_date: str = Form(""),
+    csrf_token: str = Form(...),
+):
+    """One CRM ID's inception and expiration; a blank date inherits the deal's
+    (FR-003, FR-004)."""
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    parsed = {}
+    for field_name, raw in (("inception_date", inception_date),
+                            ("expiration_date", expiration_date)):
+        parsed[field_name] = _parse_date(raw)
+        if raw.strip() and parsed[field_name] is None:
+            return _crm_partial(request, submission_id, status_code=422,
+                                crm_error="Enter a valid date, or leave it blank "
+                                          "to inherit the deal's.")
+    try:
+        submission_service.set_crm_dates(
+            crm_tag_id=tag_id, actor_id=request.state.user.id, **parsed)
+    except LookupError:
+        return _not_found(request)
+    except SubmissionClosed:
+        return _crm_partial(request, submission_id, status_code=409,
+                            crm_error=_CRM_CLOSED_MESSAGE)
+    if _is_htmx(request):
+        return _crm_partial(request, submission_id)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 
 @router.post("/submissions/{submission_id}/crm-ids")
@@ -1551,7 +1722,8 @@ def add_crm(
             submission_service.add_crm_id(submission_id=submission_id, crm_id=crm_id,
                            actor_id=request.state.user.id)
     except SubmissionClosed:
-        return _crm_partial(request, submission_id, status_code=409)
+        return _crm_partial(request, submission_id, status_code=409,
+                            crm_error=_CRM_CLOSED_MESSAGE)
     if _is_htmx(request):
         return _crm_partial(request, submission_id)
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
@@ -1569,7 +1741,8 @@ def delete_crm(
     try:
         submission_service.remove_crm_id(crm_tag_id=tag_id, actor_id=request.state.user.id)
     except SubmissionClosed:
-        return _crm_partial(request, submission_id, status_code=409)
+        return _crm_partial(request, submission_id, status_code=409,
+                            crm_error=_CRM_CLOSED_MESSAGE)
     if _is_htmx(request):
         return _crm_partial(request, submission_id)
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)

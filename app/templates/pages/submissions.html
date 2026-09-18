@@ -43,7 +43,8 @@
                       search_placeholder="Narrow this list") }}
     </div>
     <div class="filters__row">
-      {{ forms.multi_picker("status", "Status", statuses, filter_values.status) }}
+      {{ forms.multi_picker("status", "Modeling status", statuses, filter_values.status) }}
+      {{ forms.multi_picker("deal_status", "Submission status", deal_statuses, filter_values.deal_status) }}
       {{ forms.multi_picker("treaty_type", "Treaty type", treaty_types, filter_values.treaty_type) }}
       <label>Inception
         <input class="wf-field__input" type="date" name="inception" value="{{ filter_values.inception }}">
