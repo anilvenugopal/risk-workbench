@@ -34,6 +34,11 @@ from app.nav import get_nav_context
 from app.routers._analysis_delete import delete_analyses_response
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
+from app.routers._list_filters import (
+    MAX_TREATY_YEAR,
+    MIN_TREATY_YEAR,
+    parse_list_filters,
+)
 from app.services import (
     analysis_execution_service,
     analysis_import_service,
@@ -113,9 +118,6 @@ def _parse_int(value: str | None) -> int | None:
         return int(value)
     except ValueError:
         return None
-
-
-MIN_TREATY_YEAR, MAX_TREATY_YEAR = 1900, 2999
 
 
 def _validate_submission_form(
@@ -916,37 +918,9 @@ def _not_found(request: Request):
 # naming it gets the table on its own: rebuilding the status list, the analyst
 # list and the nav shell for htmx to discard is the cost of a keystroke otherwise.
 _LIST_TARGET = "sub-list"
-_SEARCH_MAX_CHARACTERS = 100
-_SEARCH_MAX_WORDS = 10
-# Four filters at this limit plus the text-search parameters stay below SQL
-# Server's 2,100-parameter limit.
-_MAX_FILTER_VALUES = 400
-_MULTI_FILTER_LABELS = {"status": "Status", "treaty_type": "Treaty type",
-                        "treaty_year": "Treaty year", "owner": "Owner"}
-_TEXT_FILTER_LABELS = {"name": "Name", "cedant_name": "Cedant", "crm_id": "CRM ID"}
-
-
-def _filter_validation_error(
-    text_filters: dict[str, str], multi_values: dict[str, list[str]],
-) -> str | None:
-    """The one message the list banner shows, or None when every filter is usable."""
-    for key, value in text_filters.items():
-        if len(value) > _SEARCH_MAX_CHARACTERS:
-            return (f"{_TEXT_FILTER_LABELS[key]} must be {_SEARCH_MAX_CHARACTERS} "
-                    "characters or fewer.")
-        if len(value.split()) > _SEARCH_MAX_WORDS:
-            return (f"{_TEXT_FILTER_LABELS[key]} must contain {_SEARCH_MAX_WORDS} "
-                    "words or fewer.")
-    for key, values in multi_values.items():
-        if len(values) > _MAX_FILTER_VALUES:
-            return (f"{_MULTI_FILTER_LABELS[key]} accepts {_MAX_FILTER_VALUES} "
-                    "values or fewer.")
-    for value in multi_values["treaty_year"]:
-        year = _parse_int(value)
-        if year is None or not MIN_TREATY_YEAR <= year <= MAX_TREATY_YEAR:
-            return (f"Treaty year must be a year between {MIN_TREATY_YEAR} and "
-                    f"{MAX_TREATY_YEAR}.")
-    return None
+# Each multi-select menu writes one input per picked value (D16).
+_MULTI_PARAMS = ("treaty_type", "treaty_year", "status", "owner")
+_TEXT_PARAMS = ("q", "cedant", "crm_id")
 
 
 def _sort_links(sort_query: str, sort: str, descending: bool) -> dict[str, dict]:
@@ -969,18 +943,10 @@ def _sort_links(sort_query: str, sort: str, descending: bool) -> dict[str, dict]
 
 @router.get("/submissions", response_class=HTMLResponse)
 def list_submissions_page(request: Request):
-    text_filters = {
-        "name": (request.query_params.get("q") or "").strip(),
-        "cedant_name": (request.query_params.get("cedant") or "").strip(),
-        "crm_id": (request.query_params.get("crm_id") or "").strip(),
-    }
-    # Each multi-select menu writes one input per picked value (D16).
-    multi_values = {
-        key: [value.strip() for value in request.query_params.getlist(key)
-              if value.strip()]
-        for key in _MULTI_FILTER_LABELS
-    }
-    validation_error = _filter_validation_error(text_filters, multi_values)
+    parsed = parse_list_filters(
+        request.query_params, multi_keys=_MULTI_PARAMS, text_keys=_TEXT_PARAMS)
+    validation_error = parsed.error
+    multi_values = parsed.multi
     # No `owner` at all — a nav click, a bare bookmark — lands the analyst on their
     # own deals (FR-020); `owner=any` asks for every deal.
     owner_ids = ([str(request.state.user.id)]
@@ -988,12 +954,9 @@ def list_submissions_page(request: Request):
                  else [] if "any" in multi_values["owner"]
                  else multi_values["owner"])
     filters = {
-        **{key: value or None for key, value in text_filters.items()},
-        "treaty_type_codes": multi_values["treaty_type"],
+        **parsed.filters,
+        "owner_ids": owner_ids,
         "inception_date": _parse_date(request.query_params.get("inception")),
-        "treaty_years": [_parse_int(value)
-                         for value in multi_values["treaty_year"]],
-        "status_codes": multi_values["status"],
     }
     page = _parse_int(request.query_params.get("page")) or 1
     # A hand-edited ?sort=/&dir= falls back to the default order rather than 422.
@@ -1004,7 +967,7 @@ def list_submissions_page(request: Request):
     descending = {"asc": False, "desc": True}.get(
         direction, submission_service.SORT_STARTS_DESCENDING[sort])
     listing = (submission_service.list_submissions(
-        owner_ids=owner_ids, page=page, sort=sort, descending=descending, **filters)
+        page=page, sort=sort, descending=descending, **filters)
         if validation_error is None else None)
     # Echoed back into the inputs so a filtered request re-renders what was typed,
     # and read by the template to tell "nothing matches" from "nothing here yet".
@@ -1025,7 +988,7 @@ def list_submissions_page(request: Request):
         )
         if filters[filter_key] is not None
     ]
-    for key in ("treaty_type", "treaty_year", "status", "owner"):
+    for key in _MULTI_PARAMS:
         query_values += [(key, value) for value in filter_values[key]]
     # Lowercased: the id arrives from a query string, `app_user.id` from the driver.
     if ([value.lower() for value in filter_values["owner"]]
@@ -1047,7 +1010,7 @@ def list_submissions_page(request: Request):
         # page 2 of an every-owner list default back to the analyst's own deals.
         "filter_query": urlencode(query_values + order_values),
         "sort_links": _sort_links(sort_query, sort, descending),
-        "is_filtered": bool(owner_ids) or any(filters.values()),
+        "is_filtered": any(filters.values()),
         "validation_error": validation_error,
     }
     if request.headers.get("HX-Target") == _LIST_TARGET:

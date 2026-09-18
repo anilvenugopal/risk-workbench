@@ -47,7 +47,7 @@ STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
 
 
 def _mk(db, *, owner=None, name="TY2604_AmericanFamily", cedant="American Family",
-        tt="cat_xol", inc=date(2026, 4, 1), ty=2026, confirmed=True):
+        tt="per_risk_xol", inc=date(2026, 4, 1), ty=2026, confirmed=True):
     # confirmed=True by default: test setup must always create its baseline row,
     # even when a look-alike already exists in a shared dev DB (an unconfirmed
     # create would short-circuit with a warning and write nothing). Tests that
@@ -79,7 +79,7 @@ def test_create_writes_submission_and_initial_active_event(iteration1_db):
     assert sub is not None
     assert sub.status_code == "ACTIVE"
     assert sub.assigned_analyst_id == iteration1_db.user_a
-    assert sub.treaty_type_label == "Cat XoL"  # kind join populated
+    assert sub.treaty_type_label == "Per Risk XOL"  # kind join populated
     history = get_status_history(res.submission_id)
     assert len(history) == 1 and history[0].status_code == "ACTIVE"
 
@@ -1039,3 +1039,77 @@ def test_update_stale_marker_conflicts(iteration1_db):
     with pytest.raises(ConcurrencyConflict):
         update_submission(submission_id=sid, expected_updated_at=STALE,
                           actor_id=a, confirmed=True, directory_path="/staging/x")
+
+
+# ── spec 017 Phase 2: kind reads, Submission status default, the view ────────
+
+def test_treaty_type_kinds_reads_the_eleven_codes_in_sort_order(iteration1_db):
+    kinds = svc.treaty_type_kinds()
+    assert [code for code, _ in kinds] == [
+        "aggregate_xol", "aggregate_cat_xol", "risk_aggregate_xol",
+        "per_occurrence_xol", "per_occurrence_cat_xol", "per_risk_xol", "stop_loss",
+        "reinstatement_premium_protection", "second_third_fourth_event_risk_exposed",
+        "top_and_drop", "top_and_aggregate"]
+    assert dict(kinds)["top_and_drop"] == "Top & Drop"
+
+
+def test_deal_status_kinds_reads_the_three_codes(iteration1_db):
+    assert svc.deal_status_kinds() == [
+        ("IN_PROCESS", "In Process"), ("WON", "Won"), ("LOST", "Lost")]
+
+
+def test_a_new_submission_is_in_process_with_no_client_or_expiration(iteration1_db):
+    sid = _mk(iteration1_db).submission_id
+    sub = get_submission(sid)
+    assert sub.deal_status_code == "IN_PROCESS"
+    assert sub.deal_status_label == "In Process"
+    assert sub.expiration_date is None
+    assert sub.client_id is None and sub.client_name is None
+    row = list_submissions(owner_ids=[iteration1_db.user_a]).rows[0]
+    assert row.deal_status_code == "IN_PROCESS" and row.client_name is None
+
+
+def test_view_emits_one_row_per_crm_id_and_one_blank_row_for_a_deal_with_none(
+        iteration1_db):
+    a = iteration1_db.user_a
+    tagged = _mk(iteration1_db, owner=a, name="Tagged").submission_id
+    bare = _mk(iteration1_db, owner=a, name="Bare", inc=date(2026, 7, 1)).submission_id
+    add_crm_id(submission_id=tagged, crm_id="T-100", actor_id=a)
+    add_crm_id(submission_id=tagged, crm_id="T-200", actor_id=a)
+    rows = execute("SELECT * FROM v_submission_crm_id ORDER BY submission_name, crm_id",
+                   {}, connection="WORKBENCH")
+    assert [(r["submission_name"], r["crm_id"]) for r in rows] == [
+        ("Bare", None), ("Tagged", "T-100"), ("Tagged", "T-200")]
+    bare_row = rows[0]
+    assert bare_row["submission_id"] == bare and bare_row["crm_tag_id"] is None
+    assert bare_row["effective_inception_date"] == "2026-07-01"
+    assert bare_row["effective_expiration_date"] is None
+    assert bare_row["modeling_status_code"] == "ACTIVE"
+    assert bare_row["deal_status_code"] == "IN_PROCESS"
+    assert {r["effective_inception_date"] for r in rows[1:]} == {"2026-04-01"}
+
+
+def test_list_crm_ids_reports_effective_dates_and_inherited_flags(iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, owner=a).submission_id
+    tag = add_crm_id(submission_id=sid, crm_id="T-100", actor_id=a)
+    execute_command(
+        "UPDATE submission_crm_id SET expiration_date = :x WHERE id = :id",
+        {"x": date(2029, 4, 1), "id": tag}, connection="WORKBENCH")
+    [crm] = list_crm_ids(sid)
+    assert crm.inception_inherited and not crm.expiration_inherited
+    assert crm.effective_inception_date == "2026-04-01"
+    assert crm.effective_expiration_date == "2029-04-01"
+    assert crm.inception_date is None and crm.expiration_date == "2029-04-01"
+
+
+def test_filter_clauses_prefix_every_parameter_and_read_the_given_alias(iteration1_db):
+    clauses, params = svc.submission_filter_clauses(
+        {"owner_ids": [iteration1_db.user_a], "name": "am fam", "cedant_name": "mutual",
+         "crm_id": "T-1", "treaty_type_codes": ["per_risk_xol"],
+         "inception_date": "2026-04-01", "treaty_years": [2026],
+         "status_codes": ["ACTIVE"]}, alias="x")
+    assert all("x." in clause for clause in clauses)
+    assert "s." not in " ".join(clauses)
+    assert set(params) == {"owner0", "n0", "n1", "c0", "crm", "tt0", "inc", "ty0", "ms0"}
+    assert svc.submission_filter_clauses({}) == ([], {})

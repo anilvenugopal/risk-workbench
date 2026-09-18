@@ -30,6 +30,7 @@ from tests.loss_mirror import LOSS_DBO_SCHEMA, LOSS_STAGE_SCHEMA
 from tests.iteration1_mirror import (
     ANALYSIS_PERSPECTIVE_SEED,
     BREAKOUT_DIMENSION_SEED,
+    DEAL_STATUS_SEED,
     IRP_ANALYSIS_STATUS_SEED,
     IRP_JOB_RESOURCE_TYPE_SEED,
     IRP_JOB_TYPE_SEED,
@@ -184,6 +185,7 @@ def iteration1_db() -> SimpleNamespace:
             conn.execute(text(
                 "INSERT INTO treaty_type_kind (code, label, sort_order) "
                 "VALUES (:c, :l, :o)"), {"c": code, "l": label, "o": order})
+        _seed(conn, "deal_status_kind", DEAL_STATUS_SEED)
     register_engine("WORKBENCH", engine)
     yield SimpleNamespace(engine=engine, user_a=user_a, user_b=user_b)
     engine.dispose()
@@ -215,6 +217,7 @@ def iteration2_db() -> SimpleNamespace:
         ), {"a": user_a, "b": user_b})
         _seed(conn, "submission_status_kind", STATUS_SEED)
         _seed(conn, "treaty_type_kind", TREATY_SEED)
+        _seed(conn, "deal_status_kind", DEAL_STATUS_SEED)
         _seed(conn, "irp_job_type_kind", IRP_JOB_TYPE_SEED)
         _seed(conn, "irp_job_resource_type_kind", IRP_JOB_RESOURCE_TYPE_SEED)
         _seed(conn, "rwb_job_type_kind", RWB_JOB_TYPE_SEED)
@@ -248,6 +251,30 @@ def loss_db() -> Engine:
     register_engine("LOSS", engine)
     yield engine
     engine.dispose()
+
+
+# The two repository clients spec 017's quickstart names.
+LOSS_CLIENTS = [(27, "Travelers Corporate Cat"), (41, "Zephyr Re")]
+
+
+@pytest.fixture()
+def loss_clients(loss_db) -> Engine:
+    """``loss_db`` with ``dbo.Client`` seeded."""
+    with loss_db.begin() as conn:
+        for client_id, name in LOSS_CLIENTS:
+            conn.execute(text(
+                "INSERT INTO dbo.Client (ClientID, ClientName, ActiveFlag) "
+                "VALUES (:id, :name, 'Y')"), {"id": client_id, "name": name})
+    return loss_db
+
+
+@pytest.fixture()
+def no_loss_db(monkeypatch) -> None:
+    """No ``LOSS`` engine at all: the repository is unreachable, so every
+    ``client_service`` read fails open (FR-009). The env is cleared so a
+    developer's shell cannot turn the test into a real connection attempt."""
+    for suffix in ("SERVER", "USER", "PASSWORD", "DATABASE", "AUTH_TYPE"):
+        monkeypatch.delenv(f"MSSQL_LOSS_{suffix}", raising=False)
 
 
 def _seed(conn, table: str, rows: list[tuple[str, str, int]]) -> None:

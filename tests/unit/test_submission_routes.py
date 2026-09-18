@@ -85,7 +85,7 @@ def _payload(**overrides) -> dict:
     form = {
         "name": "TY2604_AmericanFamily",
         "cedant_name": "American Family Mutual",
-        "treaty_type_code": "cat_xol",
+        "treaty_type_code": "per_risk_xol",
         "inception_date": "2026-04-01",
         "treaty_year": "",
         "directory_path": "",
@@ -827,7 +827,7 @@ def test_link_suggest_ands_the_terms_and_shows_deal_context(client):
     body = client.get("/submissions/link-suggest?links_to_search=american+fam").text
     assert "TY2506_AmericanFamily" in body
     assert "TY2501_AmericanNational" not in body
-    assert "Cat XoL" in body  # each row carries cedant · treaty type · inception
+    assert "Per Risk XOL" in body  # each row carries cedant · treaty type · inception
 
 
 def test_link_suggest_excludes_the_submission_being_edited(client):
@@ -1217,9 +1217,9 @@ def test_owner_any_wins_over_a_listed_owner(client):
 def test_pager_and_sort_links_carry_every_repeated_filter_value(client):
     _fill_a_page_and_a_bit(client)
     body = client.get(
-        "/submissions?q=paged&status=ACTIVE&treaty_type=cat_xol"
-        "&treaty_type=quota_share").text
-    applied = ("q=paged&amp;treaty_type=cat_xol&amp;treaty_type=quota_share"
+        "/submissions?q=paged&status=ACTIVE&treaty_type=per_risk_xol"
+        "&treaty_type=stop_loss").text
+    applied = ("q=paged&amp;treaty_type=per_risk_xol&amp;treaty_type=stop_loss"
                "&amp;status=ACTIVE")
     assert f'href="/submissions?{applied}&amp;page=2"' in body
     assert f'href="/submissions?{applied}&amp;sort=name&amp;dir=asc"' in body
@@ -1239,23 +1239,35 @@ def test_htmx_push_url_carries_every_repeated_filter_value(client):
     [("status", "Status"), ("treaty_type", "Treaty type"),
      ("treaty_year", "Treaty year"), ("owner", "Owner")],
 )
-def test_more_than_four_hundred_values_on_one_filter_never_reaches_the_query(
+def test_more_than_twenty_values_on_one_filter_never_reaches_the_query(
         client, monkeypatch, parameter, label):
+    """FR-019: twenty is the cap on every multi-value filter; over it the page
+    carries the one-line message and no rows."""
     def fail(**kwargs):
         pytest.fail("list_submissions was called")
 
     monkeypatch.setattr(submission_service, "list_submissions", fail)
     response = client.get(
-        "/submissions?" + "&".join(f"{parameter}=2025" for _ in range(401)))
+        "/submissions?" + "&".join(f"{parameter}=2025" for _ in range(21)))
     assert response.status_code == 422
-    assert f"{label} accepts 400 values or fewer." in response.text
+    assert f"{label} accepts 20 values or fewer." in response.text
+    assert "<tbody" not in response.text
+
+
+def test_twenty_one_owners_returns_the_owner_message_and_no_rows(client):
+    client.post("/submissions", data=_payload(name="Visible deal"))
+    owners = "&".join(f"owner={uuid.uuid4()}" for _ in range(20))
+    assert client.get(f"/submissions?{owners}&owner={client.db.user_a}").status_code == 422
+    body = client.get(f"/submissions?{owners}&owner={client.db.user_a}").text
+    assert "Owner accepts 20 values or fewer." in body
+    assert "Visible deal" not in body
 
 
 @pytest.mark.parametrize("parameter", ["status", "treaty_type", "treaty_year",
                                        "owner"])
-def test_exactly_four_hundred_values_on_one_filter_are_accepted(client, parameter):
+def test_exactly_twenty_values_on_one_filter_are_accepted(client, parameter):
     response = client.get(
-        "/submissions?" + "&".join(f"{parameter}=2025" for _ in range(400)))
+        "/submissions?" + "&".join(f"{parameter}=2025" for _ in range(20)))
     assert response.status_code == 200
 
 
