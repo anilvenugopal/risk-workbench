@@ -663,12 +663,13 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Treaty year on the submissions list (D16). Typed, not picked — there is no list
-  // of years to offer. A year outside the range never becomes a chip, so it never
+  // A typed chip list (D16): treaty years and CRM IDs on the submissions list and
+  // the libraries. Typed, not picked — there is no list to offer. With minYear /
+  // maxYear set, a value outside the range never becomes a chip, so it never
   // reaches the query: the box shows the message and the committed chips stand.
-  Alpine.data('yearChips', (minYear, maxYear) => ({
+  Alpine.data('chipInput', ({ name, minYear = null, maxYear = null } = {}) => ({
     error: '',
-    get years() {
+    get values() {
       return Array.from(this.$refs.chips.querySelectorAll('input')).map(
         (input) => input.value);
     },
@@ -698,30 +699,32 @@ document.addEventListener('alpine:init', () => {
     commit() {
       const typed = this.$refs.entry.value.trim();
       if (!typed) return;
-      const year = Number(typed);
-      if (!/^\d{4}$/.test(typed) || year < minYear || year > maxYear) {
-        this.error = `Enter a 4-digit year between ${minYear} and ${maxYear}.`;
-        return;
+      if (minYear !== null) {
+        const year = Number(typed);
+        if (!/^\d{4}$/.test(typed) || year < minYear || year > maxYear) {
+          this.error = `Enter a 4-digit year between ${minYear} and ${maxYear}.`;
+          return;
+        }
       }
       this.error = '';
       this.$refs.entry.value = '';
-      if (this.years.includes(typed)) return;   // already applied — nothing changes
+      if (this.values.includes(typed)) return;   // already applied — nothing changes
       this.$refs.chips.appendChild(this.chip(typed));
       this.apply();
     },
-    chip(year) {
+    chip(value) {
       const chip = document.createElement('span');
       chip.className = 'filter-chip';
-      chip.textContent = year;
+      chip.textContent = value;
       const input = document.createElement('input');
       input.type = 'hidden';
-      input.name = 'treaty_year';
-      input.value = year;
+      input.name = name;
+      input.value = value;
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'filter-chip__x';
       remove.textContent = '×';
-      remove.setAttribute('aria-label', `Remove ${year}`);
+      remove.setAttribute('aria-label', `Remove ${value}`);
       chip.append(input, remove);
       return chip;
     },

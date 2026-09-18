@@ -10,7 +10,10 @@ under SQL Server's 2,100-parameter limit.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
+
+from app.services import auth_service, client_service, submission_service
 
 SEARCH_MAX_CHARACTERS = 100
 SEARCH_MAX_WORDS = 10
@@ -21,9 +24,9 @@ MIN_TREATY_YEAR, MAX_TREATY_YEAR = 1900, 2999
 TEXT_FILTERS = {
     "q": ("Name", "name"),
     "cedant": ("Cedant", "cedant_name"),
-    "crm_id": ("CRM ID", "crm_id"),
 }
 MULTI_FILTERS = {
+    "crm_id": ("CRM ID", "crm_ids"),
     "owner": ("Owner", "owner_ids"),
     "status": ("Modeling status", "status_codes"),
     "deal_status": ("Submission status", "deal_status_codes"),
@@ -31,6 +34,11 @@ MULTI_FILTERS = {
     "treaty_year": ("Treaty year", "treaty_years"),
     "client": ("Client", "client_ids"),
 }
+# The submission-attribute filters the EDM and RDM libraries carry (FR-015,
+# P-13): no Modeling status, and no owner default.
+LIBRARY_MULTI_PARAMS = ("owner", "client", "treaty_type", "treaty_year", "crm_id",
+                        "deal_status")
+LIBRARY_TEXT_PARAMS = ("cedant",)
 
 
 @dataclass
@@ -40,6 +48,8 @@ class ListFilters:
     # The trimmed request values, for echoing back into the form's inputs.
     text: dict[str, str]
     multi: dict[str, list[str]]
+    in_force: bool = False
+    as_of: str = ""
 
 
 def _parse_int(value: str) -> int | None:
@@ -77,8 +87,9 @@ def parse_list_filters(query_params, *, multi_keys, text_keys) -> ListFilters:
     """Read the named parameters off ``query_params`` (a Starlette ``QueryParams``),
     validate them, and return the ``filters`` dict the services take plus the
     one-line message when a filter is unusable. Each multi-value parameter
-    repeats its name once per value; blanks are dropped. Owner defaults and the
-    date parameters stay with the router that owns them."""
+    repeats its name once per value; blanks are dropped. ``in_force=1`` with
+    ``as_of`` (today when blank) becomes ``in_force_as_of`` (FR-018). The owner
+    default and the inception date stay with the submissions router."""
     text = {key: (query_params.get(key) or "").strip() for key in text_keys}
     multi = {key: [value.strip() for value in query_params.getlist(key) if value.strip()]
              for key in multi_keys}
@@ -87,4 +98,56 @@ def parse_list_filters(query_params, *, multi_keys, text_keys) -> ListFilters:
         TEXT_FILTERS[key][1]: value or None for key, value in text.items()}
     for key, values in multi.items():
         filters[MULTI_FILTERS[key][1]] = _coerce(key, values) if error is None else []
-    return ListFilters(filters=filters, error=error, text=text, multi=multi)
+    in_force = query_params.get("in_force") == "1"
+    as_of = (query_params.get("as_of") or "").strip()
+    filters["in_force_as_of"] = None
+    if in_force:
+        if not as_of:
+            as_of = date.today().isoformat()
+        try:
+            filters["in_force_as_of"] = date.fromisoformat(as_of)
+        except ValueError:
+            error = error or "In force as of must be a date."
+    return ListFilters(filters=filters, error=error, text=text, multi=multi,
+                       in_force=in_force, as_of=as_of)
+
+
+def picker_options() -> dict[str, Any]:
+    """The option lists behind the shared filter pickers: owners, treaty
+    types, Submission statuses and repository clients (``None`` when the
+    repository is unreachable, so the picker renders disabled)."""
+    clients = client_service.list_clients()
+    return {
+        "owner_options": [(analyst["id"], analyst["display_name"])
+                          for analyst in auth_service.list_active_analysts()],
+        "treaty_types": submission_service.treaty_type_kinds(),
+        "deal_statuses": submission_service.deal_status_kinds(),
+        "client_options": (None if clients is None
+                           else [(client.id, client.label) for client in clients]),
+        "min_treaty_year": MIN_TREATY_YEAR,
+        "max_treaty_year": MAX_TREATY_YEAR,
+    }
+
+
+def library_filters(request) -> tuple[ListFilters, dict[str, Any]]:
+    """The EDM and RDM libraries' submission-attribute filters (contracts §3)
+    and the template context their filter bar reads: the echoed values, the
+    picker options, the one-line message and the request's own query string
+    for the ``#lib-live`` poll URL."""
+    parsed = parse_list_filters(
+        request.query_params, multi_keys=LIBRARY_MULTI_PARAMS,
+        text_keys=LIBRARY_TEXT_PARAMS)
+    filter_values = {
+        "q": request.query_params.get("q", ""),
+        "status": request.query_params.get("status", ""),
+        **parsed.text, **parsed.multi,
+        "in_force": parsed.in_force, "as_of": parsed.as_of or date.today().isoformat(),
+    }
+    return parsed, {
+        "filter_values": filter_values,
+        "validation_error": parsed.error,
+        "is_filtered": bool(filter_values["q"] or filter_values["status"]
+                            or submission_service.has_submission_filters(parsed.filters)),
+        "query_string": request.url.query,
+        **picker_options(),
+    }

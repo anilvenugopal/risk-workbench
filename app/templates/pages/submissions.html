@@ -31,10 +31,10 @@
         <input class="wf-field__input" type="text" name="cedant"
                value="{{ filter_values.cedant }}" autocomplete="off" maxlength="100">
       </label>
-      <label>CRM ID
-        <input class="wf-field__input" type="text" name="crm_id"
-               value="{{ filter_values.crm_id }}" autocomplete="off" maxlength="100">
-      </label>
+      {# CRM IDs are pasted whole, one chip each; a chip matches a whole CRM ID
+         exactly (P-10), so there is nothing to validate beyond non-blank. #}
+      {{ forms.chip_input("crm_id", "CRM ID", filter_values.crm_id,
+                          placeholder="Type a CRM ID, press Enter") }}
       {# Owner — every active user ships with the page, so the menu narrows in place
          with no request per keystroke. Two analysts can share a display name, so the
          app_user id is always the value the route filters on. #}
@@ -60,24 +60,10 @@
       </label>
       {# Treaty year is typed, not picked — there is no list of years to offer. The
          box itself has no name, so a half-typed year is never sent as a filter. #}
-      <div class="filters__field" style="min-width: 240px;">
-        <span id="treaty-year-label">Treaty year</span>
-        <div class="chip-input" x-data="yearChips({{ min_treaty_year }}, {{ max_treaty_year }})"
-             :class="{ 'chip-input--error': !!error }" @click="onClick($event)">
-          <span class="chip-input__chips" x-ref="chips">
-            {% for year in filter_values.treaty_year -%}
-            <span class="filter-chip">{{ year }}<input type="hidden" name="treaty_year" value="{{ year }}"><button type="button" class="filter-chip__x" aria-label="Remove {{ year }}">×</button></span>
-            {%- endfor %}
-          </span>
-          <input class="chip-input__field" type="text" inputmode="numeric"
-                 x-ref="entry" autocomplete="off" aria-labelledby="treaty-year-label"
-                 placeholder="Type a year, press Enter"
-                 @input.stop="error = ''" @keydown="onKey($event)">
-        </div>
-        <div class="filters__hint" x-show="!error">Enter adds a year ·
-          Backspace removes the last one</div>
-        <div class="filters__msg" x-show="!!error" x-text="error" x-cloak></div>
-      </div>
+      {{ forms.chip_input("treaty_year", "Treaty year", filter_values.treaty_year,
+                          placeholder="Type a year, press Enter",
+                          year_range=(min_treaty_year, max_treaty_year)) }}
+      {{ forms.in_force_control(filter_values) }}
       {# A full navigation, not an hx-get: the form sits outside the swap target, so
          only reloading the page empties the fields the analyst typed. `?owner=any`
          clears the owner too — a bare /submissions would re-apply the analyst. #}

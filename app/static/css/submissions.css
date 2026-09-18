@@ -51,6 +51,9 @@
 }
 .filters__msg { font-size: var(--fs-caption); color: var(--color-danger);
   margin-top: 3px; }
+/* "In force as of": the tick and its date share one row under the label. */
+.filters__inforce-row { display: flex; align-items: center; gap: var(--space-2); }
+.filters__inforce-row input[type="checkbox"] { margin: 0; }
 .filters__hint { font-size: var(--fs-caption); color: var(--text-tertiary);
   margin-top: 3px; }
 

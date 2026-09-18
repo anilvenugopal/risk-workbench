@@ -788,11 +788,11 @@ def _order_by(sort: str, descending: bool) -> str:
 def list_submissions(
     *, owner_ids: list[Any] | None = None,
     name: str | None = None,
-    cedant_name: str | None = None, crm_id: str | None = None,
+    cedant_name: str | None = None, crm_ids: list[str] | None = None,
     treaty_type_codes: list[str] | None = None, inception_date: Any = None,
     treaty_years: list[int] | None = None, status_codes: list[str] | None = None,
     deal_status_codes: list[str] | None = None,
-    client_ids: list[Any] | None = None,
+    client_ids: list[Any] | None = None, in_force_as_of: Any = None,
     page: int = 1, sort: str = DEFAULT_SORT, descending: bool = True,
 ) -> SubmissionPage:
     """One page of the master list. Filters AND-combine as bound predicates
@@ -803,9 +803,10 @@ def list_submissions(
     empty list turns that filter off: ``owner_ids=[]`` lists every owner's deals.
 
     ``name`` (CR1) and ``cedant_name`` match on words, every word required — see
-    ``_word_and_clauses``. ``crm_id`` matches a substring of any CRM tag the deal
-    carries (CR3). Owner, treaty type, inception date, treaty year and status are
-    exact.
+    ``_word_and_clauses``. Each value of ``crm_ids`` matches a whole CRM ID of
+    the deal, case-insensitive and trimmed (P-10). Owner, treaty type, inception
+    date, treaty year and the two statuses are exact; ``in_force_as_of`` is the
+    FR-018 predicate — see ``submission_filter_clauses``.
 
     ``page`` is 1-based; anything lower is page 1, so a hand-typed ``?page=0``
     reads the first page rather than a negative offset. ``sort`` is a key of
@@ -815,10 +816,10 @@ def list_submissions(
     one-character search costs no more than the page it narrows."""
     clauses, params = submission_filter_clauses({
         "owner_ids": owner_ids, "name": name, "cedant_name": cedant_name,
-        "crm_id": crm_id, "treaty_type_codes": treaty_type_codes,
+        "crm_ids": crm_ids, "treaty_type_codes": treaty_type_codes,
         "inception_date": inception_date, "treaty_years": treaty_years,
         "status_codes": status_codes, "deal_status_codes": deal_status_codes,
-        "client_ids": client_ids,
+        "client_ids": client_ids, "in_force_as_of": in_force_as_of,
     })
     page = max(1, int(page or 1))
     # One row past the page: its presence is what "there is a next page" means,
@@ -844,8 +845,10 @@ def submission_filter_clauses(
     R4), so a caller's own ``:q`` or ``:status`` never collides.
 
     ``name`` and ``cedant_name`` match on words, every word required (see
-    ``_word_and_clauses``); ``crm_id`` matches a substring of any CRM ID the deal
-    carries; the rest are exact."""
+    ``_word_and_clauses``); each ``crm_ids`` value matches a whole CRM ID of the
+    deal, case-insensitive and trimmed (P-10); ``in_force_as_of`` is a ``date``
+    and applies FR-018 through ``v_submission_crm_id`` (research.md R3); the
+    rest are exact."""
     s = alias
     clauses: list[str] = []
     params: dict[str, Any] = {}
@@ -866,12 +869,15 @@ def submission_filter_clauses(
             filters["cedant_name"], (f"{s}.cedant_name",), "c")
         clauses += more_clauses
         params |= more
-    if filters.get("crm_id"):
-        # EXISTS, not a join: a deal carrying three matching tags is still one row.
+    if filters.get("crm_ids"):
+        # EXISTS, not a join: a deal carrying three matching CRM IDs is still one row.
+        clause, more = _in_clause(
+            "LOWER(TRIM(c.crm_id))",
+            [str(value).strip().lower() for value in filters["crm_ids"]], "crm")
         clauses.append(
             "EXISTS (SELECT 1 FROM submission_crm_id c "
-            f"WHERE c.submission_id = {s}.id AND c.crm_id LIKE :crm ESCAPE '\\')")
-        params["crm"] = f"%{_escape_like(filters['crm_id'].strip())}%"
+            f"WHERE c.submission_id = {s}.id AND {clause})")
+        params |= more
     if filters.get("treaty_type_codes"):
         clause, more = _in_clause(
             f"{s}.treaty_type_code", filters["treaty_type_codes"], "tt")
@@ -901,7 +907,27 @@ def submission_filter_clauses(
             f"{s}.client_id", [_as_int(c) for c in filters["client_ids"]], "cl")
         clauses.append(clause)
         params |= more
+    if filters.get("in_force_as_of") is not None:
+        # Won is tested on the outer row so the covering list index drops Lost
+        # and In Process deals before the view is read; a NULL effective
+        # expiration never compares true, which is P-09.
+        clauses.append(
+            f"{s}.deal_status_code = :won AND EXISTS ("
+            "SELECT 1 FROM v_submission_crm_id v "
+            f"WHERE v.submission_id = {s}.id "
+            "AND v.effective_inception_date <= :asof "
+            "AND v.effective_expiration_date >= :asof)")
+        params["won"] = WON
+        params["asof"] = _as_date(filters["in_force_as_of"])
     return clauses, params
+
+
+def has_submission_filters(filters: dict[str, Any] | None) -> bool:
+    """Whether any submission-attribute filter is set, so a library adds its
+    EXISTS only then and unlinked EDMs and RDMs stay listed otherwise (FR-016)."""
+    return bool(filters) and any(
+        value is not None and value != [] and value != ""
+        for value in filters.values())
 
 
 def _kinds(table: str) -> list[tuple[str, str]]:

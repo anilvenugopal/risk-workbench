@@ -508,17 +508,23 @@ def test_list_owner_id_that_is_not_a_uuid_matches_nothing(iteration1_db):
     assert list_submissions(owner_ids=["not-a-uuid"]).rows == []
 
 
-def test_list_filter_by_crm_id(iteration1_db):
+def test_list_filter_by_crm_ids_matches_whole_ids(iteration1_db):
+    """P-10: exact, case-insensitive, trimmed; OR within the filter; a deal with
+    two matching CRM IDs is still one row (EXISTS, not a join)."""
     a = iteration1_db.user_a
     tagged = _mk(iteration1_db, owner=a, name="Tagged deal").submission_id
+    other = _mk(iteration1_db, owner=a, name="Other deal", inc=date(2026, 6, 1)).submission_id
     _mk(iteration1_db, owner=a, name="Untagged deal", inc=date(2026, 7, 1))
-    add_crm_id(submission_id=tagged, crm_id="CRM-4417", actor_id=a)
+    add_crm_id(submission_id=tagged, crm_id="CRM-12345", actor_id=a)
     add_crm_id(submission_id=tagged, crm_id="CRM-4418", actor_id=a)
-    # A substring of either tag finds the deal, and finds it ONCE even though both
-    # tags match — the predicate is EXISTS, not a join.
-    assert [r.id for r in list_submissions(owner_ids=[a], crm_id="441").rows] == [tagged]
-    assert [r.id for r in list_submissions(owner_ids=[a], crm_id="4418").rows] == [tagged]
-    assert list_submissions(owner_ids=[a], crm_id="9999").rows == []
+    add_crm_id(submission_id=other, crm_id="CRM-1234", actor_id=a)
+    rows = lambda **kw: [r.id for r in list_submissions(owner_ids=[a], **kw).rows]
+    assert rows(crm_ids=["CRM-1234"]) == [other]          # "12345" is not "1234"
+    assert rows(crm_ids=[" crm-12345 "]) == [tagged]      # case and whitespace ignored
+    assert rows(crm_ids=["CRM-12345", "CRM-4418"]) == [tagged]
+    assert rows(crm_ids=["CRM-4418", "CRM-1234"]) == [other, tagged]
+    assert rows(crm_ids=["9999"]) == []
+    assert rows(crm_ids=["CRM-4418"], name="Untagged") == []    # AND across filters
 
 
 def test_list_rows_carry_their_crm_ids(iteration1_db):
@@ -1106,12 +1112,15 @@ def test_list_crm_ids_reports_effective_dates_and_inherited_flags(iteration1_db)
 def test_filter_clauses_prefix_every_parameter_and_read_the_given_alias(iteration1_db):
     clauses, params = svc.submission_filter_clauses(
         {"owner_ids": [iteration1_db.user_a], "name": "am fam", "cedant_name": "mutual",
-         "crm_id": "T-1", "treaty_type_codes": ["per_risk_xol"],
+         "crm_ids": ["T-1"], "treaty_type_codes": ["per_risk_xol"],
          "inception_date": "2026-04-01", "treaty_years": [2026],
-         "status_codes": ["ACTIVE"]}, alias="x")
+         "status_codes": ["ACTIVE"], "deal_status_codes": ["WON"], "client_ids": [27],
+         "in_force_as_of": date(2026, 6, 1)}, alias="x")
     assert all("x." in clause for clause in clauses)
     assert "s." not in " ".join(clauses)
-    assert set(params) == {"owner0", "n0", "n1", "c0", "crm", "tt0", "inc", "ty0", "ms0"}
+    assert set(params) == {"owner0", "n0", "n1", "c0", "crm0", "tt0", "inc", "ty0",
+                           "ms0", "ds0", "cl0", "won", "asof"}
+    assert params["won"] == svc.WON == "WON"
     assert svc.submission_filter_clauses({}) == ([], {})
 
 
@@ -1251,3 +1260,79 @@ def test_client_id_is_stored_updated_and_filtered(iteration1_db, loss_clients):
         res.submission_id), actor_id=a, client_id=None)
     assert get_submission(res.submission_id).client_id is None
     assert get_submission(bare).client_display is None
+
+
+# ── spec 017 US3: in force through the view ───────────────────────────────────
+
+def _won(db, sid):
+    svc.set_deal_status(submission_id=sid, to_status="WON",
+                        expected_updated_at=_marker(sid), actor_id=db.user_a)
+
+
+def _in_force(db, as_of):
+    return {r.name for r in list_submissions(
+        owner_ids=[db.user_a], in_force_as_of=as_of).rows}
+
+
+def test_in_force_bounds_are_inclusive_and_a_null_expiration_never_qualifies(
+        iteration1_db):
+    a = iteration1_db.user_a
+    bounded = _mk(iteration1_db, owner=a, name="Bounded", inc=date(2026, 1, 1)).submission_id
+    update_submission(submission_id=bounded, expected_updated_at=_marker(bounded),
+                      actor_id=a, expiration_date=date(2026, 12, 31))
+    add_crm_id(submission_id=bounded, crm_id="T-1", actor_id=a)
+    open_ended = _mk(iteration1_db, owner=a, name="No expiration",
+                     inc=date(2026, 1, 1), cedant="Other").submission_id
+    add_crm_id(submission_id=open_ended, crm_id="T-2", actor_id=a)
+    _won(iteration1_db, bounded)
+    _won(iteration1_db, open_ended)
+    assert _in_force(iteration1_db, date(2026, 1, 1)) == {"Bounded"}
+    assert _in_force(iteration1_db, date(2026, 12, 31)) == {"Bounded"}
+    assert _in_force(iteration1_db, date(2025, 12, 31)) == set()
+    assert _in_force(iteration1_db, date(2027, 1, 1)) == set()
+
+
+def test_in_force_uses_the_deal_dates_when_there_is_no_crm_id(iteration1_db):
+    a = iteration1_db.user_a
+    bare = _mk(iteration1_db, owner=a, name="Bare", inc=date(2026, 1, 1)).submission_id
+    update_submission(submission_id=bare, expected_updated_at=_marker(bare),
+                      actor_id=a, expiration_date=date(2026, 12, 31))
+    _won(iteration1_db, bare)
+    assert _in_force(iteration1_db, date(2026, 6, 1)) == {"Bare"}
+
+
+def test_in_force_per_crm_override_wins_per_column(iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, owner=a, name="Layered", inc=date(2026, 1, 1)).submission_id
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                      actor_id=a, expiration_date=date(2026, 12, 31))
+    add_crm_id(submission_id=sid, crm_id="Annual", actor_id=a)
+    three_year = add_crm_id(submission_id=sid, crm_id="Three-year", actor_id=a)
+    svc.set_crm_dates(crm_tag_id=three_year, inception_date=None,
+                      expiration_date=date(2028, 12, 31), actor_id=a)
+    _won(iteration1_db, sid)
+    assert _in_force(iteration1_db, date(2027, 6, 1)) == {"Layered"}   # the 3-year CRM ID
+    assert _in_force(iteration1_db, date(2029, 1, 1)) == set()
+    assert _in_force(iteration1_db, date(2025, 12, 31)) == set()       # inception inherited
+
+
+def test_in_force_needs_won(iteration1_db):
+    a = iteration1_db.user_a
+    names = {}
+    for name, status in (("Lost", "LOST"), ("In process", "IN_PROCESS"), ("Won", "WON")):
+        sid = _mk(iteration1_db, owner=a, name=name, inc=date(2026, 1, 1),
+                  cedant=name).submission_id
+        update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                          actor_id=a, expiration_date=date(2026, 12, 31))
+        svc.set_deal_status(submission_id=sid, to_status=status,
+                            expected_updated_at=_marker(sid), actor_id=a)
+        names[name] = sid
+    assert _in_force(iteration1_db, date(2026, 6, 1)) == {"Won"}
+
+
+def test_won_is_the_only_literal_the_in_force_rule_carries():
+    """Article 3: the in-force rule names Won through one module constant."""
+    import inspect
+
+    source = inspect.getsource(svc)
+    assert source.count('"WON"') == 1 and "'WON'" not in source

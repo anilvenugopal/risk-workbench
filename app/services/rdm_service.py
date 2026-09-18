@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import text
 
 from app.services import analysis_service, name_check, rwb_job_service
+from app.services import submission_service
 from app.services._common import (
     SubmissionRef,
     _attach_submissions,
@@ -95,13 +96,15 @@ def _to_row(row: dict) -> RdmRow:
     )
 
 
-def list_rdms(*, name: str | None = None,
-              status: str | None = None) -> list[RdmRow]:
+def list_rdms(*, name: str | None = None, status: str | None = None,
+              submission_filters: dict[str, Any] | None = None) -> list[RdmRow]:
     """Return every live RDM, optionally filtered by name and status.
 
     ``name`` narrows by case-insensitive substring (``LIKE``); ``status`` narrows to
     the exact import status; both combine with AND; blank/``None`` are no-ops (US7 /
-    T058). Each row's ``.submissions`` is set to its owning submissions (oldest-first)."""
+    T058). ``submission_filters`` keeps an RDM only when one linked submission
+    satisfies every filter together (FR-016; see ``edm_service.list_edms``).
+    Each row's ``.submissions`` is set to its owning submissions (oldest-first)."""
     where = "WHERE deleted_at IS NULL"
     params: dict[str, Any] = {}
     if name:
@@ -110,6 +113,16 @@ def list_rdms(*, name: str | None = None,
     if status:
         where += " AND status = :status"
         params["status"] = status
+    if submission_service.has_submission_filters(submission_filters):
+        # One EXISTS, ANDing every clause against one linked submission at a
+        # time: FR-016's "one linked submission satisfies every filter together".
+        clauses, sub_params = submission_service.submission_filter_clauses(
+            submission_filters, alias="s")
+        where += (
+            " AND EXISTS (SELECT 1 FROM submission_rdm a JOIN submission s "
+            "ON s.id = a.submission_id WHERE a.rdm_id = irp_rdm.id AND "
+            + " AND ".join(clauses) + ")")
+        params |= sub_params
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]

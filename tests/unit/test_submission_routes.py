@@ -961,13 +961,21 @@ def test_list_search_narrows_by_name(client):
     assert "TY2501_AmericanNational" not in body
 
 
-def test_list_filter_narrows_by_crm_id(client):
+def test_list_filter_narrows_by_whole_crm_ids(client):
+    """P-10: each chip matches a whole CRM ID, case-insensitive and trimmed; the
+    chips OR within the filter."""
     client.post("/submissions", data=_payload(name="Tagged deal",
                                               crm_ids="CRM-4417"))
+    client.post("/submissions", data=_payload(name="Other tag",
+                                              cedant_name="Other Re", crm_ids="CRM-9"))
     client.post("/submissions", data=_payload(name="Untagged deal",
                                               inception_date="2026-07-01"))
     body = client.get("/submissions?crm_id=441").text
-    assert "Tagged deal" in body and "Untagged deal" not in body
+    assert "Tagged deal" not in body
+    body = client.get("/submissions?crm_id=+crm-4417+&crm_id=CRM-9").text
+    assert "Tagged deal" in body and "Other tag" in body and "Untagged deal" not in body
+    # Applied chips come back as hidden inputs the form resubmits.
+    assert 'name="crm_id" value="crm-4417"' in body and 'name="crm_id" value="CRM-9"' in body
 
 
 def _menu_option(body: str, code: str) -> str:
@@ -1411,7 +1419,7 @@ def test_text_filters_accept_exactly_100_trimmed_characters(client, parameter):
 
 @pytest.mark.parametrize(
     ("parameter", "label"),
-    [("q", "Name"), ("cedant", "Cedant"), ("crm_id", "CRM ID")],
+    [("q", "Name"), ("cedant", "Cedant")],
 )
 def test_text_filters_reject_101_trimmed_characters_without_querying(
         client, monkeypatch, parameter, label):
@@ -2162,3 +2170,31 @@ def test_a_client_not_in_a_reachable_list_is_a_field_error(client, loss_clients)
     response = client.post("/submissions", data=_payload(name="Bad client",
                                                          client_id="abc"))
     assert response.status_code == 422 and _count() == before
+
+
+# ── spec 017 US3: in force and the CRM ID cap on the submissions list ────────
+
+def test_in_force_as_of_lists_won_deals_on_risk_and_defaults_to_today(client):
+    won, marker = _deal(client, name="On risk", crm_ids="T-100",
+                        expiration_date="2099-01-01")
+    client.post(f"/submissions/{won}/deal-status", data={
+        "to_status": "WON", "expected_updated_at": marker, "csrf_token": _csrf()})
+    _deal(client, name="Still open", cedant_name="Other Re", crm_ids="T-300",
+          expiration_date="2099-01-01")
+    body = client.get("/submissions?in_force=1").text
+    assert "On risk" in body and "Still open" not in body
+    assert 'name="in_force" value="1"' in body and " checked" in body
+    assert f'name="as_of" aria-label="As of date"\n           value="{date.today().isoformat()}"' in body
+    later = client.get("/submissions?in_force=1&as_of=2100-01-01").text
+    assert "On risk" not in later
+    assert 'name="as_of" aria-label="As of date"\n           value="2100-01-01"' in later
+    assert "in_force=1" in later and "as_of=2100-01-01" in later  # pager / sort links
+    assert client.get("/submissions?in_force=1&as_of=someday").status_code == 422
+
+
+def test_twenty_one_crm_ids_return_the_message_and_no_rows(client):
+    client.post("/submissions", data=_payload(name="Visible deal", crm_ids="T-1"))
+    body = client.get("/submissions?" + "&".join(f"crm_id=T-{i}" for i in range(21)))
+    assert body.status_code == 422
+    assert "CRM ID accepts 20 values or fewer." in body.text
+    assert "Visible deal" not in body.text

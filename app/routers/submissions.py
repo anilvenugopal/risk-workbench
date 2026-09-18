@@ -38,6 +38,7 @@ from app.routers._list_filters import (
     MAX_TREATY_YEAR,
     MIN_TREATY_YEAR,
     parse_list_filters,
+    picker_options,
 )
 from app.services import (
     analysis_execution_service,
@@ -953,9 +954,9 @@ def _not_found(request: Request):
 # list and the nav shell for htmx to discard is the cost of a keystroke otherwise.
 _LIST_TARGET = "sub-list"
 # Each multi-select menu writes one input per picked value (D16).
-_MULTI_PARAMS = ("treaty_type", "treaty_year", "status", "deal_status", "client",
-                 "owner")
-_TEXT_PARAMS = ("q", "cedant", "crm_id")
+_MULTI_PARAMS = ("crm_id", "treaty_type", "treaty_year", "status", "deal_status",
+                 "client", "owner")
+_TEXT_PARAMS = ("q", "cedant")
 
 
 def _sort_links(sort_query: str, sort: str, descending: bool) -> dict[str, dict]:
@@ -1007,10 +1008,11 @@ def list_submissions_page(request: Request):
     # Echoed back into the inputs so a filtered request re-renders what was typed,
     # and read by the template to tell "nothing matches" from "nothing here yet".
     filter_values = {
-        key: request.query_params.get(key, "")
-        for key in ("q", "cedant", "crm_id", "inception")
+        key: request.query_params.get(key, "") for key in ("q", "cedant", "inception")
     }
     filter_values |= multi_values
+    filter_values["in_force"] = parsed.in_force
+    filter_values["as_of"] = parsed.as_of or date.today().isoformat()
     # The resolved ids, not the raw parameter: on the default landing the hidden
     # input has to hold the analyst's own id so the next request keeps it.
     filter_values["owner"] = owner_ids or ["any"]
@@ -1018,13 +1020,14 @@ def list_submissions_page(request: Request):
     query_values = [
         (query_key, filter_values[query_key].strip())
         for query_key, filter_key in (
-            ("q", "name"), ("cedant", "cedant_name"), ("crm_id", "crm_id"),
-            ("inception", "inception_date"),
+            ("q", "name"), ("cedant", "cedant_name"), ("inception", "inception_date"),
         )
         if filters[filter_key] is not None
     ]
     for key in _MULTI_PARAMS:
         query_values += [(key, value) for value in filter_values[key]]
+    if parsed.in_force:
+        query_values += [("in_force", "1"), ("as_of", filter_values["as_of"])]
     # Lowercased: the id arrives from a query string, `app_user.id` from the driver.
     if ([value.lower() for value in filter_values["owner"]]
             == [str(request.state.user.id).lower()]):
@@ -1058,20 +1061,11 @@ def list_submissions_page(request: Request):
                               if canonical_query else "")
         )
         return response
-    clients = client_service.list_clients()
     return _render(request, "pages/submissions.html", "submissions.all", {
         **list_ctx,
-        "treaty_types": submission_service.treaty_type_kinds(),
+        **picker_options(),
         "statuses": submission_service.status_kinds(),
-        "deal_statuses": submission_service.deal_status_kinds(),
-        # None when the repository is unreachable: the picker renders disabled.
-        "client_options": (None if clients is None
-                           else [(client.id, client.label) for client in clients]),
-        "owner_options": [(analyst["id"], analyst["display_name"])
-                          for analyst in auth_service.list_active_analysts()],
         "filter_values": filter_values,
-        "min_treaty_year": MIN_TREATY_YEAR,
-        "max_treaty_year": MAX_TREATY_YEAR,
     }, status_code=422 if validation_error else 200)
 
 

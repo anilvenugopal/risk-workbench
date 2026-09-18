@@ -37,6 +37,49 @@
 {% endmacro %}
 
 
+{# A typed chip list posting one hidden input per chip under `name`: treaty
+   years (validated as 4-digit years within `year_range`) and CRM IDs (any
+   non-blank text). Driven by chipInput in app.js. The entry box itself has no
+   name, so a half-typed value is never sent as a filter. #}
+{% macro chip_input(name, title, values, placeholder='', year_range=none) %}
+{% set options = {'name': name} %}
+{% if year_range %}{% set options = {'name': name, 'minYear': year_range[0], 'maxYear': year_range[1]} %}{% endif %}
+<div class="filters__field" style="min-width: 240px;">
+  <span id="{{ name }}-label">{{ title }}</span>
+  <div class="chip-input" x-data='chipInput({{ options | tojson }})'
+       :class="{ 'chip-input--error': !!error }" @click="onClick($event)">
+    <span class="chip-input__chips" x-ref="chips">
+      {% for value in values -%}
+      <span class="filter-chip">{{ value }}<input type="hidden" name="{{ name }}" value="{{ value }}"><button type="button" class="filter-chip__x" aria-label="Remove {{ value }}">×</button></span>
+      {%- endfor %}
+    </span>
+    <input class="chip-input__field" type="text"{% if year_range %} inputmode="numeric"{% endif %}
+           x-ref="entry" autocomplete="off" aria-labelledby="{{ name }}-label"
+           placeholder="{{ placeholder }}"
+           @input.stop="error = ''" @keydown="onKey($event)">
+  </div>
+  <div class="filters__hint" x-show="!error">Enter adds one ·
+    Backspace removes the last one</div>
+  <div class="filters__msg" x-show="!!error" x-text="error" x-cloak></div>
+</div>
+{% endmacro %}
+
+
+{# "In force as of" (FR-018): a tick plus a date that defaults to today. The
+   date input is disabled while the tick is off, so it is not sent. #}
+{% macro in_force_control(filter_values) %}
+<div class="filters__field filters__inforce" x-data="{ on: {{ 'true' if filter_values.in_force else 'false' }} }">
+  <span id="in-force-label">In force as of</span>
+  <div class="filters__inforce-row">
+    <input type="checkbox" id="in-force" name="in_force" value="1" x-model="on"
+           aria-labelledby="in-force-label"{% if filter_values.in_force %} checked{% endif %}>
+    <input class="wf-field__input" type="date" name="as_of" aria-label="As of date"
+           value="{{ filter_values.as_of }}" :disabled="!on">
+  </div>
+</div>
+{% endmacro %}
+
+
 {# The filter picker (D16) behind Status, Treaty type, Owner, Job type and Job
    status — a menu of options the analyst ticks, driven by multiPicker in app.js,
    which paints the chips, ticks and hidden inputs from the options' aria-selected.
