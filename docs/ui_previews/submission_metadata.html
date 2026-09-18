@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Submission metadata + CRM — compact rework · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em; --dur-fast:120ms;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+/* ── preview chrome ───────────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1)}
+.note{font-size:var(--fs-caption);color:var(--text-tertiary);margin:0 0 var(--space-3);max-width:80ch}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(470px,1fr));gap:var(--space-5);margin-top:var(--space-3)}
+.tile{display:flex;flex-direction:column;gap:var(--space-2)}
+.tile__label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase}
+
+/* ── existing app classes, copied from components.css / app.css / submissions.css ── */
+.detail-head{margin-bottom:18px}
+.detail-head h1{font-size:20px;margin:0 0 5px;color:var(--text-primary);font-weight:var(--fw-medium)}
+.deal-head__created{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);font-size:var(--fs-caption);color:var(--text-tertiary)}
+.deal-head__created time{font-family:var(--font-mono);color:var(--text-secondary)}
+.crumb__sep{color:var(--text-disabled)}
+.mono{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-secondary)}
+.status-chip{display:inline-block;font-size:var(--fs-caption);font-weight:var(--fw-medium);letter-spacing:.03em;text-transform:uppercase;padding:1px var(--space-2);border-radius:var(--radius-pill);border:1px solid var(--border-default);color:var(--text-secondary);background:var(--surface-recessed)}
+.status-chip--active{background:var(--color-info-bg);color:var(--color-info);border-color:var(--color-info-border)}
+.status-chip--completed{background:var(--color-positive-bg);color:var(--color-positive);border-color:var(--color-positive-border)}
+.status-chip--cancelled{background:var(--surface-recessed);color:var(--text-tertiary);border-color:var(--border-default)}
+/* NEW chip variants for Submission status — Won / Lost / In Process */
+.status-chip--won{background:var(--color-positive-bg);color:var(--color-positive);border-color:var(--color-positive-border)}
+.status-chip--lost{background:var(--color-negative-bg);color:var(--color-negative);border-color:var(--color-negative-border)}
+.status-chip--in_process{background:var(--color-warning-bg);color:var(--color-warning);border-color:var(--color-warning-border)}
+.btn-sm{font-size:var(--fs-caption);padding:4px 10px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary)}
+.btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
+.icon-btn{width:28px;height:28px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);border:0;background:none;cursor:pointer;transition:background var(--dur-fast) ease,color var(--dur-fast) ease}
+.icon-btn:hover{background:var(--surface-hover);color:var(--text-primary)}
+.form-banner{margin-bottom:var(--space-4);padding:var(--space-2) 14px;border-radius:var(--radius-md);font-size:var(--fs-label);border:1px solid var(--border-default)}
+.form-banner--error{color:var(--color-danger);background:var(--color-danger-bg);border-color:var(--color-danger-border)}
+.form-banner--readonly{color:var(--color-warning);background:var(--color-warning-bg);border-color:var(--color-warning-border)}
+
+/* ── NEW: the deal card — four attribute groups in one band ───────────────── */
+.deal-card{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);margin-bottom:var(--space-5)}
+.deal-groups{display:grid;grid-template-columns:minmax(230px,1.25fr) minmax(190px,1fr) minmax(200px,1.1fr) minmax(150px,.85fr)}
+.deal-group{padding:var(--space-3) var(--space-4);border-left:1px solid var(--border-faint);min-width:0}
+.deal-group:first-child{border-left:0}
+.deal-group__head{display:flex;align-items:center;gap:var(--space-2);min-height:20px;margin-bottom:var(--space-1)}
+.deal-group__label{font-size:var(--fs-eyebrow);letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.deal-group__head .icon-btn{margin-left:auto}
+.deal-field{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;gap:var(--space-2);padding:2px 0;font-size:var(--fs-label)}
+.deal-field__k{font-size:var(--fs-caption);color:var(--text-tertiary);white-space:nowrap}
+.deal-field__v{color:var(--text-primary);font-weight:var(--fw-medium);display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.deal-field__v>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.deal-field__v--dates{font-variant-numeric:tabular-nums}
+.deal-field--none .deal-field__v{color:var(--text-disabled);font-weight:var(--fw-regular)}
+/* 22px pencil: .icon-btn sized for a 20px metadata line */
+.icon-btn--xs{width:22px;height:22px;flex:0 0 22px}
+.icon-btn--xs svg{width:13px;height:13px}
+/* the editor that replaces the group's values in place */
+.deal-edit{display:flex;flex-direction:column;gap:var(--space-2);padding:2px 0}
+.deal-edit select,.deal-edit input{font-size:var(--fs-label);padding:3px var(--space-2);border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-panel);color:var(--text-primary);min-width:0;width:100%}
+.deal-edit input[type=date]{font-variant-numeric:tabular-nums}
+.deal-edit__hint{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.deal-edit__actions{display:flex;align-items:center;gap:var(--space-2);padding-top:2px}
+.deal-edit .deal-field{padding:0}
+/* Modeling status history, closed by default */
+.deal-history{margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border-faint);display:flex;flex-direction:column;gap:3px}
+.deal-history__item{display:flex;align-items:center;gap:var(--space-2);font-size:var(--fs-caption);color:var(--text-tertiary)}
+.deal-history__at{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.link-sm{font-size:var(--fs-caption);color:var(--color-brand);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
+
+/* ── NEW: CRM band — one vertical list, one row per CRM ID ────────────────── */
+.crm-band{border-top:1px solid var(--border-default);padding:var(--space-3) var(--space-4)}
+.crm-band__head{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1)}
+/* The head, the list and the add form share one width, so the buttons end where
+   the Expiration column ends. */
+.crm-band__head,.crm-list,.crm-band>.crm-edit{width:66%;min-width:min(100%,460px)}
+.crm-band__label{font-size:var(--fs-eyebrow);letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.crm-band__actions{margin-left:auto;display:flex;align-items:center;gap:var(--space-2)}
+/* The list stops where its content does, so a wide card never pushes the dates
+   away from the CRM ID. */
+.crm-list{display:flex;flex-direction:column}
+.crm-row{display:grid;grid-template-columns:minmax(130px,1fr) 104px 14px 104px 52px;align-items:center;gap:var(--space-2);padding:3px 0;font-size:var(--fs-label);border-bottom:1px solid var(--border-faint)}
+.crm-row--head{padding-bottom:1px;border-bottom-color:var(--border-default)}
+.crm-row--head span{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.crm-row__id{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crm-date{font-variant-numeric:tabular-nums;color:var(--text-primary)}
+.crm-row__arrow{color:var(--text-disabled)}
+.crm-row__actions{display:flex;align-items:center;justify-content:flex-end;gap:2px;opacity:0;transition:opacity var(--dur-fast) ease}
+.crm-row:hover .crm-row__actions,.crm-row:focus-within .crm-row__actions{opacity:1}
+.crm-row__del{border:0;background:none;color:var(--text-tertiary);cursor:pointer;line-height:1;padding:0 4px;font-size:var(--fs-label)}
+.crm-row__del:hover{color:var(--color-danger)}
+.crm-edit{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);padding:var(--space-1) 0 var(--space-2)}
+.crm-edit input{font-size:var(--fs-label);padding:3px var(--space-2);border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-panel)}
+.crm-edit input[type=date]{width:128px;font-variant-numeric:tabular-nums}
+.crm-edit input[type=text]{width:132px}
+.crm-edit__hint{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.crm-empty{font-size:var(--fs-label);color:var(--text-tertiary);padding:2px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>PREVIEW — submission detail: metadata and CRM IDs only.</strong> Everything below the card
+    (EDM, RDM, analyses and exports tables) is unchanged and not drawn. Real tokens; new classes are
+    marked NEW in the stylesheet. Nothing is wired — the buttons do not act.
+  </div>
+
+  <div class="hero">Submission metadata &amp; CRM</div>
+  <div class="sub">Four groups in one card — Treaty · Term · Status · Owner — then the CRM IDs. Spec 017, P-14.</div>
+
+  <div class="eyebrow">Default — Active deal</div>
+  <p class="note">
+    Every value keeps its own label, so Cedant and Client can never be read for each other. One pencil
+    per editable group: Term edits inception and expiration, Status edits both statuses in one form,
+    Owner opens the analyst list. Treaty type, cedant, client and treaty year carry no pencil — they
+    stay on the Edit page.
+  </p>
+
+  <div class="detail-head">
+    <h1>Bermuda Cat XOL 2026 — Layer 3</h1>
+    <div class="deal-head__created">Created
+      <time>2026-08-14 09:12</time>
+      <span class="crumb__sep">·</span>
+      <span class="mono">\\nas01\deals\2026\bermuda-cat-xol</span>
+    </div>
+  </div>
+
+  <div class="deal-card">
+    <div class="deal-groups">
+
+      <div class="deal-group">
+        <div class="deal-group__head"><span class="deal-group__label">Treaty</span></div>
+        <div class="deal-field">
+          <span class="deal-field__k">Type</span>
+          <span class="deal-field__v"><span>Cat XOL</span></span>
+        </div>
+        <div class="deal-field">
+          <span class="deal-field__k">Cedant</span>
+          <span class="deal-field__v"><span>Hamilton Select Insurance</span></span>
+        </div>
+        <div class="deal-field">
+          <span class="deal-field__k">Client</span>
+          <span class="deal-field__v"><span>27 - Travelers Corporate Cat</span></span>
+        </div>
+      </div>
+
+      <div class="deal-group">
+        <div class="deal-group__head">
+          <span class="deal-group__label">Term</span>
+          <button class="icon-btn icon-btn--xs" type="button" aria-label="Edit inception and expiration" title="Edit inception and expiration">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
+        </div>
+        <div class="deal-field">
+          <span class="deal-field__k">Treaty year</span>
+          <span class="deal-field__v deal-field__v--dates"><span>2026</span></span>
+        </div>
+        <div class="deal-field">
+          <span class="deal-field__k">Inception</span>
+          <span class="deal-field__v deal-field__v--dates"><span>2026-01-01</span></span>
+        </div>
+        <div class="deal-field">
+          <span class="deal-field__k">Expiration</span>
+          <span class="deal-field__v deal-field__v--dates"><span>2026-12-31</span></span>
+        </div>
+      </div>
+
+      <div class="deal-group">
+        <div class="deal-group__head">
+          <span class="deal-group__label">Status</span>
+          <button class="icon-btn icon-btn--xs" type="button" aria-label="Change the statuses" title="Change the statuses">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
+        </div>
+        <div class="deal-field">
+          <span class="deal-field__k">Modeling</span>
+          <span class="deal-field__v"><span class="status-chip status-chip--active">Active</span></span>
+        </div>
+        <div class="deal-field">
+          <span class="deal-field__k">Submission</span>
+          <span class="deal-field__v"><span class="status-chip status-chip--in_process">In Process</span></span>
+        </div>
+        <div class="deal-field">
+          <span class="deal-field__k"></span>
+          <span class="deal-field__v"><button class="link-sm" type="button">Modeling history (3)</button></span>
+        </div>
+      </div>
+
+      <div class="deal-group">
+        <div class="deal-group__head"><span class="deal-group__label">Owner</span></div>
+        <div class="deal-field" style="grid-template-columns:minmax(0,1fr)">
+          <span class="deal-field__v">
+            <span>Dana Whitfield</span>
+            <button class="icon-btn icon-btn--xs" type="button" aria-label="Reassign owner" title="Reassign owner">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+          </span>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="crm-band">
+      <div class="crm-band__head">
+        <span class="crm-band__label">CRM IDs (4)</span>
+        <span class="crm-band__actions">
+          <button class="btn-sm" type="button">+ Add CRM ID</button>
+          <button class="btn-sm" type="button">Make dates the same</button>
+        </span>
+      </div>
+      <div class="crm-list">
+        <div class="crm-row crm-row--head">
+          <span></span><span>Inception</span><span></span><span>Expiration</span><span></span>
+        </div>
+        <div class="crm-row">
+          <span class="crm-row__id">CRM-104882</span>
+          <span class="crm-date">2026-01-01</span>
+          <span class="crm-row__arrow">&rarr;</span>
+          <span class="crm-date">2026-12-31</span>
+          <span class="crm-row__actions">
+            <button class="icon-btn icon-btn--xs" type="button" aria-label="Edit the dates of CRM-104882" title="Edit dates">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+            <button class="crm-row__del" type="button" aria-label="Remove CRM-104882" title="Remove">&times;</button>
+          </span>
+        </div>
+        <div class="crm-row">
+          <span class="crm-row__id">CRM-104883</span>
+          <span class="crm-date">2026-01-01</span>
+          <span class="crm-row__arrow">&rarr;</span>
+          <span class="crm-date">2028-12-31</span>
+          <span class="crm-row__actions">
+            <button class="icon-btn icon-btn--xs" type="button" aria-label="Edit the dates of CRM-104883" title="Edit dates">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+            <button class="crm-row__del" type="button" aria-label="Remove CRM-104883" title="Remove">&times;</button>
+          </span>
+        </div>
+        <div class="crm-row">
+          <span class="crm-row__id">CRM-104884</span>
+          <span class="crm-date">2026-04-01</span>
+          <span class="crm-row__arrow">&rarr;</span>
+          <span class="crm-date">2027-03-31</span>
+          <span class="crm-row__actions">
+            <button class="icon-btn icon-btn--xs" type="button" aria-label="Edit the dates of CRM-104884" title="Edit dates">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+            <button class="crm-row__del" type="button" aria-label="Remove CRM-104884" title="Remove">&times;</button>
+          </span>
+        </div>
+        <div class="crm-row">
+          <span class="crm-row__id">CRM-105001</span>
+          <span class="crm-date">2026-01-01</span>
+          <span class="crm-row__arrow">&rarr;</span>
+          <span class="crm-date">2026-12-31</span>
+          <span class="crm-row__actions">
+            <button class="icon-btn icon-btn--xs" type="button" aria-label="Edit the dates of CRM-105001" title="Edit dates">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+            <button class="crm-row__del" type="button" aria-label="Remove CRM-105001" title="Remove">&times;</button>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">
+    Every CRM date reads the same whether it was entered on the CRM ID or inherited from the deal.
+    The row's pencil and &times; appear on hover and on keyboard focus. The list runs two thirds of the
+    card, so the dates stay beside the CRM ID however wide the card gets, and "+ Add CRM ID" and
+    "Make dates the same" end where the Expiration column ends.
+  </p>
+
+  <!-- ══ STATES ════════════════════════════════════════════════════════════ -->
+  <div class="eyebrow">States — each editor drawn open, in place</div>
+
+  <div class="board">
+
+    <div class="tile">
+      <div class="tile__label">Status — both statuses in one editor</div>
+      <div class="deal-card"><div class="deal-groups" style="grid-template-columns:minmax(230px,1.25fr) minmax(200px,1.1fr)">
+        <div class="deal-group">
+          <div class="deal-group__head"><span class="deal-group__label">Treaty</span></div>
+          <div class="deal-field"><span class="deal-field__k">Type</span><span class="deal-field__v"><span>Cat XOL</span></span></div>
+          <div class="deal-field"><span class="deal-field__k">Cedant</span><span class="deal-field__v"><span>Hamilton Select Insurance</span></span></div>
+          <div class="deal-field"><span class="deal-field__k">Client</span><span class="deal-field__v"><span>27 - Travelers Corporate Cat</span></span></div>
+        </div>
+        <div class="deal-group">
+          <div class="deal-group__head"><span class="deal-group__label">Status</span></div>
+          <div class="deal-edit">
+            <div class="deal-field"><span class="deal-field__k">Modeling</span>
+              <select><option>Active</option><option selected>Completed</option><option>Cancelled</option></select></div>
+            <div class="deal-field"><span class="deal-field__k">Reason</span>
+              <input type="text" placeholder="Optional"></div>
+            <div class="deal-field"><span class="deal-field__k">Submission</span>
+              <select><option>In Process</option><option selected>Won</option><option>Lost</option></select></div>
+            <div class="deal-edit__actions">
+              <button class="btn-sm btn-sm--primary" type="button">Save</button>
+              <button class="btn-sm" type="button">Cancel</button>
+            </div>
+            <span class="deal-edit__hint">The reason is recorded against Modeling status only.</span>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">Term — editing the deal's dates</div>
+      <div class="deal-card"><div class="deal-groups" style="grid-template-columns:minmax(230px,1.25fr) minmax(190px,1fr)">
+        <div class="deal-group">
+          <div class="deal-group__head"><span class="deal-group__label">Treaty</span></div>
+          <div class="deal-field"><span class="deal-field__k">Type</span><span class="deal-field__v"><span>Cat XOL</span></span></div>
+          <div class="deal-field"><span class="deal-field__k">Cedant</span><span class="deal-field__v"><span>Hamilton Select Insurance</span></span></div>
+          <div class="deal-field"><span class="deal-field__k">Client</span><span class="deal-field__v"><span>27 - Travelers Corporate Cat</span></span></div>
+        </div>
+        <div class="deal-group">
+          <div class="deal-group__head"><span class="deal-group__label">Term</span></div>
+          <div class="deal-field"><span class="deal-field__k">Treaty year</span>
+            <span class="deal-field__v deal-field__v--dates"><span>2026</span></span></div>
+          <div class="deal-edit">
+            <div class="deal-field"><span class="deal-field__k">Inception</span><input type="date" value="2026-01-01"></div>
+            <div class="deal-field"><span class="deal-field__k">Expiration</span><input type="date" value="2026-12-31"></div>
+            <div class="deal-edit__actions">
+              <button class="btn-sm btn-sm--primary" type="button">Save</button>
+              <button class="btn-sm" type="button">Cancel</button>
+            </div>
+            <span class="deal-edit__hint">Every CRM ID that inherits follows these dates.</span>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">Owner — reassigning, current owner selected</div>
+      <div class="deal-card"><div class="deal-groups" style="grid-template-columns:minmax(200px,1.1fr) minmax(190px,1fr)">
+        <div class="deal-group">
+          <div class="deal-group__head"><span class="deal-group__label">Status</span></div>
+          <div class="deal-field"><span class="deal-field__k">Modeling</span>
+            <span class="deal-field__v"><span class="status-chip status-chip--active">Active</span></span></div>
+          <div class="deal-field"><span class="deal-field__k">Submission</span>
+            <span class="deal-field__v"><span class="status-chip status-chip--in_process">In Process</span></span></div>
+        </div>
+        <div class="deal-group">
+          <div class="deal-group__head"><span class="deal-group__label">Owner</span></div>
+          <div class="deal-edit">
+            <select><option>Alex Moreno</option><option selected>Dana Whitfield</option><option>Priya Raman</option></select>
+            <div class="deal-edit__actions">
+              <button class="btn-sm btn-sm--primary" type="button">Reassign</button>
+              <button class="btn-sm" type="button">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">Modeling history — opened from the link, closed by default</div>
+      <div class="deal-card"><div class="deal-groups" style="grid-template-columns:1fr">
+        <div class="deal-group">
+          <div class="deal-group__head">
+            <span class="deal-group__label">Status</span>
+            <button class="icon-btn icon-btn--xs" type="button" aria-label="Change the statuses"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+          </div>
+          <div class="deal-field"><span class="deal-field__k">Modeling</span>
+            <span class="deal-field__v"><span class="status-chip status-chip--completed">Completed</span></span></div>
+          <div class="deal-field"><span class="deal-field__k">Submission</span>
+            <span class="deal-field__v"><span class="status-chip status-chip--won">Won</span></span></div>
+          <div class="deal-field"><span class="deal-field__k"></span>
+            <span class="deal-field__v"><button class="link-sm" type="button">Hide Modeling history</button></span></div>
+          <div class="deal-history">
+            <div class="deal-history__item"><span class="status-chip status-chip--completed">Completed</span>
+              <span class="deal-history__at">2026-09-12 16:04</span><span>Dana Whitfield</span></div>
+            <div class="deal-history__item"><span class="status-chip status-chip--active">Active</span>
+              <span class="deal-history__at">2026-08-30 11:22</span><span>Dana Whitfield</span><span>— reopened for layer 4</span></div>
+            <div class="deal-history__item"><span class="status-chip status-chip--active">Active</span>
+              <span class="deal-history__at">2026-08-14 09:12</span><span>Alex Moreno</span></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">CRM IDs — Add open; the field is hidden until then</div>
+      <div class="deal-card"><div class="crm-band" style="border-top:0">
+        <div class="crm-band__head">
+          <span class="crm-band__label">CRM IDs (4)</span>
+          <span class="crm-band__actions">
+            <button class="btn-sm btn-sm--primary" type="button">+ Add CRM ID</button>
+            <button class="btn-sm" type="button">Make dates the same</button>
+          </span>
+        </div>
+        <div class="crm-edit">
+          <input type="text" placeholder="CRM ID" value="CRM-105420">
+          <input type="date" value="2026-01-01">
+          <span class="crm-row__arrow">&rarr;</span>
+          <input type="date" value="2026-12-31">
+          <button class="btn-sm btn-sm--primary" type="button">Add</button>
+          <button class="btn-sm" type="button">Cancel</button>
+          <span class="crm-edit__hint">Dates start on the deal's; clear one to inherit it.</span>
+        </div>
+        <div class="crm-list">
+          <div class="crm-row crm-row--head"><span></span><span>Inception</span><span></span><span>Expiration</span><span></span></div>
+          <div class="crm-row"><span class="crm-row__id">CRM-104882</span><span class="crm-date">2026-01-01</span><span class="crm-row__arrow">&rarr;</span><span class="crm-date">2026-12-31</span><span class="crm-row__actions"></span></div>
+          <div class="crm-row"><span class="crm-row__id">CRM-104883</span><span class="crm-date">2026-01-01</span><span class="crm-row__arrow">&rarr;</span><span class="crm-date">2028-12-31</span><span class="crm-row__actions"></span></div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">CRM IDs — one row's dates open</div>
+      <div class="deal-card"><div class="crm-band" style="border-top:0">
+        <div class="crm-band__head">
+          <span class="crm-band__label">CRM IDs (4)</span>
+          <span class="crm-band__actions">
+            <button class="btn-sm" type="button">+ Add CRM ID</button>
+            <button class="btn-sm" type="button">Make dates the same</button>
+          </span>
+        </div>
+        <div class="crm-list">
+          <div class="crm-row crm-row--head"><span></span><span>Inception</span><span></span><span>Expiration</span><span></span></div>
+          <div class="crm-row">
+            <span class="crm-row__id">CRM-104883</span>
+            <span class="crm-date">2026-01-01</span><span class="crm-row__arrow">&rarr;</span>
+            <span class="crm-date">2028-12-31</span>
+            <span class="crm-row__actions" style="opacity:1"><button class="crm-row__del" type="button" aria-label="Remove">&times;</button></span>
+            <div class="crm-edit">
+              <input type="date" value="">
+              <span class="crm-row__arrow">&rarr;</span>
+              <input type="date" value="2028-12-31">
+              <button class="btn-sm btn-sm--primary" type="button">Save</button>
+              <button class="btn-sm" type="button">Cancel</button>
+              <span class="crm-edit__hint">Blank inherits the deal's date.</span>
+            </div>
+          </div>
+          <div class="crm-row"><span class="crm-row__id">CRM-104884</span><span class="crm-date">2026-04-01</span><span class="crm-row__arrow">&rarr;</span><span class="crm-date">2027-03-31</span><span class="crm-row__actions"></span></div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">Cancelled deal — read-only, statuses still editable</div>
+      <div class="form-banner form-banner--readonly">
+        This deal is Cancelled — read-only. Submission status can still be set; reopen the deal to change anything else.
+      </div>
+      <div class="deal-card">
+        <div class="deal-groups" style="grid-template-columns:minmax(190px,1fr) minmax(200px,1.1fr) minmax(150px,.85fr)">
+          <div class="deal-group">
+            <div class="deal-group__head"><span class="deal-group__label">Term</span></div>
+            <div class="deal-field"><span class="deal-field__k">Inception</span><span class="deal-field__v deal-field__v--dates"><span>2026-01-01</span></span></div>
+            <div class="deal-field deal-field--none"><span class="deal-field__k">Expiration</span><span class="deal-field__v"><span>Not set</span></span></div>
+          </div>
+          <div class="deal-group">
+            <div class="deal-group__head">
+              <span class="deal-group__label">Status</span>
+              <button class="icon-btn icon-btn--xs" type="button" aria-label="Change the statuses" title="Change the statuses"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+            </div>
+            <div class="deal-field"><span class="deal-field__k">Modeling</span>
+              <span class="deal-field__v"><span class="status-chip status-chip--cancelled">Cancelled</span></span></div>
+            <div class="deal-field"><span class="deal-field__k">Submission</span>
+              <span class="deal-field__v"><span class="status-chip status-chip--lost">Lost</span></span></div>
+          </div>
+          <div class="deal-group">
+            <div class="deal-group__head"><span class="deal-group__label">Owner</span></div>
+            <div class="deal-field" style="grid-template-columns:minmax(0,1fr)"><span class="deal-field__v"><span>Dana Whitfield</span></span></div>
+          </div>
+        </div>
+        <div class="crm-band">
+          <div class="crm-band__head"><span class="crm-band__label">CRM IDs (1)</span></div>
+          <div class="crm-list">
+            <div class="crm-row crm-row--head"><span></span><span>Inception</span><span></span><span>Expiration</span><span></span></div>
+            <div class="crm-row"><span class="crm-row__id">CRM-104882</span><span class="crm-date">2026-01-01</span><span class="crm-row__arrow">&rarr;</span><span class="crm-date">&mdash;</span><span></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">Empty and error — no CRM IDs, add rejected</div>
+      <div class="form-banner form-banner--error">CRM-104882 is already on this submission.</div>
+      <div class="deal-card"><div class="crm-band" style="border-top:0">
+        <div class="crm-band__head">
+          <span class="crm-band__label">CRM IDs</span>
+          <span class="crm-band__actions"><button class="btn-sm btn-sm--primary" type="button">+ Add CRM ID</button></span>
+        </div>
+        <div class="crm-edit">
+          <input type="text" placeholder="CRM ID" value="CRM-104882" style="border-color:var(--color-danger);background:var(--color-danger-bg)">
+          <input type="date" value="2026-01-01">
+          <span class="crm-row__arrow">&rarr;</span>
+          <input type="date" value="2026-12-31">
+          <button class="btn-sm btn-sm--primary" type="button">Add</button>
+          <button class="btn-sm" type="button">Cancel</button>
+        </div>
+        <div class="crm-empty">No CRM IDs yet.</div>
+      </div></div>
+    </div>
+
+  </div>
+
+  <div class="eyebrow">What leaves the page</div>
+  <p class="note">
+    The standing "Add CRM ID" field; the "Mark complete" / "Cancel deal" / "Reopen" button row; the
+    always-open Submission status dropdown; the always-open owner dropdown and its Reassign button; the
+    standing Modeling status history list; the grey-italic marking on inherited CRM dates. "Make dates the same" keeps its confirmation. New CSS: the Won / Lost /
+    In Process chip variants, <code>.deal-card</code> with its groups, and <code>.icon-btn--xs</code>.
+  </p>
+
+</div>
+</body>
+</html>
