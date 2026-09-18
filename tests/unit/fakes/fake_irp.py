@@ -17,6 +17,10 @@ Name-collision hits are seeded via ``add_edm_name`` / ``add_rdm_name``.
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+from typing import Any
+
 from app.services.irp_gateway import (
     AnalysisHit,
     AnalysisMetadata,
@@ -35,15 +39,18 @@ from app.services.irp_gateway import (
     GroupingPartitionKey,
     GroupingProblem,
     GroupingRegionFact,
+    IRPAPIError,
     IRPGroupingValidationError,
     IRPIntegrationError,
     JobStatus,
     ModelProfileEntry,
     OutputProfileEntry,
     PortfolioHit,
+    ResolvedRun,
     SubmitResult,
     SubPortfolioResult,
     TreatyDetail,
+    collapse_run_description,
 )
 
 # The real RM /metrics payload shape (confirmed in sandbox 2026-07-23, data-model §2)
@@ -235,6 +242,12 @@ class FakeIRP:
         # irp_id -> forced IRPIntegrationError on delete_analysis (per-id,
         # mirrors raise_on_submit_analysis_for)
         self.raise_on_delete_analysis: set[str] = set()
+        # analysis_id -> the run description describe_analysis_run collapses;
+        # analysis ids whose describe read raises instead (spec 015 FR-014)
+        self.raise_on_describe_run: set[str] = set()
+        # recorded describe_analysis_run analysis ids, in order — the FR-013
+        # assertion that expanding a row calls nothing counts these
+        self.describe_run_calls: list[str] = []
         # ── spec-011 result reads (worker-only) ──────────────────────────────
         # (analysis_id, perspective_code) -> {"stats": [...], "ep": [...]};
         # unseeded pairs fall back to _DEFAULT_RESULT_PERSPECTIVES
@@ -245,6 +258,19 @@ class FakeIRP:
         # recorded result reads: {"call", "analysis_id", "perspective_code",
         # "exposure_resource_id"} — the idempotency assertions count these
         self.result_calls: list[dict] = []
+        # ── spec-014 loss results export ─────────────────────────────────────
+        # recorded export submits: {"analysis_id", "loss_details", "job_id"}
+        self.export_submits: list[dict] = []
+        # analysis ids whose export submit raises IRPAPIError (Risk Modeler
+        # rejects that one analysis); the whole-call knob mimics an unreachable
+        # Risk Modeler and raises a plain RuntimeError
+        self.raise_on_export_submit_for: set[int] = set()
+        self.raise_on_export_submit = False
+        # the fixture archive download_export_results copies into output_dir
+        # (None → IRPAPIError, as the wheel raises when a job has no archive)
+        self.export_archive_path: str | Path | None = None
+        self.raise_on_export_download = False
+        self.export_downloads: list[dict] = []
         # ── spec-012 grouping (contracts/grouping-worker.md) ─────────────────
         # recorded inspect_grouping id lists and submit_grouping kwargs, in order
         self.grouping_inspects: list[list[int]] = []
@@ -304,6 +330,7 @@ class FakeIRP:
                      exposure_resource_type: str | None = None,
                      is_group: bool = False,
                      metadata: dict | None = None,
+                     run_details: Any = None,
                      app_analysis_id: str | int | None = None) -> None:
         """Seed an analysis discoverable by ``search_analyses`` for this (RDM, EDM)
         pair — the backfill worker captures it as an ``irp_analysis`` row (D2).
@@ -313,7 +340,14 @@ class FakeIRP:
         another type or no pointer for the group / non-portfolio / unresolvable
         paths — plus ``is_group`` and a ``metadata`` settings payload.
         ``app_analysis_id`` is the web-UI id ``resolve_app_analysis_id`` maps
-        to ``analysis_id`` (#101)."""
+        to ``analysis_id`` (#101).
+
+        Spec 015: ``run_details`` is the run description the package's
+        ``describe_run`` returns for the analysis — region facts, scheme names
+        and applied treaties (``run_details_fixtures.captured_run``).
+        ``describe_analysis_run`` collapses it through the gateway's own
+        ``collapse_run_description``, so the fake and the wheel reach the same
+        ``ResolvedRun``."""
         self._analyses.append({
             "analysis_id": str(analysis_id), "name": name,
             "app_analysis_id": (str(app_analysis_id)
@@ -322,7 +356,8 @@ class FakeIRP:
             "exposure_resource_id": (str(exposure_resource_id)
                                      if exposure_resource_id is not None else None),
             "exposure_resource_type": exposure_resource_type,
-            "is_group": is_group, "metadata": metadata})
+            "is_group": is_group, "metadata": metadata,
+            "run_details": run_details})
 
     def add_portfolio(self, *, edm_exposure_id: str | int, irp_id: str | int,
                       name: str, exposure: dict | None = None,
@@ -523,6 +558,16 @@ class FakeIRP:
                     exposure_resource_type=a.get("exposure_resource_type"),
                     is_group=bool(a.get("is_group")))
         return AnalysisMetadata()
+
+    def describe_analysis_run(self, *, analysis_id: int) -> ResolvedRun:
+        self.describe_run_calls.append(str(analysis_id))
+        if str(analysis_id) in self.raise_on_describe_run:
+            raise RuntimeError(
+                f"fake IRP: forced describe-run failure for {analysis_id}")
+        for a in self._analyses:
+            if a["analysis_id"] == str(analysis_id) and a.get("run_details"):
+                return collapse_run_description(a["run_details"])
+        return ResolvedRun()
 
     # ── spec-005 breakout composition (mirrors the gateway) ─────────────────────
 
@@ -880,6 +925,41 @@ class FakeIRP:
     def get_geohaz_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
+
+    # ── spec-014 loss results export ─────────────────────────────────────────
+
+    def submit_analysis_export_job(self, *, analysis_id: int,
+                                   loss_details: list[dict]) -> tuple[int, dict]:
+        if self.raise_on_export_submit:
+            raise RuntimeError("fake IRP: Risk Modeler unreachable")
+        if int(analysis_id) in self.raise_on_export_submit_for:
+            raise IRPAPIError(f"Analysis with ID {analysis_id} not found")
+        irp_id = self._next_id()
+        self.jobs[irp_id] = "QUEUED"
+        request_body = {
+            "exportType": "RESULTS",
+            "resourceUris": [f"/platform/riskdata/v1/analyses/{analysis_id}"],
+            "resourceType": "analyses",
+            "settings": {"fileExtension": "PARQUET", "lossDetails": loss_details},
+        }
+        self.export_submits.append({"analysis_id": int(analysis_id),
+                                    "loss_details": loss_details, "job_id": int(irp_id)})
+        return int(irp_id), request_body
+
+    def get_export_job(self, irp_id: str) -> JobStatus:
+        return JobStatus(status=self.jobs.get(str(irp_id), "QUEUED"),
+                         result=self.results.get(str(irp_id)))
+
+    def download_export_results(self, *, job_id: int, output_dir: str) -> str:
+        self.export_downloads.append({"job_id": int(job_id), "output_dir": output_dir})
+        if self.raise_on_export_download:
+            raise IRPAPIError("fake IRP: download failed")
+        if self.export_archive_path is None:
+            raise IRPAPIError(f"fake IRP: export job {job_id} has no archive")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        target = Path(output_dir) / Path(self.export_archive_path).name
+        shutil.copyfile(self.export_archive_path, target)
+        return str(target)
 
     def search_edms(self, name: str) -> list[EntityHit]:
         self.search_calls.append(("edm", name))

@@ -7,7 +7,8 @@ dialog takes the ``appAnalysisId`` the Risk Modeler UI shows, one at a time;
 bounded Platform read the analyst is waiting on), and ``import_analyses``
 inserts one ``irp_analysis`` row per entry on the submission leg of
 ``ck_irp_analysis_origin`` — ``submission_id`` set, ``edm_id``/``rdm_id`` NULL,
-``imported_at`` stamped — and enqueues ``retrieve_analysis_results`` for it.
+``imported_at`` stamped — and enqueues ``finalize_analysis`` for it, the worker
+an executed analysis reaches ``ready`` through.
 """
 
 from __future__ import annotations
@@ -187,16 +188,15 @@ def _import_one(submission_id: str, app_id: str, analysis_id: str,
                     """
                     INSERT INTO irp_analysis (id, submission_id, irp_id,
                         irp_app_analysis_id, name, full_name, status_code,
-                        settings_metadata, submitted_settings, is_group,
+                        submitted_settings, is_group,
                         exposure_resource_id, imported_at, inserted_at,
                         updated_at, inserted_by, updated_by)
-                    VALUES (:id, :sid, :irp, :app, :name, :full, 'ready',
-                        :settings, :submitted, :grp, :pointer, :now, :now,
+                    VALUES (:id, :sid, :irp, :app, :name, :full, 'pending',
+                        :submitted, :grp, :pointer, :now, :now,
                         :now, :by, :by)
                     """
                 ), {"id": row_id, "sid": submission_id, "irp": str(analysis_id),
                     "app": app_id, "name": name, "full": rm_name,
-                    "settings": json.dumps(meta.payload),
                     # Risk Modeler reports only the currency code for an
                     # existing analysis, so the block carries the code alone. A
                     # payload with no currency writes null, which _submitted_view
@@ -210,14 +210,20 @@ def _import_one(submission_id: str, app_id: str, analysis_id: str,
             raise
         break
     try:
+        # The same worker the poller enqueues for an executed analysis: it
+        # writes settings_metadata (with the run details spec 015 captures),
+        # irp_app_analysis_id and ``ready``, then chains the retrieval. The
+        # analysisId the check already resolved rides along, so the group
+        # name-search branch never runs.
         job_id = rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_analysis", requestor_id=row_id,
-            rwb_job_type="retrieve_analysis_results",
+            rwb_job_type="finalize_analysis",
             link_type="submission", link_id=submission_id,
             context_type="irp_analysis", context_id=row_id,
-            input_data={"analysis_id": row_id}, actor_id=actor_id)
+            input_data={"analysis_id": row_id,
+                        "rm_analysis_id": str(analysis_id)}, actor_id=actor_id)
     except Exception:
-        # A row with no retrieval job never leaves ``pending``, and the grid
+        # A row with no finalize job never leaves ``pending``, and the grid
         # offers Retry only on a FAILED one — so take the row back out rather
         # than leave one that polls forever. ``_refuse_if_in_deal`` ignores
         # soft-deleted rows, so the analyst can import the id again.
@@ -226,12 +232,12 @@ def _import_one(submission_id: str, app_id: str, analysis_id: str,
             "updated_by = :by WHERE id = :id",
             {"now": _utcnow(), "by": by, "id": row_id}, connection="WORKBENCH")
         raise
-    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="retrieve_analysis_results")
+    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="finalize_analysis")
 
 
 def import_analyses(*, submission_id: Any, entries: list[ImportCandidate],
                     actor_id: Any) -> ImportOutcome:
-    """Insert one row per checked entry and enqueue its results retrieval.
+    """Insert one row per checked entry and enqueue its ``finalize_analysis``.
     Entries are independent: one refusal or failure is reported in ``failed``
     and the rest still import."""
     sid = _uid(submission_id)

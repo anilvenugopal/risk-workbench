@@ -26,6 +26,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 
 from db.connection import _ENGINE_OVERRIDES, dispose_all, register_engine
+from tests.loss_mirror import LOSS_DBO_SCHEMA, LOSS_STAGE_SCHEMA
 from tests.iteration1_mirror import (
     ANALYSIS_PERSPECTIVE_SEED,
     BREAKOUT_DIMENSION_SEED,
@@ -226,6 +227,26 @@ def iteration2_db() -> SimpleNamespace:
         _seed(conn, "analysis_perspective_kind", ANALYSIS_PERSPECTIVE_SEED)
     register_engine("WORKBENCH", engine)
     yield SimpleNamespace(engine=engine, user_a=user_a, user_b=user_b)
+    engine.dispose()
+
+
+# ── Loss repository mirror (unit tier, spec 014) ─────────────────────────────
+# A second SQLite engine registered as LOSS with two attached in-memory
+# databases named ``stage`` and ``dbo``, so the app's two-part table names
+# resolve unchanged (tests/loss_mirror.py holds the DDL).
+
+
+@pytest.fixture()
+def loss_db() -> Engine:
+    engine = _memory_engine()
+    with engine.connect() as conn:
+        conn.exec_driver_sql("ATTACH DATABASE ':memory:' AS stage")
+        conn.exec_driver_sql("ATTACH DATABASE ':memory:' AS dbo")
+        for ddl in (*LOSS_STAGE_SCHEMA, *LOSS_DBO_SCHEMA):
+            conn.exec_driver_sql(ddl)
+        conn.commit()
+    register_engine("LOSS", engine)
+    yield engine
     engine.dispose()
 
 

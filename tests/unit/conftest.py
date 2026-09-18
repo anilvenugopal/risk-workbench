@@ -10,6 +10,13 @@ import os
 # Must be set before any app.* import triggers Settings() at module level.
 os.environ.setdefault("SESSION_SECRET_KEY", "unit-test-secret-key-not-for-production")
 
+# The unit tier talks to SQLite, but create_export reads the configured WORKBENCH
+# database name to write it into the manifest, and get_connection_config raises
+# when SERVER/USER/PASSWORD are unset (db/config.py).
+for _var, _value in (("SERVER", "unit-test-host"), ("USER", "unit-test-user"),
+                     ("PASSWORD", "unit-test-password"), ("DATABASE", "rwb_workbench")):
+    os.environ.setdefault(f"MSSQL_WORKBENCH_{_var}", _value)
+
 import uuid  # noqa: E402
 
 import pytest  # noqa: E402

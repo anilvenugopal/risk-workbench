@@ -19,6 +19,18 @@ from sqlalchemy import text
 from app.config import settings as app_settings
 from app.services import analysis_service
 from app.services._common import _uid, _utcnow
+from app.services.grouping_service import GroupingInspectionView, GroupMember
+from app.services.grouping_view import build_inspection_screen
+from app.services.irp_gateway import (
+    EventRateSchemeOption,
+    GroupingInspection,
+    GroupingMember,
+    GroupingPartition,
+    GroupingPartitionKey,
+    collapse_run_description,
+    group_partitions,
+    resolved_payload,
+)
 from db import execute, execute_command, execute_one, get_connection
 from tests.unit.grouping_rows import (
     link_submission_edm,
@@ -26,12 +38,16 @@ from tests.unit.grouping_rows import (
     seed_group,
     seed_submission,
 )
+from tests.unit.run_details_fixtures import (
+    SCHEME_NAMES,
+    captured_run,
+    detail,
+    settings_metadata,
+)
 
-SETTINGS_FULL = {
-    "analysisType": "Exceedance Probability", "engineType": "DLM",
-    "engineVersion": "23.0", "peril": "Windstorm", "region": "North America",
-    "currencyCode": "USD",
-}
+# The live own-analysis get-analysis payload (spec 015 capture, 2026-09-11):
+# DLM 5741781, North Atlantic windstorm on RL25, currency as an object.
+SETTINGS_FULL = detail("own_dlm")
 
 
 def _mk(table: str, **cols) -> str:
@@ -705,7 +721,7 @@ def test_pending_results_keep_a_ready_row_live(iteration2_db):
 
 def test_currency_reads_from_settings_metadata_or_blank(iteration2_db):
     edm = _edm()
-    _executed(edm_id=edm, name="A", settings={"currencyCode": "USD"})
+    _executed(edm_id=edm, name="A", settings={"currency": {"currencyCode": "USD"}})
     _executed(edm_id=edm, name="B", settings={"peril": "Windstorm"})
 
     rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
@@ -794,26 +810,13 @@ def test_submission_read_carries_results_state_and_job_status(iteration2_db):
     assert row.results[0].aal == 38270.59
 
 
-def test_framework_no_longer_competes_with_analysis_mode(iteration2_db):
-    edm = _edm()
-    _executed(edm_id=edm, name="A", settings={
-        "analysisFramework": "ELT", "analysisMode": "Standard"})
-    _executed(edm_id=edm, name="B", settings={"analysisFramework": "ELT"})
-
-    rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
-    assert rows["A"].display.framework == "ELT"
-    assert rows["A"].display.analysis_mode == "Standard"
-    assert rows["B"].display.framework == "ELT"
-    assert rows["B"].display.analysis_mode is None
-
-
 # ── spec 011 US4: the dedicated page's columns (T033) ────────────────────────
 
 
 def test_results_columns_follow_ids_order_and_count_missing(iteration2_db):
     edm = _edm()
     a = _executed(edm_id=edm, name="A", status_code="ready",
-                  loss_results=_extract(), settings={"currencyCode": "USD"})
+                  loss_results=_extract(), settings={"currency": {"currencyCode": "USD"}})
     b = _executed(edm_id=edm, name="B", status_code="ready")
 
     columns, missing = analysis_service.list_results_columns(
@@ -878,7 +881,7 @@ def test_submission_grid_group_row_reads_group_with_no_portfolio_or_edm(
     assert (group.portfolio_name, group.template_name, group.edm_name) == (
         None, None, None)
     assert ">Group</span>" in _settings_cells(group)
-    assert ">DLM · 23.0</span>" in _settings_cells(rows["CRE_P1_T1"])
+    assert ">DLM · RL25</span>" in _settings_cells(rows["CRE_P1_T1"])
 
 
 def test_results_columns_include_a_group_in_ids_order(iteration2_db):
@@ -886,11 +889,11 @@ def test_results_columns_include_a_group_in_ids_order(iteration2_db):
     submission = seed_submission("Sub One")
     analysis = _executed(edm_id=edm, name="A", status_code="ready",
                          loss_results=_extract(),
-                         settings={"currencyCode": "USD"})
+                         settings={"currency": {"currencyCode": "USD"}})
     group = _mk("irp_analysis", submission_id=submission, is_group=1,
                 name="CRE_Sub One_Group", full_name="CRE_Sub One_Group",
                 status_code="ready",
-                settings_metadata=json.dumps({"currencyCode": "USD"}),
+                settings_metadata=json.dumps({"currency": {"currencyCode": "USD"}}),
                 loss_results=json.dumps(_extract(gr_aal=91000.0)))
 
     columns, missing = analysis_service.list_results_columns(
@@ -957,7 +960,7 @@ def test_results_column_run_currency_own_row_reads_submitted_snapshot(iteration2
     edm = _edm()
     analysis = _executed(
         edm_id=edm, name="A", status_code="ready",
-        settings={"currencyCode": "EUR"},
+        settings={"currency": {"currencyCode": "EUR"}},
         submitted={"currency": {"code": "USD", "scheme": "RMS", "vintage": "RL25"}})
 
     [col], _ = analysis_service.list_results_columns(analysis_ids=[analysis])
@@ -969,7 +972,7 @@ def test_results_column_run_currency_broker_row_reads_settings_metadata(iteratio
     rdm = _mk("irp_rdm", name="R", status="ready")
     broker = _mk("irp_analysis", edm_id=edm, rdm_id=rdm, irp_id="88", name="B",
                  status_code="ready",
-                 settings_metadata=json.dumps({"currencyCode": "EUR"}))
+                 settings_metadata=json.dumps({"currency": {"currencyCode": "EUR"}}))
 
     [col], _ = analysis_service.list_results_columns(analysis_ids=[broker])
     assert col.run_currency == "EUR"
@@ -979,7 +982,7 @@ def test_results_column_run_currency_missing_reads_none(iteration2_db):
     edm = _edm()
     rdm = _mk("irp_rdm", name="R", status="ready")
     # metadata never backfills an own row's run currency (FR-005)
-    own = _executed(edm_id=edm, name="A", settings={"currencyCode": "EUR"})
+    own = _executed(edm_id=edm, name="A", settings={"currency": {"currencyCode": "EUR"}})
     broker = _mk("irp_analysis", edm_id=edm, rdm_id=rdm, irp_id="89", name="B",
                  status_code="ready")
 
@@ -1011,7 +1014,7 @@ def _broker_handle(*, rdm_id: str, edm_id: str, irp_id: str, name: str,
     return _mk(
         "irp_analysis", rdm_id=rdm_id, edm_id=edm_id, irp_id=irp_id, name=name,
         status_code="ready",
-        settings_metadata=(json.dumps({"currencyCode": currency})
+        settings_metadata=(json.dumps({"currency": {"currencyCode": currency}})
                            if currency else None),
         loss_results=(json.dumps(_extract()) if with_results else None))
 
@@ -1109,6 +1112,52 @@ def test_broker_row_currency_reads_the_live_nested_currency_object(iteration2_db
 
     columns, _ = analysis_service.list_results_columns(analysis_ids=[broker])
     assert columns[0].run_currency == "USD"
+
+
+def test_compare_rows_report_what_each_run_resolved_on(iteration2_db):
+    # FR-017/P-05: the modal's metadata line reads the same resolved value the
+    # expanded row shows — the scheme for a DLM run, the simulation set for an
+    # HD run, nothing for a row captured before the change.
+    submission = _submission(iteration2_db.user_a)
+    edm = _edm()
+    _attach_edm(submission, edm)
+    _executed(edm_id=edm, name="HD Run", status_code="ready",
+              settings=settings_metadata("own_hd"),
+              submitted={"currency": {"code": "USD"}})
+    _executed(edm_id=edm, name="DLM Run", status_code="ready",
+              settings=settings_metadata("own_dlm", fan_out=23),
+              submitted={"currency": {"code": "USD"}})
+    rdm = _mk("irp_rdm", name="Acme RDM", status="ready")
+    execute_command(
+        "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+        {"s": submission, "r": rdm}, connection="WORKBENCH")
+    _mk("irp_analysis", rdm_id=rdm, edm_id=edm, irp_id="5689560",
+        name="USFL_Commercial_LT", status_code="ready",
+        settings_metadata=json.dumps(settings_metadata("broker_dlm",
+                                                       fan_out=23)))
+    _mk("irp_analysis", rdm_id=rdm, edm_id=edm, irp_id="5723351",
+        name="EQ_HI_RES", status_code="ready",
+        settings_metadata=json.dumps(detail("broker_dlm_no_treaties")))
+
+    rows = {r.name: r for r in analysis_service.list_comparable_analyses(
+        submission_id=submission)}
+
+    assert rows["HD Run"].run_details == (
+        "RMS 2020 Time-Dependent Rates (1,978,459 periods)")
+    assert rows["USFL_Commercial_LT"].run_details == (
+        "RMS 2023 Historical Event Rates")
+    assert rows["EQ_HI_RES"].run_details is None    # never captured (FR-015)
+    assert rows["DLM Run"].run_details == "RMS 2025 Stochastic Event Rates"
+
+    # the same strings the expanded rows show
+    own = {a.name: a for a in analysis_service.list_submission_executed_analyses(
+        submission_id=submission)}
+    assert own["HD Run"].resolved.summary == rows["HD Run"].run_details
+    [group] = analysis_service.list_submission_rdms(submission_id=submission)
+    broker = {a.name: a for a in analysis_service.list_submission_rdm_analyses(
+        submission_id=submission, rdm_id=group.rdm_id)}
+    assert (broker["USFL_Commercial_LT"].resolved.single_value
+            == rows["USFL_Commercial_LT"].run_details)
 
 
 def test_comparable_analyses_gone_scope_reads_none(iteration2_db):
@@ -1234,6 +1283,358 @@ def test_sort_analyses_default_and_unknown_keys_keep_the_query_order():
     assert analysis_service.sort_analyses(rows, "", True) == rows
     assert analysis_service.sort_analyses(rows, "nonsense", True) == rows
     assert analysis_service.sort_analyses(rows, "submitted", False) == rows[::-1]
+
+
+# ── spec 015: the run details the expanded row reads (FR-001/FR-006/FR-013) ────
+
+def _broker_row(submission: str, name: str, settings: dict | None,
+                irp_id: str = "5689560"):
+    seed_broker_analysis(submission, name, irp_id=irp_id, settings=settings)
+    [group] = analysis_service.list_submission_rdms(submission_id=submission)
+    [row] = analysis_service.list_submission_rdm_analyses(
+        submission_id=submission, rdm_id=group.rdm_id)
+    return row
+
+
+def test_broker_row_names_its_event_rate_scheme_and_no_simulation_set(
+        iteration2_db):
+    submission = seed_submission("Sub One")
+    row = _broker_row(submission, "USFL_Commercial_LT",
+                      settings_metadata("broker_dlm", fan_out=23))
+
+    assert row.resolved.single_label == "Event rate scheme"
+    assert row.resolved.single_value == "RMS 2023 Historical Event Rates"
+    panel = _inline_panel(row)
+    assert "<dt>Event rate scheme</dt>" in panel
+    assert "RMS 2023 Historical Event Rates" in panel
+    assert "<dt>Simulation set</dt>" not in panel
+    assert "<dt>Run details</dt>" not in panel
+
+
+def test_a_row_captured_before_the_change_reads_run_details_not_returned(
+        iteration2_db):
+    submission = seed_submission("Sub One")
+    row = _broker_row(submission, "USFL_Commercial_LT", detail("broker_dlm"))
+
+    assert row.resolved.partitions is None
+    assert row.resolved.summary is None
+    panel = _inline_panel(row)
+    assert '<dt>Run details</dt><dd class="blank">not returned</dd>' in panel
+    assert "<dt>Event rate scheme</dt>" not in panel
+    assert "<dt>Simulation set</dt>" not in panel
+    # the rest of the grid renders (FR-015)
+    assert "<dt>Framework</dt>" in panel
+    assert "<dt>Subperil</dt>" in panel
+
+
+def test_a_row_with_an_empty_partition_capture_reads_run_details_not_returned(
+        iteration2_db):
+    submission = seed_submission("Sub One")
+    captured = settings_metadata("broker_dlm", fan_out=23)
+    captured["resolved"]["partitions"] = []
+    row = _broker_row(submission, "USFL_Commercial_LT", captured)
+
+    assert row.resolved.partitions == []
+    assert row.resolved.summary is None
+    panel = _inline_panel(row)
+    assert '<dt>Run details</dt><dd class="blank">not returned</dd>' in panel
+    assert "<dt>Event rate scheme</dt>" not in panel
+    assert "<dt>Simulation set</dt>" not in panel
+
+
+def test_a_row_whose_partitions_half_failed_reads_the_same(iteration2_db):
+    submission = seed_submission("Sub One")
+    captured = settings_metadata("broker_dlm", fan_out=23)
+    captured["resolved"].pop("partitions")
+    row = _broker_row(submission, "USFL_Commercial_LT", captured)
+
+    panel = _inline_panel(row)
+    assert '<dt>Run details</dt><dd class="blank">not returned</dd>' in panel
+    assert "<dt>Event rate scheme</dt>" not in panel
+    # the treaty half of the same read stands
+    assert "<li>XPR_1_100_Fld · XPR_1_100_Fld · USD</li>" in panel
+
+
+def test_rendering_the_rdm_analyses_section_calls_risk_modeler_not_at_all(
+        iteration2_db, fake_irp):
+    submission = seed_submission("Sub One")
+    row = _broker_row(submission, "USFL_Commercial_LT",
+                      settings_metadata("broker_dlm", fan_out=23))
+    _inline_panel(row)
+
+    # FR-013: every value was captured when the analysis was imported
+    assert fake_irp.describe_run_calls == []
+    assert fake_irp.result_calls == []
+
+
+def test_the_expanded_row_and_the_compose_screen_name_one_scheme(iteration2_db):
+    # FR-002: the scheme the row shows for a broker analysis is the scheme the
+    # grouping compose screen offers for the same analysis.
+    submission = seed_submission("Sub One")
+    row = _broker_row(submission, "USFL_Commercial_LT",
+                      settings_metadata("broker_dlm", fan_out=23))
+    partition_key = GroupingPartitionKey("WS", "NA", "11.0")
+    facts = captured_run("broker_dlm").regions
+    member = GroupMember(id=row.id, irp_id=5689560, name=row.name,
+                         display_name=row.name, kind="broker", engine="DLM")
+    inspection = GroupingInspection(
+        analysis_ids=(5689560,), resource_uris=(), inspected_at="",
+        fingerprint="", output_loss_table="ELT", simulate_to_plt=False,
+        members=(GroupingMember(5689560, True, False, "ELT", "DLM", "RL23",
+                                "WS", "NA", "11.0", facts),),
+        partitions=(GroupingPartition(
+            key=partition_key, analysis_ids=(5689560,),
+            event_rate_scheme_options=(EventRateSchemeOption(
+                577, SCHEME_NAMES[577]),),
+            observed_pet_ids=(), event_rate_selection_required=False),),
+        simulation_mappings=(), required_caller_inputs=(), warnings=(),
+        blocking_problems=())
+    screen = build_inspection_screen(GroupingInspectionView(
+        inspection=inspection, members={5689560: member}))
+
+    assert screen.rows[0].options[0].label == row.resolved.single_value
+
+
+# ── spec 015 story 2: the HD row names its simulation set (FR-003/FR-004/FR-006) ─
+
+def _own_row(edm: str, name: str, settings: dict | None):
+    _executed(edm_id=edm, name=name, full_name=name, status_code="ready",
+              settings=settings)
+    rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
+    return rows[name]
+
+
+def test_hd_row_names_its_simulation_set_and_no_event_rate_scheme(iteration2_db):
+    row = _own_row(_edm(), "HD Run", settings_metadata("own_hd"))
+
+    assert row.resolved.single_label == "Simulation set"
+    assert row.resolved.single_value == (
+        "RMS 2020 Time-Dependent Rates (1,978,459 periods)")
+    panel = _inline_panel(row)
+    assert ("<dt>Simulation set</dt><dd title=\"RMS 2020 Time-Dependent Rates "
+            "(1,978,459 periods)\">") in panel
+    assert "<dt>Event rate scheme</dt>" not in panel
+
+
+def test_dlm_row_names_its_scheme_and_no_simulation_set(iteration2_db):
+    row = _own_row(_edm(), "DLM Run", settings_metadata("own_dlm", fan_out=23))
+
+    panel = _inline_panel(row)
+    assert "<dt>Event rate scheme</dt>" in panel
+    assert "RMS 2025 Stochastic Event Rates" in panel
+    assert "<dt>Simulation set</dt>" not in panel
+
+
+def test_a_pet_the_capture_could_not_name_reads_by_its_id(iteration2_db):
+    row = _own_row(_edm(), "HD Run",
+                   settings_metadata("own_hd", pet_names={}))
+
+    assert row.resolved.single_value == "PET 12 (1,978,459 periods)"
+    assert "<dt>Simulation set</dt>" in _inline_panel(row)
+
+
+def test_a_plt_partition_with_no_set_still_reads_simulation_set(iteration2_db):
+    # FR-006: the label follows the partition's framework. A PLT partition
+    # whose set did not resolve reads Simulation set — never the ELT label.
+    captured = settings_metadata("own_hd")
+    captured["resolved"]["partitions"][0]["simulation_set"] = None
+    row = _own_row(_edm(), "HD Run", captured)
+
+    assert row.resolved.single_label == "Simulation set"
+    assert row.resolved.single_value is None
+    panel = _inline_panel(row)
+    assert '<dt>Simulation set</dt><dd class="blank">not returned</dd>' in panel
+    assert "<dt>Event rate scheme</dt>" not in panel
+
+
+def test_an_hd_row_with_no_captured_partitions_reads_not_returned(iteration2_db):
+    captured = settings_metadata("own_hd")
+    captured["resolved"].pop("partitions")
+    row = _own_row(_edm(), "HD Run", captured)
+
+    panel = _inline_panel(row)
+    assert '<dt>Run details</dt><dd class="blank">not returned</dd>' in panel
+    assert "<dt>Simulation set</dt>" not in panel
+    # settings and the condensed-results block render unchanged
+    assert "<dt>Framework</dt>" in panel
+    assert "Condensed results" in panel
+
+
+# ── spec 015 story 3: a group lists one entry per region and peril (FR-007) ────
+
+def _group_row(submission: str, name: str, settings: dict, **kwargs):
+    seed_group(submission, name, **kwargs)
+    execute_command(
+        "UPDATE irp_analysis SET settings_metadata = :sm WHERE name = :n",
+        {"sm": json.dumps(settings), "n": name}, connection="WORKBENCH")
+    rows = {a.name: a for a in analysis_service.list_submission_executed_analyses(
+        submission_id=submission)}
+    return rows[name]
+
+
+def _group_settings(name: str) -> dict:
+    """The ``settings_metadata`` the worker writes for a group: partitions from
+    the detail property, treaties from the describe call."""
+    captured = detail(name)
+    return {**captured, "resolved": resolved_payload(
+        collapse_run_description(captured_run(name)),
+        partitions=group_partitions(captured))}
+
+
+def test_a_mixed_group_lists_both_halves_per_region_and_peril(iteration2_db):
+    submission = seed_submission("Sub One")
+    row = _group_row(submission, "CRE_Sub One_Group",
+                     _group_settings("group_mixed_rm_made"))
+
+    assert row.resolved.partitions == [
+        "JP · WS — RMS V2.0 Stochastic Event Rates - Typhoon Events Only "
+        "(50,000 periods)",
+        "NA · EQ — RMS 17.0 NA   Stochastic Event Rates — North America "
+        "Earthquake, RMS 17.0 NA Stochastic Event Rates (50,000 periods)",
+        "NA · WS — RMS 2025 Historical Event Rates — North Atlantic Hurricane, "
+        "2025 Historical Event Rates-v2 (50,000 periods)"]
+    panel = _inline_panel(row)
+    assert "<dt>Run details</dt>" in panel
+    assert "<dt>Event rate scheme</dt>" not in panel
+    assert "<dt>Simulation set</dt>" not in panel
+    # the Compare line reports the same entries (FR-017)
+    assert row.resolved.summary == "; ".join(row.resolved.partitions)
+
+
+def test_an_elt_only_group_lists_schemes_with_no_periods_text(iteration2_db):
+    submission = seed_submission("Sub One")
+    row = _group_row(submission, "CRE_Sub One_Group",
+                     _group_settings("group_elt_workbench_made"))
+
+    assert row.resolved.partitions == [
+        "NA · EQ — RMS 17.0 NA   Stochastic Event Rates",
+        "NA · WS — RMS 2025 Stochastic Event Rates"]
+    assert "periods" not in _inline_panel(row)
+
+
+def test_a_one_partition_group_renders_the_single_field(iteration2_db):
+    # P-08: the shape follows the partition count, not the origin.
+    submission = seed_submission("Sub One")
+    row = _group_row(submission, "CRE_Sub One_Group",
+                     _group_settings("group_plt_workbench_made"))
+
+    assert row.resolved.single_value == (
+        "RMS V2.0 Stochastic Event Rates - Typhoon and Non-Typhoon Flood "
+        "Events (50,000 periods)")
+    panel = _inline_panel(row)
+    assert "<dt>Simulation set</dt>" in panel
+    assert "<dt>Run details</dt>" not in panel
+
+
+def test_an_own_analysis_on_two_partitions_renders_the_list(iteration2_db):
+    # FR-006a: two partitions read as the list whether the row is a group.
+    captured = settings_metadata("own_dlm", fan_out=23)
+    captured["resolved"]["partitions"].append({
+        "region_code": "NA", "peril_code": "EQ", "framework": "ELT",
+        "event_rate_scheme": {"id": 163, "name": SCHEME_NAMES[163]},
+        "simulation_set": None})
+    row = _own_row(_edm(), "Two Partition Run", captured)
+
+    assert row.resolved.partitions == [
+        "NA · WS — RMS 2025 Stochastic Event Rates",
+        "NA · EQ — RMS 17.0 NA   Stochastic Event Rates"]
+    assert "<dt>Run details</dt>" in _inline_panel(row)
+
+
+def test_the_group_row_names_the_set_chosen_on_the_compose_screen(iteration2_db):
+    # FR-008: the set listed for NA · EQ is the one the compose plan recorded.
+    # The capture is a Risk Modeler-made group and carries no plan, so the test
+    # seeds the selection the compose screen would have stored.
+    submission = seed_submission("Sub One")
+    row = _group_row(submission, "CRE_Sub One_Group",
+                     _group_settings("group_mixed_rm_made"))
+    execute_command(
+        "UPDATE irp_analysis SET submitted_settings = :ss WHERE id = :id",
+        {"ss": json.dumps({"simulation_set_selections": [
+            {"peril_code": "EQ", "region_code": "NA", "model_version": "17.0",
+             "simulation_set_id": 87}]}), "id": row.id},
+        connection="WORKBENCH")
+
+    plan = json.loads(execute_one(
+        "SELECT submitted_settings FROM irp_analysis WHERE id = :id",
+        {"id": row.id}, connection="WORKBENCH")["submitted_settings"])
+    chosen, = [s["simulation_set_id"] for s in plan["simulation_set_selections"]
+               if s["peril_code"] == "EQ"]
+    listed, = [p for p in json.loads(execute_one(
+        "SELECT settings_metadata FROM irp_analysis WHERE id = :id",
+        {"id": row.id},
+        connection="WORKBENCH")["settings_metadata"])["resolved"]["partitions"]
+        if p["peril_code"] == "EQ"]
+    assert listed["simulation_set"]["id"] == chosen
+
+
+# ── spec 015 story 4: the treaties the run applied (FR-010/FR-011/FR-012) ──────
+
+def test_the_row_lists_each_applied_treaty_as_number_name_and_currency(
+        iteration2_db):
+    submission = seed_submission("Sub One")
+    row = _broker_row(submission, "USFL_Commercial_LT",
+                      settings_metadata("broker_dlm", fan_out=23))
+
+    assert row.resolved.treaties == [
+        "XPR_1_100_Fld · XPR_1_100_Fld · USD",
+        "XPR_1_95_Fld · XPR_1_95_Fld · USD"]
+    panel = _inline_panel(row)
+    assert "<dt>Treaties</dt>" in panel
+    assert "<li>XPR_1_100_Fld · XPR_1_100_Fld · USD</li>" in panel
+    # the stored terms are captured, not rendered (P-02)
+    for absent in ("10000000", "5000000", "Occurrence", "Attachment",
+                   "Retention"):
+        assert absent not in panel
+
+
+def test_a_run_that_applied_no_treaties_shows_no_treaty_entry(iteration2_db):
+    submission = seed_submission("Sub One")
+    row = _broker_row(submission, "EQ_HI_RES",
+                      settings_metadata("broker_dlm_no_treaties", fan_out=51))
+
+    assert row.resolved.treaties == []
+    assert "Treaties" not in _inline_panel(row)
+
+
+def test_a_failed_treaty_read_reads_not_returned(iteration2_db):
+    captured = settings_metadata("broker_dlm", fan_out=23)
+    captured["resolved"].pop("treaties")
+    submission = seed_submission("Sub One")
+    row = _broker_row(submission, "USFL_Commercial_LT", captured)
+
+    assert row.resolved.treaties is None
+    panel = _inline_panel(row)
+    assert '<dt>Treaties</dt><dd class="blank">not returned</dd>' in panel
+    # the partition half of the same read stands (FR-012)
+    assert "<dt>Event rate scheme</dt>" in panel
+
+
+def test_a_group_lists_a_treaty_its_members_share_once(iteration2_db):
+    submission = seed_submission("Sub One")
+    row = _group_row(submission, "CRE_Sub One_Group",
+                     _group_settings("group_mixed_rm_made"))
+
+    assert row.resolved.treaties == ["PR1 · PR1 · USD", "PR2 · PR2 · USD",
+                                     "QS_JP · QS_JP · JPY"]
+    assert _inline_panel(row).count("<li>QS_JP · QS_JP · JPY</li>") == 1
+
+
+def test_an_own_row_reports_the_currency_the_run_applied_the_treaty_in(
+        iteration2_db):
+    # FR-011: the analysis-level terms, not irp_treaty's definition — a run in
+    # CAD against a USD treaty reports CAD.
+    captured = settings_metadata("own_dlm", fan_out=23)
+    captured["resolved"]["treaties"] = [
+        {"id": 33833, "number": "PR1", "name": "PR1", "currency": "CAD",
+         "occurrence_limit": 1000000.0, "risk_limit": 250000.0,
+         "attachment_point": 250000.0, "retention_amount": 0.0}]
+    row = _own_row(_edm(), "CAD Run", captured)
+
+    assert row.resolved.treaties == ["PR1 · PR1 · CAD"]
+    assert execute_one(
+        "SELECT COUNT(*) AS n FROM irp_treaty", {},
+        connection="WORKBENCH")["n"] == 0
 
 
 # ── #101: analyses imported by Risk Modeler id ───────────────────────────────────

@@ -34,7 +34,7 @@ from typing import Any, Protocol, Sequence, runtime_checkable
 # Re-exported so callers (workers, FakeIRP) never import irp-integration directly
 # — this module stays the sole importer (T007). ``submit_portfolio_analysis``
 # raises this on any submit failure (spec 010, contracts/irp-gateway.md).
-from irp_integration.exceptions import IRPGroupingValidationError, IRPIntegrationError
+from irp_integration.exceptions import IRPAPIError, IRPGroupingValidationError, IRPIntegrationError
 
 # Spec 012 grouping types (contracts/grouping-worker.md): the service renders
 # ``GroupingInspection`` and the worker reads ``IRPGroupingValidationError.problems``.
@@ -49,6 +49,8 @@ from irp_integration.grouping import (
     GroupingTreaty,
     SimulationSetOption,
 )
+
+from app.services._common import _utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +256,195 @@ class AnalysisMetadata:
 
 
 @dataclass(frozen=True)
+class ResolvedPartition:
+    """One region and peril a run resolved on (spec 015, contracts/irp-gateway.md).
+    An ELT partition carries an event rate scheme, a PLT partition the PET it
+    simulated on and that PET's period count. ``*_name`` is ``None`` when the id
+    was read but reference data did not name it."""
+    region_code: str
+    peril_code: str
+    framework: str                  # ELT | PLT
+    event_rate_scheme_id: int | None = None
+    event_rate_scheme_name: str | None = None
+    simulation_set_id: int | None = None   # the PET id on a PLT partition
+    simulation_set_name: str | None = None
+    periods: int | None = None
+
+
+@dataclass(frozen=True)
+class AppliedTreaty:
+    """One treaty as one analysis applied it: the terms are the analysis-level
+    values, not the EDM's definition — a run in CAD against a USD treaty reports
+    CAD (spec 015 T-05)."""
+    treaty_id: int | None
+    number: str
+    name: str | None = None
+    currency: str | None = None
+    occurrence_limit: float | None = None
+    risk_limit: float | None = None
+    attachment_point: float | None = None
+    retention_amount: float | None = None
+
+
+@dataclass(frozen=True)
+class ResolvedRun:
+    """What one analysis resolved on, collapsed for storage under
+    ``settings_metadata.resolved``."""
+    partitions: tuple[ResolvedPartition, ...] = ()
+    treaties: tuple[AppliedTreaty, ...] = ()
+
+
+def collapse_run_description(description: Any) -> ResolvedRun:
+    """One package ``RunDescription`` as a ``ResolvedRun``.
+
+    The package returns one region fact per region row — 23 for a US hurricane
+    analysis, one per state — and leaves the collapse to the caller. Partitions
+    come out one per distinct (region, peril, framework), sorted by region then
+    peril; treaties one per treaty id, sorted by number (P-06, P-07). ``FakeIRP``
+    calls this too, so its seeds and the wheel's response reach the same
+    ``ResolvedRun``."""
+    names = dict(description.event_rate_scheme_names or {})
+    partitions: dict[tuple[str, str, str], ResolvedPartition] = {}
+    for fact in description.regions or ():
+        key = (fact.region_code, fact.peril_code, fact.framework)
+        if key in partitions:
+            continue
+        partitions[key] = ResolvedPartition(
+            region_code=fact.region_code, peril_code=fact.peril_code,
+            framework=fact.framework,
+            event_rate_scheme_id=fact.event_rate_scheme_id,
+            event_rate_scheme_name=names.get(fact.event_rate_scheme_id),
+            simulation_set_id=fact.pet_id,
+            simulation_set_name=fact.pet_name,
+            periods=fact.periods)
+    treaties: dict[Any, AppliedTreaty] = {}
+    for treaty in description.treaties or ():
+        terms = treaty.terms or {}
+        key = (treaty.treaty_id if treaty.treaty_id is not None
+               else treaty.treaty_number)
+        if key in treaties:
+            continue
+        treaties[key] = AppliedTreaty(
+            treaty_id=treaty.treaty_id, number=treaty.treaty_number,
+            name=treaty.treaty_name, currency=terms.get("currency"),
+            occurrence_limit=terms.get("occurrenceLimit"),
+            risk_limit=terms.get("riskLimit"),
+            attachment_point=terms.get("attachmentPoint"),
+            retention_amount=terms.get("retentionAmount"))
+    return ResolvedRun(
+        partitions=tuple(sorted(partitions.values(),
+                                key=lambda p: (p.region_code, p.peril_code))),
+        treaties=tuple(sorted(treaties.values(), key=lambda t: t.number)))
+
+
+# The detail properties Risk Modeler writes one entry into per region and peril
+# of a group: ``eventRateSchemes`` on an ELT group, ``simulationSets`` on a PLT
+# one (spec 015 T-03). A detail carrying either is a group here, whatever
+# isGroup says.
+_GROUP_PARTITION_KEYS = ("eventRateSchemes", "simulationSets")
+
+
+def _is_rm_id(value: Any) -> bool:
+    """Risk Modeler sends ``0`` where an id does not apply, so only a positive
+    integer names a scheme or a simulation set."""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def partition_payload(*, region_code: Any, peril_code: Any, framework: Any,
+                      scheme_id: Any, scheme_name: Any, set_id: Any,
+                      set_name: Any, periods: Any) -> dict:
+    """One ``partitions`` entry of the ``resolved`` key. Both writers build
+    their entries here — a group from its detail property, an own or broker
+    analysis from the collapsed region facts — so the two never drift into
+    different shapes for the same field (#86)."""
+    return {
+        "region_code": region_code,
+        "peril_code": peril_code,
+        "framework": framework,
+        "event_rate_scheme": ({"id": scheme_id, "name": scheme_name or None}
+                              if _is_rm_id(scheme_id) else None),
+        "simulation_set": ({"id": set_id, "name": set_name or None,
+                            "periods": periods or None}
+                           if _is_rm_id(set_id) else None),
+    }
+
+
+def group_partitions(detail: dict) -> list[dict] | None:
+    """A group's partitions, read from its own detail (spec 015 T-03). Each
+    property value already names the scheme and the simulation set Risk Modeler
+    resolved for one region and peril, so no reference read is needed. ``None``
+    when the detail carries neither property."""
+    for prop in detail.get("additionalProperties") or []:
+        if (not isinstance(prop, dict)
+                or prop.get("key") not in _GROUP_PARTITION_KEYS):
+            continue
+        values = [entry.get("value") for entry in prop.get("properties") or []
+                  if isinstance(entry, dict)]
+        partitions = [
+            partition_payload(
+                region_code=v.get("regionCode"), peril_code=v.get("perilCode"),
+                framework=v.get("framework"),
+                scheme_id=v.get("eventRateSchemeId"),
+                scheme_name=v.get("eventRateSchemeName"),
+                set_id=v.get("simulationSetId"),
+                set_name=v.get("simulationSetName"),
+                periods=v.get("simulationPeriods"))
+            for v in values if isinstance(v, dict)]
+        return sorted(partitions,
+                      key=lambda p: (p["region_code"], p["peril_code"]))
+    return None
+
+
+def resolved_payload(run: ResolvedRun | None, *,
+                     partitions: list[dict] | None = None) -> dict:
+    """The workbench's ``resolved`` key inside ``settings_metadata``
+    (contracts/settings-metadata-resolved.md).
+
+    ``partitions`` replaces the run's own: a group's come from its detail and
+    the region facts the describe call returned for it are ignored (T-03).
+    ``run`` is ``None`` when that call failed, which leaves the ``treaties``
+    key out — an absent half is a half that failed, and ``treaties: []`` means
+    the analysis applied none (FR-012)."""
+    payload: dict[str, Any] = {}
+    if partitions is not None:
+        payload["partitions"] = partitions
+    elif run is not None:
+        payload["partitions"] = [
+            partition_payload(
+                region_code=p.region_code, peril_code=p.peril_code,
+                framework=p.framework, scheme_id=p.event_rate_scheme_id,
+                scheme_name=p.event_rate_scheme_name,
+                set_id=p.simulation_set_id, set_name=p.simulation_set_name,
+                periods=p.periods)
+            for p in run.partitions]
+    if run is not None:
+        payload["treaties"] = [
+            {"id": t.treaty_id, "number": t.number, "name": t.name,
+             "currency": t.currency, "occurrence_limit": t.occurrence_limit,
+             "risk_limit": t.risk_limit, "attachment_point": t.attachment_point,
+             "retention_amount": t.retention_amount} for t in run.treaties]
+    payload["captured_at"] = _utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return payload
+
+
+def resolved_capture(detail: dict, *,
+                     analysis_id: int) -> tuple[dict | None, Exception | None]:
+    """The ``resolved`` payload for one analysis, and the read failure if there
+    was one. Never raises: a failed read leaves ``resolved`` — or only its
+    ``treaties`` half — absent, and the analysis still reaches ``ready``
+    (FR-014). The caller owns the log line and the failure count."""
+    partitions = run = error = None
+    try:
+        partitions = group_partitions(detail)
+        run = describe_analysis_run(analysis_id=analysis_id)
+    except Exception as exc:  # noqa: BLE001 — blank and continue (FR-014)
+        error = exc
+    if run is None and partitions is None:
+        return None, error
+    return resolved_payload(run, partitions=partitions), error
+
+
+@dataclass(frozen=True)
 class ModelProfileEntry:
     irp_id: int
     name: str
@@ -350,6 +541,8 @@ class IRPGateway(Protocol):
 
     def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata: ...
 
+    def describe_analysis_run(self, *, analysis_id: int) -> ResolvedRun: ...
+
     def list_model_profiles(self) -> list[ModelProfileEntry]: ...
 
     def list_output_profiles(self) -> list[OutputProfileEntry]: ...
@@ -402,6 +595,14 @@ class IRPGateway(Protocol):
                         exposure_resource_id: int) -> list[dict]: ...
 
     def delete_analysis(self, irp_id: str) -> None: ...
+
+    # ── spec-014 loss results export (submit worker, poller, stage worker) ────
+    def submit_analysis_export_job(self, *, analysis_id: int,
+                                   loss_details: list[dict]) -> tuple[int, dict]: ...
+
+    def get_export_job(self, irp_id: str) -> JobStatus: ...
+
+    def download_export_results(self, *, job_id: int, output_dir: str) -> str: ...
 
     # ── spec-005 breakout reads (fetch_portfolio_stamp is request-path-legal) ────
 
@@ -977,6 +1178,15 @@ class _RealGateway:
             exposure_resource_type=payload.get("exposureResourceType"),
             is_group=is_group)
 
+    def describe_analysis_run(self, *, analysis_id: int) -> ResolvedRun:
+        # What the run resolved on (spec 015 T-06): the package reads the
+        # analysis, its region rows, its applied treaties and the reference
+        # lists that name the schemes and PETs; the collapse to one partition
+        # per region and peril is ours. Worker-only (Article 11) — it costs
+        # several Risk Modeler reads.
+        return collapse_run_description(
+            self._client().analysis.describe_run(analysis_id))
+
     # ── single-status checks (Article 11 — never poll_*_to_completion) ────────────
 
     def get_import_job(self, irp_id: str) -> JobStatus:
@@ -1128,6 +1338,26 @@ class _RealGateway:
     def get_geohaz_job(self, irp_id: str) -> JobStatus:
         data = self._client().portfolio.get_geohaz_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
+
+    # ── spec-014 loss results export (irp-integration 0.7.2) ─────────────────
+
+    def submit_analysis_export_job(self, *, analysis_id: int,
+                                   loss_details: list[dict]) -> tuple[int, dict]:
+        # POST /platform/export/v1/jobs — one analysis per job; the wheel resolves
+        # the analysis first and raises IRPAPIError when it does not exist.
+        job_id, request_body = self._client().analysis.submit_analysis_export_job(
+            analysis_id, loss_details, "PARQUET")
+        return int(job_id), request_body
+
+    def get_export_job(self, irp_id: str) -> JobStatus:
+        data = self._client().export_job.get_export_job(int(irp_id))
+        return JobStatus(status=str(data["status"]), result=data)
+
+    def download_export_results(self, *, job_id: int, output_dir: str) -> str:
+        # Requires FINISHED; rejects HTML/JSON bodies and non-zip content;
+        # creates output_dir itself, so the caller checks the archive root first.
+        return str(self._client().export_job.download_export_results(
+            int(job_id), output_dir))
 
     # ── name searches for the blocking collision check (R8, amended #17) ──────────
 
@@ -1355,6 +1585,10 @@ def get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata:
     return _active().get_analysis_metadata(analysis_id=analysis_id)
 
 
+def describe_analysis_run(*, analysis_id: int) -> ResolvedRun:
+    return _active().describe_analysis_run(analysis_id=analysis_id)
+
+
 def list_model_profiles() -> list[ModelProfileEntry]:
     return _active().list_model_profiles()
 
@@ -1461,6 +1695,20 @@ def delete_analysis(irp_id: str) -> None:
     _active().delete_analysis(irp_id)
 
 
+def submit_analysis_export_job(*, analysis_id: int,
+                               loss_details: list[dict]) -> tuple[int, dict]:
+    return _active().submit_analysis_export_job(
+        analysis_id=analysis_id, loss_details=loss_details)
+
+
+def get_export_job(irp_id: str) -> JobStatus:
+    return _active().get_export_job(irp_id)
+
+
+def download_export_results(*, job_id: int, output_dir: str) -> str:
+    return _active().download_export_results(job_id=job_id, output_dir=output_dir)
+
+
 def fetch_portfolio_stamp(*, exposure_irp_id: str,
                           portfolio_irp_id: str) -> str | None:
     return _active().fetch_portfolio_stamp(exposure_irp_id=exposure_irp_id,
@@ -1529,6 +1777,7 @@ __all__ = [
     "submit_portfolio_analysis", "get_analysis_job",
     "get_analysis_stats", "get_analysis_ep",
     "delete_analysis",
+    "submit_analysis_export_job", "get_export_job", "download_export_results",
     "fetch_portfolio_stamp",
     "select_breakout_accounts", "count_breakout_match", "create_sub_portfolio",
     "populate_sub_portfolio", "find_portfolio_by_number",
@@ -1540,5 +1789,5 @@ __all__ = [
     "GroupingPartition", "GroupingPartitionKey", "EventRateSchemeOption",
     "GroupingProblem",
     "GroupingTreaty", "SimulationSetOption",
-    "IRPIntegrationError", "IRPGroupingValidationError",
+    "IRPIntegrationError", "IRPAPIError", "IRPGroupingValidationError",
 ]

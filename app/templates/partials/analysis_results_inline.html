@@ -4,6 +4,7 @@
 {%- import 'partials/analysis_row_macros.html' as row -%}
 {%- set d = a.display -%}
 {%- set s = a.submitted if a.submitted is defined else None -%}
+{%- set r = a.resolved -%}
 <div class="row-meta">
   <p class="row-src">
     {%- if a.rdm_name is defined and a.rdm_name %}RDM: <b class="row-src__name">{{ a.rdm_name }}</b>
@@ -18,17 +19,37 @@
       ('Analysis type', d.analysis_type),
       ('Subperil', d.peril_secondary),
       ('Framework', d.framework),
-      ('Event rate scheme', d.event_rate_scheme),
-      ('Unrecognized construction / occupancy', s.construction_occupancy if s else None),
       ('Run by', a.run_by if a.run_by is defined else None),
     ] %}
     {% if val %}<div><dt>{{ label }}</dt><dd title="{{ val }}">{{ val }}</dd></div>
     {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>
     {% endif %}
     {% endfor %}
+    {# Partitions that were never captured carry the neutral Run details
+       label: the framework, and so the right label, is unknown (P-08). #}
+    {% if not r.partitions %}
+    <div><dt>Run details</dt><dd class="blank">not returned</dd></div>
+    {% elif r.partitions|length == 1 %}
+    {% set label, val = r.single_label, r.single_value %}
+    {% if val %}<div><dt>{{ label }}</dt><dd title="{{ val }}">{{ val }}</dd></div>
+    {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>
+    {% endif %}
+    {% endif %}
     {% if s and s.member_names %}
     <div class="settings-grid__wide"><dt>Members</dt>
       <dd><ul>{% for n in s.member_names %}<li>{{ n }}</li>{% endfor %}</ul></dd></div>
+    {% endif %}
+    {% if r.partitions and r.partitions|length >= 2 %}
+    <div class="settings-grid__wide"><dt>Run details</dt>
+      <dd><ul>{% for e in r.partitions %}<li>{{ e }}</li>{% endfor %}</ul></dd></div>
+    {% endif %}
+    {# No entry at all when the run applied none; not returned when the read
+       failed (P-04). #}
+    {% if r.treaties is none %}
+    <div><dt>Treaties</dt><dd class="blank">not returned</dd></div>
+    {% elif r.treaties %}
+    <div class="settings-grid__wide"><dt>Treaties</dt>
+      <dd><ul>{% for t in r.treaties %}<li>{{ t }}</li>{% endfor %}</ul></dd></div>
     {% endif %}
   </dl>
 </div>

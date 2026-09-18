@@ -5,8 +5,8 @@
 All provisioning actions below can be performed via the interactive CLI:
 
 ```bash
-make wsl-user-setup          # WSL2 / local
-./infra/scripts/run_user_setup   # directly, or on the production server
+make wsl-user-setup              # WSL2 / local
+./infra/scripts/run_user_setup   # production server
 ```
 
 The menu has four options:
@@ -18,7 +18,10 @@ The menu has four options:
 | `reset`     | Reset the password for a password-auth user |
 | `list`      | Show all users and their current roles |
 
-The tool reads `infra/.env` for database credentials and works identically in WSL2 and on the production server (where `.env` holds production values).
+The wrapper uses `wsl-env.sh` in WSL2 so SQL Server resolves through
+`localhost`. On the production server, it reads the deployed values from
+`infra/.env`. Both commands run `.venv/bin/python`; production does not need
+`uv`. Run `rhel9-app-install.sh` before using the production command.
 
 ---
 
