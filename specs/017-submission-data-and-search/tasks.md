@@ -62,8 +62,8 @@ read every story depends on. No user-visible change yet.
 ### Preview (docs/UI_WORKFLOW.md rule 1 — approval before templates or routes)
 
 - [ ] T013 [US1] [FR-021] [T-10] [P-14] Rewrite `docs/ui_previews/submission_detail.html` from `docs/ui_previews/_scaffold.html`: one metadata section (name, Modeling status, Submission status, owner, Cedant, Client as "ID - name", treaty type, treaty year, deal inception, deal expiration, CRM IDs with effective dates and an inherited mark per date) and one set of controls (Modeling status transition with reason + history; Submission status plain select; add/remove CRM ID; edit a CRM ID's two dates in place; "Make them all the same"; edit deal dates). Four states on the board: Active with CRM IDs mixing inherited and entered dates; Active with no CRM ID; Completed (everything locked except Submission status, read-only banner reworded); client with the repository unreachable. Tables below the history are not in the preview
-  - Proof: approver's informal 👍 on the rendered file. **Stop here until approved.** On approval, write the approved fragment ids into contracts/routes.md §1 (the deal-status POST target) and quickstart.md §3 Story 1 before T018 starts
-  - Waived by the developer on 2026-09-18 ("Do not worry about creating UI previews"): T021–T023 were built without a preview; the fragment id `#deal-head` is recorded in contracts/routes.md §1
+  - Proof: approver's informal 👍 on the rendered file. **Stop here until approved.** On approval, write the approved fragment ids into contracts/routes.md §1 (the statuses POST target) and quickstart.md §3 Story 1 before T018 starts
+  - Waived by the developer on 2026-09-18 ("Do not worry about creating UI previews"): T021–T023 were built without a preview. The section was then redesigned against a preview — `docs/ui_previews/submission_metadata.html`, approved 2026-09-18 — and rebuilt in T051–T053
 
 ### Service
 
@@ -158,6 +158,16 @@ read every story depends on. No user-visible change yet.
 - [x] T049 Subtraction review of the whole diff per AGENTS.md §Code Quality: remove comments that restate the code, inline one-caller helpers, drop the old CRM ID `LIKE` path and any 400-cap remnant, delete `docs/ui_previews` states not built; `grep -rni "cedent" app docs/FUNCTIONAL_REQUIREMENTS.md` returns nothing
 - [x] T050 Run `uv run pytest tests/unit` and report "unit tier, N passed (baseline 1725)"; state that the SQL Server tier (T007) is unverified until the developer runs `make test-sql`, and that T034 stays open until spec 014 merges
   - Result 2026-09-18: unit tier, 2010 passed (baseline on this branch 1953 after the 016 merge; plan.md's 1725 predates it). SQL Server tier not run. T034 open.
+
+---
+
+## Phase 7: The metadata section redesigned (P-14)
+
+Preview `docs/ui_previews/submission_metadata.html`, approved 2026-09-18.
+
+- [x] T051 [US1] [FR-021] [P-12] [P-14] Replace `set_status` and `set_deal_status` in `app/services/submission_service.py` with `set_statuses(*, submission_id, modeling_status=None, deal_status=None, reason=None, expected_updated_at, actor_id)`: both statuses in one transaction under the one R1 marker, the Modeling status event written only when `modeling_status` is given; give `add_crm_id` optional `inception_date` / `expiration_date`
+- [x] T052 [US1] [FR-002] [FR-004] [P-14] Replace `POST /submissions/{sid}/status` and `…/deal-status` with `POST /submissions/{sid}/statuses` per contracts §1, passing only a status that differs from the stored one; take the two dates on `POST /submissions/{sid}/crm-ids`, storing a date sent back unchanged as inheritance; add `modeling_statuses` to `_head_context`
+- [x] T053 [US1] [FR-021] [P-14] Rebuild `app/templates/partials/submission_head.html` as one deal card of four groups — Treaty, Term, Status, Owner — each editable group's pencil swapping its values for its editor in place, the Modeling status history behind a link; rebuild `app/templates/partials/crm_tags.html` as the card's CRM band: one vertical list, Add behind a button, row pencil and × on hover, every date rendered the same; move the styles to `.deal-card` / `.crm-band` in `app/static/css/submissions.css` and add the Won / Lost / In Process chip variants and `.icon-btn--xs` to `components.css`
 
 ---
 

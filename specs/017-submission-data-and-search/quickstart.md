@@ -23,8 +23,8 @@ uv run pytest tests/unit
 ```
 
 Baseline before this feature: 1725 passed. Covers the filter clause builder,
-the library `EXISTS`, in-force through the view, effective dates and
-inherited flags, "make them all the same", Submission status writes,
+the library `EXISTS`, in-force through the view, effective dates,
+"make dates the same", Submission status writes,
 `client_service` fail-open, kind reads, the twenty-value cap on all three
 lists, the view's row shape, and the new routes.
 
@@ -44,21 +44,22 @@ someone runs it.**
 
 ### Story 1 — two statuses, dates per CRM ID
 
-1. Open any submission. The metadata section shows **Modeling status** and
-   **Submission status: In Process** as two separately labelled fields, the
-   second with a select.
-2. Set Submission status to **Lost**. No reason is asked; the Modeling status
-   chip and the history trail are unchanged.
-3. Set Modeling status to Completed (reason required, as before), then change
-   Submission status to **Won**. It saves (T-02).
-4. Add three CRM IDs on an Active deal. Each row shows the deal's inception and
-   a blank expiration, both marked inherited.
-5. Edit the deal's expiration in place on the submission page. All three rows
-   now show it, inherited.
-6. On one CRM ID enter an expiration three years later. Only that row changes
-   and is no longer marked inherited.
-7. Click **Make them all the same**, confirm. All rows read the deal dates,
-   inherited.
+1. Open any submission. The deal card's **Status** group shows **Modeling:
+   Active** and **Submission: In Process** as two labelled pills.
+2. Press the Status pencil. The pills become two selects and a reason box, in
+   place. Set Submission to **Lost** and Save. The Modeling pill and the
+   Modeling history are unchanged — no event is recorded.
+3. Press the pencil again, set Modeling to **Completed** with a reason and
+   Submission to **Won**, and Save. Both change in one write; **Modeling
+   history** gains one entry, carrying the reason (T-02, P-12).
+4. Press **+ Add CRM ID** on an Active deal. The field appears with the deal's
+   dates already in it; add three, accepting the dates. Each row reads the
+   deal's inception and expiration.
+5. Press the Term pencil and change the deal's expiration. All three rows
+   follow it.
+6. Press one CRM ID's row pencil and enter an expiration three years later.
+   Only that row changes, and it reads exactly like the others.
+7. Click **Make dates the same**, confirm. All rows read the deal dates again.
 8. Submissions list: the **Modeling status** picker offers Active, Completed,
    Cancelled; the **Submission status** picker offers Won, Lost, In Process.
    No Hold anywhere.

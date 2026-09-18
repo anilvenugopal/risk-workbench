@@ -22,9 +22,9 @@ spec 014 is on `main`; it does not block the rest.
 - **Submission status is one new column and one new kind table.**
   `submission.deal_status_code` (NOT NULL, default `IN_PROCESS`) references
   `deal_status_kind` (`WON`, `LOST`, `IN_PROCESS`). `POST
-  /submissions/{id}/deal-status` updates it in place with the existing
-  `updated_at` concurrency check, no reason, no event row, in every Modeling
-  status (T-01, T-02).
+  /submissions/{id}/statuses` saves it beside Modeling status in one
+  transaction under the one `updated_at` marker — in place, no reason, no event
+  row, in every Modeling status (T-01, T-02, P-12, P-14).
 - **Dates gain two optional overrides per CRM ID.** `submission.expiration_date`
   (nullable) is added; `submission_crm_id` gains nullable `inception_date` and
   `expiration_date`. A CRM ID's effective date is `COALESCE(override, deal)`
@@ -192,7 +192,7 @@ Material interactions — where an article actively shapes this design:
 ```text
 alembic/versions/0001_initial.py          # deal_status_kind, new columns, view, treaty seed, index INCLUDE
 app/routers/_list_filters.py              # new: shared filter parsing, cap 20, messages
-app/routers/submissions.py                # deal-status + CRM-date routes; filters via _list_filters; TREATY_TYPES deleted
+app/routers/submissions.py                # statuses + CRM-date routes; filters via _list_filters; TREATY_TYPES deleted
 app/routers/edms.py                       # _library_context takes submission filters; poll URL carries them
 app/routers/rdms.py                       # same
 app/services/submission_service.py        # filter clauses, kinds reads, deal status, CRM dates, row models
