@@ -634,7 +634,6 @@ def test_fragment_at_ty_lists_the_treaties_with_their_terms_and_no_aal(client):
     assert f'name="treaty[{c}]" value="PR1"' in alone.text
     assert f'name="treaty[{c}]" value="PR2"' in alone.text
     assert "checked" not in alone.text                      # nothing ticked by default
-    assert "0 of 2 ticked" in alone.text
     assert ">Working Excess</span>" in alone.text
     assert "risk <b>3.0M</b> · att <b>2.0M</b> · occ <b>9.0M</b>" in alone.text
     assert "risk <b>5.0M</b> · att <b>250,000</b> · occ <b>—</b>" in alone.text
@@ -663,7 +662,6 @@ def test_fragment_keeps_the_ticks_and_the_treaty_names_typed_before_the_next_cha
                               (f"treaty_data_name[{c}][PR2]", "AmFam HU 5x5 2026"),
                               (f"treaty_data_name[{c}][PR1]", "not ticked, dropped")])
 
-    assert "1 of 2 ticked" in frag.text
     ticked = frag.text.split(f'name="treaty[{c}]" value="PR2"')[1].split(">")[0]
     assert "checked" in ticked
     unticked = frag.text.split(f'name="treaty[{c}]" value="PR1"')[1].split(">")[0]

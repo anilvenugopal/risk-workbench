@@ -879,8 +879,7 @@ document.addEventListener('alpine:init', () => {
       return this.term ? `${this.shown} of ${this.rowCount} analyses`
         : `${this.rowCount} analyses`;
     },
-    // The all / none links over one analysis's treaty list. The ticked count in
-    // the head is server-rendered, so it catches up with the next fragment swap.
+    // The all / none links over one analysis's treaty list.
     tickTreaties(pick, checked) {
       if (!pick) return;
       pick.querySelectorAll('input[type=checkbox]').forEach((box) => {

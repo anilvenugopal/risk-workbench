@@ -45,7 +45,6 @@
         {% if perspective == 'TY' %}
         <div class="treaty-pick">
           <div class="treaty-pick__head"><span>Treaties</span>
-            <span class="count">{{ picked|length }} of {{ a.treaties|length }} ticked</span>
             <span class="links">
               <a href="#" @click.prevent="tickTreaties($el.closest('.treaty-pick'), true)">all</a> ·
               <a href="#" @click.prevent="tickTreaties($el.closest('.treaty-pick'), false)">none</a></span>
