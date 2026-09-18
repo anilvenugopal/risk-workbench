@@ -27,17 +27,36 @@ ITERATION1_SCHEMA = [
     """CREATE TABLE submission_status_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
+    """CREATE TABLE deal_status_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
     """CREATE TABLE submission (
         id TEXT PRIMARY KEY, assigned_analyst_id TEXT, name TEXT,
         cedant_name TEXT, treaty_type_code TEXT, inception_date TEXT,
-        treaty_year INTEGER, links_to_submission_id TEXT, directory_path TEXT,
-        status_code TEXT, inserted_at TEXT, updated_at TEXT,
-        inserted_by TEXT, updated_by TEXT
+        expiration_date TEXT, treaty_year INTEGER, links_to_submission_id TEXT,
+        directory_path TEXT, client_id INTEGER, status_code TEXT,
+        deal_status_code TEXT NOT NULL DEFAULT 'IN_PROCESS',
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     """CREATE TABLE submission_crm_id (
         id TEXT PRIMARY KEY, submission_id TEXT, crm_id TEXT,
+        inception_date TEXT, expiration_date TEXT,
         inserted_at TEXT, inserted_by TEXT
     )""",
+    # Same text as alembic/versions/0001_initial.py: SQLite runs it unchanged.
+    """CREATE VIEW v_submission_crm_id AS
+SELECT s.id            AS submission_id,
+       s.name          AS submission_name,
+       s.cedant_name, s.treaty_type_code, s.treaty_year,
+       c.id            AS crm_tag_id,
+       c.crm_id,
+       COALESCE(c.inception_date,  s.inception_date)  AS effective_inception_date,
+       COALESCE(c.expiration_date, s.expiration_date) AS effective_expiration_date,
+       s.status_code      AS modeling_status_code,
+       s.deal_status_code,
+       s.client_id
+FROM submission s
+LEFT JOIN submission_crm_id c ON c.submission_id = s.id""",
     """CREATE TABLE submission_status_event (
         id TEXT PRIMARY KEY, submission_id TEXT, status_code TEXT, reason TEXT,
         at TEXT, inserted_by TEXT
@@ -75,9 +94,21 @@ ITERATION1_SCHEMA = [
 
 STATUS_SEED = [("ACTIVE", "Active", 10), ("COMPLETED", "Completed", 20),
                ("CANCELLED", "Cancelled", 30)]
-TREATY_SEED = [("cat_xol", "Cat XoL", 10), ("quota_share", "Quota Share", 20),
-               ("surplus", "Surplus", 30), ("per_risk_xol", "Per-Risk XoL", 40),
-               ("aggregate_xol", "Aggregate XoL", 50), ("stop_loss", "Stop Loss", 60)]
+DEAL_STATUS_SEED = [("IN_PROCESS", "In Process", 10), ("WON", "Won", 20),
+                    ("LOST", "Lost", 30)]
+TREATY_SEED = [
+    ('aggregate_xol', 'Aggregate XOL', 10),
+    ('aggregate_cat_xol', 'Aggregate Cat XOL', 20),
+    ('risk_aggregate_xol', 'Risk Aggregate XOL', 30),
+    ('per_occurrence_xol', 'Per Occurrence XOL', 40),
+    ('per_occurrence_cat_xol', 'Per Occurrence Cat XOL', 50),
+    ('per_risk_xol', 'Per Risk XOL', 60),
+    ('stop_loss', 'Stop Loss', 70),
+    ('reinstatement_premium_protection', 'Reinstatement Premium Protection', 80),
+    ('second_third_fourth_event_risk_exposed', 'Second/Third/Fourth Event - Risk Exposed', 90),
+    ('top_and_drop', 'Top & Drop', 100),
+    ('top_and_aggregate', 'Top & Aggregate', 110),
+]
 
 # ── Iteration-2 mirror: irp_job / rwb_job families (data-model §1–§5) ──────────
 # Column shapes match the migration exactly (types collapsed, FKs omitted). The
@@ -358,7 +389,7 @@ ANALYSIS_PERSPECTIVE_SEED = [("GR", "Gross", 10),
 # Tables whose mirror must match the real migrated schema column-for-column. A new
 # migration column here MUST be added to the mirror above or the guard fails.
 EXACT_MATCH_TABLES = (
-    "treaty_type_kind", "submission_status_kind", "submission",
+    "treaty_type_kind", "submission_status_kind", "deal_status_kind", "submission",
     "submission_crm_id", "submission_status_event", "submission_edm",
     "submission_rdm",
     # Iteration 2 — irp_job / rwb_job families (full mirrors, exact match).

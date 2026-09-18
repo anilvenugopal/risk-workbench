@@ -130,6 +130,16 @@ def upgrade() -> None:
                   server_default=sa.text("GETUTCDATE()")),
     )
 
+    # ── deal_status_kind (kind) — Submission status: Won / Lost / In Process ────
+    op.create_table(
+        "deal_status_kind",
+        sa.Column("code", sa.NVARCHAR(50), primary_key=True),
+        sa.Column("label", sa.NVARCHAR(255), nullable=False),
+        sa.Column("sort_order", sa.Integer, nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+    )
+
     # ── submission (the deal — top-level entity) ────────────────────────────────
     op.create_table(
         "submission",
@@ -139,11 +149,16 @@ def upgrade() -> None:
         sa.Column("cedant_name", sa.NVARCHAR(255), nullable=False),
         sa.Column("treaty_type_code", sa.NVARCHAR(50), nullable=False),
         sa.Column("inception_date", sa.Date, nullable=False),
+        sa.Column("expiration_date", sa.Date, nullable=True),
         sa.Column("treaty_year", sa.Integer, nullable=True),
         sa.Column("links_to_submission_id", sa.Uuid, nullable=True),  # self-ref
         sa.Column("directory_path", sa.NVARCHAR(1024), nullable=True),
+        # rwb_loss dbo.Client.ClientID — another database, so no FK.
+        sa.Column("client_id", sa.Integer, nullable=True),
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False,
                   server_default=sa.text("'ACTIVE'")),  # cached current (Article 4)
+        sa.Column("deal_status_code", sa.NVARCHAR(50), nullable=False,
+                  server_default=sa.text("'IN_PROCESS'")),  # updated in place (Article 4)
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("updated_at", DATETIME2, nullable=False,
@@ -153,6 +168,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["assigned_analyst_id"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["treaty_type_code"], ["treaty_type_kind.code"]),
         sa.ForeignKeyConstraint(["status_code"], ["submission_status_kind.code"]),
+        sa.ForeignKeyConstraint(["deal_status_code"], ["deal_status_kind.code"]),
         sa.ForeignKeyConstraint(["links_to_submission_id"], ["submission.id"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
@@ -178,7 +194,8 @@ def upgrade() -> None:
         "ix_submission_list_order", "submission",
         [sa.text("inception_date DESC"), "name"],
         mssql_include=["cedant_name", "treaty_type_code", "treaty_year",
-                       "status_code", "assigned_analyst_id", "updated_at"],
+                       "status_code", "assigned_analyst_id", "updated_at",
+                       "deal_status_code", "expiration_date", "client_id"],
     )
 
     # ── submission_crm_id (0..N CRM tags) ───────────────────────────────────────
@@ -187,6 +204,9 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("submission_id", sa.Uuid, nullable=False),
         sa.Column("crm_id", sa.NVARCHAR(255), nullable=False),  # unvalidated (FR-018)
+        # NULL inherits the submission's date; set, it overrides for this CRM ID.
+        sa.Column("inception_date", sa.Date, nullable=True),
+        sa.Column("expiration_date", sa.Date, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("inserted_by", sa.Uuid, nullable=True),
@@ -195,6 +215,23 @@ def upgrade() -> None:
     )
     op.create_index("ix_submission_crm_id_submission_id", "submission_crm_id",
                     ["submission_id"])
+
+    # One row per CRM ID, one blank-CRM row for a submission with none, effective
+    # dates by COALESCE per column. Read by the in-force filter and by CIC's
+    # linking queries (spec 017 FR-013). CREATE VIEW must be alone in its batch.
+    op.execute(sa.text("""CREATE VIEW v_submission_crm_id AS
+SELECT s.id            AS submission_id,
+       s.name          AS submission_name,
+       s.cedant_name, s.treaty_type_code, s.treaty_year,
+       c.id            AS crm_tag_id,
+       c.crm_id,
+       COALESCE(c.inception_date,  s.inception_date)  AS effective_inception_date,
+       COALESCE(c.expiration_date, s.expiration_date) AS effective_expiration_date,
+       s.status_code      AS modeling_status_code,
+       s.deal_status_code,
+       s.client_id
+FROM submission s
+LEFT JOIN submission_crm_id c ON c.submission_id = s.id"""))
 
     # ── submission_status_event (append-only status history, Article 4) ─────────
     op.create_table(
@@ -1107,15 +1144,27 @@ def upgrade() -> None:
         "('COMPLETED', 'Completed', 20), "
         "('CANCELLED', 'Cancelled', 30)"
     ))
-    # treaty_type_kind — six provisional codes (FR-030, pending CIC confirmation).
+    # deal_status_kind — Submission status (spec 017 data-model §1).
+    op.execute(sa.text(
+        "INSERT INTO deal_status_kind (code, label, sort_order) VALUES "
+        "('IN_PROCESS', 'In Process', 10), "
+        "('WON', 'Won', 20), "
+        "('LOST', 'Lost', 30)"
+    ))
+    # treaty_type_kind — CIC's eleven treaty types (spec 017 FR-012).
     op.execute(sa.text(
         "INSERT INTO treaty_type_kind (code, label, sort_order) VALUES "
-        "('cat_xol', 'Cat XoL', 10), "
-        "('quota_share', 'Quota Share', 20), "
-        "('surplus', 'Surplus', 30), "
-        "('per_risk_xol', 'Per-Risk XoL', 40), "
-        "('aggregate_xol', 'Aggregate XoL', 50), "
-        "('stop_loss', 'Stop Loss', 60)"
+        "('aggregate_xol', 'Aggregate XOL', 10), "
+        "('aggregate_cat_xol', 'Aggregate Cat XOL', 20), "
+        "('risk_aggregate_xol', 'Risk Aggregate XOL', 30), "
+        "('per_occurrence_xol', 'Per Occurrence XOL', 40), "
+        "('per_occurrence_cat_xol', 'Per Occurrence Cat XOL', 50), "
+        "('per_risk_xol', 'Per Risk XOL', 60), "
+        "('stop_loss', 'Stop Loss', 70), "
+        "('reinstatement_premium_protection', 'Reinstatement Premium Protection', 80), "
+        "('second_third_fourth_event_risk_exposed', 'Second/Third/Fourth Event - Risk Exposed', 90), "
+        "('top_and_drop', 'Top & Drop', 100), "
+        "('top_and_aggregate', 'Top & Aggregate', 110)"
     ))
 
 
@@ -1205,6 +1254,7 @@ def downgrade() -> None:
         op.drop_table(kind)
 
     # Iteration-1 tables — reverse FK order.
+    op.execute(sa.text("DROP VIEW v_submission_crm_id"))
     op.drop_index("ix_submission_rdm_rdm_submission", table_name="submission_rdm")
     op.drop_table("submission_rdm")
     op.drop_index("ix_submission_edm_edm_submission", table_name="submission_edm")
@@ -1223,6 +1273,7 @@ def downgrade() -> None:
     op.drop_index("ix_submission_cedant_name", table_name="submission")
     op.drop_index("ix_submission_assigned_analyst_id", table_name="submission")
     op.drop_table("submission")
+    op.drop_table("deal_status_kind")
     op.drop_table("submission_status_kind")
     op.drop_table("treaty_type_kind")
 

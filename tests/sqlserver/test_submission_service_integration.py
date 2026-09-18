@@ -192,7 +192,7 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     a, b = iteration1_db.user_a, iteration1_db.user_b
     sid = svc.create_submission(
         name=f"MarkerDeal_{uuid.uuid4().hex[:8]}", cedant_name="Marker Cedant",
-        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+        treaty_type_code="per_risk_xol", inception_date=date(2026, 4, 1),
         actor_id=a, confirmed=True,
     ).submission_id
 
@@ -236,7 +236,7 @@ def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
     for index in range(4):
         svc.create_submission(
             name=f"CapDeal{tag}_{index}", cedant_name=f"CapCedant{tag} {index}",
-            treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+            treaty_type_code="per_risk_xol", inception_date=date(2026, 4, 1),
             actor_id=a, confirmed=True)
 
     assert len(svc.cedant_suggestions(f"CapCedant{tag}", limit=2)) == 2
@@ -267,14 +267,14 @@ def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db)
     tag = uuid.uuid4().hex[:8]
     sid = svc.create_submission(
         name=f"LinkDeal{tag}", cedant_name=f"LinkCedant{tag}",
-        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+        treaty_type_code="per_risk_xol", inception_date=date(2026, 4, 1),
         actor_id=a, confirmed=True).submission_id
 
     for bad in (str(uuid.uuid4()), "not-a-uuid"):
         with pytest.raises(UnknownLinkError):
             svc.create_submission(
                 name=f"LinkDeal{tag}_stale", cedant_name=f"LinkCedant{tag}",
-                treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+                treaty_type_code="per_risk_xol", inception_date=date(2026, 4, 1),
                 links_to_submission_id=bad, actor_id=a, confirmed=True)
         with pytest.raises(UnknownLinkError):
             svc.update_submission(
@@ -285,7 +285,7 @@ def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db)
     # names the same deal and is stored in the canonical lowercase form.
     target = svc.create_submission(
         name=f"LinkDeal{tag}_target", cedant_name=f"LinkCedant{tag}",
-        treaty_type_code="cat_xol", inception_date=date(2025, 4, 1),
+        treaty_type_code="per_risk_xol", inception_date=date(2025, 4, 1),
         actor_id=a, confirmed=True).submission_id
     svc.update_submission(
         submission_id=sid, expected_updated_at=svc.get_submission(sid).updated_at,

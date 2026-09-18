@@ -24,10 +24,17 @@ from db.errors import SQLServerQueryError
 pytestmark = pytest.mark.sqlserver
 
 ITERATION1_TABLES = [
-    "treaty_type_kind", "submission_status_kind", "submission",
+    "treaty_type_kind", "submission_status_kind", "deal_status_kind", "submission",
     "submission_crm_id", "submission_status_event", "irp_edm", "irp_rdm",
     "submission_edm", "submission_rdm",
 ]
+# research.md R6 — CIC's eleven modeling treaty types (spec 017 FR-012).
+TREATY_TYPE_CODES = {
+    "aggregate_xol", "aggregate_cat_xol", "risk_aggregate_xol",
+    "per_occurrence_xol", "per_occurrence_cat_xol", "per_risk_xol", "stop_loss",
+    "reinstatement_premium_protection", "second_third_fourth_event_risk_exposed",
+    "top_and_drop", "top_and_aggregate",
+}
 REMOVED_TABLES = [
     "customer", "program", "user_customer_access", "package", "submission_package",
 ]
@@ -64,8 +71,36 @@ class TestSubmissionMigration:
     def test_treaty_type_kind_seeds(self):
         codes = {r["code"] for r in execute(
             "SELECT code FROM treaty_type_kind", {}, connection="WORKBENCH")}
-        assert codes == {"cat_xol", "quota_share", "surplus", "per_risk_xol",
-                         "aggregate_xol", "stop_loss"}
+        assert codes == TREATY_TYPE_CODES
+
+    def test_deal_status_kind_seeds(self):
+        codes = {r["code"] for r in execute(
+            "SELECT code FROM deal_status_kind", {}, connection="WORKBENCH")}
+        assert codes == {"IN_PROCESS", "WON", "LOST"}
+
+    def test_submission_carries_the_spec_017_columns(self):
+        cols = {r["COLUMN_NAME"] for r in execute(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'submission'", {}, connection="WORKBENCH")}
+        assert {"deal_status_code", "expiration_date", "client_id"} <= cols
+        crm_cols = {r["COLUMN_NAME"] for r in execute(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'submission_crm_id'", {}, connection="WORKBENCH")}
+        assert {"inception_date", "expiration_date"} <= crm_cols
+
+    def test_v_submission_crm_id_exists_and_coalesces_to_date(self):
+        """The view is the FR-013 extract and the in-force source (T-04);
+        ``COALESCE`` over two DATE columns has to come back as DATE, not as a
+        string, or the ``<= :asof`` comparison would compare text."""
+        assert execute_scalar(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.VIEWS "
+            "WHERE TABLE_NAME = 'v_submission_crm_id'",
+            {}, connection="WORKBENCH") == 1
+        types = {r["COLUMN_NAME"]: r["DATA_TYPE"] for r in execute(
+            "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'v_submission_crm_id'", {}, connection="WORKBENCH")}
+        assert types["effective_inception_date"] == "date"
+        assert types["effective_expiration_date"] == "date"
 
     def test_submission_has_no_unique_name_and_no_customer_id(self):
         cols = {r["COLUMN_NAME"] for r in execute(
@@ -101,7 +136,8 @@ class TestSubmissionMigration:
         assert keys == [("inception_date", True), ("name", False)]
         included = {r["name"] for r in cols if r["is_included_column"]}
         assert included == {"cedant_name", "treaty_type_code", "treaty_year",
-                            "status_code", "assigned_analyst_id", "updated_at"}
+                            "status_code", "assigned_analyst_id", "updated_at",
+                            "deal_status_code", "expiration_date", "client_id"}
 
     def test_submission_foreign_keys_present(self):
         n = execute_scalar(
@@ -150,7 +186,7 @@ def temp_submission():
                 "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
                 "treaty_type_code, inception_date, status_code, inserted_at, "
                 "updated_at, inserted_by, updated_by) "
-                "VALUES (:id, :uid, 'MigDeal', 'Mig Cedant', 'cat_xol', :inc, "
+                "VALUES (:id, :uid, 'MigDeal', 'Mig Cedant', 'per_risk_xol', :inc, "
                 "'ACTIVE', :now, :now, :uid, :uid)"
             ), {"id": sid, "uid": uid, "inc": now.date(), "now": now})
             conn.execute(text(
@@ -167,6 +203,25 @@ def temp_submission():
                     connection="WORKBENCH")
     execute_command("DELETE FROM app_user WHERE id = :uid", {"uid": uid},
                     connection="WORKBENCH")
+
+
+# ── spec 017 T-06: the repository client read over LOSS ─────────────────────
+
+def test_dbo_client_reads_over_loss_when_the_table_exists():
+    """``client_service`` reads ``dbo.Client`` in ``rwb_loss``. Spec 014's
+    bootstrap creates the table; without it the read fails open, which is
+    FR-009's own scenario, so the test skips rather than asserts."""
+    from app.services import client_service
+
+    present = execute_scalar(
+        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES "
+        "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Client'",
+        {}, connection="LOSS")
+    if not present:
+        pytest.skip("dbo.Client is not in rwb_loss (spec 014 bootstrap not applied)")
+    clients = client_service.list_clients()
+    assert clients is not None
+    assert clients == sorted(clients, key=lambda c: ((c.name or ""), c.id))
 
 
 # ── T032: event-sourced status transaction atomicity ─────────────────────────

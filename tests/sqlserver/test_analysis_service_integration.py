@@ -91,7 +91,7 @@ def test_delete_by_submission_frees_the_name_of_an_analysis_and_a_group(
             conn.execute(text(
                 "INSERT INTO submission (id, assigned_analyst_id, name, "
                 "cedant_name, treaty_type_code, inception_date, status_code) "
-                "VALUES (:id, :analyst, :name, 'Cedant', 'cat_xol', :inception, "
+                "VALUES (:id, :analyst, :name, 'Cedant', 'per_risk_xol', :inception, "
                 "'ACTIVE')"
             ), {"id": submission_id, "analyst": analyst_id,
                 "name": f"Delete deal {submission_id}",
