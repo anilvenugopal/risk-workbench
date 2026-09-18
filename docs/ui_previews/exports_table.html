@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exports table · UI preview · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   Refresh this :root block whenever the app's tokens change.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+  --dur-fast:120ms;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5}
+.wrap{padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+h1{margin:0;font-size:var(--fs-title);font-weight:var(--fw-semibold);display:flex;gap:var(--space-2);align-items:center}
+h2{margin:var(--space-6) 0 var(--space-2);font-size:var(--fs-h3)}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid var(--color-neutral-border);background:var(--color-neutral-bg);color:var(--color-neutral-text)}
+.deal-head__created{color:var(--text-tertiary);font-size:var(--fs-label)}
+.mono{font-family:var(--font-mono);font-size:var(--fs-mono)}
+.deal-facts{display:flex;flex-wrap:wrap;gap:var(--space-4);margin-top:var(--space-2);font-size:var(--fs-label)}
+.deal-fact__label{color:var(--text-tertiary)}
+.btn-sm{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:var(--radius-md);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid var(--border-default);background:transparent;color:var(--text-secondary);cursor:pointer}
+.link{color:var(--color-brand-hover)}
+.section-head{display:flex;align-items:center;gap:var(--space-3);margin:var(--space-6) 0 var(--space-2)}
+.section-head h2{margin:0}
+.section-head__spacer{margin-left:auto}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);min-width:240px}
+/* form banners (submissions.css) */
+.form-banner{margin-bottom:var(--space-4);padding:var(--space-2) 14px;border-radius:var(--radius-md);font-size:var(--fs-label);border:1px solid var(--border-default)}
+.form-banner--error{color:var(--color-danger);background:var(--color-danger-bg);border-color:var(--color-danger-border)}
+/* the .dtable grid (details.css) */
+.dtable-shell{overflow:auto;container-type:inline-size;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.dtable{width:100%;font-size:var(--fs-label)}
+.dtable__head,.drow>summary,.drow-static{display:grid;grid-template-columns:var(--cols);align-items:center}
+.dtable__head{position:sticky;top:0;z-index:6;background:var(--surface-recessed);border-bottom:1px solid var(--border-default)}
+.dtable__head>span{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);padding:var(--space-2) var(--space-3);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtable__head>span.l,.drow>summary>span.l,.drow-static>span.l{text-align:left}
+.drow,.drow-static{border-bottom:1px solid var(--c-border-faint)}
+.drow:last-child,.drow-static:last-child{border-bottom:none}
+.drow>summary{list-style:none;cursor:pointer}
+.drow>summary::-webkit-details-marker{display:none}
+.drow>summary:hover{background:var(--surface-recessed)}
+.drow>summary>span,.drow-static>span{padding:var(--space-2) var(--space-3);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtable__head>:first-child,.drow>summary>:first-child,.drow-static>:first-child{position:sticky;left:0;z-index:1;background:var(--surface-panel);box-shadow:1px 0 0 var(--border-default)}
+.dtable__head>:first-child{z-index:7;background:var(--surface-recessed)}
+.drow>summary:hover>:first-child{background:var(--surface-recessed)}
+.drow[open]>summary,.drow[open]>summary>:first-child{background:var(--color-brand-faint)}
+.drow__body{border-top:1px solid var(--border-faint);border-left:3px solid var(--color-brand);background:var(--surface-panel);padding:var(--space-3) var(--space-4);position:sticky;left:0;width:100cqw}
+.dtable__groupempty{padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);color:var(--text-tertiary);border-bottom:1px solid var(--border-faint);position:sticky;left:0;width:100cqw}
+.dt-name{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.dt-caret{color:var(--text-tertiary);font-size:10px;transition:transform var(--dur-fast) ease;flex:none}
+.drow[open]>summary .dt-caret{transform:rotate(90deg)}
+.dt-title{font-weight:var(--fw-semibold);color:var(--text-primary);line-height:1.2;overflow:hidden;text-overflow:ellipsis}
+.state-box{padding:var(--space-3);border:1px dashed var(--border-default);border-radius:var(--radius-md);color:var(--text-tertiary);font-size:var(--fs-label)}
+/* collapsible section header (details.css) */
+details.sec{margin-bottom:var(--space-6)}
+details.sec>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:var(--space-2);margin-bottom:10px;padding-bottom:var(--space-2);border-bottom:1px solid var(--border-faint)}
+details.sec>summary::-webkit-details-marker{display:none}
+.sec__caret{color:var(--text-tertiary);font-size:11px;transition:transform var(--dur-fast) ease}
+details.sec[open]>summary .sec__caret{transform:rotate(90deg)}
+.sec__title{font-size:14px;color:var(--text-primary);font-weight:var(--fw-semibold)}
+.sec__spacer{margin-left:auto}
+/* loss results export (details.css) */
+.dtable--wraphead .dtable__head>span{white-space:normal;line-height:1.15}
+.export-analyses .drow-static>:first-child{white-space:normal}
+.export-analyses .drow-static>:nth-child(2){white-space:normal}
+.export-analyses .dt-title{white-space:normal;overflow:visible}
+/* the ordinal column is 44px; the analysis name beside it stays frozen too */
+.export-analyses .dtable__head>:nth-child(2),.export-analyses .drow-static>:nth-child(2){position:sticky;left:44px;z-index:1;background:var(--surface-panel);box-shadow:1px 0 0 var(--border-default)}
+.export-analyses .dtable__head>:nth-child(2){z-index:7;background:var(--surface-recessed)}
+.export-analyses .dtable__head>:first-child,.export-analyses .drow-static>:first-child{box-shadow:none}
+/* a thicker rule opens each export's block of rows */
+.export-analyses .export-analysis--first{border-top:2px solid var(--border-strong)}
+.export-ordinal{color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.export-detail__error{grid-column:1/-1;padding:0 var(--space-3) var(--space-2);font-size:var(--fs-caption);color:var(--color-danger);white-space:normal}
+.export-detail__closed{grid-column:1/-1;padding:0 var(--space-3) var(--space-2);font-size:var(--fs-caption);color:var(--text-tertiary);white-space:normal}
+.export-analysis__actions{display:flex;gap:var(--space-2)}
+.export-filters{display:inline-flex;gap:var(--space-2);align-items:center}
+.export-filters .wf-field__input{min-width:0}
+/* status chips (components.css) */
+.status-chip{display:inline-block;font-size:var(--fs-caption);font-weight:var(--fw-medium);letter-spacing:.03em;text-transform:uppercase;padding:1px var(--space-2);border-radius:var(--radius-pill);border:1px solid var(--border-default);color:var(--text-secondary);background:var(--surface-recessed)}
+.status-chip--export-queued{background:var(--c-navy-050);color:var(--c-navy-600);border-color:var(--c-navy-200)}
+.status-chip--export-in-progress{background:var(--c-amber-050);color:var(--c-amber-700);border-color:var(--c-amber-200)}
+.status-chip--export-loaded{background:var(--c-green-050);color:var(--c-green-700);border-color:var(--c-green-200)}
+.status-chip--export-failed{background:var(--c-red-050);color:var(--c-red-700);border-color:var(--c-red-200)}
+.status-chip--export-closed{background:var(--surface-recessed);color:var(--text-tertiary);border-color:var(--border-default)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="scaffold-note"><strong>UI PREVIEW — spec 014 exports table</strong>, the submission page's Exports
+    section after the 2026-09-15 design session (D1–D8). The export detail page is gone. One flat table, one row
+    per analysis; every row repeats its export's columns on the right; the <strong>#</strong> column is the export's
+    ordinal (#1 newest) and a heavier rule opens each export's block. Four filters (status, client, CRM ID,
+    perspective) at analysis grain plus <strong>Copy table</strong>. The # and Analysis columns stay frozen while the
+    rest scrolls.</div>
+
+  <div class="eyebrow">Exports section — three exports, no filter</div>
+  <details class="sec" open>
+    <summary>
+      <span class="sec__caret">▸</span><span class="sec__title">Exports</span><span class="badge">3</span>
+      <span class="sec__spacer"></span>
+      <span class="export-filters">
+        <select class="wf-field__input" style="width:auto"><option selected>All statuses</option><option>Failed</option><option>Loaded</option></select>
+        <select class="wf-field__input" style="width:auto"><option selected>All clients</option><option>Example Re</option><option>Retired Mutual</option></select>
+        <select class="wf-field__input" style="width:auto"><option selected>All CRM IDs</option><option>CRM-77812</option><option>CRM-77990</option></select>
+        <select class="wf-field__input" style="width:auto"><option selected>All perspectives</option><option>GR</option><option>RL</option></select>
+        <button class="btn-sm" title="Copy the table with headers — pastes into Excel">⋮ Copy table</button>
+      </span>
+    </summary>
+    <div class="dtable-shell">
+      <div class="dtable dtable--wraphead export-analyses"
+           style="--cols: 44px minmax(300px,2fr) 70px 125px 80px minmax(150px,1fr) 90px 80px 60px 70px 90px 90px 90px 100px 100px 80px 170px 70px 90px 90px minmax(140px,1fr) 110px 110px 110px minmax(190px,1.3fr) 170px 130px; min-width:3015px">
+        <div class="dtable__head">
+          <span class="l">#</span><span class="l">Analysis</span><span class="l">Origin</span><span class="l">Status</span>
+          <span class="l">Data ID</span><span class="l">Data name</span><span class="l">AAL</span><span class="l">Currency</span>
+          <span class="l">Peril</span><span class="l">Region</span><span class="l">Staged</span><span class="l">Stochastic</span>
+          <span class="l">Historical</span><span class="l">Exposure raised</span><span class="l">Std dev zeroed</span><span class="l">RM id</span>
+          <span class="l">Last updated</span><span class="l">Engine</span><span class="l">Model version</span>
+          <span class="l">Perspective</span><span class="l">Client</span><span class="l">CRM ID</span><span class="l">Treaty inception</span>
+          <span class="l">Data vintage</span><span class="l">Requested by</span><span class="l">Requested at</span><span class="l"></span>
+        </div>
+
+        <!-- export #1 — newest, in progress -->
+        <div class="drow-static export-analysis export-analysis--first">
+          <span class="l export-ordinal">#1</span><span class="l"><span class="dt-title">CRE_US Southeast Wind_US HU DLM v25</span></span><span class="l">own</span>
+          <span class="l"><span class="status-chip status-chip--export-queued">queued</span></span>
+          <span class="l">—</span><span class="l">AmFam HU GR 2026</span><span class="l">4.1M</span><span class="l">USD</span>
+          <span class="l">WS</span><span class="l">NA</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">41958</span>
+          <span class="l">2026-09-16 08:14:02</span><span class="l">—</span><span class="l">25.0</span>
+          <span class="l">GR</span><span class="l">Example Re</span><span class="l">CRM-77812</span><span class="l">2026-04-01</span>
+          <span class="l">2026-03-31</span><span class="l">b.bailey@premiumiq.com</span><span class="l">2026-09-16 08:14:02</span><span class="l"></span>
+        </div>
+        <div class="drow-static export-analysis">
+          <span class="l export-ordinal">#1</span><span class="l"><span class="dt-title">CRE_US Southeast Wind_US EQ DLM v25</span></span><span class="l">own</span>
+          <span class="l"><span class="status-chip status-chip--export-in-progress">in progress</span></span>
+          <span class="l">—</span><span class="l">—</span><span class="l">812,400</span><span class="l">USD</span>
+          <span class="l">EQ</span><span class="l">NA</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">41959</span>
+          <span class="l">2026-09-16 08:14:09</span><span class="l">—</span><span class="l">25.0</span>
+          <span class="l">GR</span><span class="l">Example Re</span><span class="l">CRM-77812</span><span class="l">2026-04-01</span>
+          <span class="l">2026-03-31</span><span class="l">b.bailey@premiumiq.com</span><span class="l">2026-09-16 08:14:02</span><span class="l"></span>
+        </div>
+        <div class="drow-static export-analysis">
+          <span class="l export-ordinal">#1</span><span class="l"><span class="dt-title">GC_AmFam_HU_2026</span></span><span class="l">broker</span>
+          <span class="l"><span class="status-chip status-chip--export-in-progress">in progress</span></span>
+          <span class="l">—</span><span class="l">GC AmFam HU GR</span><span class="l">6.9M</span><span class="l">USD</span>
+          <span class="l">WS</span><span class="l">NA</span><span class="l">15,689</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">38812</span>
+          <span class="l">2026-09-16 08:21:55</span><span class="l">DLM</span><span class="l">25.0</span>
+          <span class="l">GR</span><span class="l">Example Re</span><span class="l">CRM-77812</span><span class="l">2026-04-01</span>
+          <span class="l">2026-03-31</span><span class="l">b.bailey@premiumiq.com</span><span class="l">2026-09-16 08:14:02</span><span class="l"></span>
+        </div>
+
+        <!-- export #2 — one loaded, one failed -->
+        <div class="drow-static export-analysis export-analysis--first">
+          <span class="l export-ordinal">#2</span><span class="l"><span class="dt-title">CRE_US Midwest_US WT DLM v25</span></span><span class="l">own</span>
+          <span class="l"><span class="status-chip status-chip--export-loaded">loaded</span></span>
+          <span class="l">4127</span><span class="l">AmFam WT RL 2026</span><span class="l">3.4M</span><span class="l">USD</span>
+          <span class="l">WT</span><span class="l">NA</span><span class="l">15,689</span><span class="l">15,401</span><span class="l">288</span><span class="l">12</span><span class="l">3</span><span class="l">41971</span>
+          <span class="l">2026-09-15 16:44:31</span><span class="l">DLM</span><span class="l">25.0</span>
+          <span class="l">RL</span><span class="l">Example Re</span><span class="l">CRM-77990</span><span class="l">2026-04-01</span>
+          <span class="l">2026-03-31</span><span class="l">r.patel@premiumiq.com</span><span class="l">2026-09-15 16:30:00</span><span class="l"></span>
+        </div>
+        <div class="drow-static export-analysis">
+          <span class="l export-ordinal">#2</span><span class="l"><span class="dt-title">CRE_US Southeast Wind_US HU DLM v23</span></span><span class="l">group</span>
+          <span class="l"><span class="status-chip status-chip--export-failed">failed</span></span>
+          <span class="l">—</span><span class="l">—</span><span class="l">1.5M</span><span class="l">USD</span>
+          <span class="l">WS</span><span class="l">NA</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">41961</span>
+          <span class="l">2026-09-15 16:40:30</span><span class="l">GROUP</span><span class="l">25.0</span>
+          <span class="l">RL</span><span class="l">Example Re</span><span class="l">CRM-77990</span><span class="l">2026-04-01</span>
+          <span class="l">2026-03-31</span><span class="l">r.patel@premiumiq.com</span><span class="l">2026-09-15 16:30:00</span>
+          <span class="l"><span class="export-analysis__actions"><button class="btn-sm">Retry</button><button class="btn-sm">Close</button></span></span>
+          <div class="export-detail__error">archive currency 'EUR' does not match analysis currency 'USD'</div>
+        </div>
+
+        <!-- export #3 — oldest, one loaded, one closed -->
+        <div class="drow-static export-analysis export-analysis--first">
+          <span class="l export-ordinal">#3</span><span class="l"><span class="dt-title">CRE_US Midwest_US EQ DLM v25</span></span><span class="l">own</span>
+          <span class="l"><span class="status-chip status-chip--export-loaded">loaded</span></span>
+          <span class="l">4102</span><span class="l">—</span><span class="l">1.1M</span><span class="l">USD</span>
+          <span class="l">EQ</span><span class="l">NA</span><span class="l">12,004</span><span class="l">11,990</span><span class="l">14</span><span class="l">0</span><span class="l">0</span><span class="l">41966</span>
+          <span class="l">2026-09-08 14:20:07</span><span class="l">DLM</span><span class="l">25.0</span>
+          <span class="l">RL</span><span class="l">Retired Mutual</span><span class="l">CRM-77812</span><span class="l">2026-01-01</span>
+          <span class="l">2025-12-31</span><span class="l">r.patel@premiumiq.com</span><span class="l">2026-09-08 14:02:00</span><span class="l"></span>
+        </div>
+        <div class="drow-static export-analysis">
+          <span class="l export-ordinal">#3</span><span class="l"><span class="dt-title">CRE_US Plains_US SCS DLM v25</span></span><span class="l">own</span>
+          <span class="l"><span class="status-chip status-chip--export-closed">closed</span></span>
+          <span class="l">—</span><span class="l">—</span><span class="l">394,820</span><span class="l">USD</span>
+          <span class="l">SCS</span><span class="l">NA</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">41967</span>
+          <span class="l">2026-09-08 14:41:12</span><span class="l">—</span><span class="l">25.0</span>
+          <span class="l">RL</span><span class="l">Retired Mutual</span><span class="l">CRM-77812</span><span class="l">2026-01-01</span>
+          <span class="l">2025-12-31</span><span class="l">r.patel@premiumiq.com</span><span class="l">2026-09-08 14:02:00</span><span class="l"></span>
+          <div class="export-detail__error">Staging job could not read the archive: file not found</div>
+          <div class="export-detail__closed">Closed 2026-09-08 14:41 by b.bailey@premiumiq.com</div>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <div class="eyebrow">Filtered — Failed + CRM-77990; the failed row alone, and a Close the route refused</div>
+  <details class="sec" open>
+    <summary>
+      <span class="sec__caret">▸</span><span class="sec__title">Exports</span><span class="badge">3</span>
+      <span class="sec__spacer"></span>
+      <span class="export-filters">
+        <select class="wf-field__input" style="width:auto"><option>All statuses</option><option selected>Failed</option><option>Loaded</option></select>
+        <select class="wf-field__input" style="width:auto"><option selected>All clients</option><option>Example Re</option><option>Retired Mutual</option></select>
+        <select class="wf-field__input" style="width:auto"><option>All CRM IDs</option><option>CRM-77812</option><option selected>CRM-77990</option></select>
+        <select class="wf-field__input" style="width:auto"><option selected>All perspectives</option><option>GR</option><option>RL</option></select>
+        <button class="btn-sm" title="Copy the table with headers — pastes into Excel">⋮ Copy table</button>
+      </span>
+    </summary>
+    <div class="form-banner form-banner--error">Close refused: the analysis is loaded, not failed.</div>
+    <div class="dtable-shell">
+      <div class="dtable dtable--wraphead export-analyses"
+           style="--cols: 44px minmax(300px,2fr) 70px 125px 80px minmax(150px,1fr) 90px 80px 60px 70px 90px 90px 90px 100px 100px 80px 170px 70px 90px 90px minmax(140px,1fr) 110px 110px 110px minmax(190px,1.3fr) 170px 130px; min-width:3015px">
+        <div class="dtable__head">
+          <span class="l">#</span><span class="l">Analysis</span><span class="l">Origin</span><span class="l">Status</span>
+          <span class="l">Data ID</span><span class="l">Data name</span><span class="l">AAL</span><span class="l">Currency</span>
+          <span class="l">Peril</span><span class="l">Region</span><span class="l">Staged</span><span class="l">Stochastic</span>
+          <span class="l">Historical</span><span class="l">Exposure raised</span><span class="l">Std dev zeroed</span><span class="l">RM id</span>
+          <span class="l">Last updated</span><span class="l">Engine</span><span class="l">Model version</span>
+          <span class="l">Perspective</span><span class="l">Client</span><span class="l">CRM ID</span><span class="l">Treaty inception</span>
+          <span class="l">Data vintage</span><span class="l">Requested by</span><span class="l">Requested at</span><span class="l"></span>
+        </div>
+        <div class="drow-static export-analysis export-analysis--first">
+          <span class="l export-ordinal">#2</span><span class="l"><span class="dt-title">CRE_US Southeast Wind_US HU DLM v23</span></span><span class="l">group</span>
+          <span class="l"><span class="status-chip status-chip--export-failed">failed</span></span>
+          <span class="l">—</span><span class="l">—</span><span class="l">1.5M</span><span class="l">USD</span>
+          <span class="l">WS</span><span class="l">NA</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">—</span><span class="l">41961</span>
+          <span class="l">2026-09-15 16:40:30</span><span class="l">GROUP</span><span class="l">25.0</span>
+          <span class="l">RL</span><span class="l">Example Re</span><span class="l">CRM-77990</span><span class="l">2026-04-01</span>
+          <span class="l">2026-03-31</span><span class="l">r.patel@premiumiq.com</span><span class="l">2026-09-15 16:30:00</span>
+          <span class="l"><span class="export-analysis__actions"><button class="btn-sm">Retry</button><button class="btn-sm">Close</button></span></span>
+          <div class="export-detail__error">archive currency 'EUR' does not match analysis currency 'USD'</div>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <div class="eyebrow">Filtered — Loaded + GR, nothing matches</div>
+  <details class="sec" open>
+    <summary>
+      <span class="sec__caret">▸</span><span class="sec__title">Exports</span><span class="badge">3</span>
+      <span class="sec__spacer"></span>
+      <span class="export-filters">
+        <select class="wf-field__input" style="width:auto"><option>All statuses</option><option>Failed</option><option selected>Loaded</option></select>
+        <select class="wf-field__input" style="width:auto"><option selected>All clients</option><option>Example Re</option><option>Retired Mutual</option></select>
+        <select class="wf-field__input" style="width:auto"><option selected>All CRM IDs</option><option>CRM-77812</option><option>CRM-77990</option></select>
+        <select class="wf-field__input" style="width:auto"><option>All perspectives</option><option selected>GR</option><option>RL</option></select>
+        <button class="btn-sm" title="Copy the table with headers — pastes into Excel">⋮ Copy table</button>
+      </span>
+    </summary>
+    <div class="dtable-shell">
+      <div class="dtable dtable--wraphead export-analyses"
+           style="--cols: 44px minmax(300px,2fr) 70px 125px 80px minmax(150px,1fr) 90px 80px 60px 70px 90px 90px 90px 100px 100px 80px 170px 70px 90px 90px minmax(140px,1fr) 110px 110px 110px minmax(190px,1.3fr) 170px 130px; min-width:3015px">
+        <div class="dtable__head">
+          <span class="l">#</span><span class="l">Analysis</span><span class="l">Origin</span><span class="l">Status</span>
+          <span class="l">Data ID</span><span class="l">Data name</span><span class="l">AAL</span><span class="l">Currency</span>
+          <span class="l">Peril</span><span class="l">Region</span><span class="l">Staged</span><span class="l">Stochastic</span>
+          <span class="l">Historical</span><span class="l">Exposure raised</span><span class="l">Std dev zeroed</span><span class="l">RM id</span>
+          <span class="l">Last updated</span><span class="l">Engine</span><span class="l">Model version</span>
+          <span class="l">Perspective</span><span class="l">Client</span><span class="l">CRM ID</span><span class="l">Treaty inception</span>
+          <span class="l">Data vintage</span><span class="l">Requested by</span><span class="l">Requested at</span><span class="l"></span>
+        </div>
+        <div class="dtable__groupempty">No analyses match this filter.</div>
+      </div>
+    </div>
+  </details>
+
+  <div class="eyebrow">No exports yet</div>
+  <details class="sec" open>
+    <summary><span class="sec__caret">▸</span><span class="sec__title">Exports</span></summary>
+    <div class="state-box">No exports yet</div>
+  </details>
+</div>
+</body>
+</html>

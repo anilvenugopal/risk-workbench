@@ -86,3 +86,12 @@ class TestGetNavContext:
         rail_keys = [n["key"] for n in ctx["rail"]]
         assert "admin" not in rail_keys
         assert "home" in rail_keys
+
+
+class TestExportContext:
+    def test_export_pages_keep_the_submissions_section_active(self):
+        from app.nav import get_nav_context
+        ctx = get_nav_context(_user(["analyst"]), "submissions.export_new")
+        assert ctx["active_section"] == "submissions"
+        assert [c["key"] for c in ctx["sidebar"]] == ["submissions.all"]
+        assert ctx["breadcrumb"][-1]["key"] == "submissions.export_new"

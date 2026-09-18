@@ -1,0 +1,214 @@
+# Contract — Routes (Loss Results Export)
+
+All routes live in `app/routers/submissions.py`, query `rwb_workbench` and the
+loss repository through `db.execute`/`db.execute_command` with bound
+parameters (Article 7), and make no Risk Modeler call (Article 11). POST
+routes carry the CSRF token (Article 13). Any authenticated analyst may use
+them (spec P-11). Manifest reads append `db.read_uncommitted_hint("LOSS")`
+(T-25).
+
+## 1. Export button
+
+`partials/analyses_merged_section.html` gains **Export** beside Compare and
+View in the `<summary>` bar of the submission-scoped section only
+(`analyses_base` starts with `/submissions/`): a plain link to §2 carrying the
+ticked analyses as `?analysis_ids=<uuid>[&analysis_ids=<uuid>…]`. No row
+selection is required; the form does its own.
+
+## 2. Export form page
+
+```
+GET /submissions/{submission_id}/exports/new
+    [?analysis_ids=<uuid>[&analysis_ids=<uuid>…]]
+```
+
+Nav node `submissions.export_new` (hidden; crumb "Export" under the
+submission). Renders `pages/submission_export_new.html` with:
+
+- The submission's exportable analyses (data-model.md §7
+  `ExportableAnalysis`), own and group rows first, then broker rows grouped by
+  RDM name, each a checkbox. A row that cannot be exported (non-integer
+  `irp_app_analysis_id`, no results) is listed disabled
+  with the reason.
+  An `analysis_ids` carried from §1 arrives ticked; an id that is not an
+  exportable analysis of this submission is ignored.
+- The §3 fragment rendered once for the carried selection, or with no
+  selection: perspective select disabled, no data-name fields.
+- Client `<select>` from `dbo.Client`, ordered by name, required. Every
+  client is offered, active and retired alike (spec P-18).
+- Treaty inception (date, default `submission.inception_date`), CRM ID (text,
+  default the submission's first `submission_crm_id.crm_id`), data vintage
+  (date, blank, required — spec P-19).
+- Model version `<select>` over `export_service.model_version_choices()`, the
+  lookup's distinct `ModelVersion` values newest first, the first selected,
+  required (spec P-25). An empty list shows "The historical event lookup
+  lists no model versions."
+- Export button, disabled until at least one analysis is ticked and a
+  perspective and client are chosen. An analysis already exported for the
+  chosen perspective never turns it off (§3).
+
+A submission that does not resolve renders the gone-notice partial.
+
+## 3. Selection fragment
+
+```
+GET /submissions/{submission_id}/exports/new/fields
+    ?analysis_ids=<uuid>[&analysis_ids=<uuid>…][&perspective=<code>]
+```
+
+Triggered by `hx-get` on the analysis list (`hx-trigger="change"`,
+`hx-include` the checkboxes and the perspective select, `hx-target`
+`#export-fields`). Renders `partials/export_form_fields.html`:
+
+- Perspective `<select>`: codes in `EXPORT_PERSPECTIVE_CODES`, in that order,
+  that every selected analysis has in `loss_results.perspectives` (FR-003).
+  The current choice is kept when it survives the intersection; otherwise no
+  option is selected. Empty intersection → the select is disabled with the
+  message "The selected analyses share no exportable perspective".
+- One optional text input `data_name[<analysis_id>]` (max 150) per selected
+  analysis, labelled with the analysis name (O-07).
+- When a perspective is chosen: each cart row shows that analysis's AAL at
+  that perspective, formatted by `analysis_service.fmt_loss`, with the stored
+  number in `title` (spec P-20).
+- When a perspective is chosen: the exported marks. Each selected analysis
+  with a manifest row for that perspective, requested from this or any other
+  submission, is warned about — the newest such export's `requested_at`,
+  `requested_by_email`, and status, how many there are, and a link to the
+  §5 table of the submission it was requested from
+  (`/submissions/{requested_from_submission_id}#submission-exports`, spec
+  P-16) — in the cart row, closing with "Exporting again creates a new data
+  set." Nothing is disabled (spec P-17).
+
+## 4. Submit
+
+```
+POST /submissions/{submission_id}/exports
+Form fields: analysis_ids[] (uuid, ≥1), perspective (code), client_id (int),
+             treaty_incept (date), crm_id (text ≤30, optional),
+             data_vintage (date), model_version (text, one of the lookup's
+             versions), data_name[<uuid>] (text ≤150, optional)
+```
+
+The form is a plain POST, not `hx-post`: htmx does not swap a 422 response,
+so the re-rendered message would never show.
+
+Validation, in order; the first failure re-renders §2 with the message and
+the analyst's values, HTTP 422:
+
+1. Every `analysis_ids` entry (repeats collapsed) resolves to an exportable
+   analysis of this submission (T-24); the reason names the analysis otherwise.
+2. `perspective` is in `EXPORT_PERSPECTIVE_CODES` and in every selected
+   analysis's perspectives.
+3. `client_id` is a row of `dbo.Client` (spec P-18, FR-002).
+4. `treaty_incept` and `data_vintage` are present and parse (spec P-19).
+5. `model_version` is one of `model_version_choices()` ("Choose a model
+   version." otherwise, spec P-25).
+
+On success:
+
+1. `export_id = uuid4()`.
+2. One `LOSS` transaction inserts every manifest row (data-model.md §4.1
+   values; `requested_from_submission_id = submission_id`;
+   `stage_status = pending`, `load_status = pending`). A manifest row for the
+   same analysis and perspective from an earlier export is left alone: this
+   export gets its own rows and, once loaded, its own `Data` row (spec P-17).
+3. `rwb_job_service.enqueue_rwb_job` for `submit_results_export`
+   ([jobs.md](jobs.md) §1), then `dispatch.dispatch`. If the enqueue fails
+   after the manifest commit, every row of the export is stamped
+   `stage_status = 'failed'` with the error and step 4 still runs: the detail
+   page shows the rows failed with Retry (§7), whose submit branch re-arms
+   the request.
+4. `303 See Other` to `/submissions/{submission_id}#submission-exports` (§5).
+
+An edited `treaty_incept` or `crm_id` is recorded on the manifest only; the
+route never updates `submission.inception_date` or `submission_crm_id`
+(spec P-15).
+
+## 5. Exports section (submission page)
+
+```
+GET /submissions/{submission_id}/exports
+    [?status=failed|loaded][&client=<name>][&crm_id=<id>][&perspective=<code>]
+```
+
+Renders `partials/exports_section.html`, loaded into the submission detail
+page below the analyses section (`hx-get` on load, and `hx-trigger="every
+10s"` while any row is not terminal). One `.drow-static` row per analysis of
+every export whose `requested_from_submission_id` is this submission (spec
+P-16), newest export first (data-model.md §7 `ExportAnalysisDetail`), in
+column order: export ordinal (`#1` newest), analysis name, origin, status,
+`data_id`, data name, AAL, currency, peril, region, rows staged, stochastic
+rows, historical rows, exposure raised, standard deviation zeroed, Risk
+Modeler analysis ID, last updated (`updated_at`, localized in the browser to
+the second), engine, model version, perspective, client, CRM ID, treaty
+inception, data vintage, requester, request time, then Retry and Close (when
+failed); the error message (when failed) and who closed it and when (when
+closed) follow on their own lines. The first row of each export carries
+`export-analysis--first`, a heavier top rule. The section badge counts the
+exports. Empty state: "No exports yet".
+
+Four `<select>`s in the section header filter the rows and combine: `status`
+(`failed` or `loaded`), `client` (a `client_name` the table holds), `crm_id`,
+and `perspective`; any other value is no filter. Each select `hx-include`s
+the whole filter group (`#export-filters`) and reloads the section; the
+values in force ride on the poll URL and every Retry and Close URL. The
+ordinal is counted before any filter. Nothing matches: "No analyses match
+this filter." (spec P-21). **Copy table** (`data-copy-table`) serialises the
+visible rows with headers to the clipboard.
+
+## 6. Export detail page
+
+Removed 2026-09-15 (design session note 30 D1). The section in §5 is the
+one export status screen; `GET /submissions/{submission_id}/exports/{export_id}`
+is a 404.
+
+## 7. Retry
+
+```
+POST /submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/retry
+```
+
+Preconditions: the manifest row exists for (`export_id`, `irp_analysis_id`)
+with `requested_from_submission_id` equal to the path's submission (else
+404) and the row itself is failed (`stage_status = 'failed'` or
+`load_status = 'failed'`); otherwise 409 with the reason (a `loaded` row:
+"already loaded as data ID {data_id}"; any other row: "the analysis is
+{status}, not failed"). A Risk Modeler job that ended without `FINISHED`
+reads "downloading and staging" until the stage worker stamps the row, and is
+refused in that window: only that worker fails the row.
+
+Decision (T-28), evaluated top-down, exactly one branch runs:
+
+| Manifest and job state | Action |
+|---|---|
+| `stage_status = staged` | `UPDATE` the manifest row: `load_status = 'pending'`, `error_message = NULL`; then `ensure_pending_rwb_job` for `load_results_export` ([jobs.md](jobs.md) §1) |
+| The `export` `irp_job` exists **and** (`zip_file` set and the file exists under `EXPORT_ARCHIVE_DIR`; **or** the job is `FINISHED` with `completed_at` within the last 7 days) | `UPDATE` the manifest row: `stage_status = 'pending'`, `error_message = NULL`; then `ensure_pending_rwb_job` for `stage_results_export` |
+| Otherwise | `UPDATE` the manifest row: `irp_export_job_id = NULL`, `stage_status = 'pending'`, `error_message = NULL`; then `ensure_pending_rwb_job` for `submit_results_export` (the export's existing job) |
+
+Each branch first puts the row back into the state its job runs from, so
+the exports table reads it as in progress and polls until the job stamps it.
+
+Then `dispatch.dispatch` for the re-armed job. HTMX: re-render §5's section
+(200) so its polling trigger returns; a refusal answers 409 with that same
+section and "Retry refused: {reason}." above it, and the form's
+`hx-on::before-swap` lets htmx swap the 409 in. The filters in force ride on
+the URL and are rendered back. Plain request: 303 to
+`/submissions/{submission_id}#submission-exports`, or the 409 error page.
+
+## 8. Close
+
+```
+POST /submissions/{submission_id}/exports/{export_id}/analyses/{irp_analysis_id}/close
+```
+
+Offered wherever Retry is: on a failed row of the exports table (§5). Same
+preconditions and refusal reasons as §7 —
+the row must be this submission's (else 404) and failed (else 409, "Close
+refused: {reason}."), so a closed analysis cannot be closed or retried again.
+
+Sets `closed_at` and `closed_by` (the session user's email) on the manifest
+row and nothing else: no job is enqueued, no repository row changes, and the
+error message stays on the row. The analysis then reads closed (data-model.md
+§7), which drops it from the failed count and from the Failed filter.
+
+Renders back exactly as §7: the section, under the filters in force.

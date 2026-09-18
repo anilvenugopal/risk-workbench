@@ -810,9 +810,14 @@ document.addEventListener('alpine:init', () => {
     count: 0,
     total: 0,
     brokerCount: 0,
+    picked: [],
+    term: '',
+    shown: 0,
+    rowCount: 0,
     observer: null,
     init() {
       this.onChange();
+      this.filter('');
       this.observer = new MutationObserver(() => this.onChange());
       this.observer.observe(this.$root, { childList: true, subtree: true });
     },
@@ -825,6 +830,7 @@ document.addEventListener('alpine:init', () => {
       this.total = boxes.length;
       const checked = boxes.filter((box) => box.checked);
       this.count = checked.length;
+      this.picked = checked.map((box) => box.value);
       this.brokerCount = checked.filter(
         (box) => box.dataset.broker !== undefined).length;
       const selectAll = this.$refs.selectAll;
@@ -834,6 +840,47 @@ document.addEventListener('alpine:init', () => {
     },
     all(checked) {
       this.boxes().forEach((box) => { box.checked = checked; });
+      this.onChange();
+    },
+    // The export form's name search (spec 014). Hiding a row leaves a ticked
+    // analysis ticked and in the cart, which is what the cart is for.
+    filter(term) {
+      const rows = this.$root.querySelectorAll('.drow-static[data-name]');
+      this.rowCount = rows.length;
+      // No searchable list here — the merged analyses section has neither these
+      // rows nor a search box, and its RDM headings are laid out differently.
+      if (!this.rowCount) return;
+      this.term = (term || '').trim().toLowerCase();
+      this.shown = 0;
+      rows.forEach((row) => {
+        const keep = !this.term || row.dataset.name.includes(this.term);
+        row.hidden = !keep;
+        if (keep) this.shown += 1;
+      });
+      // A broker RDM heading with nothing under it reads as an empty group.
+      this.$root.querySelectorAll('.dtable__group').forEach((head) => {
+        let next = head.nextElementSibling;
+        let any = false;
+        while (next && !next.classList.contains('dtable__group')) {
+          if (next.classList.contains('drow-static') && !next.hidden) { any = true; break; }
+          next = next.nextElementSibling;
+        }
+        head.hidden = !any;
+      });
+    },
+    get filterLabel() {
+      if (!this.rowCount) return '';
+      return this.term ? `${this.shown} of ${this.rowCount} analyses`
+        : `${this.rowCount} analyses`;
+    },
+    // Removing an analysis from the export cart. The bubbling change is what
+    // refetches the cart fragment, exactly as ticking the box does.
+    untick(id) {
+      const box = this.$root.querySelector(
+        `input[name="analysis_ids"][value="${id}"]`);
+      if (!box) return;
+      box.checked = false;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
       this.onChange();
     },
   }));
@@ -1246,19 +1293,19 @@ document.addEventListener('grouping-submitted', (e) => {
   });
 });
 
-// Swapping a merged analyses section (outerHTML, on every poll) rebuilds every
-// row from scratch, so an expanded row's <details open> and a ticked
-// checkbox would otherwise reset — losing the analyst's place mid-inspection
-// or mid-selection. Remember both just before the swap and restore them once
-// the fresh content lands (a row deleted or no longer deletable simply has no
-// box to restore); one bubbling change event makes analysisPicks() recount.
-// Keyed by the section's own id (data-analyses-section marks both the EDM
-// page's Analyses section and the submission page's Results section).
+// Swapping a polled section (outerHTML) rebuilds every row from scratch, so an
+// expanded row's <details open> and a ticked checkbox would otherwise reset —
+// losing the analyst's place mid-inspection or mid-selection. Remember both
+// just before the swap and restore them once the fresh content lands (a row
+// deleted or no longer deletable simply has no box to restore); one bubbling
+// change event makes analysisPicks() recount. Keyed by the section's own id;
+// data-restore-open marks the EDM page's Analyses section, the submission
+// page's Results section, and its Exports section (spec 014).
 let _analysesRestore = null;
 document.addEventListener('htmx:beforeSwap', (e) => {
   const target = e.detail.target;
   if (!target || !target.hasAttribute
-      || !target.hasAttribute('data-analyses-section')) return;
+      || !target.hasAttribute('data-restore-open')) return;
   _analysesRestore = {
     id: target.id,
     openIds: [...target.querySelectorAll('.drow[open]')]
@@ -1290,9 +1337,10 @@ document.addEventListener('htmx:afterSwap', () => {
 // the clipboard, so a paste lands in Excel as columns. Cell values come from
 // data-value where a cell carries one (the raw stored number, the UTC
 // timestamp), textContent otherwise — no server round trip, no recomputation
-// of stored numbers. The checkbox column is skipped; group divider rows carry
-// no data cells and are skipped by the .drow selector. Delegated from the
-// document: the button arrives with every 3s section swap.
+// of stored numbers. The checkbox column of a selectable table is skipped;
+// group divider rows carry no data cells and are skipped by the row selector;
+// a row's trailing error and closed lines are not cells. Delegated from the
+// document: the button arrives with every section swap.
 function tableToTsv(dtable) {
   const cellValue = (cell) => {
     const holder = cell.hasAttribute('data-value')
@@ -1301,13 +1349,14 @@ function tableToTsv(dtable) {
     return (value !== null ? value : cell.textContent.trim())
       .replace(/\s+/g, ' ');
   };
+  const skip = dtable.classList.contains('dtable--selectable') ? 1 : 0;
+  const cells = (row) => [...row.querySelectorAll(':scope > span')]
+    .slice(skip).map(cellValue);
   const rows = [];
   const head = dtable.querySelector('.dtable__head');
-  if (head) {
-    rows.push([...head.children].slice(1).map(cellValue));
-  }
-  dtable.querySelectorAll('.drow > summary').forEach((summary) => {
-    rows.push([...summary.children].slice(1).map(cellValue));
+  if (head) rows.push(cells(head));
+  dtable.querySelectorAll('.drow > summary, .drow-static').forEach((row) => {
+    rows.push(cells(row));
   });
   return rows.map((r) => r.join('\t')).join('\n');
 }

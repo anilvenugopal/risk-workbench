@@ -12,11 +12,11 @@ All database access goes through the `db/` package. App code calls `get_connecti
 |---|---|---|
 | `WORKBENCH` | Workbench metamodel (this schema) | Alembic + app |
 | `EXPOSURE` | Exposure repository | App — `db/bootstrap/exposure_schema.sql` |
-| `LOSS` | Loss repository | App — `db/bootstrap/loss_schema.sql` |
+| `LOSS` | CIC's loss repository `CRE_Trial_ELT_Repository` (dev mirror `rwb_loss`) | CIC owns the database and its five `dbo` tables. The Workbench's `stage` schema (`db/bootstrap/loss_schema.sql`) is installed by a CIC DBA by hand; the app never runs DDL against it. Schema: `specs/014-results-export/data-model.md` §4 |
 | `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — read-only; app code never sends SQL (reads go through irp-integration methods, worker-side, plus the one bounded single-row point-of-action check permitted on the request path; constitution Art. 11 v3.2.0); never DDL |
 
 - **Pooling:** `MSSQL_POOL_SIZE` (default 5), `MSSQL_POOL_MAX_OVERFLOW` (default 5), `MSSQL_POOL_RECYCLE` (default 1800s). For 30 concurrent users: `POOL_SIZE=10`, `MAX_OVERFLOW=20`.
-- **Dev DB strategy:** drop-create-seed via a single Alembic revision (`0001_initial.py`) until production cutover. `EXPOSURE`/`LOSS` are bootstrapped by idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`); they are not under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
+- **Dev DB strategy:** drop-create-seed via a single Alembic revision (`0001_initial.py`) until production cutover. `EXPOSURE` is bootstrapped by an idempotent SQL script. `LOSS` in dev is `make bootstrap-loss` (`infra/scripts/bootstrap_loss.py`): `loss_dev_mirror.sql` recreates CIC's five tables, `loss_schema.sql` installs the `stage` schema, then `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` are seeded. Neither is under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
 - **Redis:** `REDIS_URL` (default `redis://localhost:6379/0`). Dramatiq broker; stateless.
 
 ---
@@ -445,6 +445,7 @@ erDiagram
     uniqueidentifier irp_portfolio_id FK "nullable; entity lineage"
     uniqueidentifier irp_rdm_id FK "nullable; entity lineage"
     uniqueidentifier irp_analysis_id FK "nullable; entity lineage + retry key (spec 010)"
+    uniqueidentifier export_id "nullable, indexed; the loss results export this job belongs to (spec 014)"
     string irp_job_type FK "irp_job_type_kind"
     string irp_id "IRP's integer job id as string; nullable until submit succeeds"
     string status "plain string; RM-mirrored + app-local (see vocabulary)"
@@ -552,8 +553,9 @@ erDiagram
 | `submit_grouping` | Claim the group `irp_analysis` row and its `irp_analysis_group_member` rows, then submit one `grouping` `irp_job` from the approved compose plan (spec 012) | — |
 | `finalize_analysis` | Take one own analysis, group or imported analysis (#101) to `ready`: fetch its details by the job body's `analysisId`; write `irp_id`/`irp_app_analysis_id`/`settings_metadata`/`status_code` (spec 010) | `retrieve_analysis_results` |
 | `retrieve_analysis_results` | `get_stats()`/`get_ep()` per perspective (GR/RL/WX/QS/GU); write the `irp_analysis.loss_results` extract (spec 011) | — |
-| `download_export_file` | Download Parquet export | — |
-| `push_results_to_loss_repo` | Read Parquet; write to LOSS DB | — |
+| `submit_results_export` | Ask Risk Modeler for one loss-table `export` job per manifest row of an export (spec 014) | — (the poller enqueues `stage_results_export` when each export job ends) |
+| `stage_results_export` | Download the archive, check it against the manifest, stream its Parquet files into `stage.rwb_loss_result_elt_data` (spec 014) | `load_results_export` |
+| `load_results_export` | Run `stage.usp_load_elt_result`, which classifies, corrects, and loads one analysis into CIC's tables (spec 014) | — |
 | `notify_analyst` | Teams webhook and/or email | — |
 
 **Flows:**
@@ -564,60 +566,13 @@ erDiagram
 finishes and `backfill_rdm_analyses` when an RDM import finishes. EDM completion
 never starts RDM upload work. Association detach is request-path SQL only.
 
+**Context (`rwb_job.context_type` / `context_id`):** the object a job's own operation acts on, typed by `rwb_job_context_type_kind` (`edm` / `rdm` / `irp_analysis` / `portfolio` / `breakout_group` / `execution` / `result_export`). `result_export` names a loss results export by its `export_id`; the export record itself is `stage.rwb_loss_result_manifest` in the loss repository, not a Workbench table (spec 014 T-03).
+
 ---
 
 ## 9. Analysis results
 
-**Viewing does not read this section.** Results viewing reads `irp_analysis.loss_results` (§6) — the bounded per-perspective extract the `retrieve_analysis_results` worker writes (§8). Design note 19 D5 (2026-08-25) removed ELTs from viewing scope: they exist only for export to the Loss Repository. The tables and Parquet layout below are therefore the **export** design; whether and when they are built — and whether ELT retrieval is eager or export-triggered — is decided by the 8/26 export-requirements session (design note 19 O19-12). Nothing below is built until then.
-
-Row-level data (ELT events, EP curve points, PLT events) is written to Parquet files; SQL stores only the metadata needed for export lineage.
-
-```mermaid
-erDiagram
-  irp_analysis ||--o{ analysis_result_meta : yields
-  irp_rdm |o--o{ analysis_result_meta : "sourced from (nullable)"
-  analysis_result_meta ||--o{ result_export : "file exports"
-  delivery_kind ||--o{ result_export : types
-
-  analysis_result_meta {
-    uniqueidentifier id PK
-    uniqueidentifier analysis_id FK "nullable; own results → irp_analysis; exactly one of analysis_id/rdm_id set (CHECK)"
-    uniqueidentifier rdm_id FK "nullable; broker results dedup key — one row per (rdm_id, analysis_name, perspective)"
-    string analysis_name "IRP analysis name at retrieval time (snapshot)"
-    string perspective_code "GR / RL / WX / QS / GU (spec 011 O-07)"
-    float aal "Average Annual Loss; from get_stats()"
-    int elt_record_count "from get_elt() response"
-    bool has_plt "true for HD analyses"
-    string elt_file_path "relative path to ELT Parquet"
-    string ep_file_path "relative path to EP curve Parquet"
-    string plt_file_path "nullable; PLT Parquet (HD only)"
-    string stats_file_path "relative path to stats Parquet"
-    datetime retrieved_at
-    datetime inserted_at
-    datetime updated_at
-    uniqueidentifier inserted_by FK
-    uniqueidentifier updated_by FK
-  }
-  result_export {
-    uniqueidentifier id PK
-    uniqueidentifier analysis_result_meta_id FK
-    string delivery_code FK "delivery_kind"
-    string location "file path (Parquet) or SQL ref (Loss Repo / RDM)"
-    datetime inserted_at
-    uniqueidentifier inserted_by FK
-  }
-  delivery_kind {
-    string code PK "file / sql"
-    string label
-    int sort_order
-    datetime inserted_at
-  }
-```
-
-- **`analysis_name` is a deliberate snapshot** at retrieval time — a later rename does not change what this row says it was called. Names are never a key (Moody's allows duplicates and lets them be edited).
-- **Broker results are deduplicated by `rdm_id`, not stored per EDM.** A broker RDM applied across M EDMs produces one `irp_analysis` row per source analysis, keyed (`rdm_id`, `irp_id`) with `edm_id` null (§6) — so the viewing extract (`irp_analysis.loss_results`) is once-per-RDM automatically. For **export**, row-level data is likewise retrieved and stored **once per RDM source analysis + perspective**, keyed on `rdm_id`: broker `analysis_result_meta` sets `rdm_id` and leaves `analysis_id` null, with an idempotent upsert on `(rdm_id, analysis_name, perspective_code)` producing one row + one set of Parquet files. (The exact within-RDM source-analysis discriminator is confirmed against the live library when the export worker is built — `analysis_name` is the working key.)
-- **Exactly one of `analysis_id` / `rdm_id` is set** (DB CHECK): `analysis_id` for **own** results (one meta per analysis + perspective — own analyses have genuinely distinct results, no dedup); `rdm_id` for **broker** results (deduped as above).
-- **Parquet location:** own results at `{submission_outputs_dir}/{analysis_id}/{perspective_code}/{result_type}.parquet`; broker results at an RDM-keyed, submission-independent path `{OUTPUTS_BASE_DIR}/rdm/{rdm_id}/{analysis_name}/{perspective_code}/{result_type}.parquet` because an RDM can relate to several submissions. `result_type ∈ elt|ep|plt|stats`. Exact column schemas come from the live `get_elt/ep/stats/plt()` DataFrames.
+Results viewing reads `irp_analysis.loss_results` (§6), the bounded per-perspective extract the `retrieve_analysis_results` worker writes (§8). Row-level loss data exists only for the export to the Loss Repository, and lives in that repository, not in `rwb_workbench`: the export record is `stage.rwb_loss_result_manifest` (one row per analysis per export), the archive's Parquet files are `stage.rwb_loss_result_file`, and every staged event is `stage.rwb_loss_result_elt_data`, all in CIC's `CRE_Trial_ELT_Repository` under the Workbench's `stage` schema. Schema, the load procedure, and the mapping onto CIC's `dbo.Data`, `dbo.RMSELT`, and `dbo.RMS_HistoricalRDS`: [`specs/014-results-export/data-model.md`](../specs/014-results-export/data-model.md). The `analysis_result_meta` / `result_export` / `delivery_kind` design of 2026-07 was never built and is withdrawn.
 
 ---
 
@@ -788,9 +743,7 @@ erDiagram
 | `rwb_job_type_kind` | Work-type vocabulary (§8). |
 | `rwb_job_heartbeat` | Per-job progress heartbeat (one row per job). |
 | `rwb_job_status_kind` | `pending`/`running`/`succeeded`/`failed`. |
-| `analysis_result_meta` | Result-set metadata. Own: per (analysis, perspective). Broker: deduped per (`rdm_id`, analysis_name, perspective). Exactly one of `analysis_id`/`rdm_id`. |
-| `result_export` | Exported result deliverable. |
-| `delivery_kind` | `file` / `sql`. |
+| `rwb_job_context_type_kind` | `edm`/`rdm`/`irp_analysis`/`portfolio`/`breakout_group`/`execution`/`result_export` (§8). |
 | `irp_model_profile` / `irp_output_profile` / `irp_event_rate_scheme` / `irp_currency` / `irp_currency_scheme` / `irp_currency_scheme_vintage` | IRP reference cache (§10). |
 | `validation_run` … `validation_result_category_kind` | Phase A validation — **DEFERRED**. |
 
@@ -807,7 +760,7 @@ erDiagram
 | `irp_job_type_kind` | `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`. |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
 | `rwb_job_requestor_type_kind` | `irp_job`, `analyst_request`, `rwb_job`, `breakout_group`. |
-| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `backfill_edm_detail`, `run_geohaz`, `run_breakout_lob`, `run_breakout_state`, `run_breakout_country`, `run_breakout_peril`, `run_breakout_custom`, `execute_analysis_batch`, `finalize_analysis`, `sync_irp_metadata`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`, `submit_grouping`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2. `backfill_edm_detail` added by spec 004; `run_geohaz` added by spec 007; the `run_breakout_*` codes added by spec 005 — one per dimension so the idempotent-enqueue key gives each dimension its own live-job slot per portfolio; `sync_irp_metadata` added by spec 009; `execute_analysis_batch`/`finalize_analysis` added by spec 010; `submit_grouping` added by spec 012.) |
+| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `backfill_edm_detail`, `run_geohaz`, `run_breakout_lob`, `run_breakout_state`, `run_breakout_country`, `run_breakout_peril`, `run_breakout_custom`, `execute_analysis_batch`, `finalize_analysis`, `sync_irp_metadata`, `retrieve_analysis_results`, `notify_analyst`, `submit_grouping`, `submit_results_export`, `stage_results_export`, `load_results_export`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2. `backfill_edm_detail` added by spec 004; `run_geohaz` added by spec 007; the `run_breakout_*` codes added by spec 005 — one per dimension so the idempotent-enqueue key gives each dimension its own live-job slot per portfolio; `sync_irp_metadata` added by spec 009; `execute_analysis_batch`/`finalize_analysis` added by spec 010; `submit_grouping` added by spec 012; the three `*_results_export` codes added by spec 014, which dropped `download_export_file` and `push_results_to_loss_repo`.) |
 | `breakout_dimension_kind` | `lob` (Line of business), `state` (Geography - State), `country` (Geography - Country), `peril` (Peril), `custom` (Custom group — the grouping lineage code) — spec 005. |
 | `rwb_job_status_kind` | `pending`, `running`, `succeeded`, `failed`. |
 | `delivery_kind` | `file`, `sql`. |
@@ -821,10 +774,8 @@ erDiagram
 ## 14. Open decisions
 
 - Confirm `role_kind` codes and the `treaty_type_kind` seed list with the team.
-- Exposure and Loss repository schemas — defined in this project (`db/bootstrap/*.sql`); columns coordinated with the reporting/downstream teams.
-- Exact IRP REST response columns for ELT/PLT — confirm against the live library when the export worker is built (EP curve and stats shapes captured 2026-08-25, spec 011 `research.md#R3`).
+- Exposure repository schema — defined in this project (`db/bootstrap/exposure_schema.sql`); columns coordinated with the reporting/downstream teams. (The loss repository is CIC's; only the `stage` schema is ours, §1.)
 - `irp_job_resource` multiplicity — one-per-job (`portfolio` only today) or genuinely multi-resource?
-- Whether `analysis_result_meta` should carry an `irp_portfolio` FK (which portfolio the result was run against).
 - **`irp_analysis.edm_id` is nullable.** Standalone RDM import creates broker
   analyses with `rdm_id` set and `edm_id` null. Enumeration filters
   `search_analyses` by `sourceRdmName` only.
@@ -838,6 +789,7 @@ erDiagram
 
 ## Change log
 
+- **2026-09-16 — Spec 014 loss results export.** `irp_job.export_id` (nullable, indexed). `rwb_job_type_kind`: `submit_results_export`, `stage_results_export`, `load_results_export` added; `download_export_file` and `push_results_to_loss_repo` dropped (neither ever had a worker). `rwb_job_context_type_kind` gains `result_export`. §9's `analysis_result_meta` / `result_export` / `delivery_kind` withdrawn unbuilt: the export record is `stage.rwb_loss_result_manifest` in CIC's loss repository (`specs/014-results-export/data-model.md`). §1: `LOSS` is CIC's `CRE_Trial_ELT_Repository`, mirrored in dev as `rwb_loss`; the `stage` schema is installed by a CIC DBA from `db/bootstrap/loss_schema.sql`.
 - **2026-09-16 — Import analyses by Risk Modeler id (#101).** `irp_analysis.imported_at` (nullable `DATETIME2`) separates the two kinds of row on the `submission_id` leg of `ck_irp_analysis_origin`: a group the Workbench composed, and an analysis the analyst pulled in by its `appAnalysisId`. An imported row sets `submission_id`, `irp_id`, `irp_app_analysis_id`, `exposure_resource_id` when Risk Modeler reports a portfolio pointer, and a `submitted_settings` block holding the currency code alone. New filtered index `ix_irp_analysis_irp_id` (`WHERE irp_id IS NOT NULL`) serves the duplicate check and the delete guard.
 - **2026-09-09 — Spec 012 grouping execution.** `irp_analysis.submission_id` (nullable, FK `submission.id`, `ix_irp_analysis_submission_id`) marks group rows; `ck_irp_analysis_origin` becomes `edm_id OR rdm_id OR submission_id`; `uq_irp_analysis_live_submission_name` (`submission_id`, `name`, filtered) mirrors the own-analysis index. New `irp_analysis_group_member` table replaces the deferred `group_parent_id` column. `submit_grouping` added to `rwb_job_type_kind`.
 - **2026-07-14 — `irp-integration` 0.2.0 method surface confirmed (spec 003).** Read the committed PyPI wheel end-to-end; the library is **manager-based** (`client.edm` / `.rdm` / `.import_job` / `.risk_data_job` / `.analysis`), not flat. Pinned: EDM import `edm.submit_edm_import_job` (getter `import_job.get_import_job`); RDM import `rdm.submit_rdm_import_job` (same getter); EDM delete `edm.submit_delete_edm_job(exposure_id)` (getter `risk_data_job.get_risk_data_job`); **RDM delete `analysis.delete_analysis(id)` per analysis (synchronous)**; enumeration `analysis.search_analyses(filter='sourceRdmName="…" AND exposureName="…"')` — the field is `sourceRdmName`, **not** `rdmName`. Terminal set `FINISHED/FAILED/CANCELLED`. **Review-only / RDM-only import deferred** (0.2.0 requires a target EDM). Spec 003 captures a minimal local `irp_analysis` at RDM-import completion (via a new `backfill_rdm_analyses` `rwb_job_type`) so synchronous delete can enumerate ids locally. Authoritative matrix: `specs/003-edm-rdm-entity-management/contracts/worker-poller.md`.

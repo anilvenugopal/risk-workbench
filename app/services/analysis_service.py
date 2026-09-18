@@ -56,7 +56,7 @@ class AnalysisSettings:
         return " · ".join(parts) if parts else None
 
 
-def _fmt_loss(value: Any) -> str:
+def fmt_loss(value: Any) -> str:
     """Display formatting for a stored loss number: values ≥ 1M read ``4.1M``,
     smaller values read as thousands-separated integers, missing values read
     ``—``. Never a recomputation — the verbatim number rides beside it in
@@ -81,11 +81,11 @@ class PerspectiveResults:
 
     @property
     def aal_display(self) -> str:
-        return _fmt_loss(self.aal)
+        return fmt_loss(self.aal)
 
     @property
     def std_dev_display(self) -> str:
-        return _fmt_loss(self.std_dev)
+        return fmt_loss(self.std_dev)
 
 
 @dataclass
@@ -155,8 +155,8 @@ def _perspective_results(loss_results_raw: Any, perspectives: list[dict],
         oep, aep = data.get("oep") or {}, data.get("aep") or {}
         rows = [{"rp": f"{rp:,}",
                  "oep": oep.get(str(rp)), "aep": aep.get(str(rp)),
-                 "oep_display": _fmt_loss(oep.get(str(rp))),
-                 "aep_display": _fmt_loss(aep.get(str(rp)))}
+                 "oep_display": fmt_loss(oep.get(str(rp))),
+                 "aep_display": fmt_loss(aep.get(str(rp)))}
                 for rp in sorted(return_periods, reverse=True)]
         out.append(PerspectiveResults(
             code=p["code"], label=p["label"], produced=True,
@@ -1191,7 +1191,7 @@ __all__ = [
     "SubmittedSettings",
     "delete_executed_analyses", "delete_submission_analyses",
     "execution_batch_is_live",
-    "expanded_return_periods", "list_analysis_perspectives",
+    "expanded_return_periods", "fmt_loss", "list_analysis_perspectives",
     "list_broker_analyses", "list_comparable_analyses",
     "list_comparison_pairs", "list_edm_analyses",
     "list_executed_analyses", "list_results_columns",

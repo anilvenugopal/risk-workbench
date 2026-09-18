@@ -137,8 +137,9 @@ def main() -> int:
                     ('retrieve_analysis_results', 'Retrieve Analysis Results', 30),
                     ('finalize_analysis',         'Finalize Analysis',         31),
                     ('submit_grouping',           'Submit grouping',           33),
-                    ('download_export_file',      'Download Export File',      40),
-                    ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),
+                    ('submit_results_export',     'Submit Results Export',     40),
+                    ('stage_results_export',      'Stage Results Export',      41),
+                    ('load_results_export',       'Load Results Export',       42),
                     ('notify_analyst',            'Notify Analyst',            60),
                     ('run_breakout_lob',   'Portfolio breakout by line of business', 90),
                     ('run_breakout_state', 'Portfolio breakout by geography (state)', 100),
@@ -189,7 +190,8 @@ def main() -> int:
                     ('irp_analysis',   'IRP Analysis',   30),
                     ('portfolio',      'Portfolio',      40),
                     ('breakout_group', 'Breakout Group', 50),
-                    ('execution',      'Execution',      60)
+                    ('execution',      'Execution',      60),
+                    ('result_export',  'Result Export',  70)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN

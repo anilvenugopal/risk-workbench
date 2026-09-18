@@ -180,3 +180,56 @@ def test_no_databridge_on_request_path():
                 offenders.append(f"{path.relative_to(_REPO_ROOT)}: {token}")
     assert offenders == [], (
         f"DataBridge access is worker-side only (Article 11): {offenders}")
+
+
+# ── Spec 014 (T045): the loss results export ──────────────────────────────────
+# Article 11: the three Risk Modeler export calls run in workers only, and the
+# poller checks status with single ``get_*`` reads. Constitution Article 2: the
+# export service and workers reach SQL only through the ``db`` package's
+# execute functions and connections, never a driver, engine, or trusted script.
+
+_EXPORT_GATEWAY_CALLS = re.compile(
+    r"\b(?:download_export_results|get_export_job|submit_analysis_export_job)\b")
+_EXPORT_MODULES = (_APP / "services" / "export_service.py",
+                   _APP / "workers" / "export_jobs.py")
+_ALLOWED_DB_NAMES = {"execute", "execute_command", "execute_one", "execute_procedure",
+                     "get_connection", "get_connection_config", "read_uncommitted_hint",
+                     "elt"}
+
+
+def test_routers_never_call_the_export_gateway():
+    offenders = _offenders((_APP / "routers").rglob("*.py"), _EXPORT_GATEWAY_CALLS)
+    assert offenders == [], f"export calls are worker-side only (Article 11): {offenders}"
+
+
+def test_poller_never_calls_a_poll_method_on_the_gateway_or_client():
+    """The poller's own ``poll_once`` is the loop; what it must never do is call
+    a ``poll_*`` method of irp_gateway or the irp-integration client."""
+    offenders = _offenders(_POLLER.rglob("*.py"), re.compile(r"\.poll_\w+\("))
+    assert offenders == [], f"the poller uses single-status get_* checks only: {offenders}"
+
+
+def test_export_modules_reach_sql_only_through_the_db_package():
+    import ast
+
+    offenders = []
+    for path in _EXPORT_MODULES:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if module == "db":
+                    for alias in node.names:
+                        if alias.name not in _ALLOWED_DB_NAMES:
+                            offenders.append(f"{path.name}: from db import {alias.name}")
+                elif module.startswith("db.") and module != "db.elt":
+                    offenders.append(f"{path.name}: from {module} import …")
+                elif module == "sqlalchemy" and any(a.name != "text" for a in node.names):
+                    offenders.append(f"{path.name}: from sqlalchemy import "
+                                     f"{', '.join(a.name for a in node.names)}")
+                elif module.startswith("sqlalchemy.") or module == "pyodbc":
+                    offenders.append(f"{path.name}: from {module} import …")
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in ("pyodbc", "sqlalchemy") or alias.name.startswith("db."):
+                        offenders.append(f"{path.name}: import {alias.name}")
+    assert offenders == [], f"SQL reaches the databases through db/ only: {offenders}"

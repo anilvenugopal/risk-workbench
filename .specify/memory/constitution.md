@@ -2,6 +2,24 @@
   Sync Impact Report
   ==================
 
+  --- 2026-09-17 (spec 014 /speckit-analyze finding C1) ---
+  Version change: 4.1.0 → 4.2.0  (MINOR — Article 3 gains a second carve-out;
+  no article redefined or removed; 13-article numbering stable)
+
+  Added: Article 3 "Carve-out — client-owned databases". Categorical columns
+  on tables the Workbench installs in a database it does not migrate (today the
+  `stage` schema in CIC's `CRE_Trial_ELT_Repository`, spec 014 T-19) MAY use
+  `CHECK` constraints instead of kind tables. A kind table in the Workbench
+  database cannot be referenced by a foreign key from another database, so the
+  constraint would be advisory; kind tables inside the client's database would
+  be extra tables the client DBA installs and seeds on every release. The
+  carve-out covers only columns on such tables; Workbench-side categoricals of
+  the same feature (job types, context types) stay kind tables. Rejected
+  alternatives: specs/014-results-export/research.md R9.
+
+  Templates: no plan-template Constitution Check wording changes (the template
+  names no articles).
+
   --- 2026-09-16 (issue #101 import analyses by id) ---
   Version change: 4.0.0 → 4.1.0  (MINOR — the Article 11 interface contract
   gains a request-path carve-out for a single-analysis Platform metadata read;
@@ -222,8 +240,22 @@ The following columns are explicitly governed by this carve-out:
 `irp_job.irp_job_type` and `rwb_job.rwb_job_type` are **kind tables** — the set
 of operation/worker types the app dispatches on is closed and app-defined
 (it changes only when the app itself adds support for a new op), so the "always
-kind table" default applies. All other categoricals remain kind tables. The
-carve-out is narrow and intentional: when in doubt, use a kind table.
+kind table" default applies.
+
+**Carve-out — client-owned databases (added v4.2.0, 2026-09-17):** categorical
+columns on tables the Workbench installs in a database it does not migrate
+(today the `stage` schema in CIC's `CRE_Trial_ELT_Repository`, spec 014 T-19)
+MAY be constrained with `CHECK` constraints instead of kind tables. A kind
+table in the Workbench database cannot be referenced by a foreign key from
+another database, so it would be advisory; kind tables inside the client's
+database would be extra tables the client DBA installs and seeds on every
+release. The carve-out covers only columns on such tables. Workbench-side
+categoricals for the same feature (job types, context types) remain kind
+tables, and the plan's Constitution Check MUST cite this carve-out for each
+column that uses it.
+
+All other categoricals remain kind tables. Both carve-outs are narrow and
+intentional: when in doubt, use a kind table.
 
 ### Article 4 — Status Is Event-Sourced with a Cached Current — Where It Earns It
 
@@ -444,4 +476,4 @@ research begins.
 
 ---
 
-**Version**: 4.1.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-16
+**Version**: 4.2.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-17

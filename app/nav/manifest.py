@@ -164,6 +164,19 @@ NODES: list[dict[str, Any]] = [
         "hidden": True,
         "bottom": False,
     },
+    {
+        # Export form under a submission (spec 014) — routing/breadcrumb only.
+        "key": "submissions.export_new",
+        "label": "Export",
+        "parent": "submissions.detail",
+        "route": "/submissions",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": False,
+        "roles": [],
+        "hidden": True,
+        "bottom": False,
+    },
     # ── Results ──────────────────────────────────────────────────────────────
     {
         # Parameterized dedicated results view (spec 011 US4) — routing and
