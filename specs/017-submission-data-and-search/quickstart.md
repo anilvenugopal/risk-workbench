@@ -44,15 +44,17 @@ someone runs it.**
 
 ### Story 1 — two statuses, dates per CRM ID
 
-1. Open any submission. The header chip is labelled **Modeling status**; the
-   deal-facts band shows **Submission status: In Process** with a select.
+1. Open any submission. The metadata section shows **Modeling status** and
+   **Submission status: In Process** as two separately labelled fields, the
+   second with a select.
 2. Set Submission status to **Lost**. No reason is asked; the Modeling status
    chip and the history trail are unchanged.
 3. Set Modeling status to Completed (reason required, as before), then change
    Submission status to **Won**. It saves (T-02).
 4. Add three CRM IDs on an Active deal. Each row shows the deal's inception and
    a blank expiration, both marked inherited.
-5. Edit the deal's expiration (edit form). All three rows now show it, inherited.
+5. Edit the deal's expiration in place on the submission page. All three rows
+   now show it, inherited.
 6. On one CRM ID enter an expiration three years later. Only that row changes
    and is no longer marked inherited.
 7. Click **Make them all the same**, confirm. All rows read the deal dates,

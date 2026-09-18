@@ -8,11 +8,11 @@ and is rejected without a session (Article 13). Decision references:
 
 | Route | Form fields | Gate | Success | Errors |
 |---|---|---|---|---|
-| `POST /submissions/{sid}/deal-status` | `to_status` ∈ `deal_status_kind.code`, `expected_updated_at` | none on Modeling status (T-02) | re-render the deal-facts band (`#deal-facts`) with the new chip; full-page redirect without HTMX | 409 banner on `updated_at` mismatch; 422 on an unknown code |
-| `POST /submissions/{sid}/crm-ids/{tag}/dates` | `inception_date` (ISO or blank), `expiration_date` (ISO or blank) | Modeling status Active | re-render `#crm-tags`; blank clears that override (inherits) | 409 `SubmissionClosed`; 422 on an unparseable date |
+| `POST /submissions/{sid}/deal-status` | `to_status` ∈ `deal_status_kind.code`, `expected_updated_at` | none on Modeling status (T-02) | re-render the metadata section (fragment id fixed when the T-10 preview is approved) with the new value; full-page redirect without HTMX | 409 banner on `updated_at` mismatch; 422 on an unknown code |
+| `POST /submissions/{sid}/crm-ids/{tag_id}/dates` | `inception_date` (ISO or blank), `expiration_date` (ISO or blank) | Modeling status Active | re-render `#crm-tags`; blank clears that override (inherits) | 409 `SubmissionClosed`; 422 on an unparseable date |
 | `POST /submissions/{sid}/crm-ids/same-dates` | none | Modeling status Active; `hx-confirm` on the button | re-render `#crm-tags` with every row inherited | 409 `SubmissionClosed` |
 
-Existing `POST /submissions/{sid}/crm-ids` and `…/crm-ids/{tag}/delete` are
+Existing `POST /submissions/{sid}/crm-ids` and `…/crm-ids/{tag_id}/delete` are
 unchanged; a removed CRM ID takes its override columns with it (FR-004).
 
 `#crm-tags` renders one row per CRM ID: CRM ID · effective inception ·
@@ -43,10 +43,9 @@ fewer."` and no rows.
 |---|---|---|---|---|
 | `q` | text | Name | all three | submissions: word-AND on name; libraries: substring on entity name (unchanged) |
 | `cedant` | text | Cedant | all three | word-AND substring on `submission.cedant_name` |
-| `crm_id` | multi | CRM ID | all three | each value a substring of any CRM ID of the submission (`LIKE`, escaped); OR across values |
+| `crm_id` | multi | CRM ID | all three | each value matches a whole CRM ID of the submission exactly, case-insensitive and trimmed: one `IN` list over `LOWER(TRIM(crm_id))` inside one `EXISTS` over `submission_crm_id`; OR across values (P-10) |
 | `owner` | multi | Owner | all three | `assigned_analyst_id IN`; submissions list defaults to the signed-in analyst when absent and `owner=any` clears it (unchanged); libraries have no default |
 | `status` | multi | Modeling status | submissions list | `status_code IN` (existing param, relabelled) |
-| `modeling_status` | multi | Modeling status | libraries | same predicate; the libraries' `status` param stays the import status |
 | `deal_status` | multi | Submission status | all three | `deal_status_code IN` |
 | `client` | multi | Client | all three | `client_id IN` (integers); a submission with NULL client never matches |
 | `treaty_type` | multi | Treaty type | all three | `treaty_type_code IN` |
@@ -58,9 +57,8 @@ fewer."` and no rows.
 
 Library-only parameters kept as today: `status` (import status, exact match).
 
-On the libraries, when none of `cedant`, `crm_id`, `owner`,
-`modeling_status`, `deal_status`, `client`, `treaty_type`, `treaty_year`,
-`in_force` is set, no `EXISTS` is added and EDMs/RDMs with no submission are
+On the libraries, when none of `cedant`, `crm_id`, `owner`, `deal_status`,
+`client`, `treaty_type`, `treaty_year`, `in_force` is set, no `EXISTS` is added and EDMs/RDMs with no submission are
 listed (FR-016).
 
 ## 4. Library fragments

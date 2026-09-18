@@ -165,7 +165,8 @@ Material interactions — where an article actively shapes this design:
   label change would be an amendment with no behavior gain, so Modeling
   status keeps them (T-01). Submission status is "other status" in the
   article's terms — a plain value with no reason (P-02) — and is updated in
-  place (T-02).
+  place (T-02); constitution v4.1.1 names `submission.deal_status_code` in the
+  Article 4 in-place list.
 - **Article 3 (kind tables)**: `deal_status_kind` is a new kind table; the
   hardcoded `TREATY_TYPES` list in the router is deleted in favour of the
   table (T-07). The in-force rule must name Won; it does so through one
