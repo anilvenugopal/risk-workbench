@@ -199,8 +199,8 @@ def test_submission_entity_note_edits_in_place(
         connection="WORKBENCH",
     )
     submission = submission_service.get_submission(submission_id)
-    submission_service.set_status(
-        submission_id=submission_id, to_status="COMPLETED", reason=None,
+    submission_service.set_statuses(
+        submission_id=submission_id, modeling_status="COMPLETED", reason=None,
         expected_updated_at=submission.updated_at, actor_id=client.db.user_a,
     )
 
@@ -570,8 +570,8 @@ def test_closed_submission_rejects_attach_and_detach_routes(client, status, kind
         {"id": edm_id, "name": f"ClosedRoute{kind}"}, connection="WORKBENCH")
     marker = submission_service.get_submission(submission_id).updated_at
     client.post(
-        f"/submissions/{submission_id}/status",
-        data={"to_status": status, "reason": "", "updated_at": marker,
+        f"/submissions/{submission_id}/statuses",
+        data={"modeling_status": status, "reason": "", "updated_at": marker,
               "csrf_token": _csrf()})
 
     attach = client.post(
@@ -598,8 +598,8 @@ def test_closed_submission_rejects_import_routes(
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     marker = submission_service.get_submission(submission_id).updated_at
     client.post(
-        f"/submissions/{submission_id}/status",
-        data={"to_status": status, "reason": "", "updated_at": marker,
+        f"/submissions/{submission_id}/statuses",
+        data={"modeling_status": status, "reason": "", "updated_at": marker,
               "csrf_token": _csrf()})
 
     response = client.post(
@@ -1917,7 +1917,7 @@ def test_detail_page_labels_the_two_statuses_apart_and_offers_no_hold(client):
     assert 'id="deal-head"' in body
     assert "Hold" not in body
     # The Submission status select offers exactly the kind table's three values.
-    select = body.split('name="to_status"')[1].split("</select>")[0]
+    select = body.split('name="deal_status"')[1].split("</select>")[0]
     assert re.findall(r'<option value="(\w+)"', select) == ["IN_PROCESS", "WON", "LOST"]
     assert "2027-04-01" in body
 
@@ -1925,8 +1925,8 @@ def test_detail_page_labels_the_two_statuses_apart_and_offers_no_hold(client):
 def test_deal_status_post_saves_without_a_reason_and_returns_the_head_fragment(client):
     sid, marker = _deal(client, name="Won deal")
     response = client.post(
-        f"/submissions/{sid}/deal-status", headers=_HX,
-        data={"to_status": "WON", "expected_updated_at": marker, "csrf_token": _csrf()})
+        f"/submissions/{sid}/statuses", headers=_HX,
+        data={"deal_status": "WON", "updated_at": marker, "csrf_token": _csrf()})
     assert response.status_code == 200
     assert response.text.lstrip().startswith('<div id="deal-head"')
     assert "<html" not in response.text
@@ -1936,23 +1936,48 @@ def test_deal_status_post_saves_without_a_reason_and_returns_the_head_fragment(c
     assert len(submission_service.get_status_history(sid)) == 1
 
 
+def test_statuses_post_saves_both_under_one_marker_and_records_one_event(client):
+    sid, marker = _deal(client, name="Both statuses")
+    response = client.post(
+        f"/submissions/{sid}/statuses", headers=_HX,
+        data={"modeling_status": "COMPLETED", "deal_status": "WON",
+              "reason": "delivered", "updated_at": marker, "csrf_token": _csrf()})
+    assert response.status_code == 200
+    sub = submission_service.get_submission(sid)
+    assert sub.status_code == "COMPLETED" and sub.deal_status_code == "WON"
+    history = submission_service.get_status_history(sid)
+    assert [(e.status_code, e.reason) for e in history] == [
+        ("COMPLETED", "delivered"), ("ACTIVE", None)]
+
+
+def test_statuses_post_resubmitting_the_same_modeling_status_adds_no_event(client):
+    sid, marker = _deal(client, name="Unchanged modeling")
+    response = client.post(
+        f"/submissions/{sid}/statuses", headers=_HX,
+        data={"modeling_status": "ACTIVE", "deal_status": "LOST",
+              "reason": "", "updated_at": marker, "csrf_token": _csrf()})
+    assert response.status_code == 200
+    assert submission_service.get_submission(sid).deal_status_code == "LOST"
+    assert len(submission_service.get_status_history(sid)) == 1
+
+
 def test_deal_status_post_redirects_without_htmx(client):
     sid, marker = _deal(client, name="Redirected deal")
     response = client.post(
-        f"/submissions/{sid}/deal-status",
-        data={"to_status": "LOST", "expected_updated_at": marker, "csrf_token": _csrf()})
+        f"/submissions/{sid}/statuses",
+        data={"deal_status": "LOST", "updated_at": marker, "csrf_token": _csrf()})
     assert response.status_code == 303
     assert response.headers["location"] == f"/submissions/{sid}"
 
 
 def test_deal_status_post_works_on_a_completed_deal(client):
     sid, marker = _deal(client, name="Completed then won")
-    client.post(f"/submissions/{sid}/status", data={
-        "to_status": "COMPLETED", "updated_at": marker, "csrf_token": _csrf()})
+    client.post(f"/submissions/{sid}/statuses", data={
+        "modeling_status": "COMPLETED", "updated_at": marker, "csrf_token": _csrf()})
     marker = str(submission_service.get_submission(sid).updated_at)
     response = client.post(
-        f"/submissions/{sid}/deal-status", headers=_HX,
-        data={"to_status": "WON", "expected_updated_at": marker, "csrf_token": _csrf()})
+        f"/submissions/{sid}/statuses", headers=_HX,
+        data={"deal_status": "WON", "updated_at": marker, "csrf_token": _csrf()})
     assert response.status_code == 200
     assert submission_service.get_submission(sid).deal_status_code == "WON"
     assert "read-only" in response.text and "Reopen it to make changes" not in response.text
@@ -1961,8 +1986,8 @@ def test_deal_status_post_works_on_a_completed_deal(client):
 def test_deal_status_post_conflicts_on_a_stale_marker(client):
     sid, _ = _deal(client, name="Stale deal")
     response = client.post(
-        f"/submissions/{sid}/deal-status", headers=_HX,
-        data={"to_status": "WON", "expected_updated_at": "1999-01-01 00:00:00",
+        f"/submissions/{sid}/statuses", headers=_HX,
+        data={"deal_status": "WON", "updated_at": "1999-01-01 00:00:00",
               "csrf_token": _csrf()})
     assert response.status_code == 409
     assert "changed since you opened it" in response.text
@@ -1972,17 +1997,17 @@ def test_deal_status_post_conflicts_on_a_stale_marker(client):
 def test_deal_status_post_rejects_an_unknown_code(client):
     sid, marker = _deal(client, name="Bad code deal")
     response = client.post(
-        f"/submissions/{sid}/deal-status", headers=_HX,
-        data={"to_status": "HOLD", "expected_updated_at": marker, "csrf_token": _csrf()})
+        f"/submissions/{sid}/statuses", headers=_HX,
+        data={"deal_status": "HOLD", "updated_at": marker, "csrf_token": _csrf()})
     assert response.status_code == 422
-    assert "Choose Won, Lost or In Process." in response.text
+    assert "Submission status is Won, Lost or In Process." in response.text
 
 
 def test_deal_status_post_without_a_csrf_token_writes_nothing(client):
     sid, marker = _deal(client, name="No csrf deal")
     response = client.post(
-        f"/submissions/{sid}/deal-status",
-        data={"to_status": "WON", "expected_updated_at": marker, "csrf_token": "nope"})
+        f"/submissions/{sid}/statuses",
+        data={"deal_status": "WON", "updated_at": marker, "csrf_token": "nope"})
     assert response.status_code == 303
     assert submission_service.get_submission(sid).deal_status_code == "IN_PROCESS"
 
@@ -1991,10 +2016,10 @@ def _crm_rows(body: str) -> dict[str, str]:
     """The rendered CRM rows keyed by CRM ID (the wrapper up to the actions)."""
     rows = re.findall(r'<div class="crm-row" x-data[\s\S]*?<span class="crm-row__actions">',
                       body)
-    return {re.search(r'mono">([^<]+)<', row).group(1).strip(): row for row in rows}
+    return {re.search(r'crm-row__id">([^<]+)<', row).group(1).strip(): row for row in rows}
 
 
-def test_crm_dates_post_overrides_one_column_and_marks_the_other_inherited(client):
+def test_crm_dates_post_overrides_one_column_and_inherits_the_other(client):
     sid, _ = _deal(client, name="Dated deal", crm_ids="T-100, T-200",
                    expiration_date="2027-04-01")
     tags = {t.crm_id: t for t in submission_service.list_crm_ids(sid)}
@@ -2005,10 +2030,23 @@ def test_crm_dates_post_overrides_one_column_and_marks_the_other_inherited(clien
     assert response.status_code == 200
     assert response.text.lstrip().startswith('<div id="crm-tags"')
     rows = _crm_rows(response.text)
-    assert rows["T-100"].count("crm-date--inherited") == 1 and "2029-04-01" in rows["T-100"]
-    assert rows["T-200"].count("crm-date--inherited") == 2 and "2027-04-01" in rows["T-200"]
-    assert 'title="Inherited from the deal"' in rows["T-200"]
-    assert "Make them all the same" in response.text
+    # The overridden expiration and the inherited one read the same way.
+    assert "2029-04-01" in rows["T-100"] and "2027-04-01" in rows["T-200"]
+    assert submission_service.list_crm_ids(sid)[0].inception_date is None
+    assert "Make dates the same" in response.text
+
+
+def test_crm_add_post_stores_a_typed_date_and_inherits_the_deal_s(client):
+    sid, _ = _deal(client, name="Add with dates", expiration_date="2027-04-01")
+    response = client.post(
+        f"/submissions/{sid}/crm-ids", headers=_HX,
+        data={"crm_id": "T-900", "inception_date": "2026-04-01",
+              "expiration_date": "2029-04-01", "csrf_token": _csrf()})
+    assert response.status_code == 200
+    [tag] = submission_service.list_crm_ids(sid)
+    # The inception came back as the deal's, so it is stored as inheritance.
+    assert tag.inception_date is None and str(tag.expiration_date) == "2029-04-01"
+    assert str(tag.effective_inception_date) == "2026-04-01"
 
 
 def test_crm_dates_post_rejects_a_date_that_does_not_parse(client):
@@ -2033,14 +2071,14 @@ def test_same_dates_post_resets_every_override(client):
     assert response.status_code == 200
     assert all(t.inception_inherited and t.expiration_inherited
                for t in submission_service.list_crm_ids(sid))
-    assert "Make them all the same" not in response.text
+    assert "Make dates the same" not in response.text
 
 
 def test_crm_date_posts_are_refused_when_the_deal_is_closed(client):
     sid, marker = _deal(client, name="Closed dates deal", crm_ids="T-100")
     [tag] = submission_service.list_crm_ids(sid)
-    client.post(f"/submissions/{sid}/status", data={
-        "to_status": "CANCELLED", "updated_at": marker, "csrf_token": _csrf()})
+    client.post(f"/submissions/{sid}/statuses", data={
+        "modeling_status": "CANCELLED", "updated_at": marker, "csrf_token": _csrf()})
     dated = client.post(
         f"/submissions/{sid}/crm-ids/{tag.id}/dates", headers=_HX,
         data={"inception_date": "2026-05-01", "expiration_date": "", "csrf_token": _csrf()})
@@ -2084,8 +2122,8 @@ def test_form_accepts_an_optional_expiration_and_rejects_a_bad_one(client):
 
 def test_list_offers_two_status_pickers_and_filters_on_submission_status(client):
     won, marker = _deal(client, name="Won listed")
-    client.post(f"/submissions/{won}/deal-status", data={
-        "to_status": "WON", "expected_updated_at": marker, "csrf_token": _csrf()})
+    client.post(f"/submissions/{won}/statuses", data={
+        "deal_status": "WON", "updated_at": marker, "csrf_token": _csrf()})
     _deal(client, name="Still in process", cedant_name="Other Re")
     body = client.get("/submissions").text
     assert 'id="status-label">Modeling status</span>' in body
@@ -2177,8 +2215,8 @@ def test_a_client_not_in_a_reachable_list_is_a_field_error(client, loss_clients)
 def test_in_force_as_of_lists_won_deals_on_risk_and_defaults_to_today(client):
     won, marker = _deal(client, name="On risk", crm_ids="T-100",
                         expiration_date="2099-01-01")
-    client.post(f"/submissions/{won}/deal-status", data={
-        "to_status": "WON", "expected_updated_at": marker, "csrf_token": _csrf()})
+    client.post(f"/submissions/{won}/statuses", data={
+        "deal_status": "WON", "updated_at": marker, "csrf_token": _csrf()})
     _deal(client, name="Still open", cedant_name="Other Re", crm_ids="T-300",
           expiration_date="2099-01-01")
     body = client.get("/submissions?in_force=1").text

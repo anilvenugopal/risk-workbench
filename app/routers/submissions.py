@@ -756,6 +756,7 @@ def _head_context(submission, *, head_error: str | None = None) -> dict:
         "link_target": submission_service.get_submission(
             submission.links_to_submission_id),
         "analysts": auth_service.list_active_analysts(),
+        "modeling_statuses": submission_service.status_kinds(),
         "deal_statuses": submission_service.deal_status_kinds(),
         "is_active": submission.status_code == submission_service.ACTIVE,
         "head_error": head_error,
@@ -1588,61 +1589,41 @@ def change_deal_dates(
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 
-# ── Submission status (spec 017 T-02; contracts/routes.md §1) ──────────────────
+# ── Both statuses, one Save (spec 017 P-12, P-14) ─────────────────────────────
 
-@router.post("/submissions/{submission_id}/deal-status")
-def change_deal_status(
+@router.post("/submissions/{submission_id}/statuses")
+def change_statuses(
     request: Request,
     submission_id: str,
-    to_status: str = Form(""),
-    expected_updated_at: str = Form(...),
-    csrf_token: str = Form(...),
-):
-    """Won / Lost / In Process, in every Modeling status, no reason (P-12)."""
-    if not validate_csrf_token(csrf_token):
-        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-    if submission_service.get_submission(submission_id) is None:
-        return _not_found(request)
-    try:
-        submission_service.set_deal_status(
-            submission_id=submission_id, to_status=to_status,
-            expected_updated_at=expected_updated_at,
-            actor_id=request.state.user.id)
-    except ValueError:
-        return _head_partial(
-            request, submission_id, status_code=422,
-            head_error="Choose Won, Lost or In Process.")
-    except ConcurrencyConflict as exc:
-        return _head_partial(request, submission_id, head_error=str(exc),
-                             status_code=409)
-    if _is_htmx(request):
-        return _head_partial(request, submission_id)
-    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-
-
-# ── Modeling status lifecycle ──────────────────────────────────────────────────
-
-@router.post("/submissions/{submission_id}/status")
-def change_status(
-    request: Request,
-    submission_id: str,
-    to_status: str = Form(...),
+    modeling_status: str = Form(""),
+    deal_status: str = Form(""),
     reason: str = Form(""),
     updated_at: str = Form(...),
     csrf_token: str = Form(...),
 ):
+    """The Status editor saves Modeling status and Submission status together.
+    Only a status the analyst actually changed is written, so re-saving after a
+    Submission status edit adds no Modeling status event."""
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-    if to_status not in ("ACTIVE", "COMPLETED", "CANCELLED"):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    modeling = modeling_status or None
+    deal = deal_status or None
+    try:
+        submission_service.set_statuses(
+            submission_id=submission_id,
+            modeling_status=None if modeling == submission.status_code else modeling,
+            deal_status=None if deal == submission.deal_status_code else deal,
+            reason=reason.strip() or None,
+            expected_updated_at=updated_at, actor_id=request.state.user.id,
+        )
+    except ValueError:
         return _head_partial(
             request, submission_id, status_code=422,
-            head_error="Modeling status is Active, Completed or Cancelled.")
-    try:
-        submission_service.set_status(
-            submission_id=submission_id, to_status=to_status,
-            reason=reason.strip() or None, expected_updated_at=updated_at,
-            actor_id=request.state.user.id,
-        )
+            head_error="Modeling status is Active, Completed or Cancelled; "
+                       "Submission status is Won, Lost or In Process.")
     except ConcurrencyConflict as exc:
         return _head_partial(request, submission_id, head_error=str(exc),
                              status_code=409)
@@ -1732,14 +1713,37 @@ def add_crm(
     request: Request,
     submission_id: str,
     crm_id: str = Form(...),
+    inception_date: str = Form(""),
+    expiration_date: str = Form(""),
     csrf_token: str = Form(...),
 ):
+    """Add one CRM ID with its dates. The Add form starts on the deal's dates,
+    so a date left as the deal's is stored as inheritance — the CRM ID then
+    follows a later change to the deal's term (P-03)."""
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    parsed_inception = _parse_date(inception_date)
+    parsed_expiration = _parse_date(expiration_date)
+    if ((inception_date.strip() and parsed_inception is None)
+            or (expiration_date.strip() and parsed_expiration is None)):
+        return _crm_partial(request, submission_id, status_code=422,
+                            crm_error="Enter a valid date, or leave it blank "
+                                      "to inherit the deal's.")
+    # The form rendered the deal's dates into the inputs, so compare the text the
+    # analyst sent back with the text it was given: unchanged means inherit.
+    if inception_date.strip() == str(submission.inception_date or ""):
+        parsed_inception = None
+    if expiration_date.strip() == str(submission.expiration_date or ""):
+        parsed_expiration = None
     try:
         if crm_id.strip():
-            submission_service.add_crm_id(submission_id=submission_id, crm_id=crm_id,
-                           actor_id=request.state.user.id)
+            submission_service.add_crm_id(
+                submission_id=submission_id, crm_id=crm_id,
+                actor_id=request.state.user.id,
+                inception_date=parsed_inception, expiration_date=parsed_expiration)
     except SubmissionClosed:
         return _crm_partial(request, submission_id, status_code=409,
                             crm_error=_CRM_CLOSED_MESSAGE)

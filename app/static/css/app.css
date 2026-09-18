@@ -167,8 +167,8 @@
 .detail-head h1 { font-size: 20px; margin: 0 0 5px; color: var(--text-primary); font-weight: var(--fw-medium); }
 .detail-meta { font-size: var(--fs-label); color: var(--text-secondary); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .detail-meta__handler { color: var(--text-tertiary); }
-/* Submission detail: the created stamp under the name; the metadata grid
-   below it is .deal-meta in submissions.css. */
+/* Submission detail: the created stamp under the name; the card of attribute
+   groups below it is .deal-card in submissions.css. */
 .deal-head__created { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); font-size: var(--fs-caption); color: var(--text-tertiary); }
 .deal-head__created time { font-family: var(--font-mono); color: var(--text-secondary); }
 .deal-head__created a { color: var(--color-brand); }

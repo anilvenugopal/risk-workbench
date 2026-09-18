@@ -1152,76 +1152,71 @@ def reassign_owner(
         )
 
 
-def set_deal_status(
-    *, submission_id: Any, to_status: str, expected_updated_at: Any, actor_id: Any,
+# ── Statuses (Modeling event-sourced, Submission in place) ──────────────────
+
+def set_statuses(
+    *, submission_id: Any, modeling_status: str | None = None,
+    deal_status: str | None = None, reason: str | None = None,
+    expected_updated_at: Any, actor_id: Any,
 ) -> None:
-    """Submission status — Won / Lost / In Process — set in place with the R1
-    concurrency check, in every Modeling status, with no reason and no event
-    row (P-02, P-12; Article 4 "other status"). ``ValueError`` on a code that is
-    not in ``deal_status_kind``."""
-    if to_status not in {code for code, _ in deal_status_kinds()}:
-        raise ValueError(f"unknown Submission status {to_status!r}")
+    """Both of the deal's statuses, written in one transaction under one R1
+    marker: the Status editor saves them together (P-14). ``None`` leaves that
+    status as it is.
+
+    Modeling status is event-sourced (R2): the cached ``status_code`` and the
+    ``submission_status_event`` row are written together. No transition is
+    refused (FR-011, FR-012) and a same-status set is a recorded no-op; there is
+    no delete (FR-014). ``reason`` belongs to the Modeling status event alone.
+    Submission status is set in place in every Modeling status, with no event
+    and no reason (P-02, P-12; Article 4 "other status"). ``ValueError`` on a
+    code that is not in its kind table.
+    """
+    if modeling_status is not None and modeling_status not in {
+            code for code, _ in status_kinds()}:
+        raise ValueError(f"unknown Modeling status {modeling_status!r}")
+    if deal_status is not None and deal_status not in {
+            code for code, _ in deal_status_kinds()}:
+        raise ValueError(f"unknown Submission status {deal_status!r}")
+    if modeling_status is None and deal_status is None:
+        return
     sid = str(submission_id)
     if _load_status(sid) is None:
         raise LookupError(f"submission {sid} not found")
-    rows_affected = execute_command(
-        """
-        UPDATE submission
-        SET deal_status_code = :ds, updated_at = :now, updated_by = :actor
-        WHERE id = :id AND updated_at = :expected
-        """,
-        {
-            "ds": to_status, "now": _utcnow(), "actor": str(actor_id),
-            "id": sid, "expected": expected_updated_at,
-        },
-        connection="WORKBENCH",
-    )
-    if rows_affected == 0:
-        raise ConcurrencyConflict(
-            "This deal changed since you opened it — reload and re-apply."
-        )
-
-
-# ── Status lifecycle (event-sourced) ─────────────────────────────────────────
-
-def set_status(
-    *, submission_id: Any, to_status: str, reason: str | None,
-    expected_updated_at: Any, actor_id: Any,
-) -> None:
-    """Transition to ACTIVE / COMPLETED / CANCELLED. No precondition (FR-012);
-    reopen from either closed state is an ordinary transition (FR-011); a
-    same-status set is a recorded no-op, never an error. One transaction (R2):
-    UPDATE cached status_code (with the R1 concurrency check) + INSERT event.
-    There is NO delete function (FR-014)."""
-    sid = str(submission_id)
     now = _utcnow()
     actor = str(actor_id)
+    assignments = []
+    params = {"now": now, "actor": actor, "id": sid,
+              "expected": expected_updated_at}
+    if modeling_status is not None:
+        assignments.append("status_code = :s")
+        params["s"] = modeling_status
+    if deal_status is not None:
+        assignments.append("deal_status_code = :ds")
+        params["ds"] = deal_status
     with get_connection("WORKBENCH") as conn:
         with conn.begin():
             rows_affected = conn.execute(text(
-                """
+                f"""
                 UPDATE submission
-                SET status_code = :s, updated_at = :now, updated_by = :actor
+                SET {", ".join(assignments)}, updated_at = :now, updated_by = :actor
                 WHERE id = :id AND updated_at = :expected
                 """
-            ), {
-                "s": to_status, "now": now, "actor": actor,
-                "id": sid, "expected": expected_updated_at,
-            }).rowcount
+            ), params).rowcount
             if rows_affected == 0:
                 raise ConcurrencyConflict(
                     "This deal changed since you opened it — reload and re-apply."
                 )
-            conn.execute(text(
-                """
-                INSERT INTO submission_status_event
-                    (id, submission_id, status_code, reason, at, inserted_by)
-                VALUES (:eid, :sid, :s, :reason, :now, :actor)
-                """
-            ), {
-                "eid": str(uuid.uuid4()), "sid": sid, "s": to_status,
-                "reason": reason, "now": now, "actor": actor,
-            })
+            if modeling_status is not None:
+                conn.execute(text(
+                    """
+                    INSERT INTO submission_status_event
+                        (id, submission_id, status_code, reason, at, inserted_by)
+                    VALUES (:eid, :sid, :s, :reason, :now, :actor)
+                    """
+                ), {
+                    "eid": str(uuid.uuid4()), "sid": sid, "s": modeling_status,
+                    "reason": reason, "now": now, "actor": actor,
+                })
 
 
 def get_status_history(submission_id: Any) -> list[StatusEvent]:
@@ -1254,10 +1249,13 @@ def get_status_history(submission_id: Any) -> list[StatusEvent]:
 
 # ── CRM tags (gated; append-only inserts) ────────────────────────────────────
 
-def add_crm_id(*, submission_id: Any, crm_id: str, actor_id: Any) -> str:
-    """Add a free-text CRM tag to an ACTIVE deal. Blank/whitespace is rejected
-    (not stored); no format validation. Re-adding a tag the deal already carries
-    (case-insensitive) is a silent no-op — the existing tag id comes back."""
+def add_crm_id(*, submission_id: Any, crm_id: str, actor_id: Any,
+               inception_date: Any = None, expiration_date: Any = None) -> str:
+    """Add a free-text CRM tag to an ACTIVE deal, with the date overrides the
+    analyst typed. Blank/whitespace is rejected (not stored); no format
+    validation. A date left None inherits the deal's (P-03). Re-adding a tag the
+    deal already carries (case-insensitive) is a silent no-op — the existing tag
+    id comes back and its dates are left alone."""
     cleaned_crm_id = (crm_id or "").strip()
     if not cleaned_crm_id:
         raise ValueError("crm_id is blank")
@@ -1267,9 +1265,11 @@ def add_crm_id(*, submission_id: Any, crm_id: str, actor_id: Any) -> str:
             return str(existing.id)
     new_tag_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO submission_crm_id (id, submission_id, crm_id, inserted_at, "
-        "inserted_by) VALUES (:id, :sid, :c, :now, :by)",
+        "INSERT INTO submission_crm_id (id, submission_id, crm_id, inception_date, "
+        "expiration_date, inserted_at, inserted_by) "
+        "VALUES (:id, :sid, :c, :inc, :exp, :now, :by)",
         {"id": new_tag_id, "sid": str(submission_id), "c": cleaned_crm_id,
+         "inc": _as_date(inception_date), "exp": _as_date(expiration_date),
          "now": _utcnow(), "by": str(actor_id)},
         connection="WORKBENCH",
     )

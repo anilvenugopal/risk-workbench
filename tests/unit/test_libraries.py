@@ -237,8 +237,8 @@ def _deal(*, name, owner, deal_status="IN_PROCESS", crm_ids=(), expiration=None)
         inception_date=date(2026, 1, 1), expiration_date=expiration,
         crm_ids=list(crm_ids), actor_id=owner, confirmed=True).submission_id
     if deal_status != "IN_PROCESS":
-        submission_service.set_deal_status(
-            submission_id=sid, to_status=deal_status,
+        submission_service.set_statuses(
+            submission_id=sid, deal_status=deal_status,
             expected_updated_at=submission_service.get_submission(sid).updated_at,
             actor_id=owner)
     return sid
