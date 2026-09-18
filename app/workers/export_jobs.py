@@ -13,6 +13,7 @@ the analyst approved on the form.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import logging
 import re
@@ -127,12 +128,18 @@ def _working_dir(export_id: str, irp_analysis_id: str) -> Path:
 
 
 def _remove_dir(path: Path) -> None:
+    """Remove one analysis's working directory, then the export directory above
+    it once its last analysis is gone. The export directory is shared with the
+    other analyses of the same export, which stage on their own threads, so
+    ``rmdir`` is expected to refuse while any of them is still working."""
     try:
         shutil.rmtree(path)
     except FileNotFoundError:
         pass
     except OSError:
         logger.exception("could not remove working directory %s", path)
+    with contextlib.suppress(OSError):
+        path.parent.rmdir()
 
 
 def _check_loss_schema_version() -> None:
@@ -263,7 +270,12 @@ def _stage(manifest: dict, irp_job_id: str) -> None:
 
     work_dir = _working_dir(_uid(manifest["export_id"]), _uid(manifest["irp_analysis_id"]))
     _remove_dir(work_dir)
-    work_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        work_dir.mkdir(parents=True, exist_ok=True)
+    except FileNotFoundError:
+        # A sibling analysis of this export removed the export directory between
+        # this call's own two mkdir syscalls. Making it again is ours to do.
+        work_dir.mkdir(parents=True, exist_ok=True)
     try:
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(work_dir)

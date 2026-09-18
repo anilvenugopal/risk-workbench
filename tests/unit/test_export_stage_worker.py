@@ -125,7 +125,7 @@ def test_happy_path_stages_files_and_rows_and_enqueues_the_load(staging, fake_ir
     assert json.loads(load[0]["input_data"]) == {
         "export_id": staging["export_id"], "irp_analysis_id": staging["analysis_id"],
         "manifest_id": m["manifest_id"]}
-    assert not any(Path(settings.export_staging_dir).rglob("*.parquet"))
+    assert list(Path(settings.export_staging_dir).iterdir()) == []
 
 
 def test_several_chunks_stage_in_order(staging, fake_irp):
@@ -341,3 +341,17 @@ def test_a_repository_ahead_of_this_release_stages(staging):
     _set_schema_version(export_jobs.REQUIRED_LOSS_SCHEMA_VERSION + 1)
     _run_stage()
     assert _manifest(staging)["stage_status"] == "staged"
+
+
+def test_the_export_directory_goes_with_its_last_analysis(tmp_path):
+    export_dir = tmp_path / "export-1"
+    first, second = export_dir / "analysis-1", export_dir / "analysis-2"
+    for work_dir in (first, second):
+        work_dir.mkdir(parents=True)
+        (work_dir / "chunk_0.parquet").write_bytes(b"x")
+
+    export_jobs._remove_dir(first)
+    assert not first.exists() and export_dir.is_dir()
+
+    export_jobs._remove_dir(second)
+    assert not export_dir.exists() and tmp_path.is_dir()
