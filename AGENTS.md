@@ -1,5 +1,5 @@
 <!-- SPECKIT START -->
-When present, read `specs/012-grouping-execution/plan.md` for the current
+When present, read `specs/017-submission-data-and-search/plan.md` for the current
 technology, project structure, and shell-command decisions.
 <!-- SPECKIT END -->
 
