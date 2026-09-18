@@ -86,7 +86,7 @@ def test_a_raised_call_stamps_failed_with_the_sql_server_message(load_job, monke
     assert job["error_detail"] == message
 
 
-def test_success_returns_the_data_id_the_procedure_wrote(load_job, monkeypatch):
+def test_success_returns_the_data_ids_the_procedure_wrote(load_job, monkeypatch):
     row, job_id = load_job(stage_status="staged")
 
     def procedure(name, params, connection):
@@ -97,4 +97,4 @@ def test_success_returns_the_data_id_the_procedure_wrote(load_job, monkeypatch):
 
     export_jobs.run_pending(worker_id="w1")
 
-    assert json.loads(_job(job_id)["output_data"]) == {"data_id": 4127}
+    assert json.loads(_job(job_id)["output_data"]) == {"data_ids": [4127]}

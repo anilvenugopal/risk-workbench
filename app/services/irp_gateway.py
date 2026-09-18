@@ -594,6 +594,8 @@ class IRPGateway(Protocol):
     def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
                         exposure_resource_id: int) -> list[dict]: ...
 
+    def list_analysis_treaties(self, *, analysis_id: int) -> list[dict]: ...
+
     def delete_analysis(self, irp_id: str) -> None: ...
 
     # ── spec-014 loss results export (submit worker, poller, stage worker) ────
@@ -1330,6 +1332,21 @@ class _RealGateway:
         return self._client().analysis.get_ep(
             analysis_id, perspective_code, exposure_resource_id)
 
+    def list_analysis_treaties(self, *, analysis_id: int) -> list[dict]:
+        # GET /platform/riskdata/v1/analyses/{analysisId}/treaties — the
+        # treaties Risk Modeler applied when the analysis ran (spec 016 T-04).
+        # Identity plus the four terms the export form shows per treaty
+        # (spec 016 P-12); cedant and producer are dropped.
+        return [{"treaty_id": str(t.get("treatyId")),
+                 "treaty_number": t.get("treatyNumber"),
+                 "treaty_name": t.get("treatyName"),
+                 "treaty_type": t.get("treatyType"),
+                 "attachment_point": t.get("attachmentPoint"),
+                 "occurrence_limit": t.get("occurrenceLimit"),
+                 "risk_limit": t.get("riskLimit")}
+                for t in self._client().analysis.search_analysis_treaties_paginated(
+                    analysis_id)]
+
     def delete_analysis(self, irp_id: str) -> None:
         # DELETE /platform/riskdata/v1/analyses/{analysisId} — synchronous.
         # Failures raise IRPIntegrationError; the caller keeps the local row.
@@ -1691,6 +1708,10 @@ def get_analysis_ep(*, analysis_id: int, perspective_code: str,
         exposure_resource_id=exposure_resource_id)
 
 
+def list_analysis_treaties(*, analysis_id: int) -> list[dict]:
+    return _active().list_analysis_treaties(analysis_id=analysis_id)
+
+
 def delete_analysis(irp_id: str) -> None:
     _active().delete_analysis(irp_id)
 
@@ -1775,7 +1796,7 @@ __all__ = [
     "list_output_profiles", "list_event_rate_schemes", "list_currencies",
     "list_currency_schemes", "list_currency_scheme_vintages",
     "submit_portfolio_analysis", "get_analysis_job",
-    "get_analysis_stats", "get_analysis_ep",
+    "get_analysis_stats", "get_analysis_ep", "list_analysis_treaties",
     "delete_analysis",
     "submit_analysis_export_job", "get_export_job", "download_export_results",
     "fetch_portfolio_stamp",

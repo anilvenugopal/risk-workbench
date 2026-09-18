@@ -46,6 +46,10 @@ LOSS_STAGE_SCHEMA = [
         data_model_version TEXT,
         peril_code TEXT,
         region_code TEXT,
+        treaty_number TEXT,
+        treaty_name TEXT,
+        treaty_ids TEXT,
+        aal REAL,
         zip_file TEXT,
         stage_status TEXT NOT NULL CHECK (stage_status IN ('pending', 'failed', 'staged')),
         staged_at TEXT,
@@ -63,7 +67,7 @@ LOSS_STAGE_SCHEMA = [
         closed_by TEXT,
         inserted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (export_id, irp_analysis_id)
+        UNIQUE (export_id, irp_analysis_id, treaty_number, treaty_name)
     )""",
     """CREATE TABLE stage.rwb_loss_result_file (
         result_file_id INTEGER PRIMARY KEY AUTOINCREMENT,
