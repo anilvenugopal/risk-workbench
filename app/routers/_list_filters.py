@@ -29,6 +29,7 @@ MULTI_FILTERS = {
     "deal_status": ("Submission status", "deal_status_codes"),
     "treaty_type": ("Treaty type", "treaty_type_codes"),
     "treaty_year": ("Treaty year", "treaty_years"),
+    "client": ("Client", "client_ids"),
 }
 
 

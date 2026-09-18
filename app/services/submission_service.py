@@ -99,6 +99,10 @@ class SubmissionRow:
     client_name: str | None = None
     crm_ids: list[str] = field(default_factory=list)
 
+    @property
+    def client_display(self) -> str | None:
+        return client_service.display(self.client_id, self.client_name)
+
 
 @dataclass
 class SubmissionPage:
@@ -132,6 +136,10 @@ class Submission:
     expiration_date: Any
     client_id: int | None
     client_name: str | None = None
+
+    @property
+    def client_display(self) -> str | None:
+        return client_service.display(self.client_id, self.client_name)
 
 
 @dataclass
@@ -233,6 +241,13 @@ def _as_date(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.date()
     return date.fromisoformat(str(value))
+
+
+def _as_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _as_uuid(value: Any) -> str | None:
@@ -394,7 +409,8 @@ def create_submission(
     *, name: str, cedant_name: str, treaty_type_code: str, inception_date: Any,
     treaty_year: int | None = None, links_to_submission_id: Any = None,
     directory_path: str | None = None, crm_ids: list[str] | None = None,
-    expiration_date: Any = None, actor_id: Any, confirmed: bool = False,
+    expiration_date: Any = None, client_id: int | None = None,
+    actor_id: Any, confirmed: bool = False,
 ) -> CreateResult:
     """Create an ACTIVE submission owned by ``actor_id``.
 
@@ -433,6 +449,7 @@ def create_submission(
         "tt": treaty_type_code,
         "inc": parsed_inception,
         "exp": _as_date(expiration_date),
+        "client": client_id,
         "ty": _default_treaty_year(treaty_year, parsed_inception),
         "lt": link_target,
         "dir": directory_path,
@@ -444,12 +461,12 @@ def create_submission(
             """
             INSERT INTO submission
                 (id, assigned_analyst_id, name, cedant_name, treaty_type_code,
-                 inception_date, expiration_date, treaty_year,
+                 inception_date, expiration_date, client_id, treaty_year,
                  links_to_submission_id, directory_path, status_code,
                  inserted_at, updated_at, inserted_by, updated_by)
             VALUES
-                (:id, :owner, :name, :cedant, :tt, :inc, :exp, :ty, :lt, :dir,
-                 'ACTIVE', :now, :now, :actor, :actor)
+                (:id, :owner, :name, :cedant, :tt, :inc, :exp, :client, :ty, :lt,
+                 :dir, 'ACTIVE', :now, :now, :actor, :actor)
             """
         ), params)
         conn.execute(text(
@@ -775,6 +792,7 @@ def list_submissions(
     treaty_type_codes: list[str] | None = None, inception_date: Any = None,
     treaty_years: list[int] | None = None, status_codes: list[str] | None = None,
     deal_status_codes: list[str] | None = None,
+    client_ids: list[Any] | None = None,
     page: int = 1, sort: str = DEFAULT_SORT, descending: bool = True,
 ) -> SubmissionPage:
     """One page of the master list. Filters AND-combine as bound predicates
@@ -800,6 +818,7 @@ def list_submissions(
         "crm_id": crm_id, "treaty_type_codes": treaty_type_codes,
         "inception_date": inception_date, "treaty_years": treaty_years,
         "status_codes": status_codes, "deal_status_codes": deal_status_codes,
+        "client_ids": client_ids,
     })
     page = max(1, int(page or 1))
     # One row past the page: its presence is what "there is a next page" means,
@@ -873,6 +892,13 @@ def submission_filter_clauses(
     if filters.get("deal_status_codes"):
         clause, more = _in_clause(
             f"{s}.deal_status_code", filters["deal_status_codes"], "ds")
+        clauses.append(clause)
+        params |= more
+    if filters.get("client_ids"):
+        # A NULL client never matches (P-04); a value that is not an integer
+        # binds NULL and matches nothing.
+        clause, more = _in_clause(
+            f"{s}.client_id", [_as_int(c) for c in filters["client_ids"]], "cl")
         clauses.append(clause)
         params |= more
     return clauses, params
@@ -989,7 +1015,7 @@ def search_submissions_global(term: str, *, limit: int = 10) -> list[SubmissionR
 
 _MUTABLE_FIELDS = (
     "name", "cedant_name", "treaty_type_code", "inception_date", "expiration_date",
-    "treaty_year", "links_to_submission_id", "directory_path",
+    "client_id", "treaty_year", "links_to_submission_id", "directory_path",
 )
 
 
@@ -1006,8 +1032,8 @@ def update_submission(
     sid = str(submission_id)
     current = execute_one(
         "SELECT status_code, name, cedant_name, treaty_type_code, inception_date, "
-        "expiration_date, treaty_year, links_to_submission_id, directory_path "
-        "FROM submission WHERE id = :id",
+        "expiration_date, client_id, treaty_year, links_to_submission_id, "
+        "directory_path FROM submission WHERE id = :id",
         {"id": sid}, connection="WORKBENCH",
     )
     if current is None:
@@ -1042,8 +1068,8 @@ def update_submission(
         """
         UPDATE submission
         SET name = :name, cedant_name = :cedant, treaty_type_code = :tt,
-            inception_date = :inc, expiration_date = :exp, treaty_year = :ty,
-            links_to_submission_id = :lt, directory_path = :dir,
+            inception_date = :inc, expiration_date = :exp, client_id = :client,
+            treaty_year = :ty, links_to_submission_id = :lt, directory_path = :dir,
             updated_at = :now, updated_by = :actor
         WHERE id = :id AND updated_at = :expected
         """,
@@ -1053,6 +1079,7 @@ def update_submission(
             "tt": merged["treaty_type_code"],
             "inc": merged["inception_date"],
             "exp": merged["expiration_date"],
+            "client": merged["client_id"],
             "ty": merged["treaty_year"],
             "lt": links_to,
             "dir": merged["directory_path"],

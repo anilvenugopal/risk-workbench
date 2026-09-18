@@ -67,15 +67,10 @@ from app.services.grouping_view import build_inspection_screen
 
 router = APIRouter()
 
-TREATY_TYPES = [
-    ("cat_xol", "Cat XoL"), ("quota_share", "Quota Share"), ("surplus", "Surplus"),
-    ("per_risk_xol", "Per-Risk XoL"), ("aggregate_xol", "Aggregate XoL"),
-    ("stop_loss", "Stop Loss"),
-]
-
 # Shown under "links to" when the posted id names no submission — the deal was
 # renamed away or closed while the form sat open, or the page is stale.
 _UNKNOWN_LINK_MESSAGE = "That deal was not found — pick the linked deal again."
+_UNKNOWN_CLIENT_MESSAGE = "Choose a client from the list."
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -165,6 +160,20 @@ def _validate_submission_form(
     return errors, parsed_inception_date, parsed_expiration_date, parsed_treaty_year
 
 
+def _validate_client(client_id: str, clients: list | None) -> tuple[int | None, str | None]:
+    """The posted client as an int, or the field message. A posted id is checked
+    against the repository list only while the list is reachable; when it is
+    not, the id is stored as posted (research.md R5). Blank stores NULL (P-04)."""
+    if not client_id.strip():
+        return None, None
+    parsed = _parse_int(client_id)
+    if parsed is None:
+        return None, _UNKNOWN_CLIENT_MESSAGE
+    if clients is not None and parsed not in {client.id for client in clients}:
+        return None, _UNKNOWN_CLIENT_MESSAGE
+    return parsed, None
+
+
 def _error_banner(field_errors: dict[str, str], action: str) -> list[str]:
     """Summary line above the form. The per-field messages carry the detail."""
     count = len(field_errors)
@@ -184,7 +193,8 @@ def _form_context(
     template treats differently, so they are keyword-only."""
     return {
         "mode": mode,
-        "treaty_types": TREATY_TYPES,
+        "treaty_types": submission_service.treaty_type_kinds(),
+        "clients": client_service.list_clients(),
         "form": form,
         "submission": submission,
         "link_target": submission_service.get_submission(links_to),
@@ -746,8 +756,6 @@ def _head_context(submission, *, head_error: str | None = None) -> dict:
             submission.links_to_submission_id),
         "analysts": auth_service.list_active_analysts(),
         "deal_statuses": submission_service.deal_status_kinds(),
-        "client_display": client_service.display(
-            submission.client_id, submission.client_name),
         "is_active": submission.status_code == submission_service.ACTIVE,
         "head_error": head_error,
     }
@@ -945,7 +953,8 @@ def _not_found(request: Request):
 # list and the nav shell for htmx to discard is the cost of a keystroke otherwise.
 _LIST_TARGET = "sub-list"
 # Each multi-select menu writes one input per picked value (D16).
-_MULTI_PARAMS = ("treaty_type", "treaty_year", "status", "deal_status", "owner")
+_MULTI_PARAMS = ("treaty_type", "treaty_year", "status", "deal_status", "client",
+                 "owner")
 _TEXT_PARAMS = ("q", "cedant", "crm_id")
 
 
@@ -1049,11 +1058,15 @@ def list_submissions_page(request: Request):
                               if canonical_query else "")
         )
         return response
+    clients = client_service.list_clients()
     return _render(request, "pages/submissions.html", "submissions.all", {
         **list_ctx,
-        "treaty_types": TREATY_TYPES,
+        "treaty_types": submission_service.treaty_type_kinds(),
         "statuses": submission_service.status_kinds(),
         "deal_statuses": submission_service.deal_status_kinds(),
+        # None when the repository is unreachable: the picker renders disabled.
+        "client_options": (None if clients is None
+                           else [(client.id, client.label) for client in clients]),
         "owner_options": [(analyst["id"], analyst["display_name"])
                           for analyst in auth_service.list_active_analysts()],
         "filter_values": filter_values,
@@ -1142,6 +1155,7 @@ def create(
     treaty_type_code: str = Form(""),
     inception_date: str = Form(""),
     expiration_date: str = Form(""),
+    client_id: str = Form(""),
     treaty_year: str = Form(""),
     directory_path: str = Form(""),
     crm_ids: str = Form(""),
@@ -1155,7 +1169,7 @@ def create(
     form = {
         "name": name, "cedant_name": cedant_name,
         "treaty_type_code": treaty_type_code, "inception_date": inception_date,
-        "expiration_date": expiration_date,
+        "expiration_date": expiration_date, "client_id": client_id,
         "treaty_year": treaty_year, "directory_path": directory_path,
         "crm_ids": crm_ids,
         "links_to_submission_id": links_to_submission_id,
@@ -1174,6 +1188,10 @@ def create(
             treaty_year=treaty_year, directory_path=directory_path,
         )
     )
+    parsed_client_id, client_error = _validate_client(
+        client_id, client_service.list_clients())
+    if client_error:
+        field_errors["client_id"] = client_error
     if field_errors:
         return _reshow(errors=_error_banner(field_errors, "created"),
                        field_errors=field_errors, status_code=422)
@@ -1184,6 +1202,7 @@ def create(
             treaty_type_code=treaty_type_code,
             inception_date=parsed_inception_date,
             expiration_date=parsed_expiration_date,
+            client_id=parsed_client_id,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
             crm_ids=crm_ids.split(","),
@@ -1418,6 +1437,7 @@ def edit_form(request: Request, submission_id: str):
         "treaty_type_code": submission.treaty_type_code,
         "inception_date": str(submission.inception_date),
         "expiration_date": str(submission.expiration_date or ""),
+        "client_id": submission.client_id or "",
         "treaty_year": submission.treaty_year or "",
         "directory_path": submission.directory_path or "",
         "links_to_submission_id": submission.links_to_submission_id or "",
@@ -1438,6 +1458,7 @@ def update(
     treaty_type_code: str = Form(""),
     inception_date: str = Form(""),
     expiration_date: str = Form(""),
+    client_id: str = Form(""),
     treaty_year: str = Form(""),
     directory_path: str = Form(""),
     links_to_submission_id: str = Form(""),
@@ -1455,7 +1476,7 @@ def update(
     form = {
         "name": name, "cedant_name": cedant_name,
         "treaty_type_code": treaty_type_code, "inception_date": inception_date,
-        "expiration_date": expiration_date,
+        "expiration_date": expiration_date, "client_id": client_id,
         "treaty_year": treaty_year, "directory_path": directory_path,
         "links_to_submission_id": links_to_submission_id,
     }
@@ -1473,6 +1494,10 @@ def update(
             treaty_year=treaty_year, directory_path=directory_path,
         )
     )
+    parsed_client_id, client_error = _validate_client(
+        client_id, client_service.list_clients())
+    if client_error:
+        field_errors["client_id"] = client_error
     if field_errors:
         return _reshow(errors=_error_banner(field_errors, "saved"),
                        field_errors=field_errors, status_code=422)
@@ -1483,7 +1508,7 @@ def update(
             actor_id=request.state.user.id, confirmed=(confirmed == "1"),
             name=name.strip(), cedant_name=cedant_name.strip(),
             treaty_type_code=treaty_type_code, inception_date=parsed_inception_date,
-            expiration_date=parsed_expiration_date,
+            expiration_date=parsed_expiration_date, client_id=parsed_client_id,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
             links_to_submission_id=links_to,

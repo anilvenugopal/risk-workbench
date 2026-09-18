@@ -4,6 +4,7 @@
 <tr class="data-row" data-href="/submissions/{{ row.id }}">
   <td><a class="open-link" href="/submissions/{{ row.id }}">{{ row.name }}</a></td>
   <td>{{ row.cedant_name }}</td>
+  <td>{% if row.client_id %}{{ row.client_display }}{% else %}<span class="na">—</span>{% endif %}</td>
   <td>
     {% if row.crm_ids %}
       <span class="mono">{{ row.crm_ids[0] }}</span>

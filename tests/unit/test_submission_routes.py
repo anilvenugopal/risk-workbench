@@ -2087,3 +2087,78 @@ def test_list_offers_two_status_pickers_and_filters_on_submission_status(client)
     assert "Won listed" in narrowed and "Still in process" not in narrowed
     assert _is_picked(narrowed, "WON")
     assert "<th>Submission status</th>" in narrowed
+
+
+# ── spec 017 US2: client and treaty type from CIC's lists ────────────────────
+
+_ELEVEN = ["aggregate_xol", "aggregate_cat_xol", "risk_aggregate_xol",
+           "per_occurrence_xol", "per_occurrence_cat_xol", "per_risk_xol", "stop_loss",
+           "reinstatement_premium_protection", "second_third_fourth_event_risk_exposed",
+           "top_and_drop", "top_and_aggregate"]
+
+
+def _treaty_options(body: str) -> list[str]:
+    select = body.split('name="treaty_type_code"')[1].split("</select>")[0]
+    return re.findall(r'<option value="([a-z_]+)"', select)
+
+
+def test_form_and_list_picker_read_the_treaty_types_from_the_kind_table(client):
+    assert _treaty_options(client.get("/submissions/new").text) == _ELEVEN
+    assert 'data-code="top_and_drop" data-label="Top &amp; Drop"' in client.get(
+        "/submissions").text
+    execute_command(
+        "INSERT INTO treaty_type_kind (code, label, sort_order) "
+        "VALUES ('quota_share', 'Quota Share', 120)", {}, connection="WORKBENCH")
+    assert _treaty_options(client.get("/submissions/new").text) == [*_ELEVEN, "quota_share"]
+    assert 'data-code="quota_share" data-label="Quota Share"' in client.get(
+        "/submissions").text
+
+
+def test_client_from_the_repository_list_saves_and_shows_as_id_and_name(
+        client, loss_clients):
+    form = client.get("/submissions/new").text
+    assert '<option value="27"' in form and "27 - Travelers Corporate Cat" in form
+    assert "Client list unavailable" not in form
+    sid, _ = _deal(client, name="Client deal", client_id="27")
+    assert submission_service.get_submission(sid).client_id == 27
+    page = client.get(f"/submissions/{sid}").text
+    assert "Client" in page and "27 - Travelers Corporate Cat" in page
+    edit = client.get(f"/submissions/{sid}/edit").text
+    assert '<option value="27" selected>' in edit
+
+
+def test_blank_client_saves_and_matches_no_client_filter(client, loss_clients):
+    sid, _ = _deal(client, name="No client deal", client_id="")
+    assert submission_service.get_submission(sid).client_id is None
+    with_client, _ = _deal(client, name="Client 27 deal", client_id="27",
+                           cedant_name="Other Re")
+    body = client.get("/submissions?client=27").text
+    assert "Client 27 deal" in body and "No client deal" not in body
+    assert _is_picked(body, "27")
+    assert "No client deal" in client.get("/submissions").text
+
+
+def test_unreachable_repository_disables_the_field_and_the_submission_still_saves(
+        client, no_loss_db):
+    form = client.get("/submissions/new").text
+    assert "Client list unavailable — the submission saves without one" in form
+    assert 'name="client_id"' not in form
+    sid, _ = _deal(client, name="Unreachable repo deal")
+    assert submission_service.get_submission(sid).client_id is None
+    # An id posted anyway is stored as posted: the list could not be checked.
+    stored, _ = _deal(client, name="Posted anyway", client_id="41", cedant_name="Other")
+    assert submission_service.get_submission(stored).client_id == 41
+    assert "41 (name unavailable)" in client.get(f"/submissions/{stored}").text
+    assert "Client list unavailable" in client.get("/submissions").text
+
+
+def test_a_client_not_in_a_reachable_list_is_a_field_error(client, loss_clients):
+    before = _count()
+    response = client.post("/submissions", data=_payload(name="Bad client",
+                                                         client_id="99"))
+    assert response.status_code == 422
+    assert "Choose a client from the list." in response.text
+    assert _count() == before
+    response = client.post("/submissions", data=_payload(name="Bad client",
+                                                         client_id="abc"))
+    assert response.status_code == 422 and _count() == before

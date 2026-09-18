@@ -23,7 +23,7 @@
       <tr>
         {{ sort_th(sort_links["name"], "Name") }}
         {{ sort_th(sort_links["cedant"], "Cedant") }}
-        <th>CRM ID</th><th>Treaty type</th>
+        <th>Client</th><th>CRM ID</th><th>Treaty type</th>
         {{ sort_th(sort_links["inception"], "Inception") }}
         {{ sort_th(sort_links["year"], "Year") }}
         <th>Modeling status</th><th>Submission status</th><th>Owner</th>
@@ -34,13 +34,13 @@
         {% include "partials/submission_row.html" %}
       {% else %}
         {% if is_filtered %}
-        <tr><td colspan="9" class="empty">No submissions match —
+        <tr><td colspan="10" class="empty">No submissions match —
           <a class="clear-filters" href="/submissions?owner=any">clear filters</a>.</td></tr>
         {% elif page > 1 %}
-        <tr><td colspan="9" class="empty">Nothing on page {{ page }} —
+        <tr><td colspan="10" class="empty">Nothing on page {{ page }} —
           <a class="clear-filters" href="/submissions">back to the first page</a>.</td></tr>
         {% else %}
-        <tr><td colspan="9" class="empty">No submissions yet.</td></tr>
+        <tr><td colspan="10" class="empty">No submissions yet.</td></tr>
         {% endif %}
       {% endfor %}
     </tbody>

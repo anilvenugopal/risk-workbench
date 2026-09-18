@@ -1231,3 +1231,23 @@ def test_list_filters_on_submission_status(iteration1_db):
         owner_ids=[a], deal_status_codes=["WON"]).rows] == [won]
     assert len(list_submissions(
         owner_ids=[a], deal_status_codes=["WON", "IN_PROCESS"]).rows) == 2
+
+
+# ── spec 017 US2: client on the deal ─────────────────────────────────────────
+
+def test_client_id_is_stored_updated_and_filtered(iteration1_db, loss_clients):
+    a = iteration1_db.user_a
+    res = create_submission(
+        name="With client", cedant_name="C", treaty_type_code="per_risk_xol",
+        inception_date=date(2026, 4, 1), client_id=27, actor_id=a, confirmed=True)
+    bare = _mk(iteration1_db, owner=a, name="Bare", inc=date(2026, 7, 1)).submission_id
+    sub = get_submission(res.submission_id)
+    assert sub.client_id == 27 and sub.client_name == "Travelers Corporate Cat"
+    assert sub.client_display == "27 - Travelers Corporate Cat"
+    assert [r.id for r in list_submissions(owner_ids=[a], client_ids=[27]).rows] == [
+        res.submission_id]
+    assert list_submissions(owner_ids=[a], client_ids=["x"]).rows == []
+    update_submission(submission_id=res.submission_id, expected_updated_at=_marker(
+        res.submission_id), actor_id=a, client_id=None)
+    assert get_submission(res.submission_id).client_id is None
+    assert get_submission(bare).client_display is None

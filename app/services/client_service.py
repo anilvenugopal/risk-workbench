@@ -28,6 +28,10 @@ class Client:
     id: int
     name: str | None
 
+    @property
+    def label(self) -> str:
+        return display(self.id, self.name)
+
 
 def _read(sql: str, params: dict[str, Any]) -> list[dict] | None:
     try:

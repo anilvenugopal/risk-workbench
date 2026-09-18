@@ -1,4 +1,5 @@
 {% extends "base/shell.html" %}
+{% import "partials/form_macros.html" as forms %}
 {% block title %}{{ 'Edit submission' if mode == 'edit' else 'New submission' }}{% endblock %}
 
 {% block page_actions %}
@@ -69,6 +70,29 @@
         </div>
         {% if field_errors.cedant_name %}
         <div class="wf-field__msg wf-field__error">{{ field_errors.cedant_name }}</div>
+        {% endif %}
+      </div>
+
+      {# Client is CIC's repository list, "ID - name", narrowed on either
+         (FR-008); optional throughout (P-04). When the repository cannot be
+         read the field is disabled and posts nothing (FR-009). #}
+      <div class="wf-field">
+        <label>CLIENT</label>
+        {% if clients is none %}
+        <input class="wf-field__input" type="text" disabled
+               value="Client list unavailable — the submission saves without one">
+        {% else %}
+        {% call forms.typeahead_select('client_id',
+                                       input_class=(' wf-field__input--error' if field_errors.client_id else ''),
+                                       search='selectSearch({ clearable: true })') %}
+          <option value="">Search by ID or name…</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}"{% if form.client_id|string == c.id|string %} selected{% endif %}>{{ c.label }}</option>
+          {% endfor %}
+        {% endcall %}
+        {% if field_errors.client_id %}
+        <div class="wf-field__msg wf-field__error">{{ field_errors.client_id }}</div>
+        {% endif %}
         {% endif %}
       </div>
 
