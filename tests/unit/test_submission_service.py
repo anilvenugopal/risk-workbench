@@ -518,7 +518,9 @@ def test_list_filter_by_crm_ids_matches_whole_ids(iteration1_db):
     add_crm_id(submission_id=tagged, crm_id="CRM-12345", actor_id=a)
     add_crm_id(submission_id=tagged, crm_id="CRM-4418", actor_id=a)
     add_crm_id(submission_id=other, crm_id="CRM-1234", actor_id=a)
-    rows = lambda **kw: [r.id for r in list_submissions(owner_ids=[a], **kw).rows]
+    def rows(**kw):
+        return [r.id for r in list_submissions(owner_ids=[a], **kw).rows]
+
     assert rows(crm_ids=["CRM-1234"]) == [other]          # "12345" is not "1234"
     assert rows(crm_ids=[" crm-12345 "]) == [tagged]      # case and whitespace ignored
     assert rows(crm_ids=["CRM-12345", "CRM-4418"]) == [tagged]

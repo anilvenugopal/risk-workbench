@@ -254,7 +254,9 @@ def test_entity_matches_when_one_linked_submission_satisfies_every_filter(
     _attach(_deal(name="Open by Ben", owner=ben, crm_ids=["T-300"]), table, shared)
     solo = _entity(table, name="Solo")
 
-    names = lambda **filters: [r.name for r in _list(mod, submission_filters=filters)]
+    def names(**filters):
+        return [r.name for r in _list(mod, submission_filters=filters)]
+
     assert names(deal_status_codes=["WON"], owner_ids=[cheryl]) == ["Shared"]
     assert names(deal_status_codes=["WON"], owner_ids=[ben]) == []
     assert names(crm_ids=["T-100", "T-300"]) == ["Shared"]        # listed once

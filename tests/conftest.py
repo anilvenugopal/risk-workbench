@@ -26,7 +26,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 
 from db.connection import _ENGINE_OVERRIDES, dispose_all, register_engine
-from tests.loss_mirror import LOSS_DBO_SCHEMA, LOSS_STAGE_SCHEMA
 from tests.iteration1_mirror import (
     ANALYSIS_PERSPECTIVE_SEED,
     BREAKOUT_DIMENSION_SEED,
@@ -46,6 +45,7 @@ from tests.iteration1_mirror import (
     STATUS_SEED,
     TREATY_SEED,
 )
+from tests.loss_mirror import LOSS_DBO_SCHEMA, LOSS_STAGE_SCHEMA
 
 # Python 3.12+ removed the implicit sqlite3 date/datetime adapters (fully gone in
 # 3.14). The service layer binds native date/datetime (SQL Server wants those);

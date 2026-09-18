@@ -37,9 +37,9 @@ from app.services import (
     name_check,
     portfolio_service,
     rwb_job_service,
+    submission_service,
     treaty_service,
 )
-from app.services import submission_service
 from app.services._common import (
     SubmissionRef,
     _attach_submissions,

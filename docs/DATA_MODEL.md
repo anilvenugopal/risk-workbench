@@ -93,8 +93,9 @@ erDiagram
   app_user ||--o{ submission : "assigned analyst (soft owner)"
   submission ||--o{ submission_status_event : logs
   submission ||--o{ submission_crm_id : "tagged with"
-  submission_status_kind ||--o{ submission : "current status"
+  submission_status_kind ||--o{ submission : "Modeling status (cached current)"
   submission_status_kind ||--o{ submission_status_event : records
+  deal_status_kind ||--o{ submission : "Submission status"
   treaty_type_kind ||--o{ submission : "treaty type"
   submission ||--o{ submission : "renews from (self-ref)"
   submission ||--o{ submission_edm : associates
@@ -108,11 +109,14 @@ erDiagram
     string name "naming-convention label e.g. TY2604_AmericanFamily; NOT unique — id is the key"
     string cedant_name "primary filter; plain string + autocomplete"
     string treaty_type_code FK "treaty_type_kind; primary filter"
-    date inception_date "primary filter"
+    date inception_date "primary filter; the deal-level default for every CRM ID"
+    date expiration_date "nullable; deal-level default for every CRM ID"
     int treaty_year "nullable; defaults to the inception year"
     uniqueidentifier links_to_submission_id FK "nullable; self-ref link to a related submission"
     string directory_path "nullable; per-deal shared-drive directory"
-    string status_code FK "submission_status_kind; cached current"
+    int client_id "nullable; rwb_loss dbo.Client.ClientID — another database, no FK"
+    string status_code FK "submission_status_kind; Modeling status, cached current"
+    string deal_status_code FK "deal_status_kind; Submission status, updated in place"
     datetime inserted_at
     datetime updated_at
     uniqueidentifier inserted_by FK
@@ -122,17 +126,25 @@ erDiagram
     uniqueidentifier id PK
     uniqueidentifier submission_id FK
     string crm_id "plain, unvalidated text; manual, optional"
+    date inception_date "nullable; overrides the deal's inception for this CRM ID"
+    date expiration_date "nullable; overrides the deal's expiration for this CRM ID"
     datetime inserted_at
     uniqueidentifier inserted_by FK
   }
   treaty_type_kind {
-    string code PK "e.g. cat_xol / quota_share / surplus / per_risk_xol"
+    string code PK "CIC's eleven codes, e.g. per_risk_xol / top_and_drop"
     string label
     int sort_order
     datetime inserted_at
   }
   submission_status_kind {
     string code PK "ACTIVE / COMPLETED / CANCELLED"
+    string label
+    int sort_order
+    datetime inserted_at
+  }
+  deal_status_kind {
+    string code PK "IN_PROCESS / WON / LOST"
     string label
     int sort_order
     datetime inserted_at
@@ -162,10 +174,13 @@ erDiagram
 **Submission:**
 - **`submission` is the root.** No hierarchy above it. `cedant_name`, `treaty_type_code`, and `inception_date` are the primary filters; `treaty_year` defaults to the inception year and supports renewal-year grouping. These are the system of record — there is no CRM/treaty-system integration to derive them from.
 - **`cedant_name` is a plain string**, kept consistent by autocomplete over existing values — deliberately not its own table.
-- **`submission_crm_id`** holds 0..N CRM-ID tags at the submission level.
+- **`submission_crm_id`** holds 0..N CRM-ID tags at the submission level. Each carries an optional `inception_date` and `expiration_date`; a CRM ID's effective date is `COALESCE(override, deal)` per column, so a CRM ID may override expiration alone. "Make them all the same" nulls every override (spec 017 P-03).
+- **`v_submission_crm_id`** is a view: one row per CRM ID (a blank-CRM row for a deal with none) with the effective dates, both statuses and the client. It is the CRM-ID-grain extract (spec 017 FR-013) and the source of "in force as of": `deal_status_code = 'WON' AND effective_inception_date <= D AND effective_expiration_date >= D`, computed at query time, never stored; a NULL expiration never qualifies (P-09).
+- **`client_id`** is `dbo.Client.ClientID` in `rwb_loss`, read over the `LOSS` connection and never a foreign key (another database). Optional; the Workbench never writes to the client list (spec 017 P-04).
 - **`links_to_submission_id`** is a manual, nullable self-reference to a related submission — usually last year's deal for the same cedant and treaty type, but not necessarily a renewal (design note 08 CR8, superseding the earlier `renews_from_submission_id`). Most deals have none. The analyst picks the related deal by name; a submission cannot link to itself (`ck_submission_no_self_link`).
 - **`submission.name` is NOT unique.** Two genuinely distinct deals can share every naming-convention attribute (same cedant, inception, treaty type) and differ only by the manual/optional CRM ID (design note 03 §4). The UUID `id` is the key; create/rename runs a **non-blocking** "a similar deal already exists" warning, never a hard reject. *(Unlike the EDM/RDM name-collision check, which is **blocking** as of 2026-07-27 — issue #17, §5.)*
-- **Status** is `ACTIVE` / `COMPLETED` / `CANCELLED`, event-sourced, no system-enforced transition preconditions (`COMPLETED → ACTIVE` allowed). **There is no delete** — a submission can carry real Risk Modeler assets; `CANCELLED` is the withdrawal state.
+- **Modeling status** (`status_code`) is `ACTIVE` / `COMPLETED` / `CANCELLED`, event-sourced, no system-enforced transition preconditions (`COMPLETED → ACTIVE` allowed). **There is no delete** — a submission can carry real Risk Modeler assets; `CANCELLED` is the withdrawal state.
+- **Submission status** (`deal_status_code`) is `IN_PROCESS` / `WON` / `LOST` from `deal_status_kind`, updated in place with the `updated_at` concurrency check, no reason and no event row, in every Modeling status (spec 017 P-02, P-12).
 
 **Associations:**
 - `submission_edm` has primary key (`submission_id`, `edm_id`) and reverse index (`edm_id`, `submission_id`).
@@ -755,7 +770,8 @@ erDiagram
 |---|---|
 | `role_kind` | `analyst`, `admin` (confirm with team); `admin` has `is_admin=true`. |
 | `submission_status_kind` | `ACTIVE`, `COMPLETED`, `CANCELLED`. |
-| `treaty_type_kind` | TBD with team (candidates: `cat_xol`, `quota_share`, `surplus`, `per_risk_xol`, `aggregate_xol`, `stop_loss`). |
+| `treaty_type_kind` | CIC's eleven modeling treaty types (spec 017 FR-012): `aggregate_xol`, `aggregate_cat_xol`, `risk_aggregate_xol`, `per_occurrence_xol`, `per_occurrence_cat_xol`, `per_risk_xol`, `stop_loss`, `reinstatement_premium_protection`, `second_third_fourth_event_risk_exposed`, `top_and_drop`, `top_and_aggregate`. |
+| `deal_status_kind` | `IN_PROCESS`, `WON`, `LOST` (spec 017). |
 | `irp_analysis_status_kind` | `pending`, `ready`, `error`. |
 | `irp_job_type_kind` | `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`. |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
@@ -773,7 +789,7 @@ erDiagram
 
 ## 14. Open decisions
 
-- Confirm `role_kind` codes and the `treaty_type_kind` seed list with the team.
+- Confirm `role_kind` codes with the team.
 - Exposure repository schema — defined in this project (`db/bootstrap/exposure_schema.sql`); columns coordinated with the reporting/downstream teams. (The loss repository is CIC's; only the `stage` schema is ours, §1.)
 - `irp_job_resource` multiplicity — one-per-job (`portfolio` only today) or genuinely multi-resource?
 - **`irp_analysis.edm_id` is nullable.** Standalone RDM import creates broker

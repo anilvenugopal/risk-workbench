@@ -8,8 +8,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.services import analysis_service, name_check, rwb_job_service
-from app.services import submission_service
+from app.services import analysis_service, name_check, rwb_job_service, submission_service
 from app.services._common import (
     SubmissionRef,
     _attach_submissions,

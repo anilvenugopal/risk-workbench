@@ -14,8 +14,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.routers._list_filters import library_filters
 from app.routers._entity_notes import save_notes
+from app.routers._list_filters import library_filters
 from app.services import edm_service, rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
