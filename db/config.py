@@ -25,6 +25,7 @@ This module has no third-party imports, so it is trivially testable.
 import os
 import urllib.parse
 from typing import Dict, Optional
+from sqlalchemy.engine import URL
 
 from .errors import SQLServerConfigurationError
 
@@ -101,18 +102,49 @@ def build_odbc_connection_string(config: Dict[str, str], database: Optional[str]
         parts.append(f"PWD={config['password']}")
     parts.append(f"TrustServerCertificate={config['trust_cert']}")
     parts.append(f"Connection Timeout={config['timeout']}")
+    parts.append("Encrypt=No")
     return ";".join(parts) + ";"
 
+def build_sqlalchemy_url(
+    config: Dict[str, str],
+    database: Optional[str] = None,
+) -> URL:
+    db = database or config.get("database") or None
 
-def build_sqlalchemy_url(config: Dict[str, str], database: Optional[str] = None) -> str:
-    """Wrap the ODBC string in a SQLAlchemy URL via odbc_connect.
+    query = {
+        "driver": config["driver"],
+        "TrustServerCertificate": config["trust_cert"],
+        "Connection Timeout": config["timeout"],
+    }
 
-    Using `odbc_connect=` means SQLAlchemy passes our exact ODBC string straight
-    to pyodbc — identical behavior for SQL and Kerberos auth — while we still get
-    SQLAlchemy's connection pool. No ORM, no dialect-specific string-building.
-    """
-    odbc = build_odbc_connection_string(config, database=database)
-    return "mssql+pyodbc:///?odbc_connect=" + urllib.parse.quote_plus(odbc)
+    if config["auth_type"] == "WINDOWS":
+        return URL.create(
+            "mssql+pyodbc",
+            host=config["server"],
+            port=int(config["port"]),
+            database=db,
+            query=query,
+        )
+
+    return URL.create(
+        "mssql+pyodbc",
+        username=config["user"],
+        password=config["password"],
+        host=config["server"],
+        port=int(config["port"]),
+        database=db,
+        query=query,
+    )
+
+# def build_sqlalchemy_url(config: Dict[str, str], database: Optional[str] = None) -> str:
+#     """Wrap the ODBC string in a SQLAlchemy URL via odbc_connect.
+
+#     Using `odbc_connect=` means SQLAlchemy passes our exact ODBC string straight
+#     to pyodbc — identical behavior for SQL and Kerberos auth — while we still get
+#     SQLAlchemy's connection pool. No ORM, no dialect-specific string-building.
+#     """
+#     odbc = build_odbc_connection_string(config, database=database)
+#     return "mssql+pyodbc:///?odbc_connect=" + urllib.parse.quote_plus(odbc)
 
 
 __all__ = [
