@@ -18,31 +18,23 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import bcrypt
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import URL, Engine
+from sqlalchemy.engine import Engine
+
+# The repo root holds the db package: infra/scripts is also mounted at
+# /workspace/scripts inside linux-box, so walk up rather than count parents.
+sys.path.insert(0, str(next(
+    p for p in Path(__file__).resolve().parents if (p / "db" / "config.py").is_file()
+)))
+
+from db.config import build_sqlalchemy_url, get_connection_config  # noqa: E402
 
 
 def _workbench_engine() -> Engine:
-    server = os.environ["MSSQL_WORKBENCH_SERVER"]
-    port = os.environ.get("MSSQL_WORKBENCH_PORT") or "1433"
-    user = os.environ.get("MSSQL_WORKBENCH_USER", "sa")
-    password = os.environ["MSSQL_WORKBENCH_PASSWORD"]
-    database = os.environ.get("MSSQL_WORKBENCH_DATABASE", "rwb_workbench")
-    driver = os.environ.get("MSSQL_DRIVER", "ODBC Driver 18 for SQL Server")
-    trust = os.environ.get("MSSQL_TRUST_CERT", "yes")
-    encrypt = os.environ.get("MSSQL_ENCRYPT", "no")
-
-    # URL.create escapes the credentials; a hand-built ODBC string breaks on a
-    # password holding ; or {.
-    url = URL.create(
-        "mssql+pyodbc",
-        username=user, password=password, host=server, port=int(port),
-        database=database,
-        query={"driver": driver, "TrustServerCertificate": trust, "Encrypt": encrypt},
-    )
-    return create_engine(url)
+    return create_engine(build_sqlalchemy_url(get_connection_config("WORKBENCH")))
 
 
 def _hash(plain: str) -> str:
