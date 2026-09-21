@@ -4,7 +4,7 @@
 
 ## Status
 
-**Phase:** Built 2026-09-16 (plan.md, tasks.md T001–T017), amended 2026-09-17 for the treaty selector (note 31 D23–D26, tasks.md T018–T026) and 2026-09-21 for the zero-loss treaty filter (note 32 D8–D11, tasks.md T027–T033). Unit tier green; the SQL Server tier and the sandbox checks of the treaties endpoint and the treaty-scoped stats read are unverified until someone runs them (quickstart.md). Approver click-through pending at the tasks.md checkpoints.
+**Phase:** Built 2026-09-16 (plan.md, tasks.md T001–T017), amended 2026-09-17 for the treaty selector (note 31 D23–D26, tasks.md T018–T026) and 2026-09-21 for the zero-loss treaty filter (note 32 D8–D11, tasks.md T027–T033). Unit tier green. Ben clicked through the zero-loss filter on the running stack 2026-09-21 (quickstart.md Story 1 step 8, Story 3 step 1) with irp-integration 0.10.0rc1 installed. The SQL Server tier and the sandbox pytest checks of the treaties endpoint and the treaty-scoped stats read are unverified until someone runs them (quickstart.md).
 **Blocking:** O-04 (exposure value when a treaty's rows are combined) is built as the largest value and stays open; Cheryl and Wendy owe Cheng's aggregation query. Builds on spec 014 as amended by the 2026-09-15 session (one flat exports table, decimal model version, export-wide engine-version override).
 
 ## Outcome

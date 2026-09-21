@@ -167,9 +167,10 @@ and stored on each `loss_results.treaties` entry (plan T-18, research R8).
 - [x] T032 [T-18] `tests/irp/test_treaty_export.py::test_treaty_scoped_ty_stats_answer_per_treaty` (opt-in, `--run-irp`): each applied treaty of `IRP_TEST_TREATY_ANALYSIS_ID` answers a list at `TY`/`TREATY`, at least one populated. Unverified until run inside `linux-box`.
 - [x] T033 [P] Documents: spec.md (Status, scope, P-05, new P-13, O-05 closed, story 1 acceptance 1–3 and 8, FR-001, FR-002, FR-007), plan.md (Status, design summary, Material changes, T-04 Approved, T-13, new T-18, O-01 closed, New dependencies, Constitution Check, structure, Testing), research.md R4 and new R8, data-model.md §3 and §5, contracts/jobs.md §1, §2, §6, quickstart.md (prerequisites, Story 1 step 8, Story 3 step 1, sandbox checks, test commands).
 
-**Checkpoint**: T028 done and `uv run pytest tests/unit` green. **STOP.** The
-approver runs the T-18 sandbox test, then quickstart.md Story 1 step 8 and
-Story 3 step 1 on the running stack.
+**Checkpoint**: T028 done and `uv run pytest tests/unit` green. Ben ran
+quickstart.md Story 1 step 8 and Story 3 step 1 on the running stack
+2026-09-21: the zero-loss treaty was absent from the cart and the group listed
+each treaty once. The T-18 sandbox test (T032) has not been run.
 
 ---
 

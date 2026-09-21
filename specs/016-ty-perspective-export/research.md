@@ -242,6 +242,11 @@ single analysis and for a group, and the treaty ids to pass are the ones
 `GET /analyses/{id}/treaties` returns. That also closes plan O-01 and spec O-05:
 both endpoints answer for a group.
 
+**The built filter, observed 2026-09-21 (Ben).** On the running stack with
+0.10.0rc1 installed, quickstart.md Story 1 step 8 and Story 3 step 1 passed:
+the treaty that took no loss was absent from the cart, a listed treaty
+exported and loaded, and the group's cart row listed each treaty once.
+
 | Source of the flag | Why not |
 |---|---|
 | Risk Modeler's treaty-losses view | Ben tested it live on 2026-09-18: *"it's skipping two that actually produced TY losses, which are included in the actual exported data"* |
