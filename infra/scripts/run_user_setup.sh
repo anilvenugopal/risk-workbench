@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# run_user_setup — interactive user provisioning CLI for Risk Workbench.
+# run_user_setup.sh — interactive user provisioning CLI for Risk Workbench.
 #
 # Uses the project virtual environment with WSL or deployed database settings.
 #
 # Usage:
-#   ./infra/scripts/run_user_setup
+#   ./infra/scripts/run_user_setup.sh
 #   make wsl-user-setup
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
