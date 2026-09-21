@@ -182,7 +182,7 @@ wsl-test-sql:   ## [WSL2] Run SQL Server integration tests
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run pytest tests/sqlserver -v --run-sqlserver'
 
 wsl-user-setup:   ## [WSL2] Interactive user provisioning CLI (provision, create, reset password)
-	@bash infra/scripts/run_user_setup
+	@bash infra/scripts/run_user_setup.sh
 
 # ══ irp-integration SOURCE SWITCHING ══════════════════════════════════════════
 # Flip which source irp-integration resolves from, then re-sync. The choice is
