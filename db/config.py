@@ -11,12 +11,14 @@ the only difference is `AUTH_TYPE`.
     MSSQL_{NAME}_USER         username                 (required for SQL auth)
     MSSQL_{NAME}_PASSWORD     password                 (required for SQL auth)
     MSSQL_{NAME}_PORT         port                     (optional, default 1433)
-    MSSQL_{NAME}_DATABASE     default database         (optional)
+    MSSQL_{NAME}_DATABASE     default database         (required unless the
+                                                        caller passes database=)
 
 Global (apply to every connection):
 
     MSSQL_DRIVER     ODBC driver name   (default 'ODBC Driver 18 for SQL Server')
     MSSQL_TRUST_CERT trust server cert  (default 'yes')
+    MSSQL_ENCRYPT    encrypt connection (default 'no')
     MSSQL_TIMEOUT    connect timeout s  (default '30')
 
 SQLAlchemy's URL type is the only import, so this module is trivially testable.
@@ -55,10 +57,11 @@ def get_connection_config(connection_name: str) -> Dict[str, str]:
     config: Dict[str, str] = {
         "name": name,
         "server": os.getenv(f"{prefix}SERVER") or "",
-        "port": os.getenv(f"{prefix}PORT", "1433"),
+        "port": os.getenv(f"{prefix}PORT") or "1433",
         "database": os.getenv(f"{prefix}DATABASE", "") or "",
         "driver": os.getenv("MSSQL_DRIVER", "ODBC Driver 18 for SQL Server"),
         "trust_cert": os.getenv("MSSQL_TRUST_CERT", "yes"),
+        "encrypt": os.getenv("MSSQL_ENCRYPT", "no"),
         "timeout": os.getenv("MSSQL_TIMEOUT", "30"),
         "auth_type": auth_type,
     }
@@ -91,12 +94,17 @@ def build_sqlalchemy_url(config: Dict[str, str], database: Optional[str] = None)
     Trusted_Connection=Yes (the Kerberos ticket is established separately).
     """
     db = database or config.get("database") or None
+    if db is None:
+        raise SQLServerConfigurationError(
+            f"Connection '{config['name']}' has no database: set "
+            f"MSSQL_{config['name']}_DATABASE or pass database=."
+        )
 
     query = {
         "driver": config["driver"],
         "TrustServerCertificate": config["trust_cert"],
         "Connection Timeout": config["timeout"],
-        "Encrypt": "No",
+        "Encrypt": config["encrypt"],
     }
 
     if config["auth_type"] == "WINDOWS":

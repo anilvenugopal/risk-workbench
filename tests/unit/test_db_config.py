@@ -75,13 +75,32 @@ class TestGetConnectionConfig:
 
         assert get_connection_config("TEST")["port"] == "1433"
 
+    def test_blank_port_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("MSSQL_TEST_SERVER", "myserver")
+        monkeypatch.setenv("MSSQL_TEST_USER", "sa")
+        monkeypatch.setenv("MSSQL_TEST_PASSWORD", "secret")
+        monkeypatch.setenv("MSSQL_TEST_PORT", "")
+
+        assert get_connection_config("TEST")["port"] == "1433"
+
+    def test_encrypt_defaults_to_no_and_is_overridable(self, monkeypatch):
+        monkeypatch.setenv("MSSQL_TEST_SERVER", "myserver")
+        monkeypatch.setenv("MSSQL_TEST_USER", "sa")
+        monkeypatch.setenv("MSSQL_TEST_PASSWORD", "secret")
+        monkeypatch.delenv("MSSQL_ENCRYPT", raising=False)
+
+        assert get_connection_config("TEST")["encrypt"] == "no"
+
+        monkeypatch.setenv("MSSQL_ENCRYPT", "yes")
+        assert get_connection_config("TEST")["encrypt"] == "yes"
+
 
 class TestBuildSqlalchemyUrl:
     def _cfg(self, **overrides):
         base = {
             "name": "TEST", "server": "myserver", "port": "1433",
             "database": "mydb", "driver": "ODBC Driver 18 for SQL Server",
-            "trust_cert": "yes", "timeout": "30",
+            "trust_cert": "yes", "encrypt": "no", "timeout": "30",
             "auth_type": "SQL", "user": "sa", "password": "secret",
         }
         return {**base, **overrides}
@@ -95,7 +114,7 @@ class TestBuildSqlalchemyUrl:
         assert (url.username, url.password) == ("sa", "secret")
         assert (url.host, url.port, url.database) == ("myserver", 1433, "mydb")
         assert url.query["driver"] == "ODBC Driver 18 for SQL Server"
-        assert url.query["Encrypt"] == "No"
+        assert url.query["Encrypt"] == "no"
 
     def test_password_holding_odbc_delimiters_survives(self):
         url = build_sqlalchemy_url(self._cfg(password="pa;ss{word"))
@@ -110,3 +129,11 @@ class TestBuildSqlalchemyUrl:
 
     def test_database_override_replaces_default(self):
         assert build_sqlalchemy_url(self._cfg(), database="master").database == "master"
+
+    def test_encrypt_reaches_the_connection_string(self):
+        url = build_sqlalchemy_url(self._cfg(encrypt="yes"))
+        assert "Encrypt=yes" in self._connection_string(url)
+
+    def test_no_database_anywhere_raises(self):
+        with pytest.raises(SQLServerConfigurationError, match="DATABASE"):
+            build_sqlalchemy_url(self._cfg(database=""))

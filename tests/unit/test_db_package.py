@@ -27,6 +27,7 @@ def sql_env(monkeypatch):
     monkeypatch.setenv("MSSQL_WB_DATABASE", "raw_db")
     monkeypatch.setenv("MSSQL_AD_SERVER", "host.corp")
     monkeypatch.setenv("MSSQL_AD_AUTH_TYPE", "WINDOWS")
+    monkeypatch.setenv("MSSQL_AD_DATABASE", "raw_db")
 
 
 def test_sql_auth_config_and_url(sql_env):
