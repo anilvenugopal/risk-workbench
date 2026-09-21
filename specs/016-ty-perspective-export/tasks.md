@@ -158,7 +158,7 @@ and stored on each `loss_results.treaties` entry (plan T-18, research R8).
 
 - [x] T027 [T-18] irp-integration branch `feature/exposure-resource-type`: `EXPOSURE_RESOURCE_TYPES = ['PORTFOLIO', 'TREATY']` in `constants.py`; `_validate_exposure_resource_type` and a keyword-only `exposure_resource_type='PORTFOLIO'` on `get_elt`, `get_ep`, `get_stats`, `get_plt` in `analysis.py`; `tests/test_exposure_resource_types.py`; `docs/api.md` regenerated. Release: Ben tags `v0.10.0rc1` and dispatches `publish-test.yml`; `v0.10.0` via a GitHub Release once Phase 7 lands.
   - Proof: the wheel suite green; `test_result_getters_send_treaty_when_asked` for each getter.
-- [ ] T028 [T-18] `pyproject.toml` `irp-testpypi = ["irp-integration[databridge]==0.10.0rc1"]`, then `make irp-testpypi`. Check `git diff pyproject.toml` before committing: `default-groups` stays `["dev", "irp-pypi"]`. Waits on T027's rc reaching TestPyPI; `uv.lock` resolves the `irp-testpypi` group, so the pin cannot move before the rc exists.
+- [x] T028 [T-18] `pyproject.toml` `irp-testpypi = ["irp-integration[databridge]==0.10.0rc1"]` and `uv.lock` re-resolved (`uv lock --upgrade-package irp-integration`; `make` is not on the Windows host). `default-groups` stays `["dev", "irp-pypi"]`. Inside `linux-box`, `make irp-testpypi` installs the rc.
 - [x] T029 [T-18] `app/services/irp_gateway.py` `get_analysis_stats` on the Protocol, `_RealGateway`, and the module function: `exposure_resource_type: str = "PORTFOLIO"`, passed to the wheel as `exposure_resource_type=`. `tests/unit/fakes/fake_irp.py`: the parameter, `_treaty_stats`, `set_treaty_stats`, `raise_on_treaty_stats_for`, and the type on every `result_calls` entry (contracts/jobs.md §6).
 - [x] T030 [T-18] [T-13] `app/workers/analysis_jobs.py` `_retrieve_analysis_results_body`: after the treaties read, one `get_analysis_stats` at `TY` scoped `TREATY` per treaty, `has_loss = bool(rows)`; a raised read fails the job "treaty loss read failed for {number}: …" with no write (contracts/jobs.md §2).
   - Proof: `tests/unit/test_ty_export.py::test_retrieval_stores_the_applied_treaties`, `::test_retrieval_fails_when_a_treaty_loss_read_raises`.
@@ -189,5 +189,4 @@ Story 3 step 1 on the running stack.
 ## What stays open after all tasks
 
 - Spec O-04 (exposure value when rows are combined): built as the largest value; one line to change.
-- T028: the pin bump and `make irp-testpypi`, once `v0.10.0rc1` is on TestPyPI. Until then the running stack's 0.9.0 wheel rejects the gateway's `exposure_resource_type` keyword and every retrieval of an analysis with treaties fails "treaty loss read failed".
 - The 014 amendments of 2026-09-15 (FR-010): 014's to build; treaty rows inherit them.
