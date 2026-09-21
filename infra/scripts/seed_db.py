@@ -26,12 +26,13 @@ from sqlalchemy.engine import URL, Engine
 
 def _workbench_engine() -> Engine:
     server = os.environ["MSSQL_WORKBENCH_SERVER"]
-    port = os.environ.get("MSSQL_WORKBENCH_PORT", "1433")
+    port = os.environ.get("MSSQL_WORKBENCH_PORT") or "1433"
     user = os.environ.get("MSSQL_WORKBENCH_USER", "sa")
     password = os.environ["MSSQL_WORKBENCH_PASSWORD"]
     database = os.environ.get("MSSQL_WORKBENCH_DATABASE", "rwb_workbench")
     driver = os.environ.get("MSSQL_DRIVER", "ODBC Driver 18 for SQL Server")
     trust = os.environ.get("MSSQL_TRUST_CERT", "yes")
+    encrypt = os.environ.get("MSSQL_ENCRYPT", "no")
 
     # URL.create escapes the credentials; a hand-built ODBC string breaks on a
     # password holding ; or {.
@@ -39,7 +40,7 @@ def _workbench_engine() -> Engine:
         "mssql+pyodbc",
         username=user, password=password, host=server, port=int(port),
         database=database,
-        query={"driver": driver, "TrustServerCertificate": trust, "Encrypt": "No"},
+        query={"driver": driver, "TrustServerCertificate": trust, "Encrypt": encrypt},
     )
     return create_engine(url)
 
