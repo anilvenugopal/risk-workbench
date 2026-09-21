@@ -21,7 +21,7 @@ import sys
 
 import bcrypt
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import URL, Engine
 
 
 def _workbench_engine() -> Engine:
@@ -33,12 +33,14 @@ def _workbench_engine() -> Engine:
     driver = os.environ.get("MSSQL_DRIVER", "ODBC Driver 18 for SQL Server")
     trust = os.environ.get("MSSQL_TRUST_CERT", "yes")
 
-    import urllib.parse
-    odbc = (
-        f"DRIVER={{{driver}}};SERVER={server},{port};DATABASE={database};"
-        f"UID={user};PWD={password};TrustServerCertificate={trust};"
+    # URL.create escapes the credentials; a hand-built ODBC string breaks on a
+    # password holding ; or {.
+    url = URL.create(
+        "mssql+pyodbc",
+        username=user, password=password, host=server, port=int(port),
+        database=database,
+        query={"driver": driver, "TrustServerCertificate": trust, "Encrypt": "No"},
     )
-    url = "mssql+pyodbc:///?odbc_connect=" + urllib.parse.quote_plus(odbc)
     return create_engine(url)
 
 

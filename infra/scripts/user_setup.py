@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import pathlib
 import sys
-import urllib.parse
 
 # ── env loading ──────────────────────────────────────────────────────────────
 _ROOT = pathlib.Path(__file__).parent.parent.parent
@@ -46,6 +45,7 @@ console = Console()
 def _engine():
     import os
     from sqlalchemy import create_engine
+    from sqlalchemy.engine import URL
     server   = os.environ.get("MSSQL_WORKBENCH_SERVER", "localhost")
     port     = os.environ.get("MSSQL_WORKBENCH_PORT", "1433")
     user     = os.environ.get("MSSQL_WORKBENCH_USER", "sa")
@@ -53,11 +53,14 @@ def _engine():
     database = os.environ.get("MSSQL_WORKBENCH_DATABASE", "rwb_workbench")
     driver   = os.environ.get("MSSQL_DRIVER", "ODBC Driver 18 for SQL Server")
     trust    = os.environ.get("MSSQL_TRUST_CERT", "yes")
-    odbc = (
-        f"DRIVER={{{driver}}};SERVER={server},{port};DATABASE={database};"
-        f"UID={user};PWD={password};TrustServerCertificate={trust};"
+    # URL.create escapes the credentials; a hand-built ODBC string breaks on a
+    # password holding ; or {.
+    url = URL.create(
+        "mssql+pyodbc",
+        username=user, password=password, host=server, port=int(port),
+        database=database,
+        query={"driver": driver, "TrustServerCertificate": trust, "Encrypt": "No"},
     )
-    url = "mssql+pyodbc:///?odbc_connect=" + urllib.parse.quote_plus(odbc)
     return create_engine(url, pool_pre_ping=True)
 
 
