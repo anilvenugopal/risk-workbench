@@ -589,7 +589,8 @@ class IRPGateway(Protocol):
     def resolve_app_analysis_id(self, *, app_analysis_id: int) -> str: ...
 
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
-                           exposure_resource_id: int) -> list[dict]: ...
+                           exposure_resource_id: int,
+                           exposure_resource_type: str = "PORTFOLIO") -> list[dict]: ...
 
     def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
                         exposure_resource_id: int) -> list[dict]: ...
@@ -1317,12 +1318,17 @@ class _RealGateway:
     # ── spec-011 result reads (worker-only; contracts/irp-gateway.md) ─────────
 
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
-                           exposure_resource_id: int) -> list[dict]:
+                           exposure_resource_id: int,
+                           exposure_resource_type: str = "PORTFOLIO") -> list[dict]:
         # GET /platform/riskdata/v1/analyses/{analysisId}/stats — RM's row list
         # verbatim. The wheel validates perspective_code against its own
         # PERSPECTIVE_CODES (T-02); the gateway never bypasses that check.
+        # exposure_resource_type TREATY with a treaty id answers that treaty's
+        # own stats: empty when it took no loss at the perspective (spec 016
+        # T-18).
         return self._client().analysis.get_stats(
-            analysis_id, perspective_code, exposure_resource_id)
+            analysis_id, perspective_code, exposure_resource_id,
+            exposure_resource_type=exposure_resource_type)
 
     def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
                         exposure_resource_id: int) -> list[dict]:
@@ -1695,10 +1701,12 @@ def resolve_app_analysis_id(*, app_analysis_id: int) -> str:
 
 
 def get_analysis_stats(*, analysis_id: int, perspective_code: str,
-                       exposure_resource_id: int) -> list[dict]:
+                       exposure_resource_id: int,
+                       exposure_resource_type: str = "PORTFOLIO") -> list[dict]:
     return _active().get_analysis_stats(
         analysis_id=analysis_id, perspective_code=perspective_code,
-        exposure_resource_id=exposure_resource_id)
+        exposure_resource_id=exposure_resource_id,
+        exposure_resource_type=exposure_resource_type)
 
 
 def get_analysis_ep(*, analysis_id: int, perspective_code: str,

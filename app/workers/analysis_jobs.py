@@ -20,6 +20,7 @@ from sqlalchemy import text
 
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import STORED_RETURN_PERIODS, _utcnow
+from app.services.export_service import TY
 from app.workers import broker, dispatch, runtime
 from app.workers.queues import rwb_actor
 from db import execute, execute_command, execute_one, get_connection, is_unique_violation
@@ -347,8 +348,9 @@ def build_loss_results_extract(*, perspective_codes: list[str],
     discarded. ``settings`` is the analysis metadata payload — engine fields
     absent there are stored as ``null``, never omitted. ``treaties`` is what
     Risk Modeler reports applied to the run (spec 016 T-04), stored verbatim
-    with the four term values the export form shows per treaty; the form offers
-    TY only when the list is non-empty."""
+    with the four term values the export form shows per treaty and
+    ``has_loss``, whether the treaty's own TY stats read answered any row
+    (T-18); the form offers TY only when a treaty has loss."""
     payload = settings or {}
     perspectives: dict[str, dict | None] = {}
     for code in perspective_codes:
@@ -433,6 +435,16 @@ def _retrieve_analysis_results_body(rwb_job_id: Any) -> runtime.JobResult:
         treaties = irp_gateway.list_analysis_treaties(analysis_id=int(row["irp_id"]))
     except Exception as exc:  # noqa: BLE001 — no partial write
         return runtime.JobResult.fail(f"treaties read failed: {exc}")
+    for treaty in treaties:
+        try:
+            rows = irp_gateway.get_analysis_stats(
+                analysis_id=int(row["irp_id"]), perspective_code=TY,
+                exposure_resource_id=int(treaty["treaty_id"]),
+                exposure_resource_type="TREATY")
+        except Exception as exc:  # noqa: BLE001 — no partial write
+            return runtime.JobResult.fail(
+                f"treaty loss read failed for {treaty['treaty_number']}: {exc}")
+        treaty["has_loss"] = bool(rows)
 
     doc = build_loss_results_extract(
         perspective_codes=codes, results=results, settings=settings,

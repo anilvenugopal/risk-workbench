@@ -58,13 +58,15 @@ def seed_rdm_for(submission_id: str, name: str = "Broker RDM") -> str:
 
 
 def loss_results(*codes: str, treaties: tuple = ()) -> dict:
-    """``treaties`` are (treaty_id, treaty_number, treaty_name) triples, or the
-    whole dict the results retrieval records when a test needs the term values
-    too (spec 016); non-empty offers TY."""
+    """``treaties`` are (treaty_id, treaty_number, treaty_name) triples, each a
+    treaty that took TY loss, or the whole dict the results retrieval records
+    when a test needs the term values or a treaty that took none (a dict
+    without ``has_loss`` true, spec 016 P-13); a treaty with loss offers TY."""
     return {"perspectives": {code: {"aal": 100.0, "std_dev": 10.0, "oep": {}, "aep": {}}
                              for code in codes},
             "treaties": [t if isinstance(t, dict) else
-                         {"treaty_id": t[0], "treaty_number": t[1], "treaty_name": t[2]}
+                         {"treaty_id": t[0], "treaty_number": t[1], "treaty_name": t[2],
+                          "has_loss": True}
                          for t in treaties]}
 
 

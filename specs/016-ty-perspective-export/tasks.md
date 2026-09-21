@@ -16,7 +16,9 @@ are the only way to see story 1's treaty rows (UI_WORKFLOW rule 2, "bundle two
 small related stories if splitting is silly"). No UI preview: no screen gains
 new layout, only a column and a note on already-styled components. Phase 6 is
 the 2026-09-17 amendment (note 31 D23–D26): it does gain layout, and its
-preview was approved before the build.
+preview was approved before the build. Phase 7 is the 2026-09-21 amendment
+(note 32 D8–D11): the cart lists only treaties that took loss; no layout
+changes.
 
 ## Format: `[ID] [P?] [Story] [Ref] Description`
 
@@ -144,6 +146,33 @@ quickstart.md Story 1 steps 2–6 and Story 2 step 3 on the running stack.
 
 ---
 
+## Phase 7: Zero-loss treaties filtered (note 32 D8–D11)
+
+**Purpose**: the cart lists only the treaties that took TY loss, filtered out
+rather than shown as zero, and the Workbench does not say why a treaty took
+none (spec P-13). Reaching FR-007 for a treaty the analyst could tick was the
+defect. The flag is computed in the retrieval worker (constitution Article 11)
+and stored on each `loss_results.treaties` entry (plan T-18, research R8).
+
+**Independent Test**: quickstart.md Story 1 step 8 and Story 3 step 1.
+
+- [x] T027 [T-18] irp-integration branch `feature/exposure-resource-type`: `EXPOSURE_RESOURCE_TYPES = ['PORTFOLIO', 'TREATY']` in `constants.py`; `_validate_exposure_resource_type` and a keyword-only `exposure_resource_type='PORTFOLIO'` on `get_elt`, `get_ep`, `get_stats`, `get_plt` in `analysis.py`; `tests/test_exposure_resource_types.py`; `docs/api.md` regenerated. Release: Ben tags `v0.10.0rc1` and dispatches `publish-test.yml`; `v0.10.0` via a GitHub Release once Phase 7 lands.
+  - Proof: the wheel suite green; `test_result_getters_send_treaty_when_asked` for each getter.
+- [ ] T028 [T-18] `pyproject.toml` `irp-testpypi = ["irp-integration[databridge]==0.10.0rc1"]`, then `make irp-testpypi`. Check `git diff pyproject.toml` before committing: `default-groups` stays `["dev", "irp-pypi"]`. Waits on T027's rc reaching TestPyPI; `uv.lock` resolves the `irp-testpypi` group, so the pin cannot move before the rc exists.
+- [x] T029 [T-18] `app/services/irp_gateway.py` `get_analysis_stats` on the Protocol, `_RealGateway`, and the module function: `exposure_resource_type: str = "PORTFOLIO"`, passed to the wheel as `exposure_resource_type=`. `tests/unit/fakes/fake_irp.py`: the parameter, `_treaty_stats`, `set_treaty_stats`, `raise_on_treaty_stats_for`, and the type on every `result_calls` entry (contracts/jobs.md §6).
+- [x] T030 [T-18] [T-13] `app/workers/analysis_jobs.py` `_retrieve_analysis_results_body`: after the treaties read, one `get_analysis_stats` at `TY` scoped `TREATY` per treaty, `has_loss = bool(rows)`; a raised read fails the job "treaty loss read failed for {number}: …" with no write (contracts/jobs.md §2).
+  - Proof: `tests/unit/test_ty_export.py::test_retrieval_stores_the_applied_treaties`, `::test_retrieval_fails_when_a_treaty_loss_read_raises`.
+- [x] T031 [FR-001] [FR-002] [P-05] [P-13] `app/services/export_service.py` `list_exportable_analyses`: the cart's treaties are the entries with `has_loss` true, filtered before the dedupe by (number, name); TY offered only when one remains. `create_export`'s TY message reads "{name} has no treaty with TY loss."
+  - Proof: `tests/unit/test_ty_export.py::test_the_cart_hides_a_treaty_that_took_no_loss`, `::test_ty_is_not_offered_when_no_treaty_took_loss`, `::test_create_export_refuses_ty_for_an_analysis_without_treaties`.
+- [x] T032 [T-18] `tests/irp/test_treaty_export.py::test_treaty_scoped_ty_stats_answer_per_treaty` (opt-in, `--run-irp`): each applied treaty of `IRP_TEST_TREATY_ANALYSIS_ID` answers a list at `TY`/`TREATY`, at least one populated. Unverified until run inside `linux-box`.
+- [x] T033 [P] Documents: spec.md (Status, scope, P-05, new P-13, O-05 closed, story 1 acceptance 1–3 and 8, FR-001, FR-002, FR-007), plan.md (Status, design summary, Material changes, T-04 Approved, T-13, new T-18, O-01 closed, New dependencies, Constitution Check, structure, Testing), research.md R4 and new R8, data-model.md §3 and §5, contracts/jobs.md §1, §2, §6, quickstart.md (prerequisites, Story 1 step 8, Story 3 step 1, sandbox checks, test commands).
+
+**Checkpoint**: T028 done and `uv run pytest tests/unit` green. **STOP.** The
+approver runs the T-18 sandbox test, then quickstart.md Story 1 step 8 and
+Story 3 step 1 on the running stack.
+
+---
+
 ## Dependencies and execution order
 
 - **Phase 1** first; T002–T004 parallel after T001.
@@ -153,9 +182,12 @@ quickstart.md Story 1 steps 2–6 and Story 2 step 3 on the running stack.
 - **Phase 5** any time after Phase 1; T017 last.
 - **Phase 6** after Phase 5: T018 → T019 → T020 → T021 → T022 (the form, in
   that order); T023 → T024 (the workers); T025 alone. T026 last.
+- **Phase 7** after Phase 6: T027 → T028 (the wheel, then its pin); T029 →
+  T030 → T031 (unit tier green without T028, since `FakeIRP` stands in for
+  the wheel); T032 needs T028 to run. T033 last.
 
 ## What stays open after all tasks
 
 - Spec O-04 (exposure value when rows are combined): built as the largest value; one line to change.
-- Spec O-05 / plan O-01 (the treaties endpoint on a group): the cart now lists what it returns, so a group at TY offers nothing to tick if it returns nothing. Closed by the Phase 4 checkpoint.
+- T028: the pin bump and `make irp-testpypi`, once `v0.10.0rc1` is on TestPyPI. Until then the running stack's 0.9.0 wheel rejects the gateway's `exposure_resource_type` keyword and every retrieval of an analysis with treaties fails "treaty loss read failed".
 - The 014 amendments of 2026-09-15 (FR-010): 014's to build; treaty rows inherit them.

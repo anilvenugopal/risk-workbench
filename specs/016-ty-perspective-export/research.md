@@ -120,8 +120,8 @@ export never uses it to name or match a treaty (non-negotiable 2).
 
 **Assumed**: that the endpoint answers for a group analysis with the members'
 treaties. Risk Modeler groups are analyses with an `engineType` of `GROUP`
-(014 R6), so the same resource should exist; the sandbox test in quickstart.md
-is the check. **Assumed**: that an analysis with no treaties answers with an
+(014 R6), so the same resource should exist. Validated by hand 2026-09-21
+(R8): it does, one entry per member copy of a treaty. **Assumed**: that an analysis with no treaties answers with an
 empty list rather than an error; an error fails the retrieval job like a
 failed perspective read, which would surface at once in the analyses grid.
 
@@ -216,3 +216,60 @@ was written for only ever concerns a job that has not completed.
   is not in the codebase or 014's documents. This plan changes nothing in
   those areas; a treaty row runs the same stage and load code as a portfolio
   row, so 014's later change applies to TY without a change here.
+
+## R8 — Which treaties took loss (T-18)
+
+**The requirement.** Design note 32 §5 (2026-09-18). Ben exported a
+seven-treaty group and most of the treaties returned nothing; each such row
+failed at stage under FR-007 ("treaty … is not in the loss table"). Cheryl drew
+the line: *"it's not the job of the workbench to display why a treaty didn't
+take loss… What would be helpful is to know in that list to only display
+options that have loss in the output"* (D8, D11). Filtered, not zeroed (D10):
+Ben, *"probably automatically filtered because you could pick the zero and you
+just get that error anyways"*; Cheryl, *"If I don't see it in the list, that's
+already a flag for me."* Her two ordinary zero-loss cases are the evidence the
+requirement rests on: an auto portfolio under a per-risk attachment too high
+for auto to reach, and a Caribbean treaty in the group that applied to another
+member's portfolio. Ben's demo group is not: *"this is definitely like not a
+real scenario"* (note 32 §5.4). Reaching FR-007 for a treaty the analyst could
+see and tick is the defect this closes.
+
+**The source, validated 2026-09-21 (Ben).**
+`GET /platform/riskdata/v1/analyses/{id}/stats?perspectiveCode=TY&exposureResourceType=TREATY&exposureResourceId={treatyId}`
+on analysis 5806348, treaty 33865, answers a populated array; the same call for
+a treaty with no TY loss answers an empty array. It behaves the same for a
+single analysis and for a group, and the treaty ids to pass are the ones
+`GET /analyses/{id}/treaties` returns. That also closes plan O-01 and spec O-05:
+both endpoints answer for a group.
+
+| Source of the flag | Why not |
+|---|---|
+| Risk Modeler's treaty-losses view | Ben tested it live on 2026-09-18: *"it's skipping two that actually produced TY losses, which are included in the actual exported data"* |
+| The loss table at stage (FR-007) | Too late: the cart has already offered the treaty and the analyst has ticked it; the failure it produces is the one Cheryl called unacceptable |
+| A stats call from the export form | Constitution Article 11 bars result-retrieval `get_*` from the web layer (`tests/unit/test_architecture_guards.py::test_result_reads_are_worker_side_only`), and it would be one call per treaty per render against a carve-out whose first word is *bounded* (note 32 §5.3) |
+| **One stats call per applied treaty in `retrieve_analysis_results`, stored as `loss_results.treaties[].has_loss`** | **Chosen.** The worker already holds the treaty list it just read; the cart reads stored data as it does for the terms |
+
+**Failure and unknown flags.** Note 32 §5.3 asked whether an unknown flag
+fails open or closed. Decided 2026-09-21: no unknown flag is stored. A failing
+stats call fails the retrieval job (`treaty loss read failed for {number}`),
+`loss_results` is left untouched, and Retry from the analyses grid revives it,
+as a failed perspective read already does. The only entries without `has_loss`
+are in documents retrieved before 2026-09-21; they read as no loss and offer no
+TY until the results are retrieved again (T-13, no backfill). The fail-open
+marker note 32 suggested was not built: the one way to hold an unknown flag is
+a pre-flag document, and re-retrieving is one click.
+
+**Groups.** The stored list repeats a treaty once per member copy. The cart
+filters on `has_loss` before it dedupes by (number, name), so a treaty is
+offered when any copy took loss, and an analysis whose treaties all took none
+is offered no TY (Ben, 2026-09-21).
+
+**The wheel change.** irp-integration 0.9.0 hard-codes
+`exposureResourceType: 'PORTFOLIO'` in `get_elt`, `get_ep`, `get_stats`, and
+`get_plt`. 0.10.0rc1 (`feature/exposure-resource-type`) adds a keyword-only
+`exposure_resource_type='PORTFOLIO'` to all four, validated against
+`EXPOSURE_RESOURCE_TYPES = ['PORTFOLIO', 'TREATY']` before the request. The
+Workbench pins the rc in the `irp-testpypi` group; with the 0.9.0 wheel still
+installed, the gateway's keyword raises `TypeError` and every retrieval of an
+analysis with treaties fails with "treaty loss read failed", which is why
+`make irp-testpypi` precedes the click-through.

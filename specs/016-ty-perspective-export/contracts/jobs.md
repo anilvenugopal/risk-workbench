@@ -14,7 +14,7 @@ per ticked treaty.
 | | Change |
 |---|---|
 | `load_results_export` `input_data` | `{"export_id", "irp_analysis_id"}` — `manifest_id` dropped; the row set is read at run time |
-| `retrieve_analysis_results` (spec 011) | Body gains the treaties read (§2) |
+| `retrieve_analysis_results` (spec 011) | Body gains the treaties read and one TY stats read per treaty (§2) |
 
 ## 2. `retrieve_analysis_results` body (spec 011 §, amended)
 
@@ -22,12 +22,20 @@ After the five perspective reads and before the `UPDATE`:
 
 ```python
 treaties = irp_gateway.list_analysis_treaties(analysis_id=int(row["irp_id"]))
+for treaty in treaties:
+    rows = irp_gateway.get_analysis_stats(
+        analysis_id=int(row["irp_id"]), perspective_code=TY,
+        exposure_resource_id=int(treaty["treaty_id"]),
+        exposure_resource_type="TREATY")
+    treaty["has_loss"] = bool(rows)
 ```
 
-A raised call → `JobResult.fail(f"treaties read failed: {exc}")` with
-`loss_results` untouched (no partial write, spec 011 T-04). The stored document
-gains `"treaties": [{"treaty_id", "treaty_number", "treaty_name", "treaty_type",
-"attachment_point", "occurrence_limit", "risk_limit"}, …]`
+A raised treaties call → `JobResult.fail(f"treaties read failed: {exc}")`; a
+raised stats call → `JobResult.fail(f"treaty loss read failed for
+{treaty_number}: {exc}")`; both with `loss_results` untouched (no partial
+write, spec 011 T-04). The stored document gains `"treaties": [{"treaty_id",
+"treaty_number", "treaty_name", "treaty_type", "attachment_point",
+"occurrence_limit", "risk_limit", "has_loss"}, …]`
 ([data-model.md §3](../data-model.md#3-workbench-irp_analysislosss_results)).
 
 ## 3. `submit_results_export` body
@@ -120,8 +128,13 @@ Every exit but success stamps each eligible row that is not yet staged
 | Function | Wraps | Notes |
 |---|---|---|
 | `list_analysis_treaties(*, analysis_id: int) -> list[dict]` | `client.analysis.search_analysis_treaties_paginated(analysis_id)` | Worker only. Returns `[{"treaty_id": str, "treaty_number", "treaty_name", "treaty_type", "attachment_point", "occurrence_limit", "risk_limit"}]`, the last four verbatim from `treatyType`, `attachmentPoint`, `occurrenceLimit`, `riskLimit` (T-16); the wheel's `cedant` and `producer` are dropped |
+| `get_analysis_stats(*, analysis_id: int, perspective_code: str, exposure_resource_id: int, exposure_resource_type: str = "PORTFOLIO") -> list[dict]` | `client.analysis.get_stats(analysis_id, perspective_code, exposure_resource_id, exposure_resource_type=…)` | Worker only (spec 011). `exposure_resource_type="TREATY"` with a treaty id from `list_analysis_treaties` answers that treaty's own rows at the perspective, `[]` when it took none (T-18). Needs irp-integration ≥ 0.10.0rc1 |
 
 `FakeIRP`: `set_analysis_treaties(analysis_id, [{"treatyId", "treatyNumber",
 "treatyName", "treatyType", "attachmentPoint", "occurrenceLimit",
 "riskLimit"}])` seeds the answer (default `[]`); `raise_on_analysis_treaties`
 makes the call raise; `treaty_calls` records the analysis IDs asked.
+`set_treaty_stats(analysis_id, treaty_id, rows)` seeds the `TREATY`-scoped
+stats answer (default `[]`, no loss; any non-empty list means loss);
+`raise_on_treaty_stats_for` is the set of treaty ids whose read raises;
+`result_calls` records each read with its `exposure_resource_type`.

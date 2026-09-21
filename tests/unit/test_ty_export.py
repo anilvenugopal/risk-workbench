@@ -46,10 +46,10 @@ from tests.unit.test_analysis_jobs_worker import (
 TREATIES = (
     {"treaty_id": "33833", "treaty_number": "PR1", "treaty_name": "PR1",
      "treaty_type": "WORK", "risk_limit": 3_000_000.0, "attachment_point": 2_000_000.0,
-     "occurrence_limit": 9_000_000.0},
+     "occurrence_limit": 9_000_000.0, "has_loss": True},
     {"treaty_id": "33832", "treaty_number": "PR2", "treaty_name": "Layer two",
      "treaty_type": "CATA", "risk_limit": 5_000_000.0, "attachment_point": 250_000.0,
-     "occurrence_limit": None},
+     "occurrence_limit": None, "has_loss": True},
 )
 BOTH_TREATIES = {"PR1": "", "PR2": ""}
 
@@ -64,6 +64,7 @@ def test_retrieval_stores_the_applied_treaties(iteration2_db, fake_irp):
          "treatyType": "WORK", "attachmentPoint": 2_000_000.0,
          "occurrenceLimit": 9_000_000.0, "riskLimit": 3_000_000.0},
         {"treatyId": 33832, "treatyNumber": "PR2", "treatyName": "Layer two"}])
+    fake_irp.set_treaty_stats("9001", "33833", [{"pure_premium": 1.0}])
 
     job = _run_retrieval(analysis_id)
 
@@ -71,11 +72,14 @@ def test_retrieval_stores_the_applied_treaties(iteration2_db, fake_irp):
     assert _stored_extract(analysis_id)["treaties"] == [
         {"treaty_id": "33833", "treaty_number": "PR1", "treaty_name": "PR1",
          "treaty_type": "WORK", "attachment_point": 2_000_000.0,
-         "occurrence_limit": 9_000_000.0, "risk_limit": 3_000_000.0},
+         "occurrence_limit": 9_000_000.0, "risk_limit": 3_000_000.0, "has_loss": True},
         {"treaty_id": "33832", "treaty_number": "PR2", "treaty_name": "Layer two",
          "treaty_type": None, "attachment_point": None, "occurrence_limit": None,
-         "risk_limit": None}]
+         "risk_limit": None, "has_loss": False}]
     assert fake_irp.treaty_calls == ["9001"]
+    assert [(c["perspective_code"], c["exposure_resource_id"])
+            for c in fake_irp.result_calls
+            if c["exposure_resource_type"] == "TREATY"] == [("TY", "33833"), ("TY", "33832")]
 
 
 def test_retrieval_without_treaties_stores_an_empty_list(iteration2_db, fake_irp):
@@ -92,6 +96,20 @@ def test_retrieval_fails_when_the_treaties_read_raises(iteration2_db, fake_irp):
 
     assert job["status_code"] == "failed"
     assert job["error_detail"].startswith("treaties read failed:")
+    assert _stored_extract(analysis_id) is None  # no partial write
+
+
+def test_retrieval_fails_when_a_treaty_loss_read_raises(iteration2_db, fake_irp):
+    analysis_id = _seed_finished_analysis()
+    fake_irp.set_analysis_treaties("9001", [
+        {"treatyId": 33833, "treatyNumber": "PR1", "treatyName": "PR1"},
+        {"treatyId": 33832, "treatyNumber": "PR2", "treatyName": "Layer two"}])
+    fake_irp.raise_on_treaty_stats_for = {"33832"}
+
+    job = _run_retrieval(analysis_id)
+
+    assert job["status_code"] == "failed"
+    assert job["error_detail"].startswith("treaty loss read failed for PR2:")
     assert _stored_extract(analysis_id) is None  # no partial write
 
 
@@ -156,10 +174,41 @@ def test_the_cart_lists_each_treaty_once_with_its_terms(deal):
         "Catastrophe", "250,000", "—")
 
 
+def test_the_cart_hides_a_treaty_that_took_no_loss(deal):
+    """Filtered out, not shown as zero (P-13); a group keeps a treaty when any
+    of its copies took loss."""
+    partial = seed_analysis(
+        edm_id=deal["edm_id"], name="P", irp_id="41962", irp_app_analysis_id="41962",
+        perspectives=("GR",), treaties=(TREATIES[0], {**TREATIES[1], "has_loss": False}))
+    group = seed_analysis(
+        edm_id=deal["edm_id"], name="G", irp_id="41963", irp_app_analysis_id="41963",
+        perspectives=("GR",), is_group=1,
+        treaties=(TREATIES[0], {**TREATIES[0], "treaty_id": "44833", "has_loss": False}))
+    rows = {r.id: r for r in svc.list_exportable_analyses(deal["submission_id"])}
+
+    assert [t.number for t in rows[partial].treaty_choices] == ["PR1"]
+    assert "TY" in rows[partial].perspectives
+    assert [t.number for t in rows[group].treaty_choices] == ["PR1"]
+
+
+def test_ty_is_not_offered_when_no_treaty_took_loss(deal):
+    none = seed_analysis(
+        edm_id=deal["edm_id"], name="N", full_name="N long", irp_id="41964",
+        irp_app_analysis_id="41964", perspectives=("GR",),
+        treaties=tuple({**t, "has_loss": False} for t in TREATIES))
+    rows = {r.id: r for r in svc.list_exportable_analyses(deal["submission_id"])}
+
+    assert "TY" not in rows[none].perspectives
+    assert rows[none].treaty_choices == []
+    with pytest.raises(svc.ExportValidationError) as exc:
+        _create(deal, [none], treaty_picks={none: BOTH_TREATIES})
+    assert str(exc.value) == "N long has no treaty with TY loss."
+
+
 def test_create_export_refuses_ty_for_an_analysis_without_treaties(deal):
     with pytest.raises(svc.ExportValidationError) as exc:
         _create(deal, [deal["a"], deal["c"]], treaty_picks={deal["c"]: BOTH_TREATIES})
-    assert str(exc.value) == "A long was not run with treaties."
+    assert str(exc.value) == "A long has no treaty with TY loss."
 
 
 def test_create_export_refuses_an_analysis_with_no_treaty_ticked(deal):

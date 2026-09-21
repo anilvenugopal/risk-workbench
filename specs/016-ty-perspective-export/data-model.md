@@ -62,7 +62,8 @@ same `UPDATE` as `perspectives`:
 "treaties": [
   {"treaty_id": "33833", "treaty_number": "PR1", "treaty_name": "PR1",
    "treaty_type": "WORK", "attachment_point": 2000000.0,
-   "occurrence_limit": 9000000.0, "risk_limit": 3000000.0}
+   "occurrence_limit": 9000000.0, "risk_limit": 3000000.0,
+   "has_loss": true}
 ]
 ```
 
@@ -71,10 +72,15 @@ Source: `irp_gateway.list_analysis_treaties(analysis_id)` →
 `treatyNumber`, `treatyName`, `treatyType`, `attachmentPoint`,
 `occurrenceLimit`, `riskLimit`; `cedant` and `producer` dropped). A term Risk
 Modeler omits is stored as `null`. Empty list when it reports no treaties.
-Read by `export_service.list_exportable_analyses` only: a non-empty list adds
-`TY` to the analysis's `perspectives` and is what the cart lists to tick. A
-document without the key, or with the identity keys alone (retrieved before
-this release), reads as no treaties and no terms (T-13).
+`has_loss` is `true` when
+`irp_gateway.get_analysis_stats(analysis_id, "TY", treaty_id, exposure_resource_type="TREATY")`
+answered at least one row for that treaty, else `false` (T-18); the whole
+document is written only when every read succeeded.
+Read by `export_service.list_exportable_analyses` only: an entry with
+`has_loss` true adds `TY` to the analysis's `perspectives`, and those entries
+are what the cart lists to tick (P-13). A document without the key, or with
+entries lacking `has_loss` (retrieved before 2026-09-21), reads as no treaty
+with loss and offers no TY (T-13).
 
 ## 4. Settings
 
@@ -86,9 +92,10 @@ this release), reads as no treaties and no terms (T-13).
 
 ### ExportableAnalysis
 
-`perspectives` includes `TY` when `loss_results.treaties` is non-empty.
-`treaties` is that list deduped by (number, name), in recorded order — a group
-repeats a treaty once per member. `treaty_choices` is the cart's view of it,
+`perspectives` includes `TY` when `loss_results.treaties` holds an entry with
+`has_loss` true. `treaties` is those entries deduped by (number, name), in
+recorded order — a group repeats a treaty once per member and keeps the treaty
+when any copy took loss. `treaty_choices` is the cart's view of it,
 one `TreatyChoice(number, name, type_label, risk_limit, attachment_point,
 occurrence_limit)` per treaty with the amounts already formatted (P-12).
 `aal_display("TY")` is never shown: the cart row omits the AAL line at TY

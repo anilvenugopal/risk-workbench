@@ -292,12 +292,15 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         produced = {code: data for code, data
                     in (loss_results.get("perspectives") or {}).items() if data}
         perspectives = list(produced)
-        # Run with treaties (spec 016 FR-001): the treaties Risk Modeler reported
-        # at results retrieval, one entry per (number, name) — a group repeats a
-        # treaty once per member. The list gates the offer and is what the cart
-        # lists to tick at TY.
+        # The treaties that took TY loss, per Risk Modeler's treaty-scoped stats
+        # read at results retrieval (spec 016 FR-002, P-13), one entry per
+        # (number, name) — a group repeats a treaty once per member and keeps it
+        # when any copy has loss. The list gates the TY offer and is what the
+        # cart lists to tick. An entry without has_loss (retrieved before the
+        # flag existed) reads as no loss (T-13).
         treaties = list({(t.get("treaty_number"), t.get("treaty_name")): t
-                         for t in loss_results.get("treaties") or []}.values())
+                         for t in loss_results.get("treaties") or []
+                         if t.get("has_loss")}.values())
         if treaties:
             perspectives.append(TY)
         # The column, else the metadata snapshot's appAnalysisId (spec 012
@@ -459,7 +462,7 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
     for analysis in selected:
         if perspective_code not in analysis.perspectives:
             raise ExportValidationError(
-                f"{analysis.name} was not run with treaties." if perspective_code == TY
+                f"{analysis.name} has no treaty with TY loss." if perspective_code == TY
                 else f"{analysis.name} has no {perspective_code} results.")
     picks = {_uid(k): v for k, v in (treaty_picks or {}).items()}
     if perspective_code == TY:
