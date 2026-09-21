@@ -29,20 +29,18 @@ def sql_env(monkeypatch):
     monkeypatch.setenv("MSSQL_AD_AUTH_TYPE", "WINDOWS")
 
 
-def test_sql_auth_config_and_string(sql_env):
+def test_sql_auth_config_and_url(sql_env):
     cfg = db.get_connection_config("WB")
     assert cfg["auth_type"] == "SQL" and cfg["user"] == "sa"
-    odbc = db.build_odbc_connection_string(cfg)
-    assert "UID=sa" in odbc and "PWD=p@ss" in odbc
-    assert "Trusted_Connection" not in odbc
-    assert db.build_sqlalchemy_url(cfg).startswith("mssql+pyodbc:///?odbc_connect=")
+    url = db.build_sqlalchemy_url(cfg)
+    assert url.drivername == "mssql+pyodbc"
+    assert (url.username, url.password, url.database) == ("sa", "p@ss", "raw_db")
 
 
-def test_windows_auth_config_and_string(sql_env):
+def test_windows_auth_config_and_url(sql_env):
     cfg = db.get_connection_config("AD")
     assert cfg["auth_type"] == "WINDOWS"
-    odbc = db.build_odbc_connection_string(cfg)
-    assert "Trusted_Connection=yes" in odbc and "UID=" not in odbc
+    assert db.build_sqlalchemy_url(cfg).username is None
 
 
 def test_missing_var_raises(monkeypatch):
