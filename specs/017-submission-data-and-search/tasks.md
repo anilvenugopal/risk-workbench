@@ -196,3 +196,82 @@ Story order is fixed by the UI workflow (one story at a time, click-through betw
 3. US2 adds the client and the eleven treaty types (SC-003); T034 lands separately when spec 014 merges.
 4. US3 adds the search (SC-001), with the library preview approved before the bar is built.
 5. Phase 6 docs and subtraction review; report tiers by name and count.
+
+---
+
+## Phase 8: The contract grain (spec amended 2026-09-21, note 32 D15–D25)
+
+**Purpose**: replace the submission-level deal status and dates built in Phases
+2–7 with the contract: status, treaty type, inception and expiration per CRM
+ID; data vintage on the submission; zero or more contracts managed on the
+create form and the page; filters and sort at the contract grain. T001–T053
+above are history of the 9/18 shape; where a row below deletes something they
+built, the task says so. Baseline: unit tier 2,010 passed.
+
+**Independent test**: quickstart.md §3, all three stories (rewritten 2026-09-21).
+
+### Preview (docs/UI_WORKFLOW.md rule 1 — approval before templates or routes)
+
+- [x] T054 [US1] [US2] [FR-021] [P-14] [T-10] Build `docs/ui_previews/submission_contracts.html` from `docs/ui_previews/_scaffold.html`, five states: the create form with three contract rows (rows two and three showing pre-filled dates, treaty year filled from row one, Client ID and Data vintage fields); the deal card of an Active deal with a three-row contract table (one row in its in-place editor, statuses Won / Lost / In Process, the Status group with Modeling status and history, Client ID and Data vintage facts); a deal with no contract (empty table, Add control); a Completed deal (row pencils and Add hidden, Contract status selects live, banner reworded); the repository unreachable. The EDM, RDM, analyses and exports tables are not in the preview
+  - Proof: approver's informal 👍 on the rendered file. **Stop here until approved.** T055–T058 (no UI) may proceed during review; T059–T060 may not
+
+### Schema and mirrors
+
+- [x] T055 [T-03] [T-04] [T-11] [T-14] Edit `alembic/versions/0001_initial.py`: rename `deal_status_kind` → `contract_status_kind` (same seed); drop `submission.treaty_type_code` (+ FK + `ix_submission_treaty_type_code`), `submission.inception_date`, `submission.expiration_date`, `submission.deal_status_code` (+ FK); add `submission.data_vintage DATE NULL`; drop `ix_submission_list_order`; replace `submission_crm_id` with `contract` per data-model.md §3 (`ix_contract_submission_id`); replace `v_submission_crm_id` with `v_contract` (data-model.md §4, own `op.execute`, `DROP VIEW` first in `downgrade`). DB lifecycle: Rebuild (developer runs `make db-rebuild`)
+- [x] T056 [P] [T-03] [T-07] Mirror in `tests/iteration1_mirror.py` (`contract` DDL, `contract_status_kind`, the dropped columns, `v_contract`, drop order), `infra/scripts/seed_db.py` (`contract_status_kind` MERGE), and `tests/sqlserver/test_submission_migration.py` (`contract` columns and FKs; `submission` lacks the four columns; `ix_submission_list_order` absent; `v_contract` exists; `contract_status_kind` holds three)
+  - Proof: SQL Server tier unverified until the developer runs `make test-sql`; say so in the handoff
+
+### Service and parsing
+
+- [x] T057 [T-02] [T-05] [T-11] [T-12] [P-16] [P-17] [P-18] [P-20] `app/services/submission_service.py`: `Contract` and `ContractInput` (contracts/routes.md §6) replace `CrmTag`; `create_submission(…, data_vintage=None, contracts=())` validates every row (CRM ID present, unique across posted and stored rows case-insensitive and trimmed, treaty type in `treaty_type_kinds()`, dates parse, blank expiration → inception + 1 year − 1 day) and inserts the submission and its contracts in one transaction; `update_submission` takes `data_vintage` and no contract fields; `list_contracts`, `add_contract`, `update_contract` (Active gate, `updated_at` marker), `set_contract_status` (no gate, no event), `remove_contract` (Active gate); `set_statuses` back to Modeling status only; `contract_status_kinds()` replaces `deal_status_kinds()`; `_default_treaty_year` from the earliest contract inception, `None` with none; `submission_filter_clauses` returns the submission-level clauses plus one `EXISTS` over `contract` carrying every contract-level clause (data-model.md §5); the default and `sort=inception` order use the `COALESCE(MAX(...), s.inserted_at)` expression; `SubmissionRow` gains `treaty_type_labels`, `latest_inception_date`, `data_vintage` filled by one `IN` query per page. Delete `add_crm_id`, `remove_crm_id`, `list_crm_ids`, `set_crm_dates`, `reset_crm_dates`, `_attach_crm_ids`
+- [x] T058 [P] [T-08] [T-14] `app/routers/_list_filters.py`: `deal_status` → `contract_status` (label "Contract status", key `contract_status_codes`); `client` label "Client ID"; `app/routers/edms.py` and `rdms.py` pass the renamed kind list
+
+### Routes and templates (approved preview only)
+
+- [x] T059 [US1] [FR-004] [FR-021] [T-12] `app/routers/submissions.py`: the create POST zips the five repeated contract fields into `ContractInput` rows and passes `data_vintage`; the edit POST passes `data_vintage` and no contract fields; add `POST …/contracts`, `…/contracts/{cid}`, `…/contracts/{cid}/status`, `…/contracts/{cid}/delete` per contracts/routes.md §1, each re-rendering `#contracts`; narrow `POST …/statuses` to Modeling status; delete `…/dates`, `…/crm-ids`, `…/crm-ids/{tag_id}/dates`, `…/crm-ids/same-dates`, `…/crm-ids/{tag_id}/delete`; `_head_context` carries `contracts`, `treaty_type_kinds`, `contract_status_kinds`
+- [x] T060 [US1] [FR-004] [FR-005] [FR-007] [FR-021] [FR-022] Templates and styles exactly as the approved preview: `submission_form.html` (contract row editor as an Alpine sliver that adds rows, copies the previous row's dates into a new row, fills treaty year from the first inception typed; Client ID label; Data vintage field; the submission-level treaty type, inception and expiration fields removed), `partials/submission_head.html` (Treaty and Term groups removed; Client ID and Data vintage facts; the contract table partial), new `partials/contract_table.html` (display rows and their in-place editors in one partial; Contract status select live in every Modeling status; pencil, Add and remove only when Active), delete `partials/crm_tags.html`; `pages/submissions.html` pickers relabelled and `partials/submission_list.html` / `submission_row.html` columns per FR-007; `submissions.css` `.contract-*` replaces `.crm-*`; `app.js` `contractRows` replaces `treatyYear`
+  - Proof: quickstart §3 Story 1 steps 1–6 and Story 3 (the filters ship with the service)
+
+**Checkpoint / STOP**: unit tier green. Hand off for the quickstart §3 Story 1 and Story 3 click-through before T061.
+
+### Export pre-fill
+
+- [ ] T061 [US2] [FR-011] [T-09] [P-06] `app/routers/submissions.py` export GET: `client_id` pre-selected from the submission, `data_vintage` pre-filled, a Contract select built from `list_contracts` (option data attributes `data-crm-id`, `data-inception`; pre-selected when exactly one); `submission_export_new.html` renders it and an Alpine sliver copies the chosen option into `crm_id` and `treaty_incept`; `export_service.list_clients` deleted in favour of `client_service.list_clients`; T034 above closes here
+  - Proof: quickstart §3 Story 2 step 5
+
+**Checkpoint / STOP**: hand off for the quickstart §3 Story 2 click-through.
+
+### Tests
+
+- [ ] T062 [US1] [US2] [US3] Unit tests per plan.md §Testing in `tests/unit/test_submission_service.py`, `test_submission_routes.py`, `test_libraries.py`, `test_export_service.py` and the export route tests: replace every assertion on `deal_status`, deal-level dates, `CrmTag`, inherited flags and `reset_crm_dates` with the contract cases; add the P-18 same-row case, the no-contract in-force case, the default order with a contract-less submission, `v_contract` row shape, the five-field create post with zero / one / three rows and the duplicate refusal, the four contract routes, and the export pre-fill
+
+### Docs and polish
+
+- [ ] T063 [P] [FR-020] [T-13] Docs: `docs/FUNCTIONAL_REQUIREMENTS.md` lines 44, 47, 48, 49, 50, 52, 57, 62, 115 per FR-020 and data vintage defined in Wendy's words (note 32 D23); `docs/DATA_MODEL.md` §4 (Submission, Contract, `contract_status_kind` seed row, `v_contract`, the sort expression) and the 2026-09 changelog entry; `docs/PRD.md` §7.2a (Modeling status vs Contract status); `.specify/memory/constitution.md` v4.1.2 — Article 4's in-place list names `contract.contract_status_code`, changelog line, no rule change
+- [ ] T064 Subtraction review of the Phase 8 diff per AGENTS.md §Code Quality: no `deal_status`, `crm_tag`, `CrmTag`, `inherited`, `same-dates` or `v_submission_crm_id` left anywhere (`grep -rn` over `app tests alembic infra docs specs/017*`); no comment restating a route; the preview file holds only built states
+- [ ] T065 Run `uv run pytest tests/unit` and report "unit tier, N passed (baseline 2,010)"; state that the SQL Server tier (T056) is unverified until the developer runs `make test-sql`
+
+### Phase 8 dependencies
+
+- T054 approval blocks T059 and T060. T055 → T056 (same DDL text) → T057. T057 and T058 block T059. T061 needs T057 and T060. T062 follows the task it tests. T063 and T064 after T061.
+- Order: T054 (preview) · T055–T058 during review · T059–T060 · stop · T061 · stop · T062–T065.
+
+### Phase 8 status, 2026-09-21
+
+- T054 built (`docs/ui_previews/submission_contracts.html`), **awaiting approval**.
+  Revised the same day after review: the directory picker stays (not a text
+  field), no field sub-text, and the list row keeps the existing table with CRM IDs
+  and treaty types as "first + N more" and no contract status column.
+- T059–T060 done 2026-09-21 after the preview was approved: the create form
+  posts contract rows (`contractRows` sliver), the deal card is Deal / Status /
+  Owner over `partials/contract_table.html`, the four contract routes and the
+  Modeling-only `/statuses` route replaced `/dates` and the `crm-ids` routes;
+  `partials/crm_tags.html` deleted. Route tests rewritten (T062, routes half).
+  **Stop for the quickstart §3 Story 1 and Story 3 click-through before T061.**
+- T055–T058 done. The list page, both libraries and the export form route read the
+  contract grain; the filter relabels of T060 (`contract_status`, "Client ID", the
+  list row's contract summary) and the route half of T061 (client, data vintage and
+  single-contract pre-fill) landed with them because they are relabels of existing
+  components, not new layout.
+- Unit tier after T060: 2,019 passed (baseline 2,010). SQL Server tier not run
+  (T056 unverified until `make test-sql`; Rebuild needed).

@@ -1,6 +1,6 @@
 # Implementation Plan: Submission Data and Cross-Entity Search (Iteration 12)
 
-**Branch**: `017-submission-data-and-search` | **Date**: 2026-09-17 | **Spec**: [spec.md](spec.md)
+**Branch**: `017-submission-data-and-search` | **Date**: 2026-09-17, amended 2026-09-21 | **Spec**: [spec.md](spec.md)
 
 <!-- Technical only. User stories and scope → spec.md. Schema → data-model.md.
      Payloads → contracts/. Endpoint investigation → research.md. Everything
@@ -9,131 +9,110 @@
 ## Plan status
 
 **Ready for tasks:** Yes
-**Blocked by:** Nothing. T-09 (export-form pre-fill, FR-011) is Deferred until
-spec 014 is on `main`; it does not block the rest.
+**Blocked by:** Nothing. The 9/18 build (tasks T001–T053) is on this branch
+and is reshaped, not discarded: the filter parser, `client_service`, the chip
+inputs, the kind reads and the deal card survive; the schema, the submission
+service and the templates that read deal status and deal dates change.
 
 ## Design summary
 
 - **Modeling status keeps its tables.** `submission.status_code`,
-  `submission_status_kind` and `submission_status_event` stay as they are —
-  the constitution's Article 4 names them — and only the labels change to
-  "Modeling status". Nothing about reasons, reversibility or the Active gate
-  moves (T-01).
-- **Submission status is one new column and one new kind table.**
-  `submission.deal_status_code` (NOT NULL, default `IN_PROCESS`) references
-  `deal_status_kind` (`WON`, `LOST`, `IN_PROCESS`). `POST
-  /submissions/{id}/statuses` saves it beside Modeling status in one
-  transaction under the one `updated_at` marker — in place, no reason, no event
-  row, in every Modeling status (T-01, T-02, P-12, P-14).
-- **Dates gain two optional overrides per CRM ID.** `submission.expiration_date`
-  (nullable) is added; `submission_crm_id` gains nullable `inception_date` and
-  `expiration_date`. A CRM ID's effective date is `COALESCE(override, deal)`
-  per column. `POST /submissions/{id}/crm-ids/{tag}/dates` edits one CRM ID;
-  `POST /submissions/{id}/crm-ids/same-dates` nulls every override after an
-  `hx-confirm`. Both are gated on Modeling status Active like add and remove
-  (T-03).
-- **One view defines the effective-date rule.** `v_submission_crm_id` emits
-  one row per CRM ID (a blank-CRM row for a submission with none) with the
-  effective dates, both statuses and the client. It is the FR-013 extract, and
-  the in-force predicate reads it: `s.deal_status_code = 'WON' AND EXISTS (…
-  WHERE effective_inception_date <= :asof AND effective_expiration_date >=
-  :asof)`. The Won test sits on the outer submission row so the covering list
-  index drops Lost and In Process deals before the join. A NULL expiration
-  never compares true, so P-09 falls out of the SQL (T-04).
-- **One predicate builder serves three lists.**
-  `submission_service.submission_filter_clauses(filters, alias)` returns the
-  ANDed clauses and bound params for owner, cedant, client, treaty type,
-  treaty year, CRM IDs, Submission status, inception and in-force, plus
-  Modeling status for the submissions list only (P-13). `list_submissions`
-  applies them directly; `list_edms` and
-  `list_rdms` wrap them in a single `EXISTS` over `submission_edm` /
-  `submission_rdm` joined to `submission`, which is exactly FR-016's "one
-  linked submission satisfies every filter together". No submission filter set
-  → no `EXISTS`, so unlinked EDMs stay listed (T-05).
-- **CRM ID becomes multi-value everywhere.** The values are one `IN` list
-  compared against `LOWER(TRIM(crm_id))` inside one `EXISTS` over
-  `submission_crm_id` (exact match, P-10); the list's text input becomes a
-  chip input on the `yearChips` pattern.
-- **Client is a stored integer, not a foreign key.** `submission.client_id INT
-  NULL`. New `app/services/client_service.py` reads `dbo.Client` over the
-  `LOSS` connection through `db.execute`: `list_clients()` for the form and the
-  filter menus, `client_names(ids)` for row display. Both fail open — an
-  unreachable repository yields `None`/`{}`, the form says the list is
-  unavailable, and the submission saves without a client. A posted client is
-  checked against the list only while the list is reachable (T-06).
-- **Treaty types come from the kind table.** The seed becomes the eleven
-  FR-012 codes; the router's `TREATY_TYPES` constant is deleted and the form
-  and every treaty-type filter read `submission_service.treaty_type_kinds()`
-  (T-07).
-- **Filter parsing moves to one module.** `app/routers/_list_filters.py`
-  parses text and multi-value params, applies the twenty-value cap
-  (`_MAX_FILTER_VALUES` 400 → 20) and the existing one-line messages, and
-  builds the `filters` dict; `submissions.py`, `edms.py` and `rdms.py` call it
-  (T-08).
-- **Library filter bar.** `edm_library.html` / `rdm_library.html` gain the
-  submission-attribute filters beside name search and import status; the
-  `#lib-live` poll URL carries every filter param, not just `q` and `status`.
-  Owner has no default on the libraries. The sync screen is untouched.
-- **The submission page above the tables is redesigned, not patched
-  (T-10).** Today `submission_detail.html` stacks a title with a status chip,
-  a created / links-to / directory line, a `deal-facts` row (Cedant, Treaty
-  type, Treaty year, Inception), an Owner band with an inline reassign form,
-  a CRM band whose `crm_tags.html` is an add box plus removable chips, a
-  read-only banner, and a separate "Status" section with three forms (Mark
-  complete, Cancel deal with reason, Reopen) over the history list. This
-  iteration adds a second status, a client, an expiration, and dates per CRM
-  ID to that stack, so the block from the title to the history list is
-  rebuilt as one metadata section and one set of editing controls: Modeling
-  status (transition, reason, history) and Submission status (a plain select,
-  live in every Modeling status, P-12) shown and edited apart; CRM ID
-  creation and removal together with each CRM ID's inception and expiration,
-  inherited dates marked, one "make them all the same" control; deal-level
-  inception and expiration edited in place. The read-only banner's "Reopen
-  it to make changes" wording changes, since Submission status stays
-  editable when the deal is Completed or Cancelled. The EDM, RDM, analyses
-  and exports tables below the history are untouched.
-- **Labels.** "Cedant" unchanged, "Client" as "ID - name". EDM detail treaty
-  grid: "Cedent" → "Cedant" (spelling only, P-05).
-- **Export pre-fill waits for spec 014.** `client_id` and the view's effective
-  inception are the inputs the 014 form will read; the form change itself is
-  one gated task (T-09).
-- **Docs.** `docs/FUNCTIONAL_REQUIREMENTS.md` (FR-020's three corrections plus
-  the status and filter rows), `docs/DATA_MODEL.md` §4 and the seed table,
-  `docs/PRD.md` §7.2a.
-- **Previews first** for the two screens with new layout: the redesigned
-  submission page above the tables (T-10) and the library filter bar. The
-  submission page preview covers Active with CRM IDs carrying inherited and
-  entered dates, Active with no CRM ID, Completed (read-only except
-  Submission status), and the client with the repository unreachable. No
-  template or route for that block is written before the preview is approved
-  (docs/UI_WORKFLOW.md rule 1). The submissions list's four extra filters
-  reuse `multi_picker` and need none.
+  `submission_status_kind` and `submission_status_event` stay; only labels
+  changed (T-01). `POST /submissions/{id}/statuses` goes back to Modeling
+  status alone.
+- **`contract` replaces `submission_crm_id`.** One row per CRM ID with
+  `treaty_type_code`, `inception_date`, `expiration_date` (all NOT NULL) and
+  `contract_status_code` (FK `contract_status_kind`, the renamed
+  `deal_status_kind`), plus `updated_at` / `updated_by` as the in-place
+  concurrency marker. `submission` loses `treaty_type_code`, `inception_date`,
+  `expiration_date` and `deal_status_code` and gains `data_vintage DATE NULL`
+  (T-02, T-03).
+- **The create form writes the submission and its contracts in one
+  transaction.** Contract rows post as parallel repeated fields
+  (`contract_crm_id`, `contract_treaty_type`, `contract_inception`,
+  `contract_expiration`, `contract_status`, positionally aligned);
+  `create_submission` validates every row (CRM ID present and unique within
+  the submission, treaty type in the list, dates parse) and inserts them after
+  the submission row. A blank expiration is filled server-side as inception
+  plus one year minus one day; the same rule runs on the page's add and edit
+  (T-12).
+- **Contract edits on the page are three routes.** `POST …/contracts` adds,
+  `POST …/contracts/{cid}` edits attributes (gated on Modeling status Active),
+  `POST …/contracts/{cid}/status` sets contract status in any Modeling status
+  (P-12), `POST …/contracts/{cid}/delete` removes. Each re-renders the
+  contract table fragment. `set_crm_dates`, `reset_crm_dates` and the
+  `same-dates` route are deleted (T-02, T-12).
+- **In force reads `contract` directly.** `EXISTS (… c.contract_status_code =
+  :won AND c.inception_date <= :asof AND c.expiration_date >= :asof)` with
+  `:won` from the one module constant. The view `v_contract` is the FR-013
+  extract only, a plain join, no `COALESCE` (T-04).
+- **The clause builder returns two groups.** `submission_filter_clauses`
+  yields submission-level clauses (owner, cedant, client, treaty year,
+  Modeling status, name) applied to `s`, and contract-level clauses (CRM IDs,
+  treaty types, inception, contract status, in force) wrapped in one `EXISTS`
+  over `contract`, so P-18 holds by construction. The libraries wrap the whole
+  in their existing `EXISTS` over the association table (T-05).
+- **The list orders on an aggregate.** `COALESCE((SELECT MAX(c.inception_date)
+  …), s.inserted_at) DESC, s.name`; the sortable Inception column uses the same
+  expression; `ix_submission_list_order` is dropped (T-11).
+- **The list row summarises its contracts.** One extra query per page
+  (`WHERE submission_id IN (…)`, as `_attach_crm_ids` does today) feeds the
+  CRM IDs, distinct treaty type labels and latest inception per row, shown as
+  "first + N more"; contract status is a filter, not a list column.
+- **Treaty year** stays on the submission; `_default_treaty_year` takes the
+  earliest contract inception when the field is blank, `None` with no
+  contract (P-20).
+- **Client and treaty types are unchanged** from 9/18 (T-06, T-07); the
+  client label becomes "Client ID" (P-05).
+- **Export pre-fill (FR-011).** The export form's `client_id` typeahead
+  pre-selects the submission's client, `data_vintage` pre-fills from the
+  submission, and a Contract select (one option per contract, pre-selected
+  when there is one) fills `crm_id` and `treaty_incept` from data attributes
+  in an Alpine sliver; both inputs stay editable. `export_service.list_clients`
+  is replaced by `client_service.list_clients` (T-09).
+- **`deal_status` is renamed `contract_status`** in code, query params,
+  filter labels and the kind table; nothing keeps the old name (T-14).
+- **Constitution Article 4** names `submission.deal_status_code` in its
+  in-place list; a patch version renames it to `contract.contract_status_code`
+  with no rule change (T-13).
+- **Preview first** for the two screens whose layout changes: the create
+  form with its contract editor and the deal card with the contract table
+  replacing the Treaty and Term groups and the CRM band. Five states
+  (FR-021). No template or route for either is written before the approval
+  (docs/UI_WORKFLOW.md rule 1); the 9/18 waiver and its cost are recorded
+  in tasks.md T013.
+- **Docs.** FR doc lines 44–62 and 115; `DATA_MODEL.md` §4 and the seed
+  table; `PRD.md` §7.2a; the constitution patch.
 
 ## Material changes
 
 | Area | Change |
 |---|---|
-| Database | `rwb_workbench`, edited in `alembic/versions/0001_initial.py` then Rebuild: `deal_status_kind` + seed; `submission.deal_status_code`, `submission.expiration_date`, `submission.client_id`; `submission_crm_id.inception_date`, `.expiration_date`; view `v_submission_crm_id`; `treaty_type_kind` reseeded to eleven codes. `ix_submission_list_order` INCLUDE gains `deal_status_code`, `expiration_date`, `client_id`. `rwb_loss`: read-only read of `dbo.Client`; no DDL from this branch. |
+| Database | `rwb_workbench`, edited in `alembic/versions/0001_initial.py` then Rebuild: `deal_status_kind` → `contract_status_kind`; `submission` −`treaty_type_code` −`inception_date` −`expiration_date` −`deal_status_code` +`data_vintage`; `ix_submission_treaty_type_code` and `ix_submission_list_order` dropped; `submission_crm_id` → `contract` with the columns of data-model.md §3; view `v_submission_crm_id` → `v_contract`. `rwb_loss`: read-only. |
 | Worker | None. |
-| Service | `submission_service`: `submission_filter_clauses`, `treaty_type_kinds`, `deal_status_kinds`, `set_deal_status`, `set_crm_dates`, `reset_crm_dates`, `CrmTag` gains effective dates + inherited flags, `Submission`/`SubmissionRow` gain `deal_status_*`, `expiration_date`, `client_id`, `client_name`. `edm_service.list_edms` / `rdm_service.list_rdms` accept `submission_filters`. New `client_service`. |
-| UI | Submission page: metadata section, status controls and CRM ID section rebuilt as one screen above the unchanged tables (T-10); three new POST routes; submissions list filter bar; library filter bars and poll URL; `_list_filters` module; label changes. |
+| Service | `submission_service`: `Contract` replaces `CrmTag`; `create_submission(…, contracts=[…])`; `add_contract`, `update_contract`, `set_contract_status`, `remove_contract`; `submission_filter_clauses` returns the two groups; the sort expression; `_default_treaty_year` from contracts; `set_statuses` back to Modeling status; `set_crm_dates`, `reset_crm_dates`, `deal_status_kinds` → `contract_status_kinds`. `client_service`, `edm_service`, `rdm_service` unchanged. `export_service.list_clients` deleted. |
+| UI | Create/edit form: contract editor rows, data vintage, label Client ID; deal card: contract table with in-place row editing; submissions list: columns and filter labels; libraries: filter label; export form: Contract select and the two pre-fills; four contract POST routes; `statuses` route narrowed. |
 | Library | None. No irp-integration call. |
-| Docs | FR doc, DATA_MODEL §4 + seed table, PRD §7.2a. |
+| Docs | FR doc, DATA_MODEL §4 + seed table, PRD §7.2a, constitution Article 4 patch. |
 
 ## High-risk technical decisions
 
 | ID | Decision | Status | Detail |
 |---|---|---|---|
-| T-01 | Modeling status keeps `submission.status_code` / `submission_status_kind` / `submission_status_event`; Submission status is `submission.deal_status_code` → new `deal_status_kind`. "Submission status" in the UI is `deal_status` in code and schema | Approved | [research.md#R1](research.md#r1--two-statuses-two-columns-one-of-them-new-t-01-t-02) |
-| T-02 | Submission status is editable in every Modeling status, including Completed and Cancelled; plain in-place UPDATE with the `updated_at` check; no reason, no event | Approved | [research.md#R1](research.md#r1--two-statuses-two-columns-one-of-them-new-t-01-t-02) |
-| T-03 | Deal-level `inception_date` stays NOT NULL; `expiration_date` added nullable; per-CRM overrides nullable per column; effective = `COALESCE` per column; "make them all the same" nulls the overrides; date writes gated on Active | Approved | [research.md#R2](research.md#r2--dates-deal-defaults-with-per-crm-id-overrides-t-03) |
-| T-04 | View `v_submission_crm_id` is both the FR-013 extract and the in-force source; the predicate names `WON` through one module constant | Approved | [research.md#R3](research.md#r3--one-view-for-the-extract-and-for-in-force-t-04) |
-| T-05 | One clause builder in `submission_service`; the libraries wrap it in a single `EXISTS` over the association table, which is FR-016's semantics by construction | Approved | [research.md#R4](research.md#r4--one-predicate-builder-and-one-exists-per-library-t-05) |
-| T-06 | `submission.client_id INT NULL`, no FK; `client_service` reads `dbo.Client` over `LOSS` via `db.execute`, fails open; the posted id is checked against the list only when the list is reachable | Approved | [research.md#R5](research.md#r5--client-a-stored-id-read-over-loss-t-06) |
-| T-07 | Eleven snake_case codes reseed `treaty_type_kind`; the six provisional codes are dropped (Rebuild, not migrated); router constant deleted; form and filters read the table | Approved | [research.md#R6](research.md#r6--treaty-types-from-the-kind-table-t-07) |
-| T-08 | `_MAX_FILTER_VALUES` goes from 400 to 20 and moves to `app/routers/_list_filters.py` with the shared parser | Approved | [research.md#R7](research.md#r7--the-filter-cap-is-twenty-t-08) |
-| T-09 | Export-form pre-fill (FR-011) lands as one task after spec 014 merges; `export_service.list_clients` is then replaced by `client_service.list_clients` | Deferred | [research.md#R8](research.md#r8--export-pre-fill-waits-for-spec-014-t-09) |
-| T-10 | The submission page from the title to the status history is redesigned as one metadata section plus one set of controls for Modeling status, Submission status, CRM IDs and dates, built only after a rendered preview is approved; the EDM, RDM, analyses and exports tables are untouched | Approved | [research.md#R10](research.md#r10--the-submission-page-above-the-tables-is-rebuilt-t-10) |
+| T-01 | Modeling status keeps `submission.status_code` / `submission_status_kind` / `submission_status_event`; contract status is `contract.contract_status_code` → `contract_status_kind` (the 9/18 `deal_status_kind`, renamed) | Approved | [research.md#R1](research.md#r1--two-statuses-two-tables-t-01-t-02) |
+| T-02 | Contract status is an in-place UPDATE on `contract` under its own `updated_at` marker, no reason, no event, in every Modeling status; every other contract attribute is gated on Active | Approved | [research.md#R1](research.md#r1--two-statuses-two-tables-t-01-t-02) |
+| T-03 | `contract` replaces `submission_crm_id`; treaty type, both dates and status are NOT NULL on it; `submission` drops the four columns and gains `data_vintage` | Approved | [research.md#R2](research.md#r2--the-contract-grain-t-03) |
+| T-04 | `v_contract` is the FR-013 extract only, a plain join; in-force and every filter read `contract` directly | Approved | [research.md#R3](research.md#r3--the-view-is-the-extract-the-predicates-read-the-table-t-04) |
+| T-05 | One clause builder returning submission-level and contract-level groups; the contract group is one `EXISTS` over `contract`; the libraries wrap both in one `EXISTS` over the association table | Approved | [research.md#R4](research.md#r4--two-clause-groups-one-exists-each-t-05) |
+| T-06 | `submission.client_id INT NULL`, no FK; `client_service` over `LOSS`, fails open | Approved | [research.md#R5](research.md#r5--client-a-stored-id-read-over-loss-t-06) |
+| T-07 | Eleven snake_case codes reseed `treaty_type_kind`; the FK moves to `contract` | Approved | [research.md#R6](research.md#r6--treaty-types-from-the-kind-table-t-07) |
+| T-08 | `_MAX_FILTER_VALUES` 20 in `app/routers/_list_filters.py` | Approved | [research.md#R7](research.md#r7--the-filter-cap-is-twenty-t-08) |
+| T-09 | Export pre-fill: client and data vintage from the submission; a Contract select fills CRM ID and inception client-side; `export_service.list_clients` replaced | Approved | [research.md#R8](research.md#r8--export-pre-fill-t-09) |
+| T-10 | The deal card's Treaty and Term groups and the CRM band become one contract table; the create form gains the same row editor; preview before build | Approved | [research.md#R10](research.md#r10--the-deal-card-and-the-create-form-t-10) |
+| T-11 | Default sort is `COALESCE(MAX(contract inception), submission.inserted_at) DESC, name`; `ix_submission_list_order` dropped; no denormalised copy | Approved | [research.md#R11](research.md#r11--the-list-sorts-on-a-contract-aggregate-t-11) |
+| T-12 | Contract rows post as parallel repeated fields; `create_submission` writes submission and contracts in one transaction; blank expiration filled server-side | Approved | [research.md#R12](research.md#r12--posting-contracts-with-the-form-t-12) |
+| T-13 | Constitution Article 4 patch: `contract.contract_status_code` in the in-place list; no rule change | Approved | [research.md#R13](research.md#r13--constitution-patch-t-13) |
+| T-14 | `deal_status` → `contract_status` everywhere (kind table, column, query param, labels, service names); no alias kept | Approved | [research.md#R2](research.md#r2--the-contract-grain-t-03) |
 
 ---
 
@@ -146,43 +125,35 @@ spec 014 is on `main`; it does not block the rest.
 **New dependencies**: None.
 **Databases touched**: `rwb_workbench` (schema edits above, all reads and
 writes); `rwb_loss` (read-only `SELECT` on `dbo.Client` through the `LOSS`
-connection; the table is created by spec 014's `bootstrap_loss.py`, not by
-this branch). `rwb_exposure` and DATABRIDGE untouched. Unit tests register a
-second SQLite engine as `LOSS` with an attached `dbo` schema holding `Client`
-(the spec 014 conftest pattern).
+connection). `rwb_exposure` and DATABRIDGE untouched. Unit tests run the same
+SQL text on SQLite through `tests/iteration1_mirror.py`, which mirrors the
+`contract` DDL and the view.
 
 ## Constitution Check
 
 *GATE: before Phase 0 research, re-checked after Phase 1 design.*
 
 Reviewed against all 13 articles in `.specify/memory/constitution.md`: **no
-violations** (re-checked after Phase 1 design — unchanged).
+violations**. One text patch is required (T-13): Article 4's in-place list
+names `submission.deal_status_code`, a column this amendment removes.
 
-Material interactions — where an article actively shapes this design:
+Material interactions:
 
-- **Article 4 (event-sourced status where it earns it)**: the article names
-  `submission.status_code` and `submission_status_event`; renaming them for a
-  label change would be an amendment with no behavior gain, so Modeling
-  status keeps them (T-01). Submission status is "other status" in the
-  article's terms — a plain value with no reason (P-02) — and is updated in
-  place (T-02); constitution v4.1.1 names `submission.deal_status_code` in the
-  Article 4 in-place list.
-- **Article 3 (kind tables)**: `deal_status_kind` is a new kind table; the
-  hardcoded `TREATY_TYPES` list in the router is deleted in favour of the
-  table (T-07). The in-force rule must name Won; it does so through one
-  module constant that names the business rule, not a literal spread through
-  queries (T-04).
-- **Article 7 (one data-access package)**: the `dbo.Client` read is a bound
-  `db.execute` on the `LOSS` connection — the safe path — never
-  `db.scripts`, and never a write (T-06).
-- **Article 6 (no row-level security)**: the libraries' owner filter is a
-  plain predicate with no default; the submissions list keeps its "my
-  submissions" default. Neither restricts what an analyst can open.
-- **Article 8 (server-rendered)**: every filter is a GET with the values in
-  the URL; the libraries keep `hx-select="#lib-live"`; the chip inputs and
-  the confirm are Alpine slivers.
-- **Article 11 (IRP behind an interface)**: no Risk Modeler call anywhere in
-  the feature; the sync-from-Risk-Modeler screen is unchanged (FR-017).
+- **Article 4 (event-sourced status where it earns it)**: Modeling status
+  keeps the named tables (T-01). Contract status is "other status", updated
+  in place on `contract` with its own `updated_at` marker (T-02). The
+  article's list is patched to the new column name, not its rule.
+- **Article 3 (kind tables)**: `contract_status_kind` and `treaty_type_kind`
+  feed every menu and filter; the in-force rule names Won through the one
+  module constant (T-04).
+- **Article 7 (one data-access package)**: the `dbo.Client` read stays a
+  bound `db.execute` on `LOSS` (T-06); every contract write goes through
+  `submission_service` on `WORKBENCH`.
+- **Article 8 (server-rendered)**: contract rows are HTMX fragments; the
+  create form's row editor and the export form's Contract select are Alpine
+  slivers that only add rows and copy values.
+- **Article 11 (IRP behind an interface)**: no Risk Modeler call; the sync
+  screen is unchanged (FR-017).
 - **Article 1 (navigation manifest)**: no new page, no new nav node.
 
 ## Project Structure
@@ -190,34 +161,28 @@ Material interactions — where an article actively shapes this design:
 <!-- Changed areas only, real paths. -->
 
 ```text
-alembic/versions/0001_initial.py          # deal_status_kind, new columns, view, treaty seed, index INCLUDE
-app/routers/_list_filters.py              # new: shared filter parsing, cap 20, messages
-app/routers/submissions.py                # statuses + CRM-date routes; filters via _list_filters; TREATY_TYPES deleted
-app/routers/edms.py                       # _library_context takes submission filters; poll URL carries them
-app/routers/rdms.py                       # same
-app/services/submission_service.py        # filter clauses, kinds reads, deal status, CRM dates, row models
-app/services/client_service.py            # new: dbo.Client over LOSS, fail-open
-app/services/edm_service.py               # list_edms(submission_filters=)
-app/services/rdm_service.py               # list_rdms(submission_filters=)
-app/templates/pages/submission_detail.html    # title-to-history block rebuilt (T-10); tables unchanged
-app/templates/pages/submission_form.html      # client picker, expiration, treaty types from table
-app/templates/pages/submissions.html          # CRM ID chips, client, submission status, in force
-app/templates/pages/edm_library.html          # filter bar
-app/templates/pages/rdm_library.html          # filter bar
-app/templates/partials/crm_tags.html          # replaced: CRM ID add/remove with per-CRM dates, inherited marks, same-dates control
-app/templates/partials/library_table.html     # poll URL carries every filter
-app/templates/partials/submission_list.html   # column header
-app/templates/partials/edm_detail_body.html   # "Cedent" → "Cedant"
-app/static/js/                                # chip input generalised from yearChips
-app/static/css/submissions.css                # redesigned metadata section and controls; inherited mark
-infra/scripts/seed_db.py                      # treaty_type_kind MERGE → eleven codes
-tests/iteration1_mirror.py                    # new columns, kind table, view DDL, TREATY_SEED
-tests/conftest.py                             # LOSS SQLite engine with attached dbo.Client
-tests/loss_mirror.py                          # new: Client DDL (spec 014 name and shape)
+alembic/versions/0001_initial.py          # contract, contract_status_kind, submission columns, v_contract, indexes
+app/routers/_list_filters.py              # contract_status param and label
+app/routers/submissions.py                # create/edit with contract rows; contract routes; statuses narrowed; export pre-fill
+app/routers/edms.py · app/routers/rdms.py # filter label only
+app/services/submission_service.py        # Contract model, contract writes, two clause groups, sort expression, treaty year
+app/services/export_service.py            # list_clients deleted
+app/templates/pages/submission_form.html      # contract editor rows, data vintage, Client ID label
+app/templates/pages/submission_detail.html    # unchanged below the card
+app/templates/partials/submission_head.html   # deal card: contract table replaces Treaty/Term groups and CRM band
+app/templates/partials/crm_tags.html          # replaced by partials/contract_table.html
+app/templates/partials/contract_row.html      # new: one row, display and in-place editor
+app/templates/pages/submissions.html          # filter labels; list columns
+app/templates/partials/submission_list.html · submission_row.html
+app/templates/pages/submission_export_new.html # Contract select; client and data vintage pre-fill
+app/static/js/app.js                          # contract row editor sliver; export contract select
+app/static/css/submissions.css                # contract table
+infra/scripts/seed_db.py                      # contract_status_kind MERGE
+tests/iteration1_mirror.py                    # contract DDL, kind rename, view
+tests/sqlserver/test_submission_migration.py  # contract table, view, dropped columns and index
 tests/unit/                                   # see Testing
-tests/sqlserver/test_submission_migration.py  # seeds, view, index
-docs/FUNCTIONAL_REQUIREMENTS.md · docs/DATA_MODEL.md · docs/PRD.md
-docs/ui_previews/submission_detail.html · docs/ui_previews/edm_rdm_library.html
+docs/FUNCTIONAL_REQUIREMENTS.md · docs/DATA_MODEL.md · docs/PRD.md · .specify/memory/constitution.md
+docs/ui_previews/submission_contracts.html    # new preview: create form editor + deal card contract table
 ```
 
 ## Complexity Tracking
@@ -230,23 +195,25 @@ None.
 
 <!-- Strategy by tier. Not a test-file inventory. -->
 
-- **Unit** (baseline 1725 passed on this branch before any change): the clause
-  builder — values OR within, filters AND across, the library `EXISTS` (an EDM
-  shared by a Won deal of one owner and an In Process deal of another is not
-  listed for Won + that owner; an EDM with no submission is listed only with no
-  submission filter); in-force through the view — inclusive bounds, a NULL
-  expiration never qualifies, a deal with no CRM ID uses its own dates, a
-  per-CRM override wins per column; effective dates and inherited flags on
-  `CrmTag`; "make them all the same" nulls every override and is refused when
-  not Active; Submission status set without a reason, in Completed, with the
-  concurrency 409; `client_service` returns `None`/`{}` when no `LOSS` engine
-  is registered and the form still saves; treaty and deal-status kinds read
-  from the tables; twenty-one values refused with the filter's message on all
-  three lists; the view emits one row per CRM ID and one blank row for a deal
-  with none; route tests for the three new POSTs and every new query param.
-- **SQL Server integration**: the migration seeds eleven treaty codes and three
-  deal statuses; `v_submission_crm_id` exists and `COALESCE` on `DATE` returns
-  `DATE`; `ix_submission_list_order` carries the new INCLUDE columns; the
-  `dbo.Client` read over `LOSS` (skipped when the table is absent, since spec
-  014 owns its bootstrap). Unverified until someone runs `make test-sql`.
-- **IRP sandbox**: N/A — no Risk Modeler call.
+- **Unit** (2,010 passed on this branch before the amendment): create with
+  zero, one and three contract rows in one transaction; a blank or duplicate
+  CRM ID refuses the whole save with the row named; blank expiration filled
+  as inception + 1 year − 1 day; treaty year from the earliest contract
+  inception and `None` with none; contract status set on a Completed
+  submission with no event, other attributes refused when not Active; the
+  concurrency 409 on a stale contract `updated_at`; the two clause groups —
+  a Won Aggregate XOL and an In Process Per Risk XOL on one submission do
+  not satisfy "Per Risk XOL + Won" together; in force per contract —
+  inclusive bounds, one Won and one Lost contract qualify, no contract never
+  qualifies; the default order with a contract-less submission placed by
+  creation date; the library `EXISTS` cases from 9/18 unchanged;
+  `v_contract` emits one row per contract and none for a contract-less
+  submission; the export form pre-fills client, data vintage and the single
+  contract; route tests for the four contract POSTs and every renamed param.
+- **SQL Server integration**: the migration creates `contract` with its FKs,
+  `contract_status_kind` holds three rows, `submission` has no
+  `inception_date` / `treaty_type_code` / `deal_status_code`,
+  `ix_submission_list_order` is gone, `v_contract` exists, `COALESCE(DATE,
+  DATETIME2)` orders as expected. Unverified until someone runs
+  `make test-sql`.
+- **IRP sandbox**: N/A.

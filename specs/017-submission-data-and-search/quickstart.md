@@ -1,20 +1,20 @@
 # Quickstart: Submission Data and Cross-Entity Search (spec 017)
 
-How to verify the feature. Contracts: [contracts/routes.md](contracts/routes.md);
-schema: [data-model.md](data-model.md).
+How to verify the feature after the 2026-09-21 amendment (contract grain).
+Contracts: [contracts/routes.md](contracts/routes.md); schema:
+[data-model.md](data-model.md).
 
 ## Prerequisites
 
 - Docker stack up (`make dev-up`) or WSL2 native — **starting the stack is the
   developer's call**; agents report and stop if it is down.
 - DB lifecycle: **Rebuild** — `make db-rebuild` (destructive) after the
-  migration edit (new kind table, columns, view, treaty reseed). Dev
-  submissions on the dropped treaty codes do not survive; that is P-07.
-- `rwb_loss` holding `dbo.Client`: apply spec 014's `make bootstrap-loss` from
-  the `014-results-export` / `016-ty-perspective-export` checkout against the
-  same SQL Server. Without it the client field reads "Client list unavailable"
-  and everything else works (FR-009).
-- No worker or poller is involved; the web process is enough.
+  migration edit (`contract` table, dropped submission columns, view). Dev
+  submissions do not survive.
+- `rwb_loss` holding `dbo.Client` (spec 014's `make bootstrap-loss`). Without
+  it the client field reads "Client list unavailable" and everything else
+  works (FR-009).
+- No worker or poller is involved.
 
 ## 1. Unit tier (no containers)
 
@@ -22,11 +22,11 @@ schema: [data-model.md](data-model.md).
 uv run pytest tests/unit
 ```
 
-Baseline before this feature: 1725 passed. Covers the filter clause builder,
-the library `EXISTS`, in-force through the view, effective dates,
-"make dates the same", Submission status writes,
-`client_service` fail-open, kind reads, the twenty-value cap on all three
-lists, the view's row shape, and the new routes.
+2,010 passed on this branch before the amendment. Covers creation with zero,
+one and three contracts, the CRM ID rules, the expiration default, treaty
+year, contract status in every Modeling status, the two clause groups, in
+force per contract, the default order, `v_contract`, the export pre-fill and
+the contract routes.
 
 ## 2. SQL Server tier
 
@@ -35,85 +35,100 @@ make test-sql        # Docker
 make wsl-test-sql    # WSL2
 ```
 
-Covers the seeds (eleven treaty codes, three deal statuses), the view and its
-`DATE` result type, the `ix_submission_list_order` INCLUDE columns, and the
-`dbo.Client` read (skipped when the table is absent). **Unverified until
-someone runs it.**
+Covers `contract` and its FKs, the three contract statuses, the eleven treaty
+codes, the dropped submission columns and index, `v_contract`, and the
+`dbo.Client` read (skipped when absent). **Unverified until someone runs it.**
 
 ## 3. Click-through
 
-### Story 1 — two statuses, dates per CRM ID
+### Story 1 — contracts on a submission
 
-1. Open any submission. The deal card's **Status** group shows **Modeling:
-   Active** and **Submission: In Process** as two labelled pills.
-2. Press the Status pencil. The pills become two selects and a reason box, in
-   place. Set Submission to **Lost** and Save. The Modeling pill and the
-   Modeling history are unchanged — no event is recorded.
-3. Press the pencil again, set Modeling to **Completed** with a reason and
-   Submission to **Won**, and Save. Both change in one write; **Modeling
-   history** gains one entry, carrying the reason (T-02, P-12).
-4. Press **+ Add CRM ID** on an Active deal. The field appears with the deal's
-   dates already in it; add three, accepting the dates. Each row reads the
-   deal's inception and expiration.
-5. Press the Term pencil and change the deal's expiration. All three rows
-   follow it.
-6. Press one CRM ID's row pencil and enter an expiration three years later.
-   Only that row changes, and it reads exactly like the others.
-7. Click **Make dates the same**, confirm. All rows read the deal dates again.
-8. Submissions list: the **Modeling status** picker offers Active, Completed,
-   Cancelled; the **Submission status** picker offers Won, Lost, In Process.
-   No Hold anywhere.
+1. **New submission**: enter name and cedant only, save. The page shows the
+   deal card with Modeling status Active and an empty contract table with
+   **Add contract**. Treaty year is blank.
+2. **New submission** again: add three contract rows — `A-1` Per Occurrence
+   Cat XOL 2027-01-01, then `A-2` Aggregate XOL, then `A-3` Top & Drop. Rows
+   two and three open with 2027-01-01 already in inception and 2027-12-31 in
+   expiration; change row three's expiration to 2029-12-31. Treaty year reads
+   2027 before you save. Save: the contract table shows three rows under the
+   headers CRM ID · Treaty type · Inception · Expiration · Contract status,
+   all In Process.
+3. Edit row two's CRM ID to `a-1` and save: refused, the row named.
+4. Press the Status pencil, set Modeling status to Completed with a reason.
+   The row pencils and Add disappear; each row's Contract status select is
+   still live. Set `A-1` to Won and `A-2` to Lost: both save, the Modeling
+   history has one entry.
+5. Reopen the submission (Active). Press row three's pencil, change its
+   expiration, save: only row three changes. Remove row two: it is gone with
+   its status.
+6. **Submissions list**: the row for this deal reads CRM ID "A-1 +1 more",
+   treaty types "Per Occurrence Cat XOL +1 more", inception 2027-01-01, and
+   no contract status column. The list is ordered by inception descending; the
+   contract-less submission from step 1 sits among today's deals. The
+   **Modeling status** picker offers Active, Completed, Cancelled; the
+   **Contract status** picker offers Won, Lost, In Process; no Hold anywhere.
 
-### Story 2 — client and treaty type
+### Story 2 — client, data vintage, treaty type, export pre-fill
 
-1. Open **New submission**. Type `27` in Client — the menu offers
-   `27 - Travelers Corporate Cat`; type `Trav` — same row. Pick it and save.
-   The submission page shows **Client: 27 - Travelers Corporate Cat**, the
-   free-text field is labelled **Cedant**.
-2. Create another submission leaving Client blank. It saves.
+1. **New submission**: type `27` under **Client ID** — the menu offers
+   `27 - Travelers Corporate Cat`; type `Trav` — same row. Enter data vintage
+   2026-06-30 and one contract `T-100` incepting 2027-01-01. Save. The card
+   shows Client ID 27 - Travelers Corporate Cat and Data vintage 2026-06-30;
+   the free-text field is labelled Cedant.
+2. Create another submission leaving Client ID and data vintage blank. It
+   saves.
 3. Stop `rwb_loss` (or point `MSSQL_LOSS_DATABASE` at a missing database) and
-   reload the form: the Client field says the list is unavailable; saving
-   without a client still works.
-4. The Treaty type select and the list's Treaty type picker both offer the
-   eleven FR-012 values. Insert a twelfth row into `treaty_type_kind` and
-   reload: both offer twelve.
-5. EDM detail, treaty grid: the column head reads **Cedant**, not "Cedent".
-6. FR-011 (export form pre-fill) is verified only after spec 014 is on `main`.
+   reload the form: the Client ID field says the list is unavailable; saving
+   without one still works.
+4. A contract row's treaty type menu and the lists' Treaty type picker both
+   offer the eleven FR-012 values. Insert a twelfth row into
+   `treaty_type_kind` and reload: both offer twelve.
+5. From the step-1 submission open **Export** on a finished analysis: Client
+   reads 27, Data vintage 2026-06-30, the Contract select reads `T-100`, CRM
+   ID `T-100`, treaty inception 2027-01-01. Change the inception and export:
+   the export row records the changed date; the submission is unchanged. On
+   a two-contract submission the Contract select opens blank; choosing one
+   fills the two fields.
+6. EDM detail, treaty grid: the column head reads **Cedant**.
 
 ### Story 3 — find EDMs and RDMs by deal
 
-Set up: submission A (Won, owner Cheryl, CRM IDs `T-100`, `T-200`, expiration
-next year), submission B (In Process, owner Ben, CRM ID `T-300`), both
-attached to EDM X; EDM Y attached to nothing; submission C (Won, CRM ID `T-400`,
-no expiration).
+Set up: submission A (owner Cheryl) with contracts `T-100` Won and `T-200`
+Lost, both Per Risk XOL 2026-01-01 to 2026-12-31, plus `T-300` Aggregate XOL
+Won 2026-01-01 to 2026-12-31; submission B (owner Ben) with `T-400` In
+Process; both attached to EDM X; EDM Y attached to nothing; submission C with
+no contract.
 
-1. EDM library, CRM ID chips `T-100`, `T-300`: X listed once; Y not listed.
-2. Submission status = Won and Owner = Cheryl: X listed (A satisfies both).
-   Submission status = Won and Owner = Ben: X **not** listed (no single
-   submission satisfies both).
-3. Clear every submission filter: X and Y listed. Set any one: Y disappears.
-4. RDM library: the same filters appear and behave the same beside name search
-   and import status.
-5. Submissions list, tick **In force as of** (today): A listed, B not (In
-   Process), C not (no expiration). Change the date to after A's expiration:
+1. EDM library, CRM ID chips `T-200`, `T-400`: X listed once; Y not listed.
+2. Contract status = Won and Owner = Cheryl: X listed. Contract status = Won
+   and Owner = Ben: X **not** listed.
+3. Treaty type = Per Risk XOL and Contract status = Won: A listed (`T-100`).
+   Set `T-100` to Lost: A **not** listed, although A still has a Won contract
+   and a Per Risk XOL contract (P-18).
+4. Clear every submission filter: X and Y listed. Set any one: Y disappears.
+5. RDM library: the same filters behave the same beside name search and
+   import status.
+6. Submissions list, tick **In force as of** 2026-06-01: A listed, B not, C
+   not. Set every Won contract of A to Lost: A disappears. Date 2027-06-01:
    A disappears.
-6. Enter twenty-one CRM IDs on any list: the banner reads
-   `CRM ID accepts 20 values or fewer.` and no rows render.
-7. `/edms/sync`: name search and paging only, unchanged.
+7. Enter twenty-one CRM IDs on any list: `CRM ID accepts 20 values or fewer.`
+   and no rows.
+8. `/edms/sync`: name search and paging only, unchanged.
 
 ### Extract
 
 ```sql
-SELECT * FROM v_submission_crm_id WHERE submission_id = '<A>';
+SELECT * FROM v_contract WHERE submission_id = '<A>';
 ```
 
-Two rows (`T-100`, `T-200`) with effective dates, both statuses and the
-client; a submission with no CRM ID returns one row with `crm_id` NULL.
+Three rows, one per contract, each carrying its own status and dates with
+the submission's name, cedant, client, treaty year, data vintage and
+Modeling status. Submission C returns no row.
 
 ## 4. Docs check
 
-`docs/FUNCTIONAL_REQUIREMENTS.md`: line 62 names two statuses and no Hold;
-line 72's parked CRM item lists expiration date and Submission status with
-their two consumers; line 114 lists the new filters and the twenty cap; line
-117 marks global search Implemented with six groups; line 118 no longer says
-only the submissions list has search or filter.
+`docs/FUNCTIONAL_REQUIREMENTS.md` lines 44–62 describe a submission holding
+zero or more contracts, name and cedant required at creation, Modeling status
+and Contract status, labels Cedant and Client ID; line 115 lists the filters.
+`docs/DATA_MODEL.md` §4 shows `contract` and `v_contract`.
+`.specify/memory/constitution.md` Article 4 names `contract.contract_status_code`.
