@@ -59,7 +59,7 @@ Every submission follows three sequential phases. The workbench covers all three
 
 ### 1.4 Core domain glossary
 
-- **Submission (the deal)** — the top-level unit of work and the only user-facing container for EDMs and RDMs: a specific cedant's specific treaty at a specific inception. There is no hierarchy above it (no Customer or Program — dropped, CR-003). EDMs and RDMs relate directly to zero or more submissions without copying the Risk Modeler resource. The submission carries the deal's identity and filter attributes (`cedant_name`, `treaty_type_code`, `inception_date`, `treaty_year`), an assigned analyst (soft owner, for the "my submissions" view — **not** an access gate), an optional shared-drive `directory_path`, and an optional self-referential renewal link. CRM identifiers attach as a 0..N tag set (`submission_crm_id`), not a single field.
+- **Submission (the deal)** — the top-level unit of work and the only user-facing container for EDMs and RDMs: one cedant's modeling project, carrying zero or more contracts. There is no hierarchy above it (no Customer or Program — dropped, CR-003). EDMs and RDMs relate directly to zero or more submissions without copying the Risk Modeler resource. The submission carries the deal's identity and filter attributes (`cedant_name`, `client_id`, `data_vintage`, `treaty_year`), an assigned analyst (soft owner, for the "my submissions" view — **not** an access gate), an optional shared-drive `directory_path`, and an optional self-referential link. Each contract (`contract`, spec 017) is a CRM ID with its own treaty type, inception, expiration and Contract status.
 - **EDM (Exposure Data Module)** — an exposure database, typically a `.bak` or `.mdf` file from a broker. First-class tracked entity in the workbench (name + IRP exposure ID). Imported into IRP, validated, and used as the basis for analysis.
 - **RDM (Risk Data Model)** — a results database from the broker (their own prior analysis). First-class tracked entity. Imported into IRP; used for comparison against the analyst's own results.
 - **Portfolio** — a named view within an EDM in IRP (all accounts, or a filtered subset). Analysis jobs run against portfolios, not EDMs directly. Each `irp_*` entity tracks its own Risk Modeler id in `irp_id`.
@@ -450,21 +450,21 @@ Admin rail destination maintains users and role assignments only (there is no cu
 
 ### 7.1 The deal is the root
 
-**Submission is the top-level entity** (CR-003 M1). There is no Customer or Program above it. A submission models a *deal*: a specific cedant's specific treaty at a specific inception, related directly to zero or more EDMs and RDMs and tracked for the business by zero or more CRM IDs. It anchors contextual navigation and records optional request provenance for jobs. No entity carries `customer_id` (no RLS — §6).
+**Submission is the top-level entity** (CR-003 M1). There is no Customer or Program above it. A submission models a *deal*: one cedant's modeling project, related directly to zero or more EDMs and RDMs and made up of zero or more contracts, each a CRM ID with its own treaty type, term and Contract status (spec 017, note 32 D17). It anchors contextual navigation and records optional request provenance for jobs. No entity carries `customer_id` (no RLS — §6).
 
 ### 7.2 Submission fields
 
 The analyst's unit of work. Fields (schema: DATA_MODEL.md §4):
 - `id` (surrogate UUID — the real key), `name` — the naming-convention label (e.g. `TY2604_AmericanFamily`), a human label that is **not unique** (§7.2b)
 - `cedant_name` — plain string, primary filter, kept consistent via autocomplete over existing values (no `cedant` table — that would re-create `customer` under a new name, CR-003 O3)
-- `treaty_type_code` FK → `treaty_type_kind` — deal-level treaty type, primary filter (kind table, Article 3)
-- `inception_date` — primary filter
-- `treaty_year` — nullable; defaults to the inception year and stays editable (CR5), for renewal-year grouping
+- `client_id` — nullable; CIC's repository client (`rwb_loss` `dbo.Client`, no FK across databases), shown as "ID - name" (spec 017 P-04, P-05)
+- `data_vintage` — nullable; the in-force as-of date of the EDM data, one per submission by convention, the export form's default (spec 017, note 32 D23)
+- `treaty_year` — nullable; the form fills it from the data vintage and the server from the earliest contract inception, and it stays editable (CR5, spec 017 P-20), for renewal-year grouping
 - `links_to_submission_id` FK → `submission` — nullable self-reference to a related submission, **manual** (no treaty-system integration to infer it — CR-003 O4). Labelled "links to" and picked by name, not id: the relationship is a link to a related deal, not necessarily a renewal (design note 08 CR8, superseding `renews_from_submission_id`)
 - `directory_path` — nullable; the per-deal shared-drive directory the analyst stages files in. Seeds the file browse location and the naming-convention parse; there is no directory *inventory* (§8)
 - `assigned_analyst_id` FK → `app_user` — soft owner for the "my submissions" filter (§6.2), **not** an access gate
 - `status_code` FK → `submission_status_kind` — cached current status (§7.2a)
-- CRM identifiers attach as a **0..N tag set** via `submission_crm_id` (hand-entered, optional, editable, may be absent or mistyped, many per deal), **not** a single `crm_id` column (CR-003 M3/O6)
+- **Contracts** — 0..N rows in `contract`, one per CRM ID (hand-entered text, unique within the submission), each with `treaty_type_code` FK → `treaty_type_kind`, `inception_date`, `expiration_date` and `contract_status_code` (§7.2a); **not** a single `crm_id` column (CR-003 M3/O6; spec 017)
 - `created_at` and the standard audit columns
 
 A submission has:
@@ -477,24 +477,24 @@ association and does not delete or re-import the Risk Modeler resource.
 
 A submission's progress is derived from its jobs and entity state (§12–14: IRP Jobs, RWB Jobs, and the prerequisite gate), not from a stored workflow.
 
-### 7.2a Modeling status and Submission status
+### 7.2a Modeling status and Contract status
 
-A submission carries two statuses that never share a label, a filter or a menu (spec 017):
+Two statuses that never share a label, a filter or a menu (spec 017):
 
-- **Modeling status** (`submission.status_code`) — where the modeling stands. Three values only, event-sourced (insert `submission_status_event` + stamp cached `submission.status_code`, in one transaction, per the standard convention). Its rules follow.
-- **Submission status** (`submission.deal_status_code` → `deal_status_kind`) — where the deal stands with the cedant: `WON`, `LOST` or `IN_PROCESS` (In Process on creation). Set by hand until a CRM sync exists, updated in place with the `updated_at` concurrency check, no reason and no history, and editable in every Modeling status: the cedant's Won / Lost answer usually arrives after modeling is Completed (P-02, P-12). "In force as of a date" is Submission status = Won plus a CRM ID's effective inception and expiration, computed at query time and never stored (P-09).
+- **Modeling status** (`submission.status_code`) — one per submission: where the modeling stands. Three values only, event-sourced (insert `submission_status_event` + stamp cached `submission.status_code`, in one transaction, per the standard convention). Its rules follow.
+- **Contract status** (`contract.contract_status_code` → `contract_status_kind`) — one per contract: where that CRM ID stands with the cedant: `WON`, `LOST` or `IN_PROCESS` (In Process on creation). One modeling project can carry several CRM IDs with different outcomes — "one was bound, one was not" (note 32 D17) — which is why the status is on the contract. Set by hand until a CRM sync exists (the January bulk update is a SQL job keyed on CRM ID), updated in place with the contract's `updated_at` concurrency check, no reason and no history, and editable in every Modeling status: the cedant's answer usually arrives after modeling is Completed (P-02, P-12). "In force as of a date" is a contract whose status is Won and whose inception ≤ date ≤ expiration, computed at query time and never stored (P-09).
 
 Modeling status:
 
 | Status | Meaning |
 |---|---|
-| `ACTIVE` | Open — fully editable: the analyst can edit its fields and CRM-ID tags, set its directory, and add or remove EDM/RDM associations. |
+| `ACTIVE` | Open — fully editable: the analyst can edit its fields and contracts, set its directory, and add or remove EDM/RDM associations. |
 | `COMPLETED` | Closed for tracking purposes. The submission is **read-only** — all analyst-initiated edits, including EDM/RDM association changes, are blocked; viewing continues. Reopening to `ACTIVE` restores edit capability. |
 | `CANCELLED` | Withdrawn — the analyst is no longer pursuing it. Read-only in the same way as `COMPLETED`, and likewise reopenable to `ACTIVE` (with no delete, reopening is the recovery path for a mistaken cancel). |
 
 Rules:
 - **Reopening to `ACTIVE` is allowed from either `COMPLETED` or `CANCELLED`** — set it back to `ACTIVE` and work resumes. Neither closed state is a one-way door; because there is no delete (below), reopening is also how a mistaken `CANCELLED` is recovered.
-- **Both closed states are fully read-only.** `COMPLETED` and `CANCELLED` alike block edits to the submission's own fields, CRM-ID tags and their dates, and EDM/RDM associations. The only actions on a closed submission are viewing, reopening and setting Submission status (spec 017 P-12).
+- **Both closed states are fully read-only.** `COMPLETED` and `CANCELLED` alike block edits to the submission's own fields, its contracts, and EDM/RDM associations. The only actions on a closed submission are viewing, reopening and setting a contract's Contract status (spec 017 P-12).
 - **No system-enforced precondition on any transition.** The analyst decides when a submission is done or withdrawn. The system does not block `ACTIVE → COMPLETED` because an import is still running.
 - **There is no file-inventory scanning to keep running on a `COMPLETED` submission** — the scanner subsystem is dropped (CR-003 M5, §8); the only ongoing operation is viewing.
 - **There is no delete, ever.** A submission can carry EDMs/RDMs with real Risk Modeler identity by the time anyone would want to remove it — deleting the row would orphan or mis-audit that Risk Modeler-side state. `CANCELLED` exists specifically as the "this isn't happening" outcome in place of a delete.
@@ -1282,7 +1282,7 @@ filter state in the URL.
 `submission_id`, `edm_id`, `rdm_id`, `status`, and `job_type`. Each list accepts
 the subset that applies and ignores the rest.
 
-**`status` means something different on every list — this is expected, not a conflict.** Modeling status on the submissions list (`status`: `ACTIVE`/`COMPLETED`/`CANCELLED`, §7.2a; Submission status is its own `deal_status` param, `WON`/`LOST`/`IN_PROCESS`), RWB job status (`rwb_job_status_kind`: `pending`/`running`/`succeeded`/`failed`), IRP job status (`irp_job.status`: the IRP job-status vocabulary, §14.4), and any future list's status are independent domains that happen to share a param name because they never appear on the same list at the same time. Each list defines and validates its own `status` domain against its own data; there is no shared "status" enum anywhere in the system.
+**`status` means something different on every list — this is expected, not a conflict.** Modeling status on the submissions list (`status`: `ACTIVE`/`COMPLETED`/`CANCELLED`, §7.2a; Contract status is its own `contract_status` param, `WON`/`LOST`/`IN_PROCESS`), RWB job status (`rwb_job_status_kind`: `pending`/`running`/`succeeded`/`failed`), IRP job status (`irp_job.status`: the IRP job-status vocabulary, §14.4), and any future list's status are independent domains that happen to share a param name because they never appear on the same list at the same time. Each list defines and validates its own `status` domain against its own data; there is no shared "status" enum anywhere in the system.
 
 ### 20.5 Master-detail layout
 
@@ -1352,7 +1352,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **In:**
 - §7 (Submission as the top-level deal: `cedant_name`/`treaty_type_code`/`inception_date`/`treaty_year`/`renews_from_submission_id`/`directory_path`, assigned analyst as soft owner, master-detail, list ergonomics)
-- §7.2 (`submission_crm_id` CRM-ID tag set — add/edit/remove tags)
+- §7.2 (`contract` — add, edit and remove contracts; set Contract status)
 - §7.2a (Modeling status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced; closed states are fully read-only and reopenable to `ACTIVE`; no delete)
 - §7.2b (submission identity: surrogate `id` key, non-unique `name` label + soft duplicate warning)
 - §6.1 (global roles gating functions) + §6.2 (analyst-centric "my submissions" filter)

@@ -243,13 +243,13 @@ built, the task says so. Baseline: unit tier 2,010 passed.
 
 ### Tests
 
-- [ ] T062 [US1] [US2] [US3] Unit tests per plan.md §Testing in `tests/unit/test_submission_service.py`, `test_submission_routes.py`, `test_libraries.py`, `test_export_service.py` and the export route tests: replace every assertion on `deal_status`, deal-level dates, `CrmTag`, inherited flags and `reset_crm_dates` with the contract cases; add the P-18 same-row case, the no-contract in-force case, the default order with a contract-less submission, `v_contract` row shape, the five-field create post with zero / one / three rows and the duplicate refusal, the four contract routes, and the export pre-fill
+- [x] T062 [US1] [US2] [US3] Unit tests per plan.md §Testing in `tests/unit/test_submission_service.py`, `test_submission_routes.py`, `test_libraries.py`, `test_export_service.py` and the export route tests: replace every assertion on `deal_status`, deal-level dates, `CrmTag`, inherited flags and `reset_crm_dates` with the contract cases; add the P-18 same-row case, the no-contract in-force case, the default order with a contract-less submission, `v_contract` row shape, the five-field create post with zero / one / three rows and the duplicate refusal, the four contract routes, and the export pre-fill
 
 ### Docs and polish
 
-- [ ] T063 [P] [FR-020] [T-13] Docs: `docs/FUNCTIONAL_REQUIREMENTS.md` lines 44, 47, 48, 49, 50, 52, 57, 62, 115 per FR-020 and data vintage defined in Wendy's words (note 32 D23); `docs/DATA_MODEL.md` §4 (Submission, Contract, `contract_status_kind` seed row, `v_contract`, the sort expression) and the 2026-09 changelog entry; `docs/PRD.md` §7.2a (Modeling status vs Contract status); `.specify/memory/constitution.md` v4.1.2 — Article 4's in-place list names `contract.contract_status_code`, changelog line, no rule change
-- [ ] T064 Subtraction review of the Phase 8 diff per AGENTS.md §Code Quality: no `deal_status`, `crm_tag`, `CrmTag`, `inherited`, `same-dates` or `v_submission_crm_id` left anywhere (`grep -rn` over `app tests alembic infra docs specs/017*`); no comment restating a route; the preview file holds only built states
-- [ ] T065 Run `uv run pytest tests/unit` and report "unit tier, N passed (baseline 2,010)"; state that the SQL Server tier (T056) is unverified until the developer runs `make test-sql`
+- [x] T063 [P] [FR-020] [T-13] Docs: `docs/FUNCTIONAL_REQUIREMENTS.md` lines 44, 47, 48, 49, 50, 52, 57, 62, 115 per FR-020 and data vintage defined in Wendy's words (note 32 D23); `docs/DATA_MODEL.md` §4 (Submission, Contract, `contract_status_kind` seed row, `v_contract`, the sort expression) and the 2026-09 changelog entry; `docs/PRD.md` §7.2a (Modeling status vs Contract status); `.specify/memory/constitution.md` v4.1.2 — Article 4's in-place list names `contract.contract_status_code`, changelog line, no rule change
+- [x] T064 Subtraction review of the Phase 8 diff per AGENTS.md §Code Quality: no `deal_status`, `crm_tag`, `CrmTag`, `inherited`, `same-dates` or `v_submission_crm_id` left anywhere (`grep -rn` over `app tests alembic infra docs specs/017*`); no comment restating a route; the preview file holds only built states
+- [x] T065 Run `uv run pytest tests/unit` and report "unit tier, N passed (baseline 2,010)"; state that the SQL Server tier (T056) is unverified until the developer runs `make test-sql`
 
 ### Phase 8 dependencies
 
@@ -277,5 +277,13 @@ built, the task says so. Baseline: unit tier 2,010 passed.
   form's Contract select (`contractPick` sliver) fills treaty inception and CRM
   ID, the client list comes from `client_service`, `export_service.list_clients`
   deleted. **Stop for the quickstart §3 Story 2 click-through before T062.**
-- Unit tier after T061: 2,020 passed (baseline 2,010). SQL Server tier not run
+- T062–T065 done 2026-09-22 after the Story 2 click-through. T062: every case in
+  plan.md §Testing already had a test after the T059–T061 rewrites; nothing added.
+  T063: FR doc lines 44–63, 72, 115–116, 119 and the export pre-fill row;
+  `DATA_MODEL.md` §4, §12, §13 and the 2026-09-22 change log entry; `PRD.md` §1.4,
+  §7.2, §7.2a and the list-param note; constitution v4.2.2 (Article 4 names
+  `contract.contract_status_code`). T064: no `deal_status`, `CrmTag`, `crm_tag`,
+  `same-dates` or `v_submission_crm_id` outside change history, design notes and
+  the migration test's negative assertions; two preview notes corrected.
+- Unit tier after T065: 2,020 passed (baseline 2,010). SQL Server tier not run
   (T056 unverified until `make test-sql`; Rebuild needed).

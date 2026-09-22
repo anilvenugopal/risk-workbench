@@ -92,11 +92,11 @@ relationship, resource ownership, or row-level access rule.
 erDiagram
   app_user ||--o{ submission : "assigned analyst (soft owner)"
   submission ||--o{ submission_status_event : logs
-  submission ||--o{ submission_crm_id : "tagged with"
+  submission ||--o{ contract : "0..N contracts (CRM IDs)"
   submission_status_kind ||--o{ submission : "Modeling status (cached current)"
   submission_status_kind ||--o{ submission_status_event : records
-  deal_status_kind ||--o{ submission : "Submission status"
-  treaty_type_kind ||--o{ submission : "treaty type"
+  contract_status_kind ||--o{ contract : "Contract status"
+  treaty_type_kind ||--o{ contract : "treaty type"
   submission ||--o{ submission : "renews from (self-ref)"
   submission ||--o{ submission_edm : associates
   irp_edm ||--o{ submission_edm : "shared into"
@@ -108,28 +108,29 @@ erDiagram
     uniqueidentifier assigned_analyst_id FK "soft owner"
     string name "naming-convention label e.g. TY2604_AmericanFamily; NOT unique — id is the key"
     string cedant_name "primary filter; plain string + autocomplete"
-    string treaty_type_code FK "treaty_type_kind; primary filter"
-    date inception_date "primary filter; the deal-level default for every CRM ID"
-    date expiration_date "nullable; deal-level default for every CRM ID"
-    int treaty_year "nullable; defaults to the inception year"
+    date data_vintage "nullable; the in-force as-of date of the EDM data, one per submission"
+    int treaty_year "nullable; defaults to the earliest contract inception year"
     uniqueidentifier links_to_submission_id FK "nullable; self-ref link to a related submission"
     string directory_path "nullable; per-deal shared-drive directory"
     int client_id "nullable; rwb_loss dbo.Client.ClientID — another database, no FK"
     string status_code FK "submission_status_kind; Modeling status, cached current"
-    string deal_status_code FK "deal_status_kind; Submission status, updated in place"
     datetime inserted_at
     datetime updated_at
     uniqueidentifier inserted_by FK
     uniqueidentifier updated_by FK
   }
-  submission_crm_id {
+  contract {
     uniqueidentifier id PK
     uniqueidentifier submission_id FK
-    string crm_id "plain, unvalidated text; manual, optional"
-    date inception_date "nullable; overrides the deal's inception for this CRM ID"
-    date expiration_date "nullable; overrides the deal's expiration for this CRM ID"
+    string crm_id "plain, unvalidated text; unique within the submission (app-enforced)"
+    string treaty_type_code FK "treaty_type_kind"
+    date inception_date
+    date expiration_date "defaults to inception + 1 year - 1 day"
+    string contract_status_code FK "contract_status_kind; updated in place"
     datetime inserted_at
+    datetime updated_at "concurrency marker"
     uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   treaty_type_kind {
     string code PK "CIC's eleven codes, e.g. per_risk_xol / top_and_drop"
@@ -143,7 +144,7 @@ erDiagram
     int sort_order
     datetime inserted_at
   }
-  deal_status_kind {
+  contract_status_kind {
     string code PK "IN_PROCESS / WON / LOST"
     string label
     int sort_order
@@ -172,15 +173,15 @@ erDiagram
 ```
 
 **Submission:**
-- **`submission` is the root.** No hierarchy above it. `cedant_name`, `treaty_type_code`, and `inception_date` are the primary filters; `treaty_year` defaults to the inception year and supports renewal-year grouping. These are the system of record — there is no CRM/treaty-system integration to derive them from.
+- **`submission` is the root.** No hierarchy above it: one cedant's modeling project. `cedant_name` is the primary filter; `treaty_year` defaults to the earliest contract inception year and supports renewal-year grouping; `data_vintage` is the in-force as-of date of the EDM data, one per submission by convention and the export form's default (spec 017, note 32 D23). These are the system of record — there is no CRM/treaty-system integration to derive them from.
 - **`cedant_name` is a plain string**, kept consistent by autocomplete over existing values — deliberately not its own table.
-- **`submission_crm_id`** holds 0..N CRM-ID tags at the submission level. Each carries an optional `inception_date` and `expiration_date`; a CRM ID's effective date is `COALESCE(override, deal)` per column, so a CRM ID may override expiration alone. "Make them all the same" nulls every override (spec 017 P-03).
-- **`v_submission_crm_id`** is a view: one row per CRM ID (a blank-CRM row for a deal with none) with the effective dates, both statuses and the client. It is the CRM-ID-grain extract (spec 017 FR-013) and the source of "in force as of": `deal_status_code = 'WON' AND effective_inception_date <= D AND effective_expiration_date >= D`, computed at query time, never stored; a NULL expiration never qualifies (P-09).
+- **`contract`** is the CRM ID (spec 017, note 32 D17–D22): 0..N per submission, each with its `crm_id`, `treaty_type_code`, `inception_date`, `expiration_date` and `contract_status_code`. No contract is primary (P-17). The list's default order is `COALESCE((SELECT MAX(c.inception_date) FROM contract c WHERE c.submission_id = s.id), s.inserted_at) DESC, s.name`, so a submission with no contract sorts by its creation date. Contract-level list filters (CRM ID, treaty type, inception, Contract status, in force) share one `EXISTS` over `contract`, so one row must satisfy them together (P-18).
+- **`v_contract`** is a view: one row per contract — the contract's columns plus the submission's name, cedant, client, treaty year, data vintage and Modeling status; a submission with no contract emits no row. It is the CRM-ID-grain extract for CIC's linking SQL and the January bulk status update by CRM ID (spec 017 FR-013, note 32 D25). "In force as of D" is `contract_status_code = 'WON' AND inception_date <= D AND expiration_date >= D`, computed at query time, never stored (P-09).
 - **`client_id`** is `dbo.Client.ClientID` in `rwb_loss`, read over the `LOSS` connection and never a foreign key (another database). Optional; the Workbench never writes to the client list (spec 017 P-04).
 - **`links_to_submission_id`** is a manual, nullable self-reference to a related submission — usually last year's deal for the same cedant and treaty type, but not necessarily a renewal (design note 08 CR8, superseding the earlier `renews_from_submission_id`). Most deals have none. The analyst picks the related deal by name; a submission cannot link to itself (`ck_submission_no_self_link`).
 - **`submission.name` is NOT unique.** Two genuinely distinct deals can share every naming-convention attribute (same cedant, inception, treaty type) and differ only by the manual/optional CRM ID (design note 03 §4). The UUID `id` is the key; create/rename runs a **non-blocking** "a similar deal already exists" warning, never a hard reject. *(Unlike the EDM/RDM name-collision check, which is **blocking** as of 2026-07-27 — issue #17, §5.)*
 - **Modeling status** (`status_code`) is `ACTIVE` / `COMPLETED` / `CANCELLED`, event-sourced, no system-enforced transition preconditions (`COMPLETED → ACTIVE` allowed). **There is no delete** — a submission can carry real Risk Modeler assets; `CANCELLED` is the withdrawal state.
-- **Submission status** (`deal_status_code`) is `IN_PROCESS` / `WON` / `LOST` from `deal_status_kind`, updated in place with the `updated_at` concurrency check, no reason and no event row, in every Modeling status (spec 017 P-02, P-12).
+- **Contract status** (`contract.contract_status_code`) is `IN_PROCESS` / `WON` / `LOST` from `contract_status_kind`, updated in place with the contract's `updated_at` concurrency check, no reason and no event row, in every Modeling status (spec 017 P-02, P-12). Every other contract write needs Modeling status Active.
 
 **Associations:**
 - `submission_edm` has primary key (`submission_id`, `edm_id`) and reverse index (`edm_id`, `submission_id`).
@@ -732,8 +733,10 @@ erDiagram
 | `role_kind` / `user_role` | Role vocabulary and assignment. |
 | `audit_log` | Who did what, when — **DEFERRED**. |
 | `submission` | The deal and top-level entity. `name` is a non-unique label; `id` is the key. |
-| `submission_crm_id` | 0..N CRM-ID tags per submission. |
-| `treaty_type_kind` | Deal-level treaty-type vocabulary. |
+| `contract` | 0..N contracts (CRM IDs) per submission: treaty type, term and Contract status. |
+| `contract_status_kind` | `IN_PROCESS` / `WON` / `LOST`. |
+| `v_contract` | View: one row per contract with its submission's attributes (spec 017 FR-013). |
+| `treaty_type_kind` | Contract treaty-type vocabulary. |
 | `submission_status_kind` | `ACTIVE` / `COMPLETED` / `CANCELLED`. |
 | `submission_status_event` | Append-only submission status log. |
 | `submission_edm` | Submission ↔ EDM M:N join (composite PK). |
@@ -771,7 +774,7 @@ erDiagram
 | `role_kind` | `analyst`, `admin` (confirm with team); `admin` has `is_admin=true`. |
 | `submission_status_kind` | `ACTIVE`, `COMPLETED`, `CANCELLED`. |
 | `treaty_type_kind` | CIC's eleven modeling treaty types (spec 017 FR-012): `aggregate_xol`, `aggregate_cat_xol`, `risk_aggregate_xol`, `per_occurrence_xol`, `per_occurrence_cat_xol`, `per_risk_xol`, `stop_loss`, `reinstatement_premium_protection`, `second_third_fourth_event_risk_exposed`, `top_and_drop`, `top_and_aggregate`. |
-| `deal_status_kind` | `IN_PROCESS`, `WON`, `LOST` (spec 017). |
+| `contract_status_kind` | `IN_PROCESS`, `WON`, `LOST` (spec 017). |
 | `irp_analysis_status_kind` | `pending`, `ready`, `error`. |
 | `irp_job_type_kind` | `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`. |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
@@ -805,6 +808,7 @@ erDiagram
 
 ## Change log
 
+- **2026-09-22 — Spec 017 contract grain (note 32).** `contract` replaces `submission_crm_id`: the CRM ID is the contract and carries `treaty_type_code`, `inception_date`, `expiration_date` and `contract_status_code` (FK `contract_status_kind`, which replaces `deal_status_kind`). `submission` loses `treaty_type_code`, `inception_date`, `expiration_date` and `deal_status_code`, gains nullable `data_vintage`; `ix_submission_list_order` dropped (the sort key is an aggregate over `contract`). `v_contract` replaces `v_submission_crm_id` and emits no row for a submission without a contract.
 - **2026-09-16 — Spec 014 loss results export.** `irp_job.export_id` (nullable, indexed). `rwb_job_type_kind`: `submit_results_export`, `stage_results_export`, `load_results_export` added; `download_export_file` and `push_results_to_loss_repo` dropped (neither ever had a worker). `rwb_job_context_type_kind` gains `result_export`. §9's `analysis_result_meta` / `result_export` / `delivery_kind` withdrawn unbuilt: the export record is `stage.rwb_loss_result_manifest` in CIC's loss repository (`specs/014-results-export/data-model.md`). §1: `LOSS` is CIC's `CRE_Trial_ELT_Repository`, mirrored in dev as `rwb_loss`; the `stage` schema is installed by a CIC DBA from `db/bootstrap/loss_schema.sql`.
 - **2026-09-16 — Import analyses by Risk Modeler id (#101).** `irp_analysis.imported_at` (nullable `DATETIME2`) separates the two kinds of row on the `submission_id` leg of `ck_irp_analysis_origin`: a group the Workbench composed, and an analysis the analyst pulled in by its `appAnalysisId`. An imported row sets `submission_id`, `irp_id`, `irp_app_analysis_id`, `exposure_resource_id` when Risk Modeler reports a portfolio pointer, and a `submitted_settings` block holding the currency code alone. New filtered index `ix_irp_analysis_irp_id` (`WHERE irp_id IS NOT NULL`) serves the duplicate check and the delete guard.
 - **2026-09-09 — Spec 012 grouping execution.** `irp_analysis.submission_id` (nullable, FK `submission.id`, `ix_irp_analysis_submission_id`) marks group rows; `ck_irp_analysis_origin` becomes `edm_id OR rdm_id OR submission_id`; `uq_irp_analysis_live_submission_name` (`submission_id`, `name`, filtered) mirrors the own-analysis index. New `irp_analysis_group_member` table replaces the deferred `group_parent_id` column. `submit_grouping` added to `rwb_job_type_kind`.

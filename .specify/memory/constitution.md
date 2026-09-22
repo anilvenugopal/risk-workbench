@@ -2,6 +2,20 @@
   Sync Impact Report
   ==================
 
+  --- 2026-09-22 (spec 017 contract grain, note 32) ---
+  Version change: 4.2.1 → 4.2.2  (PATCH — Article 4's in-place list names
+  `contract.contract_status_code` in place of `submission.deal_status_code`;
+  no rule changes; 13-article numbering stable)
+
+  Renamed: spec 017's Submission status moved from the submission to the
+  contract as Contract status (note 32 D17: one modeling project, several CRM
+  IDs, different outcomes). `submission.deal_status_code` no longer exists;
+  `contract.contract_status_code` (Won / Lost / In Process) is the in-place
+  status column. `submission.status_code` (Modeling status) stays the one
+  event-sourced status.
+
+  Templates: none. AGENTS.md version reference updated to v4.2.2.
+
   --- 2026-09-18 (spec 017 Submission status) ---
   Version change: 4.2.0 → 4.2.1  (PATCH — Article 4's list of in-place status
   columns gains `submission.deal_status_code`; no rule changes; 13-article
@@ -286,7 +300,7 @@ NOT be `UPDATE`-d in place — it MUST:
 
 **Other status is updated in place.** `irp_job.status`, `rwb_job.status_code`,
 `irp_edm.status`, `irp_rdm.status`, `irp_analysis.status_code`, and
-`submission.deal_status_code` (Submission status: Won / Lost / In Process,
+`contract.contract_status_code` (Contract status: Won / Lost / In Process,
 spec 017) are plain updates — a per-transition audit log for them is part of the deferred general
 auditing capability (CR-002), not built now. `irp_job.last_tracked_at` (not an
 event log) records that a job is still being actively tracked. There is no
@@ -494,4 +508,4 @@ research begins.
 
 ---
 
-**Version**: 4.2.1 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-18
+**Version**: 4.2.2 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-22
