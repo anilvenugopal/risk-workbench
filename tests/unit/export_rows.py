@@ -75,14 +75,14 @@ def seed_analysis(*, edm_id: str | None = None, rdm_id: str | None = None,
                   irp_id: str | None = "41958", irp_app_analysis_id: str | None = "41958",
                   perspectives: tuple[str, ...] | None = ("GU", "GR", "RL"),
                   currency: str | None = "USD", peril: str = "EQ", region: str = "NAEQ",
-                  is_group: int = 0, inserted_at: str = NOW,
+                  is_group: int = 0, engine_type: str = "DLM", inserted_at: str = NOW,
                   write_app_column: bool = True,
                   treaties: tuple = ()) -> str:
     """``write_app_column=False`` is the RDM-backfilled broker row: only the
     own-executed finalize path writes ``irp_app_analysis_id``, so a broker row
     carries the id in its metadata snapshot alone (spec 012 FR-023)."""
     analysis_id = str(uuid.uuid4())
-    settings = {"perilCode": peril, "regionCode": region, "engineType": "DLM",
+    settings = {"perilCode": peril, "regionCode": region, "engineType": engine_type,
                 "engineVersion": "RL25", "appAnalysisId": irp_app_analysis_id}
     if currency:
         settings["currency"] = {"currencyCode": currency, "currencyName": currency}

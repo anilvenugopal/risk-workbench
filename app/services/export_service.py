@@ -114,7 +114,8 @@ class TreatyChoice:
 class ExportableAnalysis:
     id: str
     name: str                      # display name (full name when known)
-    origin: str                    # own | group | broker
+    origin: str                    # RMS | RDM
+    engine: str | None
     rdm_name: str | None
     irp_id: str | None
     irp_app_analysis_id: int | None
@@ -169,6 +170,7 @@ class ExportAnalysisDetail:
     irp_analysis_id: str
     analysis_name: str | None
     origin: str
+    engine: str | None
     treaty_number: str | None
     treaty_name: str | None
     treaty_ids: list[str]
@@ -180,7 +182,7 @@ class ExportAnalysisDetail:
     irp_app_analysis_id: int | None
     data_currency: str | None
     data_model_version: str | None
-    engine_type: str | None
+    engine_type: str | None        # the manifest's stage-time engine (Archive engine)
     peril_code: str | None
     region_code: str | None
     data_id: int | None
@@ -269,9 +271,9 @@ def _app_analysis_id(raw: Any) -> tuple[int | None, str | None]:
 
 def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | None:
     """The submission's analyses in the analyses section's order — own and
-    group rows first, then broker rows grouped by RDM — each marked exportable
-    or disabled with the reason (FR-001, FR-005). ``None`` when the submission
-    does not resolve."""
+    group rows first, then RDM rows grouped by RDM — each marked exportable
+    or disabled with the reason (FR-001, FR-005, FR-025). ``None`` when the
+    submission does not resolve."""
     rows = analysis_service.list_comparable_analyses(submission_id=submission_id)
     if rows is None:
         return None
@@ -279,7 +281,7 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         return []
     params = {f"i{n}": r.id for n, r in enumerate(rows)}
     detail = {_uid(d["id"]): d for d in execute(
-        "SELECT id, irp_id, irp_app_analysis_id, name, full_name, is_group, "
+        "SELECT id, irp_id, irp_app_analysis_id, name, full_name, is_group, rdm_id, "
         "settings_metadata, loss_results FROM irp_analysis "
         f"WHERE id IN ({', '.join(':' + k for k in params)})",
         params, connection="WORKBENCH")}
@@ -308,7 +310,9 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         # every RDM-backfilled broker row carries the id in its snapshot alone.
         app_id, reason = _app_analysis_id(
             d.get("irp_app_analysis_id") or (parsed or {}).get("appAnalysisId"))
-        if r.results_state == "failed":
+        if display.engine_type == "HD":
+            reason = "HD (PLT) results are not exportable yet"
+        elif r.results_state == "failed":
             reason = "results retrieval failed"
         elif r.results_state != "ready" or not perspectives:
             reason = "results not retrieved yet"
@@ -316,7 +320,8 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
             reason = "the analysis currency is not recorded"
         out.append(ExportableAnalysis(
             id=_uid(r.id), name=r.name or d.get("name") or _uid(r.id),
-            origin=("broker" if r.rdm_name else "group" if d.get("is_group") else "own"),
+            origin=("RDM" if d.get("rdm_id") else "RMS"),
+            engine=("Group" if d.get("is_group") else display.engine),
             rdm_name=r.rdm_name,
             irp_id=(str(d["irp_id"]) if d.get("irp_id") is not None else None),
             irp_app_analysis_id=app_id,
@@ -586,12 +591,14 @@ def list_export_rows(submission_id: Any) -> list[ExportAnalysisDetail]:
         analysis = analyses.get(_uid(row["irp_analysis_id"])) or {}
         perspectives = (_parse_json_dict(analysis.get("loss_results"), "loss_results")
                         or {}).get("perspectives") or {}
+        display = analysis_service._to_display(
+            _parse_json_dict(analysis.get("settings_metadata"), "settings_metadata"))
         result.append(ExportAnalysisDetail(
             manifest_id=row["manifest_id"], export_id=export_id, export_ordinal=ordinal,
             irp_analysis_id=_uid(row["irp_analysis_id"]),
             analysis_name=row["analysis_description"] or row["analysis_name"],
-            origin=("broker" if analysis.get("rdm_id") else
-                    "group" if analysis.get("is_group") else "own"),
+            origin=("RDM" if analysis.get("rdm_id") else "RMS"),
+            engine=("Group" if analysis.get("is_group") else display.engine),
             treaty_number=row.get("treaty_number"), treaty_name=row.get("treaty_name"),
             treaty_ids=[v for v in (row.get("treaty_ids") or "").split(",") if v],
             status=derive_status(row), updated_at=row["updated_at"],
@@ -621,14 +628,14 @@ def list_export_rows(submission_id: Any) -> list[ExportAnalysisDetail]:
 
 
 def _analysis_rows(irp_analysis_ids: list[str]) -> dict[str, dict]:
-    """The ``irp_analysis`` row behind each manifest row: the origin label and
-    the AAL the table shows (P-20) are read from it at render time, never
-    copied onto the manifest."""
+    """The ``irp_analysis`` row behind each manifest row: the origin, the
+    engine, and the AAL the table shows (P-20) are read from it at render time,
+    never copied onto the manifest."""
     if not irp_analysis_ids:
         return {}
     params = {f"i{n}": v for n, v in enumerate(irp_analysis_ids)}
     return {_uid(r["id"]): dict(r) for r in execute(
-        "SELECT id, is_group, rdm_id, loss_results FROM irp_analysis "
+        "SELECT id, is_group, rdm_id, settings_metadata, loss_results FROM irp_analysis "
         f"WHERE id IN ({', '.join(':' + k for k in params)})",
         params, connection="WORKBENCH")}
 
