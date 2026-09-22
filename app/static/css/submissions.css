@@ -225,43 +225,47 @@
   font-size: var(--fs-caption); color: var(--text-tertiary); }
 .deal-history__at { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
-/* ── CRM IDs: one vertical list, one row per CRM ID ───────────────────────── */
-.crm-band { border-top: 1px solid var(--border-default); padding: var(--space-3) var(--space-4); }
-.crm-band__head { display: flex; align-items: center; gap: var(--space-2);
+/* ── Contracts: one row per contract, on the deal card and the create form ── */
+.contract-band { border-top: 1px solid var(--border-default); padding: var(--space-3) var(--space-4); }
+.contract-band--form { border-top: 0; padding: var(--space-4) 0 0; }
+.contract-band__head { display: flex; align-items: center; gap: var(--space-2);
   margin-bottom: var(--space-1); }
-/* The head, the list and the add form share one width, so "+ Add CRM ID" ends
-   where the Expiration column does and a wide card never pushes the dates away
-   from the CRM ID. */
-.crm-band__head, .crm-list, .crm-band > .crm-edit { width: 66%; min-width: min(100%, 460px); }
-.crm-band__label { font-size: var(--fs-eyebrow); letter-spacing: .06em;
+.contract-band__label { font-size: var(--fs-eyebrow); letter-spacing: .06em;
   text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
-.crm-band__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
-.crm-list { display: flex; flex-direction: column; }
-.crm-row { display: grid; grid-template-columns: minmax(130px, 1fr) 104px 14px 104px 52px;
-  align-items: center; gap: var(--space-2); padding: 3px 0; font-size: var(--fs-label);
+.contract-band__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+.contract-table { display: flex; flex-direction: column; }
+.contract-row { display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(170px, 1.3fr) 104px 104px 118px 56px;
+  align-items: center; gap: var(--space-2); padding: 4px 0; font-size: var(--fs-label);
   border-bottom: 1px solid var(--border-faint); }
-.crm-row--head { padding-bottom: 1px; border-bottom-color: var(--border-default); }
-.crm-row--head span { font-size: var(--fs-eyebrow); letter-spacing: .05em;
+.contract-row--head { padding-bottom: 2px; border-bottom-color: var(--border-default); }
+.contract-row--head span { font-size: var(--fs-eyebrow); letter-spacing: .05em;
   text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
-.crm-row__id { font-family: var(--font-mono); font-size: var(--fs-mono);
+.contract-row__id { font-family: var(--font-mono); font-size: var(--fs-mono);
   color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crm-date { font-variant-numeric: tabular-nums; color: var(--text-primary); }
-.crm-row__arrow { color: var(--text-disabled); }
-.crm-row__actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px;
+.contract-row__type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contract-date { font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.contract-row__actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px;
   opacity: 0; transition: opacity var(--dur-fast) ease; }
-.crm-row:hover .crm-row__actions, .crm-row:focus-within .crm-row__actions { opacity: 1; }
-.crm-row__del { border: 0; background: none; color: var(--text-tertiary); cursor: pointer;
+.contract-row:hover .contract-row__actions, .contract-row:focus-within .contract-row__actions { opacity: 1; }
+.contract-row__del { border: 0; background: none; color: var(--text-tertiary); cursor: pointer;
   line-height: 1; padding: 0 4px; font-size: var(--fs-label); }
-.crm-row__del:hover { color: var(--color-danger); }
-.crm-edit { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center;
-  gap: var(--space-2); padding: var(--space-1) 0 var(--space-2); }
-.crm-edit input { font-size: var(--fs-label); padding: 3px var(--space-2);
+.contract-row__del:hover { color: var(--color-danger); }
+/* The status select sits in the row and is live in every Modeling status. */
+.contract-row select, .contract-row input { font-size: var(--fs-caption); padding: 2px var(--space-1);
   border: 1px solid var(--border-default); border-radius: var(--radius-sm);
-  background: var(--surface-panel); color: var(--text-primary); }
-.crm-edit input[type=date] { width: 128px; font-variant-numeric: tabular-nums; }
-.crm-edit input[type=text] { width: 132px; }
-.crm-edit__hint { font-size: var(--fs-caption); color: var(--text-tertiary); }
-.crm-empty { font-size: var(--fs-label); color: var(--text-tertiary); padding: 2px 0; }
+  background: var(--surface-panel); color: var(--text-primary); width: 100%; min-width: 0; }
+.contract-row input[type=date] { font-variant-numeric: tabular-nums; }
+.contract-row input.is-error { border-color: var(--color-danger); background: var(--color-danger-bg); }
+.contract-row--edit { background: var(--surface-recessed); margin: 0 calc(-1 * var(--space-2));
+  padding: 6px var(--space-2); border-radius: var(--radius-sm); }
+/* A row's in-place editor spans the row and lays its inputs on the same columns. */
+.contract-row__editor { grid-column: 1 / -1; display: grid; grid-template-columns: inherit;
+  gap: inherit; align-items: center; }
+.contract-row__foot { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--fs-caption); color: var(--text-tertiary); padding-top: 2px; }
+.contract-row__error { grid-column: 1 / -1; font-size: var(--fs-caption); color: var(--color-danger); }
+.contract-empty { font-size: var(--fs-label); color: var(--text-tertiary); padding: 4px 0; }
 
 /* ── Submission EDM and RDM tables ───────────────────────────────────────── */
 .submission-entity-head { margin-top: var(--space-6); }

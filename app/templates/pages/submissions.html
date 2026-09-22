@@ -44,15 +44,15 @@
     </div>
     <div class="filters__row">
       {{ forms.multi_picker("status", "Modeling status", statuses, filter_values.status) }}
-      {{ forms.multi_picker("deal_status", "Submission status", deal_statuses, filter_values.deal_status) }}
+      {{ forms.multi_picker("contract_status", "Contract status", contract_statuses, filter_values.contract_status) }}
       {{ forms.multi_picker("treaty_type", "Treaty type", treaty_types, filter_values.treaty_type) }}
       {% if client_options is none %}
       <div class="filters__field">
-        <span>Client</span>
+        <span>Client ID</span>
         <input class="wf-field__input" type="text" disabled value="Client list unavailable">
       </div>
       {% else %}
-      {{ forms.multi_picker("client", "Client", client_options, filter_values.client,
+      {{ forms.multi_picker("client", "Client ID", client_options, filter_values.client,
                             search_placeholder="ID or name") }}
       {% endif %}
       <label>Inception

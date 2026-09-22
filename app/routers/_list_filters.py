@@ -29,15 +29,15 @@ MULTI_FILTERS = {
     "crm_id": ("CRM ID", "crm_ids"),
     "owner": ("Owner", "owner_ids"),
     "status": ("Modeling status", "status_codes"),
-    "deal_status": ("Submission status", "deal_status_codes"),
+    "contract_status": ("Contract status", "contract_status_codes"),
     "treaty_type": ("Treaty type", "treaty_type_codes"),
     "treaty_year": ("Treaty year", "treaty_years"),
-    "client": ("Client", "client_ids"),
+    "client": ("Client ID", "client_ids"),
 }
 # The submission-attribute filters the EDM and RDM libraries carry (FR-015,
 # P-13): no Modeling status, and no owner default.
 LIBRARY_MULTI_PARAMS = ("owner", "client", "treaty_type", "treaty_year", "crm_id",
-                        "deal_status")
+                        "contract_status")
 LIBRARY_TEXT_PARAMS = ("cedant",)
 
 
@@ -114,14 +114,14 @@ def parse_list_filters(query_params, *, multi_keys, text_keys) -> ListFilters:
 
 def picker_options() -> dict[str, Any]:
     """The option lists behind the shared filter pickers: owners, treaty
-    types, Submission statuses and repository clients (``None`` when the
+    types, contract statuses and repository clients (``None`` when the
     repository is unreachable, so the picker renders disabled)."""
     clients = client_service.list_clients()
     return {
         "owner_options": [(analyst["id"], analyst["display_name"])
                           for analyst in auth_service.list_active_analysts()],
         "treaty_types": submission_service.treaty_type_kinds(),
-        "deal_statuses": submission_service.deal_status_kinds(),
+        "contract_statuses": submission_service.contract_status_kinds(),
         "client_options": (None if clients is None
                            else [(client.id, client.label) for client in clients]),
         "min_treaty_year": MIN_TREATY_YEAR,

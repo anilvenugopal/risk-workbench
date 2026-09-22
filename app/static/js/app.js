@@ -737,15 +737,33 @@ document.addEventListener('alpine:init', () => {
   // Treaty year follows the inception year until the analyst types their own
   // (CR5, design note 08 D4). Changing the inception date moves the year unless
   // it was edited on this render.
-  Alpine.data('treatyYear', () => ({
+  // Submission create form: the contract rows and the treaty year. A new row is
+  // the blank template with the previous row's dates copied in (FR-005); the
+  // year follows the first inception typed until the analyst types a year.
+  Alpine.data('contractRows', () => ({
     edited: false,
     onYearInput() {
       this.edited = !!this.$refs.year.value.trim();
     },
-    onDateChange(e) {
-      if (this.edited) return;
+    onInception(e) {
+      if (this.edited || this.$refs.year.value.trim()) return;
       const year = (e.target.value || '').slice(0, 4);
       if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
+    },
+    add() {
+      const rows = this.$refs.rows;
+      const last = rows.lastElementChild;
+      const row = this.$refs.blank.content.firstElementChild.cloneNode(true);
+      if (last) {
+        for (const name of ['contract_inception', 'contract_expiration']) {
+          row.querySelector(`[name=${name}]`).value = last.querySelector(`[name=${name}]`).value;
+        }
+      }
+      rows.appendChild(row);
+      row.querySelector('[name=contract_crm_id]').focus();
+    },
+    remove(e) {
+      e.target.closest('.contract-row').remove();
     },
   }));
 

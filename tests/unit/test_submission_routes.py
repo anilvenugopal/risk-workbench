@@ -33,6 +33,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
 from app.services import rwb_job_service, submission_service
+from app.services.submission_service import ContractInput
 from db import execute, execute_command, execute_scalar
 from tests.unit.rm_analyses import seed_rm_analysis
 
@@ -81,15 +82,26 @@ def _csrf() -> str:
     return generate_csrf_token()
 
 
-def _payload(**overrides) -> dict:
+def _payload(*, crm_ids: str = "T-1", treaty_type_code: str = "per_risk_xol",
+             inception_date: str = "2026-04-01", expiration_date: str = "",
+             contract_status: str = "IN_PROCESS", **overrides) -> dict:
+    """The create form's post: the submission fields plus one contract row per
+    CRM ID in ``crm_ids`` (comma-separated; blank posts no row), every row on
+    the same treaty type, dates and status."""
+    ids = [value.strip() for value in crm_ids.split(",") if value.strip()]
     form = {
         "name": "TY2604_AmericanFamily",
         "cedant_name": "American Family Mutual",
-        "treaty_type_code": "per_risk_xol",
-        "inception_date": "2026-04-01",
+        "client_id": "",
+        "data_vintage": "",
         "treaty_year": "",
         "directory_path": "",
         "links_to_submission_id": "",
+        "contract_crm_id": ids,
+        "contract_treaty_type": [treaty_type_code] * len(ids),
+        "contract_inception": [inception_date] * len(ids),
+        "contract_expiration": [expiration_date] * len(ids),
+        "contract_status": [contract_status] * len(ids),
         "csrf_token": _csrf(),
     }
     form.update(overrides)
@@ -654,8 +666,10 @@ def test_submission_entity_routes_validate_csrf(client, kind, action):
 def test_new_form_marks_the_required_fields(client):
     body = client.get("/submissions/new").text
     assert "wf-fields__legend" in body
-    # Four required fields, each carrying its own marker.
-    assert body.count('class="wf-field__req" title="Required"') == 4
+    # Name and cedant are the required fields; contract rows carry their own rules.
+    assert body.count('class="wf-field__req" title="Required"') == 2
+    assert 'name="contract_crm_id"' in body and 'name="data_vintage"' in body
+    assert 'name="inception_date"' not in body and 'name="treaty_type_code"' not in body
 
 
 def test_missing_name_returns_a_message_on_that_field(client):
@@ -675,16 +689,18 @@ def test_validation_failure_preserves_what_the_analyst_typed(client):
 
 def test_several_bad_fields_are_all_reported(client):
     res = client.post("/submissions", data=_payload(
-        name="", cedant_name="", inception_date=""))
+        name="", cedant_name="", data_vintage="someday"))
     assert "3 fields need attention" in res.text
     assert "Enter a name for this submission." in res.text
     assert "Enter a cedant." in res.text
-    assert "Enter an inception date." in res.text
-
-
-def test_unparseable_inception_date_is_reported_as_invalid_not_missing(client):
-    res = client.post("/submissions", data=_payload(inception_date="2026-13-45"))
     assert "Enter a valid date." in res.text
+
+
+def test_unparseable_contract_date_is_reported_under_its_row(client):
+    res = client.post("/submissions", data=_payload(inception_date="2026-13-45"))
+    assert res.status_code == 422
+    assert "Enter the dates as YYYY-MM-DD." in res.text
+    assert 'class="contract-row__error"' in res.text
     assert _count() == 0
 
 
@@ -827,7 +843,7 @@ def test_link_suggest_ands_the_terms_and_shows_deal_context(client):
     body = client.get("/submissions/link-suggest?links_to_search=american+fam").text
     assert "TY2506_AmericanFamily" in body
     assert "TY2501_AmericanNational" not in body
-    assert "Per Risk XOL" in body  # each row carries cedant · treaty type · inception
+    assert "American Family Mutual" in body  # each row carries its cedant
 
 
 def test_link_suggest_excludes_the_submission_being_edited(client):
@@ -861,12 +877,12 @@ def test_create_stores_the_chosen_link_and_the_detail_page_shows_its_name(client
         rf'<a href="/submissions/{target}">\s*TY2506_AmericanFamily\s*</a>', detail)
 
 
-def test_create_stores_the_comma_separated_crm_ids(client):
+def test_create_stores_one_contract_per_row(client):
     res = client.post("/submissions", data=_payload(
         name="TY2606_CrmAtCreate", crm_ids="CRM-1, CRM-2"))
     sid = res.headers["location"].rsplit("/", 1)[-1]
-    assert {t.crm_id for t in submission_service.list_crm_ids(sid)} == {
-        "CRM-1", "CRM-2"}
+    assert [c.crm_id for c in submission_service.list_contracts(sid)] == [
+        "CRM-1", "CRM-2"]
     assert "CRM-2" in client.get(f"/submissions/{sid}").text
 
 
@@ -940,8 +956,8 @@ def _mk_owned_by_b(client, name: str) -> None:
     """A deal owned by the other analyst. The route always assigns the signed-in
     user, so this goes through the service."""
     submission_service.create_submission(
-        name=name, cedant_name="Beta Re", treaty_type_code="cat_xol",
-        inception_date=date(2026, 3, 1), treaty_year=2026,
+        name=name, cedant_name="Beta Re", treaty_year=2026,
+        contracts=[ContractInput("B-1", "aggregate_xol", date(2026, 3, 1))],
         actor_id=client.db.user_b, confirmed=True)
 
 
@@ -1183,12 +1199,12 @@ def test_owner_any_lists_every_analysts_deals(client):
 
 def test_repeated_filter_parameters_or_within_the_filter(client):
     client.post("/submissions", data=_payload(name="Cat deal",
-                                              treaty_type_code="cat_xol"))
+                                              treaty_type_code="aggregate_cat_xol"))
     client.post("/submissions", data=_payload(name="Quota deal", cedant_name="Q Re",
-                                              treaty_type_code="quota_share"))
+                                              treaty_type_code="stop_loss"))
     client.post("/submissions", data=_payload(name="Surplus deal", cedant_name="S Re",
-                                              treaty_type_code="surplus"))
-    body = client.get("/submissions?treaty_type=cat_xol&treaty_type=quota_share").text
+                                              treaty_type_code="top_and_drop"))
+    body = client.get("/submissions?treaty_type=aggregate_cat_xol&treaty_type=stop_loss").text
     assert "Cat deal" in body and "Quota deal" in body
     assert "Surplus deal" not in body
 
@@ -1244,7 +1260,7 @@ def test_htmx_push_url_carries_every_repeated_filter_value(client):
 
 @pytest.mark.parametrize(
     ("parameter", "label"),
-    [("status", "Modeling status"), ("deal_status", "Submission status"),
+    [("status", "Modeling status"), ("contract_status", "Contract status"),
      ("treaty_type", "Treaty type"), ("treaty_year", "Treaty year"),
      ("owner", "Owner")],
 )
@@ -1272,7 +1288,7 @@ def test_twenty_one_owners_returns_the_owner_message_and_no_rows(client):
     assert "Visible deal" not in body
 
 
-@pytest.mark.parametrize("parameter", ["status", "deal_status", "treaty_type",
+@pytest.mark.parametrize("parameter", ["status", "contract_status", "treaty_type",
                                        "treaty_year", "owner"])
 def test_exactly_twenty_values_on_one_filter_are_accepted(client, parameter):
     response = client.get(
@@ -1898,241 +1914,353 @@ def test_import_routes_reject_invalid_csrf(client):
         assert response.headers["HX-Refresh"] == "true"
 
 
-# ── spec 017 US1: two statuses, dates per CRM ID ─────────────────────────────
+# ── spec 017 US1: Modeling status on the deal, contracts in their own table ──
 
 def _deal(client, **overrides) -> tuple[str, str]:
     """A fresh deal and its ``updated_at`` marker."""
     created = client.post("/submissions", data=_payload(**overrides))
+    assert created.status_code == 303, created.text
     sid = created.headers["location"].rsplit("/", 1)[-1]
     return sid, str(submission_service.get_submission(sid).updated_at)
+
+
+def _contract(sid: str, crm_id: str):
+    return next(c for c in submission_service.list_contracts(sid) if c.crm_id == crm_id)
+
+
+def _status_post(client, sid: str, crm_id: str, status: str, **extra):
+    c = _contract(sid, crm_id)
+    return client.post(
+        f"/submissions/{sid}/contracts/{c.id}/status", headers=_HX,
+        data={"contract_status_code": status, "updated_at": str(c.updated_at),
+              "csrf_token": _csrf(), **extra})
 
 
 _HX = {"HX-Request": "true"}
 
 
-def test_detail_page_labels_the_two_statuses_apart_and_offers_no_hold(client):
-    sid, _ = _deal(client, name="Two statuses", expiration_date="2027-04-01")
+def test_detail_page_shows_modeling_status_and_the_contract_table(client):
+    sid, _ = _deal(client, name="Two statuses", crm_ids="T-100",
+                   expiration_date="2027-04-01")
     body = client.get(f"/submissions/{sid}").text
-    assert "Modeling status" in body and "Submission status" in body
-    assert 'id="deal-head"' in body
-    assert "Hold" not in body
-    # The Submission status select offers exactly the kind table's three values.
-    select = body.split('name="deal_status"')[1].split("</select>")[0]
+    assert 'id="deal-head"' in body and 'id="contracts"' in body
+    assert "Modeling status" in body and "Contract status" in body
+    assert "Submission status" not in body and "Hold" not in body
+    # The Status editor offers Modeling status alone; each row's own select
+    # offers the kind table's three values.
+    editor = body.split('name="modeling_status"')[1].split("</form>")[0]
+    assert "contract_status" not in editor
+    select = body.split('aria-label="Contract status of T-100"')[1].split("</select>")[0]
     assert re.findall(r'<option value="(\w+)"', select) == ["IN_PROCESS", "WON", "LOST"]
-    assert "2027-04-01" in body
+    assert "Per Risk XOL" in body and "2027-04-01" in body
 
 
-def test_deal_status_post_saves_without_a_reason_and_returns_the_head_fragment(client):
-    sid, marker = _deal(client, name="Won deal")
+def test_create_with_no_contract_shows_an_empty_table_with_add(client):
+    sid, _ = _deal(client, name="Bare deal", crm_ids="")
+    sub = submission_service.get_submission(sid)
+    assert sub.contracts == [] and sub.treaty_year is None
+    body = client.get(f"/submissions/{sid}").text
+    assert "No contracts yet." in body and "+ Add contract" in body
+
+
+def test_create_posts_three_rows_and_fills_blank_expiration_and_status(client):
+    res = client.post("/submissions", data={
+        **_payload(name="Three rows", crm_ids=""),
+        "contract_crm_id": ["A-1", "A-2", "A-3"],
+        "contract_treaty_type": ["per_occurrence_cat_xol", "aggregate_xol", "top_and_drop"],
+        "contract_inception": ["2027-01-01", "2027-01-01", "2027-01-01"],
+        "contract_expiration": ["", "2027-12-31", "2029-12-31"],
+        "contract_status": ["IN_PROCESS", "WON", ""],
+    })
+    assert res.status_code == 303, res.text
+    sid = res.headers["location"].rsplit("/", 1)[-1]
+    assert [(c.crm_id, c.treaty_type_code, str(c.expiration_date), c.contract_status_code)
+            for c in submission_service.list_contracts(sid)] == [
+        ("A-1", "per_occurrence_cat_xol", "2027-12-31", "IN_PROCESS"),
+        ("A-2", "aggregate_xol", "2027-12-31", "WON"),
+        ("A-3", "top_and_drop", "2029-12-31", "IN_PROCESS")]
+    assert submission_service.get_submission(sid).treaty_year == 2027
+
+
+def test_create_ignores_the_blank_row_the_form_always_shows(client):
+    res = client.post("/submissions", data={
+        **_payload(name="Blank row", crm_ids=""),
+        "contract_crm_id": [""], "contract_treaty_type": [""],
+        "contract_inception": [""], "contract_expiration": [""],
+        "contract_status": ["IN_PROCESS"]})
+    assert res.status_code == 303
+    sid = res.headers["location"].rsplit("/", 1)[-1]
+    assert submission_service.list_contracts(sid) == []
+
+
+def test_create_refuses_a_row_without_a_crm_id_and_marks_that_row(client):
+    res = client.post("/submissions", data={
+        **_payload(name="Bad row", crm_ids=""),
+        "contract_crm_id": ["A-1", ""],
+        "contract_treaty_type": ["per_risk_xol", "per_risk_xol"],
+        "contract_inception": ["2027-01-01", "2027-01-01"],
+        "contract_expiration": ["", ""], "contract_status": ["", ""]})
+    assert res.status_code == 422
+    assert "Enter the CRM ID." in res.text and "One field needs attention" in res.text
+    # Both rows come back; the message and the marked input sit on the second.
+    assert 'value="A-1"' in res.text
+    assert res.text.count('class="contract-row__error"') == 1
+    assert res.text.count('class="is-error"') == 1
+    assert _count() == 0
+
+
+def test_create_refuses_a_repeated_crm_id_and_an_unknown_treaty_type(client):
+    dup = client.post("/submissions", data=_payload(name="Dup rows", crm_ids="A-1, a-1 "))
+    assert dup.status_code == 422
+    assert "A-1 is already a contract on this submission." in dup.text
+    unknown = client.post("/submissions", data=_payload(name="Bad type",
+                                                        treaty_type_code="quota_share"))
+    assert unknown.status_code == 422
+    assert "Choose a treaty type from the list." in unknown.text
+    assert _count() == 0
+
+
+def test_statuses_post_saves_modeling_status_and_returns_the_head_fragment(client):
+    sid, marker = _deal(client, name="Completed deal")
     response = client.post(
         f"/submissions/{sid}/statuses", headers=_HX,
-        data={"deal_status": "WON", "updated_at": marker, "csrf_token": _csrf()})
+        data={"modeling_status": "COMPLETED", "reason": "delivered",
+              "updated_at": marker, "csrf_token": _csrf()})
     assert response.status_code == 200
     assert response.text.lstrip().startswith('<div id="deal-head"')
     assert "<html" not in response.text
-    assert 'value="WON" selected' in response.text
-    sub = submission_service.get_submission(sid)
-    assert sub.deal_status_code == "WON" and sub.status_code == "ACTIVE"
-    assert len(submission_service.get_status_history(sid)) == 1
-
-
-def test_statuses_post_saves_both_under_one_marker_and_records_one_event(client):
-    sid, marker = _deal(client, name="Both statuses")
-    response = client.post(
-        f"/submissions/{sid}/statuses", headers=_HX,
-        data={"modeling_status": "COMPLETED", "deal_status": "WON",
-              "reason": "delivered", "updated_at": marker, "csrf_token": _csrf()})
-    assert response.status_code == 200
-    sub = submission_service.get_submission(sid)
-    assert sub.status_code == "COMPLETED" and sub.deal_status_code == "WON"
-    history = submission_service.get_status_history(sid)
-    assert [(e.status_code, e.reason) for e in history] == [
+    assert submission_service.get_submission(sid).status_code == "COMPLETED"
+    assert [(e.status_code, e.reason) for e in submission_service.get_status_history(sid)] == [
         ("COMPLETED", "delivered"), ("ACTIVE", None)]
+    assert "read-only" in response.text and "Contract status can still be set" in response.text
 
 
 def test_statuses_post_resubmitting_the_same_modeling_status_adds_no_event(client):
     sid, marker = _deal(client, name="Unchanged modeling")
     response = client.post(
         f"/submissions/{sid}/statuses", headers=_HX,
-        data={"modeling_status": "ACTIVE", "deal_status": "LOST",
-              "reason": "", "updated_at": marker, "csrf_token": _csrf()})
+        data={"modeling_status": "ACTIVE", "reason": "", "updated_at": marker,
+              "csrf_token": _csrf()})
     assert response.status_code == 200
-    assert submission_service.get_submission(sid).deal_status_code == "LOST"
     assert len(submission_service.get_status_history(sid)) == 1
 
 
-def test_deal_status_post_redirects_without_htmx(client):
+def test_statuses_post_redirects_without_htmx(client):
     sid, marker = _deal(client, name="Redirected deal")
     response = client.post(
         f"/submissions/{sid}/statuses",
-        data={"deal_status": "LOST", "updated_at": marker, "csrf_token": _csrf()})
+        data={"modeling_status": "CANCELLED", "updated_at": marker, "csrf_token": _csrf()})
     assert response.status_code == 303
     assert response.headers["location"] == f"/submissions/{sid}"
+    assert submission_service.get_submission(sid).status_code == "CANCELLED"
 
 
-def test_deal_status_post_works_on_a_completed_deal(client):
-    sid, marker = _deal(client, name="Completed then won")
-    client.post(f"/submissions/{sid}/statuses", data={
-        "modeling_status": "COMPLETED", "updated_at": marker, "csrf_token": _csrf()})
-    marker = str(submission_service.get_submission(sid).updated_at)
-    response = client.post(
-        f"/submissions/{sid}/statuses", headers=_HX,
-        data={"deal_status": "WON", "updated_at": marker, "csrf_token": _csrf()})
-    assert response.status_code == 200
-    assert submission_service.get_submission(sid).deal_status_code == "WON"
-    assert "read-only" in response.text and "Reopen it to make changes" not in response.text
-
-
-def test_deal_status_post_conflicts_on_a_stale_marker(client):
+def test_statuses_post_conflicts_on_a_stale_marker(client):
     sid, _ = _deal(client, name="Stale deal")
     response = client.post(
         f"/submissions/{sid}/statuses", headers=_HX,
-        data={"deal_status": "WON", "updated_at": "1999-01-01 00:00:00",
+        data={"modeling_status": "COMPLETED", "updated_at": "1999-01-01 00:00:00",
               "csrf_token": _csrf()})
     assert response.status_code == 409
     assert "changed since you opened it" in response.text
-    assert submission_service.get_submission(sid).deal_status_code == "IN_PROCESS"
+    assert submission_service.get_submission(sid).status_code == "ACTIVE"
 
 
-def test_deal_status_post_rejects_an_unknown_code(client):
+def test_statuses_post_rejects_an_unknown_code(client):
     sid, marker = _deal(client, name="Bad code deal")
     response = client.post(
         f"/submissions/{sid}/statuses", headers=_HX,
-        data={"deal_status": "HOLD", "updated_at": marker, "csrf_token": _csrf()})
+        data={"modeling_status": "HOLD", "updated_at": marker, "csrf_token": _csrf()})
     assert response.status_code == 422
-    assert "Submission status is Won, Lost or In Process." in response.text
+    assert "Modeling status is Active, Completed or Cancelled." in response.text
 
 
-def test_deal_status_post_without_a_csrf_token_writes_nothing(client):
+def test_statuses_post_without_a_csrf_token_writes_nothing(client):
     sid, marker = _deal(client, name="No csrf deal")
     response = client.post(
         f"/submissions/{sid}/statuses",
-        data={"deal_status": "WON", "updated_at": marker, "csrf_token": "nope"})
+        data={"modeling_status": "COMPLETED", "updated_at": marker, "csrf_token": "nope"})
     assert response.status_code == 303
-    assert submission_service.get_submission(sid).deal_status_code == "IN_PROCESS"
+    assert submission_service.get_submission(sid).status_code == "ACTIVE"
 
 
-def _crm_rows(body: str) -> dict[str, str]:
-    """The rendered CRM rows keyed by CRM ID (the wrapper up to the actions)."""
-    rows = re.findall(r'<div class="crm-row" x-data[\s\S]*?<span class="crm-row__actions">',
-                      body)
-    return {re.search(r'crm-row__id">([^<]+)<', row).group(1).strip(): row for row in rows}
+def test_contract_status_post_saves_in_place_on_a_completed_deal(client):
+    sid, marker = _deal(client, name="Won contract", crm_ids="T-100, T-200")
+    client.post(f"/submissions/{sid}/statuses", data={
+        "modeling_status": "COMPLETED", "updated_at": marker, "csrf_token": _csrf()})
+    response = _status_post(client, sid, "T-100", "WON")
+    assert response.status_code == 200
+    assert response.text.lstrip().startswith('<div id="contracts"')
+    assert _contract(sid, "T-100").contract_status_code == "WON"
+    assert _contract(sid, "T-200").contract_status_code == "IN_PROCESS"
+    assert submission_service.get_submission(sid).status_code == "COMPLETED"
+    assert len(submission_service.get_status_history(sid)) == 2
+    # On a closed deal the status select is live; the pencil, × and Add are not.
+    assert 'aria-label="Contract status of T-100"' in response.text
+    assert 'value="WON" selected' in response.text
+    assert "+ Add contract" not in response.text
+    assert 'aria-label="Edit T-100"' not in response.text
+    assert 'aria-label="Remove T-100"' not in response.text
 
 
-def test_crm_dates_post_overrides_one_column_and_inherits_the_other(client):
-    sid, _ = _deal(client, name="Dated deal", crm_ids="T-100, T-200",
-                   expiration_date="2027-04-01")
-    tags = {t.crm_id: t for t in submission_service.list_crm_ids(sid)}
+def test_contract_status_post_conflicts_on_a_stale_marker_and_rejects_an_unknown_code(client):
+    sid, _ = _deal(client, name="Stale contract", crm_ids="T-100")
+    stale = _status_post(client, sid, "T-100", "WON", updated_at="1999-01-01 00:00:00")
+    assert stale.status_code == 409 and "changed since you opened it" in stale.text
+    bad = _status_post(client, sid, "T-100", "HOLD")
+    assert bad.status_code == 422
+    assert "Contract status is Won, Lost or In Process." in bad.text
+    assert _contract(sid, "T-100").contract_status_code == "IN_PROCESS"
+
+
+def test_contract_status_post_redirects_without_htmx(client):
+    sid, _ = _deal(client, name="Redirected contract", crm_ids="T-100")
+    c = _contract(sid, "T-100")
     response = client.post(
-        f"/submissions/{sid}/crm-ids/{tags['T-100'].id}/dates", headers=_HX,
-        data={"inception_date": "", "expiration_date": "2029-04-01",
+        f"/submissions/{sid}/contracts/{c.id}/status",
+        data={"contract_status_code": "LOST", "updated_at": str(c.updated_at),
               "csrf_token": _csrf()})
-    assert response.status_code == 200
-    assert response.text.lstrip().startswith('<div id="crm-tags"')
-    rows = _crm_rows(response.text)
-    # The overridden expiration and the inherited one read the same way.
-    assert "2029-04-01" in rows["T-100"] and "2027-04-01" in rows["T-200"]
-    assert submission_service.list_crm_ids(sid)[0].inception_date is None
-    assert "Make dates the same" in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/submissions/{sid}"
+    assert _contract(sid, "T-100").contract_status_code == "LOST"
 
 
-def test_crm_add_post_stores_a_typed_date_and_inherits_the_deal_s(client):
-    sid, _ = _deal(client, name="Add with dates", expiration_date="2027-04-01")
+def test_contract_add_post_fills_the_expiration_and_refuses_a_duplicate(client):
+    sid, _ = _deal(client, name="Add contract", crm_ids="T-100")
     response = client.post(
-        f"/submissions/{sid}/crm-ids", headers=_HX,
-        data={"crm_id": "T-900", "inception_date": "2026-04-01",
-              "expiration_date": "2029-04-01", "csrf_token": _csrf()})
+        f"/submissions/{sid}/contracts", headers=_HX,
+        data={"crm_id": "T-900", "treaty_type_code": "stop_loss",
+              "inception_date": "2026-04-01", "expiration_date": "",
+              "contract_status_code": "WON", "csrf_token": _csrf()})
     assert response.status_code == 200
-    [tag] = submission_service.list_crm_ids(sid)
-    # The inception came back as the deal's, so it is stored as inheritance.
-    assert tag.inception_date is None and str(tag.expiration_date) == "2029-04-01"
-    assert str(tag.effective_inception_date) == "2026-04-01"
+    added = _contract(sid, "T-900")
+    assert str(added.expiration_date) == "2027-03-31"
+    assert added.contract_status_code == "WON"
+    assert "Stop Loss" in response.text
+    dup = client.post(
+        f"/submissions/{sid}/contracts", headers=_HX,
+        data={"crm_id": " t-100 ", "treaty_type_code": "stop_loss",
+              "inception_date": "2026-04-01", "expiration_date": "",
+              "contract_status_code": "", "csrf_token": _csrf()})
+    assert dup.status_code == 422
+    assert "T-100 is already a contract on this submission." in dup.text
+    # The Add row comes back open with what was typed.
+    assert 'x-data="{ adding: true }"' in dup.text and 'value=" t-100 "' in dup.text
+    assert len(submission_service.list_contracts(sid)) == 2
 
 
-def test_crm_dates_post_rejects_a_date_that_does_not_parse(client):
-    sid, _ = _deal(client, name="Bad date deal", crm_ids="T-100")
-    [tag] = submission_service.list_crm_ids(sid)
+def test_contract_add_row_opens_on_the_last_rows_dates(client):
+    sid, _ = _deal(client, name="Carry down", crm_ids="T-100",
+                   inception_date="2026-05-01", expiration_date="2027-04-30")
+    body = client.get(f"/submissions/{sid}").text
+    add_form = body.split(f'hx-post="/submissions/{sid}/contracts"')[1].split("</form>")[0]
+    assert 'name="inception_date" aria-label="Inception" required\n       value="2026-05-01"' in add_form
+    assert 'name="expiration_date" aria-label="Expiration"\n       value="2027-04-30"' in add_form
+
+
+def test_contract_edit_post_changes_one_row_in_place(client):
+    sid, _ = _deal(client, name="Edit contract", crm_ids="T-100, T-200",
+                   expiration_date="2027-04-01")
+    t100 = _contract(sid, "T-100")
     response = client.post(
-        f"/submissions/{sid}/crm-ids/{tag.id}/dates", headers=_HX,
-        data={"inception_date": "yesterday", "expiration_date": "", "csrf_token": _csrf()})
-    assert response.status_code == 422
-    assert "Enter a valid date" in response.text
-    assert submission_service.list_crm_ids(sid)[0].inception_date is None
-
-
-def test_same_dates_post_resets_every_override(client):
-    sid, _ = _deal(client, name="Same dates deal", crm_ids="T-100, T-200")
-    for tag in submission_service.list_crm_ids(sid):
-        submission_service.set_crm_dates(
-            crm_tag_id=tag.id, inception_date=date(2026, 5, 1),
-            expiration_date=date(2027, 5, 1), actor_id=client.db.user_a)
-    response = client.post(f"/submissions/{sid}/crm-ids/same-dates", headers=_HX,
-                           data={"csrf_token": _csrf()})
+        f"/submissions/{sid}/contracts/{t100.id}", headers=_HX,
+        data={"crm_id": "T-101", "treaty_type_code": "aggregate_xol",
+              "inception_date": "2026-04-01", "expiration_date": "2029-04-01",
+              "updated_at": str(t100.updated_at), "csrf_token": _csrf()})
     assert response.status_code == 200
-    assert all(t.inception_inherited and t.expiration_inherited
-               for t in submission_service.list_crm_ids(sid))
-    assert "Make dates the same" not in response.text
+    changed = _contract(sid, "T-101")
+    assert changed.id == t100.id and str(changed.expiration_date) == "2029-04-01"
+    assert changed.treaty_type_code == "aggregate_xol"
+    assert str(_contract(sid, "T-200").expiration_date) == "2027-04-01"
+
+    bad = client.post(
+        f"/submissions/{sid}/contracts/{t100.id}", headers=_HX,
+        data={"crm_id": "T-101", "treaty_type_code": "aggregate_xol",
+              "inception_date": "yesterday", "expiration_date": "",
+              "updated_at": str(changed.updated_at), "csrf_token": _csrf()})
+    assert bad.status_code == 422 and "Enter the dates as YYYY-MM-DD." in bad.text
+    # The row comes back in its editor with the typed values.
+    assert 'x-data="{ editing: true }"' in bad.text and 'value="yesterday"' in bad.text
+
+    stale = client.post(
+        f"/submissions/{sid}/contracts/{t100.id}", headers=_HX,
+        data={"crm_id": "T-101", "treaty_type_code": "aggregate_xol",
+              "inception_date": "2026-04-01", "expiration_date": "",
+              "updated_at": str(t100.updated_at), "csrf_token": _csrf()})
+    assert stale.status_code == 409 and "changed since you opened it" in stale.text
 
 
-def test_crm_date_posts_are_refused_when_the_deal_is_closed(client):
-    sid, marker = _deal(client, name="Closed dates deal", crm_ids="T-100")
-    [tag] = submission_service.list_crm_ids(sid)
+def test_contract_delete_post_removes_the_row_and_its_dates(client):
+    sid, _ = _deal(client, name="Delete contract", crm_ids="T-100, T-200")
+    t100 = _contract(sid, "T-100")
+    response = client.post(f"/submissions/{sid}/contracts/{t100.id}/delete",
+                           headers=_HX, data={"csrf_token": _csrf()})
+    assert response.status_code == 200
+    assert [c.crm_id for c in submission_service.list_contracts(sid)] == ["T-200"]
+    assert "T-100" not in response.text and "Contracts (1)" in response.text
+
+
+def test_contract_attribute_posts_are_refused_when_the_deal_is_closed(client):
+    sid, marker = _deal(client, name="Closed contracts", crm_ids="T-100")
+    t100 = _contract(sid, "T-100")
     client.post(f"/submissions/{sid}/statuses", data={
         "modeling_status": "CANCELLED", "updated_at": marker, "csrf_token": _csrf()})
-    dated = client.post(
-        f"/submissions/{sid}/crm-ids/{tag.id}/dates", headers=_HX,
-        data={"inception_date": "2026-05-01", "expiration_date": "", "csrf_token": _csrf()})
-    same = client.post(f"/submissions/{sid}/crm-ids/same-dates", headers=_HX,
-                       data={"csrf_token": _csrf()})
-    assert dated.status_code == 409 and same.status_code == 409
-    assert "Reopen this submission" in dated.text
-    assert submission_service.list_crm_ids(sid)[0].inception_date is None
+    fields = {"crm_id": "T-101", "treaty_type_code": "per_risk_xol",
+              "inception_date": "2026-04-01", "expiration_date": "", "csrf_token": _csrf()}
+    edited = client.post(f"/submissions/{sid}/contracts/{t100.id}", headers=_HX,
+                         data={**fields, "updated_at": str(t100.updated_at)})
+    added = client.post(f"/submissions/{sid}/contracts", headers=_HX,
+                        data={**fields, "contract_status_code": ""})
+    deleted = client.post(f"/submissions/{sid}/contracts/{t100.id}/delete",
+                          headers=_HX, data={"csrf_token": _csrf()})
+    assert (edited.status_code, added.status_code, deleted.status_code) == (409, 409, 409)
+    assert "Reopen this submission" in edited.text
+    assert [c.crm_id for c in submission_service.list_contracts(sid)] == ["T-100"]
 
 
-def test_deal_dates_post_changes_the_deal_expiration_in_place(client):
-    sid, marker = _deal(client, name="Deal dates", crm_ids="T-100")
+def test_contract_posts_without_a_csrf_token_write_nothing(client):
+    sid, _ = _deal(client, name="No csrf contracts", crm_ids="T-100")
+    c = _contract(sid, "T-100")
     response = client.post(
-        f"/submissions/{sid}/dates", headers=_HX,
-        data={"inception_date": "2026-04-01", "expiration_date": "2027-04-01",
-              "updated_at": marker, "csrf_token": _csrf()})
-    assert response.status_code == 200
-    sub = submission_service.get_submission(sid)
-    assert str(sub.expiration_date) == "2027-04-01"
-    # The CRM row inside the fragment reads the new deal expiration, inherited.
-    assert "2027-04-01" in _crm_rows(response.text)["T-100"]
-    bad = client.post(
-        f"/submissions/{sid}/dates", headers=_HX,
-        data={"inception_date": "", "expiration_date": "", "updated_at": marker,
-              "csrf_token": _csrf()})
-    assert bad.status_code == 422
+        f"/submissions/{sid}/contracts/{c.id}/status",
+        data={"contract_status_code": "WON", "updated_at": str(c.updated_at),
+              "csrf_token": "nope"})
+    assert response.status_code == 303
+    assert _contract(sid, "T-100").contract_status_code == "IN_PROCESS"
+    deleted = client.post(f"/submissions/{sid}/contracts/{c.id}/delete",
+                          data={"csrf_token": "nope"})
+    assert deleted.status_code == 303
+    assert len(submission_service.list_contracts(sid)) == 1
 
 
-def test_form_accepts_an_optional_expiration_and_rejects_a_bad_one(client):
-    sid, _ = _deal(client, name="Expiring deal", expiration_date="2027-04-01")
-    assert str(submission_service.get_submission(sid).expiration_date) == "2027-04-01"
+def test_data_vintage_saves_and_the_edit_form_carries_no_contract_fields(client):
+    sid, _ = _deal(client, name="Vintage deal", data_vintage="2026-06-30")
+    assert str(submission_service.get_submission(sid).data_vintage) == "2026-06-30"
+    page = client.get(f"/submissions/{sid}").text
+    assert "Data vintage" in page and "2026-06-30" in page
     edit = client.get(f"/submissions/{sid}/edit").text
-    assert 'name="expiration_date"' in edit and 'value="2027-04-01"' in edit
-    bad = client.post("/submissions", data=_payload(name="Bad expiry",
-                                                    expiration_date="next year"))
-    assert bad.status_code == 422 and "Enter a valid date." in bad.text
-    blank = client.post("/submissions", data=_payload(name="No expiry",
-                                                      cedant_name="Other Re"))
-    assert blank.status_code == 303
+    assert 'name="data_vintage"' in edit and 'value="2026-06-30"' in edit
+    assert 'name="contract_crm_id"' not in edit
+    saved = client.post(f"/submissions/{sid}", data={
+        **_payload(name="Vintage deal", data_vintage=""),
+        "updated_at": str(submission_service.get_submission(sid).updated_at)})
+    assert saved.status_code == 303
+    sub = submission_service.get_submission(sid)
+    assert sub.data_vintage is None and [c.crm_id for c in sub.contracts] == ["T-1"]
 
 
-def test_list_offers_two_status_pickers_and_filters_on_submission_status(client):
-    won, marker = _deal(client, name="Won listed")
-    client.post(f"/submissions/{won}/statuses", data={
-        "deal_status": "WON", "updated_at": marker, "csrf_token": _csrf()})
+def test_list_offers_both_status_pickers_and_filters_on_a_contract(client):
+    won, _ = _deal(client, name="Won listed", crm_ids="T-100")
+    _status_post(client, won, "T-100", "WON")
     _deal(client, name="Still in process", cedant_name="Other Re")
     body = client.get("/submissions").text
     assert 'id="status-label">Modeling status</span>' in body
-    assert 'id="deal_status-label">Submission status</span>' in body
+    assert 'id="contract_status-label">Contract status</span>' in body
     assert "Hold" not in body
-    narrowed = client.get("/submissions?deal_status=WON").text
+    narrowed = client.get("/submissions?contract_status=WON").text
     assert "Won listed" in narrowed and "Still in process" not in narrowed
     assert _is_picked(narrowed, "WON")
-    assert "<th>Submission status</th>" in narrowed
+    assert "<th>Contract status</th>" not in narrowed
 
 
 # ── spec 017 US2: client and treaty type from CIC's lists ────────────────────
@@ -2144,7 +2272,7 @@ _ELEVEN = ["aggregate_xol", "aggregate_cat_xol", "risk_aggregate_xol",
 
 
 def _treaty_options(body: str) -> list[str]:
-    select = body.split('name="treaty_type_code"')[1].split("</select>")[0]
+    select = body.split('name="contract_treaty_type"')[1].split("</select>")[0]
     return re.findall(r'<option value="([a-z_]+)"', select)
 
 
@@ -2213,10 +2341,8 @@ def test_a_client_not_in_a_reachable_list_is_a_field_error(client, loss_clients)
 # ── spec 017 US3: in force and the CRM ID cap on the submissions list ────────
 
 def test_in_force_as_of_lists_won_deals_on_risk_and_defaults_to_today(client):
-    won, marker = _deal(client, name="On risk", crm_ids="T-100",
-                        expiration_date="2099-01-01")
-    client.post(f"/submissions/{won}/statuses", data={
-        "deal_status": "WON", "updated_at": marker, "csrf_token": _csrf()})
+    won, _ = _deal(client, name="On risk", crm_ids="T-100", expiration_date="2099-01-01")
+    _status_post(client, won, "T-100", "WON")
     _deal(client, name="Still open", cedant_name="Other Re", crm_ids="T-300",
           expiration_date="2099-01-01")
     body = client.get("/submissions?in_force=1").text

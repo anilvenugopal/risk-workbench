@@ -5,7 +5,6 @@
     <li>
       <a href="/submissions/{{ w.id }}" target="_blank" rel="noopener">{{ w.name }}</a>
       <span class="dup-warn__meta">{{ w.cedant_name }} ·
-        {{ w.treaty_type_label or w.treaty_type_code }} · {{ w.inception_date }} ·
         {{ w.status_label or w.status_code }}</span>
     </li>
     {% endfor %}

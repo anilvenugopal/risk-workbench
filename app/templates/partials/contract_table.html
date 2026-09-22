@@ -1,0 +1,138 @@
+{# The contract table of the deal card (spec 017 FR-004, FR-005): a header row
+   and one row per contract in insertion order — CRM ID · Treaty type ·
+   Inception · Expiration · Contract status · actions. Every contract route
+   swaps this wrapper. The status select saves on change in every Modeling
+   status; the pencil, the × and Add are absent unless Modeling status is
+   Active. A refused post re-renders with its editor open (`add_row` or
+   `edit_row`) and the message above the table. Context: `_contracts_partial`
+   in app/routers/submissions.py. #}
+{% macro pencil() %}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+{% endmacro %}
+
+{# The five inputs of an editor row, in the table's column order. `row` is a
+   Contract, the posted values of a refused row, or none for a fresh Add row. #}
+{% macro editor_fields(row, status_field=True) %}
+<input type="text" name="crm_id" placeholder="CRM ID" autocomplete="off"
+       aria-label="CRM ID" required value="{{ row.crm_id if row else '' }}">
+<select name="treaty_type_code" aria-label="Treaty type" required>
+  <option value="">Treaty type…</option>
+  {% for code, label in treaty_types %}
+  <option value="{{ code }}"{% if row and row.treaty_type_code == code %} selected{% endif %}>{{ label }}</option>
+  {% endfor %}
+</select>
+<input type="date" name="inception_date" aria-label="Inception" required
+       value="{{ row.inception_date if row else '' }}">
+<input type="date" name="expiration_date" aria-label="Expiration"
+       value="{{ row.expiration_date if row else '' }}">
+{% if status_field %}
+<select name="contract_status_code" aria-label="Contract status">
+  {% for code, label in contract_statuses %}
+  <option value="{{ code }}"{% if row and row.contract_status_code == code %} selected{% endif %}>{{ label }}</option>
+  {% endfor %}
+</select>
+{% else %}
+<span></span>
+{% endif %}
+{% endmacro %}
+
+<div id="contracts" class="contract-band" x-data="{ adding: {{ 'true' if add_row else 'false' }} }"
+     hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }">
+  {% if contract_error %}
+  <div class="form-banner form-banner--error" role="alert">{{ contract_error }}</div>
+  {% endif %}
+
+  <div class="contract-band__head">
+    <span class="contract-band__label">Contracts{% if contracts %} ({{ contracts|length }}){% endif %}</span>
+    {% if is_active %}
+    <span class="contract-band__actions">
+      <button class="btn-sm" type="button" x-show="!adding" @click="adding = true">+ Add contract</button>
+    </span>
+    {% endif %}
+  </div>
+
+  {% if contracts or is_active %}
+  <div class="contract-table">
+    <div class="contract-row contract-row--head">
+      <span>CRM ID</span><span>Treaty type</span><span>Inception</span>
+      <span>Expiration</span><span>Contract status</span><span></span>
+    </div>
+
+    {% for c in contracts %}
+    {% set reopened = edit_row and edit_row.id == c.id %}
+    <div class="contract-row" x-data="{ editing: {{ 'true' if reopened else 'false' }} }"
+         :class="editing && 'contract-row--edit'">
+      <span class="contract-row__id" x-show="!editing">{{ c.crm_id }}</span>
+      <span class="contract-row__type" x-show="!editing">{{ c.treaty_type_label or c.treaty_type_code }}</span>
+      <span class="contract-date" x-show="!editing">{{ c.inception_date }}</span>
+      <span class="contract-date" x-show="!editing">{{ c.expiration_date }}</span>
+      {# Won / Lost / In Process, set in place in every Modeling status (P-02, P-12). #}
+      <form method="post" action="/submissions/{{ submission.id }}/contracts/{{ c.id }}/status"
+            hx-post="/submissions/{{ submission.id }}/contracts/{{ c.id }}/status"
+            hx-trigger="change" hx-target="#contracts" hx-swap="outerHTML" x-show="!editing">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <input type="hidden" name="updated_at" value="{{ c.updated_at }}">
+        <select name="contract_status_code" aria-label="Contract status of {{ c.crm_id }}">
+          {% for code, label in contract_statuses %}
+          <option value="{{ code }}"{% if code == c.contract_status_code %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      <span class="contract-row__actions" x-show="!editing">
+        {% if is_active %}
+        <button class="icon-btn icon-btn--xs" type="button" @click="editing = true"
+                title="Edit" aria-label="Edit {{ c.crm_id }}">{{ pencil() }}</button>
+        <form method="post" action="/submissions/{{ submission.id }}/contracts/{{ c.id }}/delete"
+              hx-post="/submissions/{{ submission.id }}/contracts/{{ c.id }}/delete"
+              hx-target="#contracts" hx-swap="outerHTML">
+          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+          <button class="contract-row__del" type="submit"
+                  title="Remove" aria-label="Remove {{ c.crm_id }}">×</button>
+        </form>
+        {% endif %}
+      </span>
+      {% if is_active %}
+      <form class="contract-row__editor" method="post"
+            action="/submissions/{{ submission.id }}/contracts/{{ c.id }}"
+            hx-post="/submissions/{{ submission.id }}/contracts/{{ c.id }}"
+            hx-target="#contracts" hx-swap="outerHTML" x-show="editing" x-cloak>
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <input type="hidden" name="updated_at" value="{{ c.updated_at }}">
+        {{ editor_fields(edit_row if reopened else c, status_field=False) }}
+        <span></span>
+        <span class="contract-row__foot">
+          <button class="btn-sm btn-sm--primary" type="submit">Save</button>
+          <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
+        </span>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    {% if is_active %}
+    {# The Add row opens on the last row's dates (FR-005); a blank expiration
+       saves as inception plus one year minus a day. #}
+    {% set last = contracts[-1] if contracts else none %}
+    {% set fresh = add_row or {"inception_date": last.inception_date if last else "",
+                               "expiration_date": last.expiration_date if last else ""} %}
+    <form class="contract-row contract-row--edit" method="post"
+          action="/submissions/{{ submission.id }}/contracts"
+          hx-post="/submissions/{{ submission.id }}/contracts"
+          hx-target="#contracts" hx-swap="outerHTML" x-show="adding" x-cloak>
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      {{ editor_fields(fresh) }}
+      <span></span>
+      <span class="contract-row__foot">
+        <button class="btn-sm btn-sm--primary" type="submit">Add</button>
+        <button class="btn-sm" type="button" @click="adding = false">Cancel</button>
+      </span>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if not contracts %}
+  <div class="contract-empty">No contracts yet.</div>
+  {% endif %}
+</div>

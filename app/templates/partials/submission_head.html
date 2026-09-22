@@ -1,7 +1,7 @@
-{# The submission page from the title to the CRM IDs (spec 017 T-10, P-14): one
-   card of four attribute groups — Treaty, Term, Status, Owner — over the CRM
-   band. Every POST in this block answers with this fragment, so each form's
-   `updated_at` marker is the one the last write produced. Context:
+{# The submission page from the title to the contract table (spec 017 T-10,
+   P-14): one card of three attribute groups — Deal, Status, Owner — over the
+   contract table. Every POST in this block answers with this fragment, so each
+   form's `updated_at` marker is the one the last write produced. Context:
    `_head_context` in app/routers/submissions.py. The before-swap hook lets htmx
    swap a 409 or 422 re-render in, banner included. #}
 <div id="deal-head"
@@ -30,12 +30,12 @@
   {% if not is_active %}
   <div class="form-banner form-banner--readonly">
     This deal is {{ submission.status_label or submission.status_code }} — read-only.
-    Submission status can still be set; set Modeling status back to Active to change anything else.
+    Contract status can still be set; set Modeling status back to Active to change anything else.
   </div>
   {% endif %}
 
-  {# `deal_field` keeps every value labelled, so Cedant and Client can never be
-     read for each other, and an unset value reads "Not set" rather than blank. #}
+  {# `deal_field` keeps every value labelled, so Cedant and Client ID can never
+     be read for each other, and an unset value reads "Not set" rather than blank. #}
   {% macro deal_field(key, value, dates=False) %}
   <div class="deal-field{% if not value %} deal-field--none{% endif %}">
     <span class="deal-field__k">{{ key }}</span>
@@ -52,74 +52,28 @@
   <div class="deal-card">
     <div class="deal-groups">
 
-      {# Treaty type, cedant and client carry no pencil — they stay on the Edit page. #}
+      {# These four carry no pencil — they stay on the Edit page. #}
       <div class="deal-group">
-        <div class="deal-group__head"><span class="deal-group__label">Treaty</span></div>
-        {{ deal_field('Type', submission.treaty_type_label or submission.treaty_type_code) }}
+        <div class="deal-group__head"><span class="deal-group__label">Deal</span></div>
         {{ deal_field('Cedant', submission.cedant_name) }}
-        {{ deal_field('Client', submission.client_display) }}
-      </div>
-
-      {# The deal-level dates are every CRM ID's default (P-03). #}
-      <div class="deal-group" x-data="{ editing: false }">
-        <div class="deal-group__head">
-          <span class="deal-group__label">Term</span>
-          {% if is_active %}
-          <button class="icon-btn icon-btn--xs" type="button" x-show="!editing"
-                  @click="editing = true" title="Edit inception and expiration"
-                  aria-label="Edit inception and expiration">{{ pencil() }}</button>
-          {% endif %}
-        </div>
+        {{ deal_field('Client ID', submission.client_display) }}
+        {{ deal_field('Data vintage', submission.data_vintage, dates=True) }}
         {{ deal_field('Treaty year', submission.treaty_year, dates=True) }}
-        <div {% if is_active %}x-show="!editing"{% endif %}>
-          {{ deal_field('Inception', submission.inception_date, dates=True) }}
-          {{ deal_field('Expiration', submission.expiration_date, dates=True) }}
-        </div>
-        {% if is_active %}
-        <form class="deal-edit" method="post"
-              action="/submissions/{{ submission.id }}/dates"
-              hx-post="/submissions/{{ submission.id }}/dates"
-              hx-target="#deal-head" hx-swap="outerHTML" x-show="editing" x-cloak>
-          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-          <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
-          <div class="deal-field">
-            <span class="deal-field__k">Inception</span>
-            <input type="date" name="inception_date" required aria-label="Inception"
-                   value="{{ submission.inception_date or '' }}">
-          </div>
-          <div class="deal-field">
-            <span class="deal-field__k">Expiration</span>
-            <input type="date" name="expiration_date" aria-label="Expiration"
-                   value="{{ submission.expiration_date or '' }}">
-          </div>
-          <div class="deal-edit__actions">
-            <button class="btn-sm btn-sm--primary" type="submit">Save</button>
-            <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
-          </div>
-          <span class="deal-edit__hint">Every CRM ID that inherits follows these dates.</span>
-        </form>
-        {% endif %}
       </div>
 
-      {# Both statuses in one editor, in every Modeling status (P-12, P-14): one
-         Save, one marker, one POST. #}
+      {# Modeling status, event-sourced, in every Modeling status (P-12). #}
       <div class="deal-group" x-data="{ editing: false, history: false }">
         <div class="deal-group__head">
           <span class="deal-group__label">Status</span>
           <button class="icon-btn icon-btn--xs" type="button" x-show="!editing"
-                  @click="editing = true" title="Change the statuses"
-                  aria-label="Change the statuses">{{ pencil() }}</button>
+                  @click="editing = true" title="Change the Modeling status"
+                  aria-label="Change the Modeling status">{{ pencil() }}</button>
         </div>
         <div x-show="!editing">
           <div class="deal-field">
             <span class="deal-field__k">Modeling</span>
             <span class="deal-field__v"><span class="status-chip status-chip--{{ submission.status_code|lower }}">
               {{ submission.status_label or submission.status_code }}</span></span>
-          </div>
-          <div class="deal-field">
-            <span class="deal-field__k">Submission</span>
-            <span class="deal-field__v"><span class="status-chip status-chip--{{ submission.deal_status_code|lower }}">
-              {{ submission.deal_status_label or submission.deal_status_code }}</span></span>
           </div>
           {% if status_history %}
           <div class="deal-field">
@@ -161,19 +115,10 @@
             <span class="deal-field__k">Reason</span>
             <input type="text" name="reason" placeholder="Optional" aria-label="Reason">
           </div>
-          <div class="deal-field">
-            <span class="deal-field__k">Submission</span>
-            <select name="deal_status" aria-label="Submission status">
-              {% for code, label in deal_statuses %}
-              <option value="{{ code }}"{% if code == submission.deal_status_code %} selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-          </div>
           <div class="deal-edit__actions">
             <button class="btn-sm btn-sm--primary" type="submit">Save</button>
             <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
           </div>
-          <span class="deal-edit__hint">The reason is recorded against Modeling status only.</span>
         </form>
       </div>
 
@@ -211,6 +156,6 @@
 
     </div>
 
-    {% include "partials/crm_tags.html" %}
+    {% include "partials/contract_table.html" %}
   </div>
 </div>
