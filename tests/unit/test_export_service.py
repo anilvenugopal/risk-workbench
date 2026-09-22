@@ -144,12 +144,6 @@ def test_find_exported_names_the_newest_export_and_counts_the_earlier_ones(deal)
     assert svc.find_exported([41958], "RL") == {}
 
 
-def test_list_clients_is_every_client_by_name(deal):
-    seed_client(2, "Alpha Mutual", "Y")
-    seed_client(3, "Retired", "N")
-    assert [c.name for c in svc.list_clients()] == ["Alpha Mutual", "Example Re", "Retired"]
-
-
 def test_model_version_choices_newest_first_from_the_lookup(deal):
     seed_lookup_versions("HDv2.1")
     assert svc.model_version_choices() == ["25.0", "23.0", "HDv2.1"]

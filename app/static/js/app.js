@@ -740,6 +740,16 @@ document.addEventListener('alpine:init', () => {
   // Submission create form: the contract rows and the treaty year. A new row is
   // the blank template with the previous row's dates copied in (FR-005); the
   // year follows the first inception typed until the analyst types a year.
+  // Export form: the chosen contract's CRM ID and inception go into the two
+  // fields, which stay editable (spec 017 FR-011).
+  Alpine.data('contractPick', () => ({
+    pick(opt) {
+      if (!opt || !opt.value) return;
+      this.$refs.crm.value = opt.dataset.crmId;
+      this.$refs.incept.value = opt.dataset.inception;
+    },
+  }));
+
   Alpine.data('contractRows', () => ({
     edited: false,
     onYearInput() {

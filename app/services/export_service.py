@@ -152,12 +152,6 @@ class ExportableAnalysis:
 
 
 @dataclass
-class Client:
-    id: int
-    name: str
-
-
-@dataclass
 class ExportAnalysisDetail:
     """One row of the exports table (data-model.md §7): the manifest row's
     values — an analysis at a portfolio-level perspective, or one ticked treaty
@@ -379,12 +373,6 @@ def mark_exported(selected: list[ExportableAnalysis], perspective_code: str) -> 
     marks = find_exported([a.irp_app_analysis_id for a in selected], perspective_code)
     for a in selected:
         a.exported = marks.get(a.irp_app_analysis_id) if a.irp_app_analysis_id else None
-
-
-def list_clients() -> list[Client]:
-    return [Client(id=int(r["ClientID"]), name=r["ClientName"]) for r in execute(
-        "SELECT ClientID, ClientName FROM dbo.Client "
-        "ORDER BY ClientName, ClientID", {}, connection="LOSS")]
 
 
 def model_version_choices() -> list[str]:
@@ -771,9 +759,9 @@ __all__ = [
     "QUEUED", "IN_PROGRESS", "LOADED", "FAILED", "CLOSED",
     "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN", "TY",
     "ExportError", "ExportValidationError", "ExportNotFound", "ExportActionRefused",
-    "ExportedMark", "ExportableAnalysis", "TreatyChoice", "Client",
+    "ExportedMark", "ExportableAnalysis", "TreatyChoice",
     "ExportAnalysisDetail",
     "derive_status", "list_exportable_analyses", "perspective_choices", "find_exported",
-    "mark_exported", "list_clients", "model_version_choices", "create_export",
+    "mark_exported", "model_version_choices", "create_export",
     "list_export_rows", "retry_decision", "apply_retry", "apply_close",
 ]

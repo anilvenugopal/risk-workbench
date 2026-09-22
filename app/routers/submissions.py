@@ -1837,7 +1837,7 @@ def _export_form_response(request: Request, submission_id: str, *, selected_ids=
             "current_user": request.state.user,
             "nav": _export_nav(request, "submissions.export_new", submission, "Export"),
             "submission": submission, "submission_id": submission.id, "gone": False,
-            "analyses": analyses, "clients": export_service.list_clients(),
+            "analyses": analyses, "clients": client_service.list_clients() or [],
             "contracts": submission.contracts,
             "model_versions": model_versions,
             "values": form_values, "selected_ids": {_uid(v) for v in selected_ids},

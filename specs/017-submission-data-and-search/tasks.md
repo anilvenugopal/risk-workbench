@@ -236,7 +236,7 @@ built, the task says so. Baseline: unit tier 2,010 passed.
 
 ### Export pre-fill
 
-- [ ] T061 [US2] [FR-011] [T-09] [P-06] `app/routers/submissions.py` export GET: `client_id` pre-selected from the submission, `data_vintage` pre-filled, a Contract select built from `list_contracts` (option data attributes `data-crm-id`, `data-inception`; pre-selected when exactly one); `submission_export_new.html` renders it and an Alpine sliver copies the chosen option into `crm_id` and `treaty_incept`; `export_service.list_clients` deleted in favour of `client_service.list_clients`; T034 above closes here
+- [x] T061 [US2] [FR-011] [T-09] [P-06] `app/routers/submissions.py` export GET: `client_id` pre-selected from the submission, `data_vintage` pre-filled, a Contract select built from `list_contracts` (option data attributes `data-crm-id`, `data-inception`; pre-selected when exactly one); `submission_export_new.html` renders it and an Alpine sliver copies the chosen option into `crm_id` and `treaty_incept`; `export_service.list_clients` deleted in favour of `client_service.list_clients`; T034 above closes here
   - Proof: quickstart §3 Story 2 step 5
 
 **Checkpoint / STOP**: hand off for the quickstart §3 Story 2 click-through.
@@ -273,5 +273,9 @@ built, the task says so. Baseline: unit tier 2,010 passed.
   list row's contract summary) and the route half of T061 (client, data vintage and
   single-contract pre-fill) landed with them because they are relabels of existing
   components, not new layout.
-- Unit tier after T060: 2,019 passed (baseline 2,010). SQL Server tier not run
+- T061 done 2026-09-21 after the Story 1 and Story 3 click-through: the export
+  form's Contract select (`contractPick` sliver) fills treaty inception and CRM
+  ID, the client list comes from `client_service`, `export_service.list_clients`
+  deleted. **Stop for the quickstart §3 Story 2 click-through before T062.**
+- Unit tier after T061: 2,020 passed (baseline 2,010). SQL Server tier not run
   (T056 unverified until `make test-sql`; Rebuild needed).

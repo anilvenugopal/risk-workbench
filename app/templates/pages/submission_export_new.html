@@ -77,32 +77,49 @@
       {% if analyses %}{% include "partials/export_form_fields.html" %}{% endif %}
     </div>
 
-    <div class="wf-fields">
+    {# Client and data vintage come from the submission. The Contract select
+       copies the chosen contract's CRM ID and inception into the two fields
+       (contractPick); both stay editable and the export records what is posted
+       (spec 017 FR-011, P-06). #}
+    <div class="wf-fields" x-data="contractPick">
       <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
 
       <div class="wf-field">
-        <label>CLIENT <span class="wf-field__req" title="Required">*</span></label>
+        <label>CLIENT ID <span class="wf-field__req" title="Required">*</span></label>
         {% call forms.typeahead_select('client_id', required=true) %}
           <option value="">Select…</option>
           {% for c in clients %}
-          <option value="{{ c.id }}" {% if values.client_id|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>
+          <option value="{{ c.id }}" {% if values.client_id|string == c.id|string %}selected{% endif %}>{{ c.label }}</option>
           {% endfor %}
         {% endcall %}
         {% if not clients %}<div class="wf-field__msg wf-field__error">The loss repository lists no clients.</div>{% endif %}
       </div>
 
       <div class="wf-field">
+        <label>CONTRACT</label>
+        <select class="wf-field__input" name="contract_id" aria-label="Contract"
+                @change="pick($event.target.selectedOptions[0])"{% if not contracts %} disabled{% endif %}>
+          <option value="">{{ 'Choose a contract…' if contracts else 'No contracts on this submission' }}</option>
+          {% for c in contracts %}
+          <option value="{{ c.id }}" data-crm-id="{{ c.crm_id }}" data-inception="{{ c.inception_date }}"
+                  {% if contracts|length == 1 %}selected{% endif %}>{{ c.crm_id }} · {{ c.treaty_type_label or c.treaty_type_code }} · {{ c.inception_date }}</option>
+          {% endfor %}
+        </select>
+        <div class="wf-field__msg wf-field__hint">Fills the treaty inception and CRM ID below.</div>
+      </div>
+
+      <div class="wf-field">
         <label>TREATY INCEPTION <span class="wf-field__req" title="Required">*</span></label>
-        <input class="wf-field__input" type="date" name="treaty_incept" required
+        <input class="wf-field__input" type="date" name="treaty_incept" required x-ref="incept"
                value="{{ values.treaty_incept or '' }}">
-        <div class="wf-field__msg wf-field__hint">Pre-filled from the submission; a change is recorded on this export only.</div>
+        <div class="wf-field__msg wf-field__hint">From the chosen contract; a change is recorded on this export only.</div>
       </div>
 
       <div class="wf-field">
         <label>CRM ID</label>
-        <input class="wf-field__input" type="text" name="crm_id" maxlength="30"
+        <input class="wf-field__input" type="text" name="crm_id" maxlength="30" x-ref="crm"
                value="{{ values.crm_id or '' }}">
-        <div class="wf-field__msg wf-field__hint">Pre-filled from the submission's first CRM ID; a change is recorded on this export only.</div>
+        <div class="wf-field__msg wf-field__hint">From the chosen contract; a change is recorded on this export only.</div>
       </div>
 
       <div class="wf-field">
