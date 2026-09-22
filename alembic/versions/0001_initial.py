@@ -130,9 +130,9 @@ def upgrade() -> None:
                   server_default=sa.text("GETUTCDATE()")),
     )
 
-    # ── deal_status_kind (kind) — Submission status: Won / Lost / In Process ────
+    # ── contract_status_kind (kind) — Contract status: Won / Lost / In Process ──
     op.create_table(
-        "deal_status_kind",
+        "contract_status_kind",
         sa.Column("code", sa.NVARCHAR(50), primary_key=True),
         sa.Column("label", sa.NVARCHAR(255), nullable=False),
         sa.Column("sort_order", sa.Integer, nullable=False),
@@ -147,18 +147,16 @@ def upgrade() -> None:
         sa.Column("assigned_analyst_id", sa.Uuid, nullable=False),  # soft owner (Article 6)
         sa.Column("name", sa.NVARCHAR(255), nullable=False),        # NOT unique (FR-003)
         sa.Column("cedant_name", sa.NVARCHAR(255), nullable=False),
-        sa.Column("treaty_type_code", sa.NVARCHAR(50), nullable=False),
-        sa.Column("inception_date", sa.Date, nullable=False),
-        sa.Column("expiration_date", sa.Date, nullable=True),
         sa.Column("treaty_year", sa.Integer, nullable=True),
         sa.Column("links_to_submission_id", sa.Uuid, nullable=True),  # self-ref
         sa.Column("directory_path", sa.NVARCHAR(1024), nullable=True),
         # rwb_loss dbo.Client.ClientID — another database, so no FK.
         sa.Column("client_id", sa.Integer, nullable=True),
+        # The in-force as-of date of the data CIC received in the EDM; one per
+        # deal, the export's default (spec 017 P-19).
+        sa.Column("data_vintage", sa.Date, nullable=True),
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False,
                   server_default=sa.text("'ACTIVE'")),  # cached current (Article 4)
-        sa.Column("deal_status_code", sa.NVARCHAR(50), nullable=False,
-                  server_default=sa.text("'IN_PROCESS'")),  # updated in place (Article 4)
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("updated_at", DATETIME2, nullable=False,
@@ -166,9 +164,7 @@ def upgrade() -> None:
         sa.Column("inserted_by", sa.Uuid, nullable=True),
         sa.Column("updated_by", sa.Uuid, nullable=True),
         sa.ForeignKeyConstraint(["assigned_analyst_id"], ["app_user.id"]),
-        sa.ForeignKeyConstraint(["treaty_type_code"], ["treaty_type_kind.code"]),
         sa.ForeignKeyConstraint(["status_code"], ["submission_status_kind.code"]),
-        sa.ForeignKeyConstraint(["deal_status_code"], ["deal_status_kind.code"]),
         sa.ForeignKeyConstraint(["links_to_submission_id"], ["submission.id"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
@@ -182,56 +178,50 @@ def upgrade() -> None:
     op.create_index("ix_submission_assigned_analyst_id", "submission",
                     ["assigned_analyst_id"])
     op.create_index("ix_submission_cedant_name", "submission", ["cedant_name"])
-    op.create_index("ix_submission_treaty_type_code", "submission",
-                    ["treaty_type_code"])
-    # The master list's own index: keyed in its ORDER BY (inception_date DESC,
-    # name) and covering every submission column the list SELECTs, so a page is
-    # read from here and stops at PAGE_SIZE + 1 rows instead of sorting the table.
-    # The DESC matters — an ascending index cannot be scanned backwards to satisfy
-    # a mixed "inception_date DESC, name ASC". The clustered PK puts `id` in the
-    # index without including it.
-    op.create_index(
-        "ix_submission_list_order", "submission",
-        [sa.text("inception_date DESC"), "name"],
-        mssql_include=["cedant_name", "treaty_type_code", "treaty_year",
-                       "status_code", "assigned_analyst_id", "updated_at",
-                       "deal_status_code", "expiration_date", "client_id"],
-    )
 
-    # ── submission_crm_id (0..N CRM tags) ───────────────────────────────────────
+    # ── contract (0..N per submission; one per CRM ID) ──────────────────────────
+    # The CRM ID is the contract (FR doc line 57). Treaty type, the term and the
+    # Won / Lost / In Process status live here, not on the submission (spec 017
+    # P-02, P-03, P-15). CRM ID uniqueness within a submission is the service's
+    # case-insensitive check; no global uniqueness (note 32 D30).
     op.create_table(
-        "submission_crm_id",
+        "contract",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("submission_id", sa.Uuid, nullable=False),
-        sa.Column("crm_id", sa.NVARCHAR(255), nullable=False),  # unvalidated (FR-018)
-        # NULL inherits the submission's date; set, it overrides for this CRM ID.
-        sa.Column("inception_date", sa.Date, nullable=True),
-        sa.Column("expiration_date", sa.Date, nullable=True),
+        sa.Column("crm_id", sa.NVARCHAR(255), nullable=False),  # unvalidated text
+        sa.Column("treaty_type_code", sa.NVARCHAR(50), nullable=False),
+        sa.Column("inception_date", sa.Date, nullable=False),
+        sa.Column("expiration_date", sa.Date, nullable=False),
+        sa.Column("contract_status_code", sa.NVARCHAR(50), nullable=False,
+                  server_default=sa.text("'IN_PROCESS'")),  # updated in place (Article 4)
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),  # concurrency marker (R1)
         sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.Column("updated_by", sa.Uuid, nullable=True),
         sa.ForeignKeyConstraint(["submission_id"], ["submission.id"]),
+        sa.ForeignKeyConstraint(["treaty_type_code"], ["treaty_type_kind.code"]),
+        sa.ForeignKeyConstraint(["contract_status_code"],
+                                ["contract_status_kind.code"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
     )
-    op.create_index("ix_submission_crm_id_submission_id", "submission_crm_id",
-                    ["submission_id"])
+    op.create_index("ix_contract_submission_id", "contract", ["submission_id"])
 
-    # One row per CRM ID, one blank-CRM row for a submission with none, effective
-    # dates by COALESCE per column. Read by the in-force filter and by CIC's
-    # linking queries (spec 017 FR-013). CREATE VIEW must be alone in its batch.
-    op.execute(sa.text("""CREATE VIEW v_submission_crm_id AS
+    # One row per contract, for CIC's linking SQL and the January bulk update by
+    # CRM ID (spec 017 FR-013). The Workbench reads `contract` directly.
+    # CREATE VIEW must be alone in its batch.
+    op.execute(sa.text("""CREATE VIEW v_contract AS
 SELECT s.id            AS submission_id,
        s.name          AS submission_name,
-       s.cedant_name, s.treaty_type_code, s.treaty_year,
-       c.id            AS crm_tag_id,
-       c.crm_id,
-       COALESCE(c.inception_date,  s.inception_date)  AS effective_inception_date,
-       COALESCE(c.expiration_date, s.expiration_date) AS effective_expiration_date,
-       s.status_code      AS modeling_status_code,
-       s.deal_status_code,
-       s.client_id
-FROM submission s
-LEFT JOIN submission_crm_id c ON c.submission_id = s.id"""))
+       s.cedant_name, s.client_id, s.treaty_year, s.data_vintage,
+       s.status_code   AS modeling_status_code,
+       c.id            AS contract_id,
+       c.crm_id, c.treaty_type_code, c.inception_date, c.expiration_date,
+       c.contract_status_code
+FROM contract c
+JOIN submission s ON s.id = c.submission_id"""))
 
     # ── submission_status_event (append-only status history, Article 4) ─────────
     op.create_table(
@@ -1144,9 +1134,9 @@ LEFT JOIN submission_crm_id c ON c.submission_id = s.id"""))
         "('COMPLETED', 'Completed', 20), "
         "('CANCELLED', 'Cancelled', 30)"
     ))
-    # deal_status_kind — Submission status (spec 017 data-model §1).
+    # contract_status_kind — Contract status (spec 017 data-model §1).
     op.execute(sa.text(
-        "INSERT INTO deal_status_kind (code, label, sort_order) VALUES "
+        "INSERT INTO contract_status_kind (code, label, sort_order) VALUES "
         "('IN_PROCESS', 'In Process', 10), "
         "('WON', 'Won', 20), "
         "('LOST', 'Lost', 30)"
@@ -1254,7 +1244,7 @@ def downgrade() -> None:
         op.drop_table(kind)
 
     # Iteration-1 tables — reverse FK order.
-    op.execute(sa.text("DROP VIEW v_submission_crm_id"))
+    op.execute(sa.text("DROP VIEW v_contract"))
     op.drop_index("ix_submission_rdm_rdm_submission", table_name="submission_rdm")
     op.drop_table("submission_rdm")
     op.drop_index("ix_submission_edm_edm_submission", table_name="submission_edm")
@@ -1265,15 +1255,12 @@ def downgrade() -> None:
     op.drop_index("ix_submission_status_event_submission_id",
                   table_name="submission_status_event")
     op.drop_table("submission_status_event")
-    op.drop_index("ix_submission_crm_id_submission_id",
-                  table_name="submission_crm_id")
-    op.drop_table("submission_crm_id")
-    op.drop_index("ix_submission_list_order", table_name="submission")
-    op.drop_index("ix_submission_treaty_type_code", table_name="submission")
+    op.drop_index("ix_contract_submission_id", table_name="contract")
+    op.drop_table("contract")
     op.drop_index("ix_submission_cedant_name", table_name="submission")
     op.drop_index("ix_submission_assigned_analyst_id", table_name="submission")
     op.drop_table("submission")
-    op.drop_table("deal_status_kind")
+    op.drop_table("contract_status_kind")
     op.drop_table("submission_status_kind")
     op.drop_table("treaty_type_kind")
 

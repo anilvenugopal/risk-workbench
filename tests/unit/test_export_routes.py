@@ -90,8 +90,10 @@ def test_form_ticks_the_analyses_carried_from_the_link(client, deal):
 def test_form_renders_defaults_rows_and_disabled_reason(client, deal):
     page = client.get(f"/submissions/{deal['submission_id']}/exports/new")
     assert page.status_code == 200
-    assert 'name="treaty_incept" required\n               value="2026-04-01"' in page.text
-    assert 'name="crm_id" maxlength="30"\n               value="CRM-1"' in page.text
+    # Two contracts on the deal: nothing is picked until the analyst chooses
+    # one (spec 017 P-06), so CRM ID and inception open blank.
+    assert 'name="treaty_incept" required\n               value=""' in page.text
+    assert 'name="crm_id" maxlength="30"\n               value=""' in page.text
     assert '<option value="1" >Example Re</option>' in page.text
     assert '<option value="2" >Retired</option>' in page.text
     assert 'name="model_version" required' in page.text
@@ -189,9 +191,9 @@ def test_post_writes_manifest_rows_and_redirects(client, deal):
         ("A", "Named A", "CRM-9"), ("B", None, "CRM-9")]
     assert len({r["export_id"] for r in rows}) == 1
     assert len(rwb_jobs("submit_results_export")) == 1
-    sub = execute_one("SELECT inception_date FROM submission WHERE id = :s",
-                      {"s": deal["submission_id"]}, connection="WORKBENCH")
-    assert sub["inception_date"] == "2026-04-01"
+    contracts = execute("SELECT inception_date FROM contract WHERE submission_id = :s",
+                        {"s": deal["submission_id"]}, connection="WORKBENCH")
+    assert {c["inception_date"] for c in contracts} == {"2026-04-01"}
 
 
 def test_form_posts_plainly_so_a_422_rerender_is_shown(client, deal):

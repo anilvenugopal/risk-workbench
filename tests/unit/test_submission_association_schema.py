@@ -15,10 +15,9 @@ def _submission(actor: str, name: str) -> str:
     submission_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO submission "
-        "(id, assigned_analyst_id, name, cedant_name, treaty_type_code, "
-        "inception_date, status_code, inserted_by, updated_by) "
-        "VALUES (:id, :actor, :name, 'Cedant', 'cat_xol', '2026-01-01', "
-        "'ACTIVE', :actor, :actor)",
+        "(id, assigned_analyst_id, name, cedant_name, status_code, "
+        "inserted_by, updated_by) "
+        "VALUES (:id, :actor, :name, 'Cedant', 'ACTIVE', :actor, :actor)",
         {"id": submission_id, "actor": actor, "name": name},
         connection="WORKBENCH",
     )

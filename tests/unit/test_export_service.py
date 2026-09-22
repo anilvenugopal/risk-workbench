@@ -198,12 +198,11 @@ def test_create_export_records_the_approved_values_and_enqueues_submit(deal, mon
 
 def test_create_export_never_writes_back_to_the_submission(deal):
     _create(deal, [deal["a"]], crm_id="CRM-changed", treaty_incept=date(2027, 1, 1))
-    sub = execute_one("SELECT inception_date FROM submission WHERE id = :s",
-                      {"s": deal["submission_id"]}, connection="WORKBENCH")
-    tags = execute("SELECT crm_id FROM submission_crm_id WHERE submission_id = :s",
-                   {"s": deal["submission_id"]}, connection="WORKBENCH")
-    assert sub["inception_date"] == "2026-04-01"
-    assert [t["crm_id"] for t in tags] == ["CRM-1"]
+    contracts = execute(
+        "SELECT crm_id, inception_date FROM contract WHERE submission_id = :s",
+        {"s": deal["submission_id"]}, connection="WORKBENCH")
+    assert [(c["crm_id"], c["inception_date"]) for c in contracts] == [
+        ("CRM-1", "2026-04-01")]
 
 
 @pytest.mark.parametrize("overrides, message", [

@@ -27,36 +27,34 @@ ITERATION1_SCHEMA = [
     """CREATE TABLE submission_status_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
-    """CREATE TABLE deal_status_kind (
+    """CREATE TABLE contract_status_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
     """CREATE TABLE submission (
         id TEXT PRIMARY KEY, assigned_analyst_id TEXT, name TEXT,
-        cedant_name TEXT, treaty_type_code TEXT, inception_date TEXT,
-        expiration_date TEXT, treaty_year INTEGER, links_to_submission_id TEXT,
-        directory_path TEXT, client_id INTEGER, status_code TEXT,
-        deal_status_code TEXT NOT NULL DEFAULT 'IN_PROCESS',
+        cedant_name TEXT, treaty_year INTEGER, links_to_submission_id TEXT,
+        directory_path TEXT, client_id INTEGER, data_vintage TEXT,
+        status_code TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
-    """CREATE TABLE submission_crm_id (
-        id TEXT PRIMARY KEY, submission_id TEXT, crm_id TEXT,
-        inception_date TEXT, expiration_date TEXT,
-        inserted_at TEXT, inserted_by TEXT
+    """CREATE TABLE contract (
+        id TEXT PRIMARY KEY, submission_id TEXT, crm_id TEXT NOT NULL,
+        treaty_type_code TEXT NOT NULL, inception_date TEXT NOT NULL,
+        expiration_date TEXT NOT NULL,
+        contract_status_code TEXT NOT NULL DEFAULT 'IN_PROCESS',
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     # Same text as alembic/versions/0001_initial.py: SQLite runs it unchanged.
-    """CREATE VIEW v_submission_crm_id AS
+    """CREATE VIEW v_contract AS
 SELECT s.id            AS submission_id,
        s.name          AS submission_name,
-       s.cedant_name, s.treaty_type_code, s.treaty_year,
-       c.id            AS crm_tag_id,
-       c.crm_id,
-       COALESCE(c.inception_date,  s.inception_date)  AS effective_inception_date,
-       COALESCE(c.expiration_date, s.expiration_date) AS effective_expiration_date,
-       s.status_code      AS modeling_status_code,
-       s.deal_status_code,
-       s.client_id
-FROM submission s
-LEFT JOIN submission_crm_id c ON c.submission_id = s.id""",
+       s.cedant_name, s.client_id, s.treaty_year, s.data_vintage,
+       s.status_code   AS modeling_status_code,
+       c.id            AS contract_id,
+       c.crm_id, c.treaty_type_code, c.inception_date, c.expiration_date,
+       c.contract_status_code
+FROM contract c
+JOIN submission s ON s.id = c.submission_id""",
     """CREATE TABLE submission_status_event (
         id TEXT PRIMARY KEY, submission_id TEXT, status_code TEXT, reason TEXT,
         at TEXT, inserted_by TEXT
@@ -94,7 +92,7 @@ LEFT JOIN submission_crm_id c ON c.submission_id = s.id""",
 
 STATUS_SEED = [("ACTIVE", "Active", 10), ("COMPLETED", "Completed", 20),
                ("CANCELLED", "Cancelled", 30)]
-DEAL_STATUS_SEED = [("IN_PROCESS", "In Process", 10), ("WON", "Won", 20),
+CONTRACT_STATUS_SEED = [("IN_PROCESS", "In Process", 10), ("WON", "Won", 20),
                     ("LOST", "Lost", 30)]
 TREATY_SEED = [
     ('aggregate_xol', 'Aggregate XOL', 10),
@@ -389,8 +387,8 @@ ANALYSIS_PERSPECTIVE_SEED = [("GR", "Gross", 10),
 # Tables whose mirror must match the real migrated schema column-for-column. A new
 # migration column here MUST be added to the mirror above or the guard fails.
 EXACT_MATCH_TABLES = (
-    "treaty_type_kind", "submission_status_kind", "deal_status_kind", "submission",
-    "submission_crm_id", "submission_status_event", "submission_edm",
+    "treaty_type_kind", "submission_status_kind", "contract_status_kind", "submission",
+    "contract", "submission_status_event", "submission_edm",
     "submission_rdm",
     # Iteration 2 — irp_job / rwb_job families (full mirrors, exact match).
     "irp_job_type_kind", "irp_job_resource_type_kind", "rwb_job_type_kind",

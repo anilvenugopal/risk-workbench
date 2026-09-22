@@ -29,7 +29,7 @@ from db.connection import _ENGINE_OVERRIDES, dispose_all, register_engine
 from tests.iteration1_mirror import (
     ANALYSIS_PERSPECTIVE_SEED,
     BREAKOUT_DIMENSION_SEED,
-    DEAL_STATUS_SEED,
+    CONTRACT_STATUS_SEED,
     IRP_ANALYSIS_STATUS_SEED,
     IRP_JOB_RESOURCE_TYPE_SEED,
     IRP_JOB_TYPE_SEED,
@@ -185,7 +185,7 @@ def iteration1_db() -> SimpleNamespace:
             conn.execute(text(
                 "INSERT INTO treaty_type_kind (code, label, sort_order) "
                 "VALUES (:c, :l, :o)"), {"c": code, "l": label, "o": order})
-        _seed(conn, "deal_status_kind", DEAL_STATUS_SEED)
+        _seed(conn, "contract_status_kind", CONTRACT_STATUS_SEED)
     register_engine("WORKBENCH", engine)
     yield SimpleNamespace(engine=engine, user_a=user_a, user_b=user_b)
     engine.dispose()
@@ -217,7 +217,7 @@ def iteration2_db() -> SimpleNamespace:
         ), {"a": user_a, "b": user_b})
         _seed(conn, "submission_status_kind", STATUS_SEED)
         _seed(conn, "treaty_type_kind", TREATY_SEED)
-        _seed(conn, "deal_status_kind", DEAL_STATUS_SEED)
+        _seed(conn, "contract_status_kind", CONTRACT_STATUS_SEED)
         _seed(conn, "irp_job_type_kind", IRP_JOB_TYPE_SEED)
         _seed(conn, "irp_job_resource_type_kind", IRP_JOB_RESOURCE_TYPE_SEED)
         _seed(conn, "rwb_job_type_kind", RWB_JOB_TYPE_SEED)
