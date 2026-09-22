@@ -3,7 +3,9 @@
    contract table. Every POST in this block answers with this fragment, so each
    form's `updated_at` marker is the one the last write produced. Context:
    `_head_context` in app/routers/submissions.py. The before-swap hook lets htmx
-   swap a 409 or 422 re-render in, banner included. #}
+   swap a 409 or 422 re-render in, banner included. A fragment response also
+   swaps the Edit link out of band, and a status change fires
+   `modeling-status-changed`, which the EDM and RDM sections reload on. #}
 <div id="deal-head"
      hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }">
   <div class="detail-head">
@@ -159,3 +161,4 @@
     {% include "partials/contract_table.html" %}
   </div>
 </div>
+{% if swap_actions %}{% with oob=True %}{% include "partials/submission_actions.html" %}{% endwith %}{% endif %}

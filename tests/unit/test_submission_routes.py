@@ -2033,6 +2033,8 @@ def test_statuses_post_saves_modeling_status_and_returns_the_head_fragment(clien
     assert [(e.status_code, e.reason) for e in submission_service.get_status_history(sid)] == [
         ("COMPLETED", "delivered"), ("ACTIVE", None)]
     assert "read-only" in response.text and "Contract status can still be set" in response.text
+    assert response.headers["HX-Trigger"] == "modeling-status-changed"
+    assert '<span id="submission-actions" hx-swap-oob="true"></span>' in response.text
 
 
 def test_statuses_post_resubmitting_the_same_modeling_status_adds_no_event(client):
@@ -2042,6 +2044,7 @@ def test_statuses_post_resubmitting_the_same_modeling_status_adds_no_event(clien
         data={"modeling_status": "ACTIVE", "reason": "", "updated_at": marker,
               "csrf_token": _csrf()})
     assert response.status_code == 200
+    assert "HX-Trigger" not in response.headers
     assert len(submission_service.get_status_history(sid)) == 1
 
 

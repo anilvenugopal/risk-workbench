@@ -790,7 +790,8 @@ def _head_partial(request: Request, submission_id: str, *,
     if submission is None:
         return _not_found(request)
     return _partial(request, "partials/submission_head.html",
-                    _head_context(submission, head_error=head_error),
+                    {**_head_context(submission, head_error=head_error),
+                     "swap_actions": True},
                     status_code=status_code)
 
 
@@ -1560,8 +1561,6 @@ def reassign(
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 
-# ── Deal dates, in place (spec 017 FR-003; contracts/routes.md §1) ─────────────
-
 # ── Modeling status (spec 017 P-12, P-14) ─────────────────────────────────────
 
 @router.post("/submissions/{submission_id}/statuses")
@@ -1574,13 +1573,16 @@ def change_statuses(
     csrf_token: str = Form(...),
 ):
     """The Status editor's Save. Re-saving the status the deal already has adds
-    no event. Contract status is set per row (``set_contract_status``)."""
+    no event. Contract status is set per row (``set_contract_status``). A change
+    answers with ``HX-Trigger: modeling-status-changed`` so the sections gated
+    on Active reload themselves."""
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _not_found(request)
-    if modeling_status != submission.status_code:
+    changed = modeling_status != submission.status_code
+    if changed:
         try:
             submission_service.set_statuses(
                 submission_id=submission_id, modeling_status=modeling_status,
@@ -1595,7 +1597,10 @@ def change_statuses(
             return _head_partial(request, submission_id, head_error=str(exc),
                                  status_code=409)
     if _is_htmx(request):
-        return _head_partial(request, submission_id)
+        response = _head_partial(request, submission_id)
+        if changed:
+            response.headers["HX-Trigger"] = "modeling-status-changed"
+        return response
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 

@@ -1,11 +1,7 @@
 {% extends "base/shell.html" %}
 {% block title %}{{ submission.name }}{% endblock %}
 
-{% block page_actions %}
-{% if is_active %}
-<a href="/submissions/{{ submission.id }}/edit" class="btn-sm">Edit</a>
-{% endif %}
-{% endblock %}
+{% block page_actions %}{% include "partials/submission_actions.html" %}{% endblock %}
 
 {% block main %}
 <div class="page-pad">
