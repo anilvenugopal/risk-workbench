@@ -745,7 +745,7 @@ document.addEventListener('alpine:init', () => {
     onYearInput() {
       this.edited = !!this.$refs.year.value.trim();
     },
-    onInception(e) {
+    onVintage(e) {
       if (this.edited || this.$refs.year.value.trim()) return;
       const year = (e.target.value || '').slice(0, 4);
       if (/^\d{4}$/.test(year)) this.$refs.year.value = year;

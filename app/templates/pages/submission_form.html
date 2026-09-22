@@ -29,7 +29,7 @@
   {% endif %}
 
   {# `contractRows` owns the contract editor below and the treaty year: the
-     year follows the first inception typed until the analyst types a year. #}
+     year follows the data vintage until the analyst types a year. #}
   <form method="post" action="{{ action }}" x-data="contractRows">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     {% if mode == 'edit' %}
@@ -101,7 +101,8 @@
       <div class="wf-field">
         <label>DATA VINTAGE</label>
         <input class="wf-field__input{% if field_errors.data_vintage %} wf-field__input--error{% endif %}"
-               type="date" name="data_vintage" value="{{ form.data_vintage or '' }}">
+               type="date" name="data_vintage" value="{{ form.data_vintage or '' }}"
+               @change="onVintage($event)">
         {% if field_errors.data_vintage %}
         <div class="wf-field__msg wf-field__error">{{ field_errors.data_vintage }}</div>
         {% endif %}
@@ -117,7 +118,7 @@
         <div class="wf-field__msg wf-field__error">{{ field_errors.treaty_year }}</div>
         {% else %}
         <div class="wf-field__msg wf-field__hint">
-          Defaults to the earliest contract inception year. Change it if the treaty year differs.
+          Defaults to the data vintage year. Change it if the treaty year differs.
         </div>
         {% endif %}
       </div>
@@ -200,7 +201,7 @@
         {% endfor %}
       </select>
       <input type="date" name="contract_inception" aria-label="Inception"
-             value="{{ row.inception_date or '' }}" @change="onInception($event)">
+             value="{{ row.inception_date or '' }}">
       <input type="date" name="contract_expiration" aria-label="Expiration"
              value="{{ row.expiration_date or '' }}">
       <select name="contract_status" aria-label="Contract status">

@@ -49,8 +49,8 @@ codes, the dropped submission columns and index, `v_contract`, and the
 2. **New submission** again: add three contract rows — `A-1` Per Occurrence
    Cat XOL 2027-01-01, then `A-2` Aggregate XOL, then `A-3` Top & Drop. Rows
    two and three open with 2027-01-01 already in inception and 2027-12-31 in
-   expiration; change row three's expiration to 2029-12-31. Treaty year reads
-   2027 before you save. Save: the contract table shows three rows under the
+   expiration; change row three's expiration to 2029-12-31. Set data vintage
+   2027-01-15: treaty year reads 2027 before you save. Save: the contract table shows three rows under the
    headers CRM ID · Treaty type · Inception · Expiration · Contract status,
    all In Process.
 3. Edit row two's CRM ID to `a-1` and save: refused, the row named.
