@@ -734,12 +734,6 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Treaty year follows the inception year until the analyst types their own
-  // (CR5, design note 08 D4). Changing the inception date moves the year unless
-  // it was edited on this render.
-  // Submission create form: the contract rows and the treaty year. A new row is
-  // the blank template with the previous row's dates copied in (FR-005); the
-  // year follows the first inception typed until the analyst types a year.
   // Export form: the chosen contract's CRM ID and inception go into the two
   // fields, which stay editable (spec 017 FR-011).
   Alpine.data('contractPick', () => ({
@@ -750,6 +744,18 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // A contract's expiration follows its inception: one year minus one day,
+  // the default the server applies to a blank expiration (spec 017 P-03).
+  // Used by the create form's rows and the deal card's contract editors.
+  Alpine.magic('fillExpiration', () => (inception, expiration) => {
+    const [y, m, d] = inception.value.split('-').map(Number);
+    if (!y) return;
+    expiration.value = new Date(Date.UTC(y + 1, m - 1, d - 1)).toISOString().slice(0, 10);
+  });
+
+  // Submission create form: the contract rows and the treaty year. A new row is
+  // the blank template with the previous row's dates copied in (FR-005); the
+  // year follows the data vintage until the analyst types a year (P-20).
   Alpine.data('contractRows', () => ({
     edited: false,
     onYearInput() {
@@ -759,14 +765,6 @@ document.addEventListener('alpine:init', () => {
       if (this.edited || this.$refs.year.value.trim()) return;
       const year = (e.target.value || '').slice(0, 4);
       if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
-    },
-    // Expiration follows the inception typed: one year minus one day (P-03).
-    onInception(e) {
-      const [y, m, d] = e.target.value.split('-').map(Number);
-      if (!y) return;
-      const end = new Date(Date.UTC(y + 1, m - 1, d - 1));
-      e.target.closest('.contract-row').querySelector('[name=contract_expiration]').value =
-        end.toISOString().slice(0, 10);
     },
     add() {
       const rows = this.$refs.rows;

@@ -203,7 +203,8 @@
         {% endfor %}
       </select>
       <input type="date" name="contract_inception" aria-label="Inception"
-             value="{{ row.inception_date or '' }}" @change="onInception($event)">
+             value="{{ row.inception_date or '' }}"
+             @change="$fillExpiration($el, $el.closest('.contract-row').querySelector('[name=contract_expiration]'))">
       <input type="date" name="contract_expiration" aria-label="Expiration"
              value="{{ row.expiration_date or '' }}">
       <select name="contract_status" aria-label="Contract status">

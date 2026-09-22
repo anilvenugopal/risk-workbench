@@ -24,7 +24,8 @@
   {% endfor %}
 </select>
 <input type="date" name="inception_date" aria-label="Inception" required
-       value="{{ row.inception_date if row else '' }}">
+       value="{{ row.inception_date if row else '' }}"
+       @change="$fillExpiration($el, $el.form.elements.expiration_date)">
 <input type="date" name="expiration_date" aria-label="Expiration"
        value="{{ row.expiration_date if row else '' }}">
 {% if status_field %}
@@ -112,8 +113,9 @@
     {% endfor %}
 
     {% if is_active %}
-    {# The Add row opens on the last row's dates (FR-005); a blank expiration
-       saves as inception plus one year minus a day. #}
+    {# The Add row opens on the last row's dates (FR-005); typing an inception
+       fills the expiration, and a blank one saves as inception plus one year
+       minus a day. #}
     {% set last = contracts[-1] if contracts else none %}
     {% set fresh = add_row or {"inception_date": last.inception_date if last else "",
                                "expiration_date": last.expiration_date if last else ""} %}
