@@ -47,9 +47,9 @@ codes, the dropped submission columns and index, `v_contract`, and the
    deal card with Modeling status Active and an empty contract table with
    **Add contract**. Treaty year is blank.
 2. **New submission** again: add three contract rows — `A-1` Per Occurrence
-   Cat XOL 2027-01-01, then `A-2` Aggregate XOL, then `A-3` Top & Drop. Rows
-   two and three open with 2027-01-01 already in inception and 2027-12-31 in
-   expiration; change row three's expiration to 2029-12-31. Set data vintage
+   Cat XOL, inception 2027-01-01: expiration fills as 2027-12-31. Then `A-2`
+   Aggregate XOL and `A-3` Top & Drop: rows two and three open with both dates
+   already filled; change row three's expiration to 2029-12-31. Set data vintage
    2027-01-15: treaty year reads 2027 before you save. Save: the contract table shows three rows under the
    headers CRM ID · Treaty type · Inception · Expiration · Contract status,
    all In Process.

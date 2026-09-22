@@ -760,6 +760,14 @@ document.addEventListener('alpine:init', () => {
       const year = (e.target.value || '').slice(0, 4);
       if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
     },
+    // Expiration follows the inception typed: one year minus one day (P-03).
+    onInception(e) {
+      const [y, m, d] = e.target.value.split('-').map(Number);
+      if (!y) return;
+      const end = new Date(Date.UTC(y + 1, m - 1, d - 1));
+      e.target.closest('.contract-row').querySelector('[name=contract_expiration]').value =
+        end.toISOString().slice(0, 10);
+    },
     add() {
       const rows = this.$refs.rows;
       const last = rows.lastElementChild;
