@@ -756,6 +756,15 @@ value is not recorded anywhere.
 
 ## Clarifications
 
+### Session 2026-09-21
+
+Design session 2026-09-16 (note 31 D2–D4, D10–D11, D16–D17) left four asks on the exports table and the export form's picker that never became tasks. Decided with the user 2026-09-21.
+
+- Q: The origin label reads `own | group | broker` on both export screens, and the picker derives it from `rdm_name` while the table derives it from `rdm_id`. What does origin mean? → A: The source system only: `RMS` or `RDM`, derived from `irp_analysis.rdm_id` on both screens (P-27). Wendy: an RDM can be her own, so "broker" is wrong; Ben: "RMS or RDM. Not group." Group-ness is the Engine column's job, as on the results grid. Rejected: spelling out "Risk Modeler" (the grid and the analysts say RMS); keeping "group" as an origin value (it names an engine fact, not a source).
+- Q: Where does the Engine column's value come from on the exports table? → A: Read at render time from `irp_analysis.settings_metadata`, `DLM · 23.0` (`AnalysisSettings.engine`) or `Group` for `is_group`, on the picker and the table alike. The manifest's stage-time `engine_type` stays in the table relabelled **Archive engine**: it is what the archive's `metadata.csv` said and is the record of what was loaded. Rejected: moving the manifest's `engine_type` into the Engine slot (it is empty until stage, and `GROUP` there carries no version).
+- Q: Column order and the timestamps? → A: The results grid's order first (Analysis, Treaty, Origin, Engine, Peril, Region, Currency, AAL, Status), then the export detail, with Requested at and Last updated last on wider tracks so the full local stamp shows. Labels keep their names. Portfolio and Template are not filled for imported analyses and stay off the table.
+- Q: HD results are unsupported at CIC (D16); today an HD analysis passes the form and fails at stage with "loss table type PLT not supported", and D17 asks that HD and DLM never mix in one export. Refuse HD outright, or check only for mixing? → A: Refuse outright (FR-025): an HD row is greyed on the picker with "HD (PLT) results are not exportable yet", ahead of every other disabled reason, and `create_export` refuses it through the disabled-row check it already has. The source is the row's own `settings_metadata` `engineType`, group or not; a row with no `engineType` stays exportable. No separate mixing check is needed once HD cannot be ticked. Rejected: a mixing-only check (still lets a pure-HD export fail at stage).
+
 ### Session 2026-09-16
 
 - Q: The 2026-09-15 session raised the export callouts (D1–D14), a submission status split, CRM-ID-grained dates, a treaty-type seed, and search. What is in this branch? → A: The export callouts only (D1–D14). Submission status, CRM-ID-grained dates, the treaty-type seed, and search are separate specs.

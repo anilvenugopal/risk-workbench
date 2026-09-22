@@ -76,7 +76,16 @@
    Add a client, CRM ID, or perspective: the filters combine; Retry comes
    back under them (acceptance 7).
 6. **Copy table**, paste into Excel: headers on the first row, one column per
-   table column (acceptance 8).
+   table column (acceptance 8), 29 columns with headers aligned to values.
+7. Origin, engine, order (FR-017, FR-025, P-27): on the export form the picker
+   shows an Engine column after Origin; an own analysis reads `RMS`, an
+   RDM-imported one reads `RDM` under an `RDM · <name>` header; an HD analysis
+   is greyed with "Cannot be exported: HD (PLT) results are not exportable
+   yet." and cannot be ticked. Export an RDM-imported group and an own single
+   analysis: the table rows read Origin `RDM`, Engine `Group` and Origin `RMS`,
+   Engine `DLM · 23.0`. The columns run Analysis, Treaty, Origin, Engine,
+   Peril, Region, Currency, AAL, Status, then the export detail, with Requested
+   at and Last updated last showing the full local stamp.
 
 ## Story 3 — Retry
 

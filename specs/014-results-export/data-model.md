@@ -108,7 +108,7 @@ analysis and fails the stage step when it is below
 | `database` | `NVARCHAR(128)` NULL | `get_connection_config("WORKBENCH")["database"]` on submit (P-23) | `Data.Database` |
 | `irp_export_job_id` | `NVARCHAR(64)` NULL | Submit worker | Retry decision; traceability |
 | `loss_table_type` | `VARCHAR(3)` NULL, CHECK `('ELT','PLT')` | Stage worker, archive folder name | Stage table and procedure selection |
-| `engine_type` | `VARCHAR(5)` NULL, CHECK `('DLM','HD','GROUP')` | Stage worker, `metadata.csv` `Engine Type` | Detail page; O-08 |
+| `engine_type` | `VARCHAR(5)` NULL, CHECK `('DLM','HD','GROUP')` | Stage worker, `metadata.csv` `Engine Type` | Exports table, Archive engine column; O-08 |
 | `data_model_version` | `NVARCHAR(10)` NULL | Form: the export's model version, one of the lookup's distinct `ModelVersion` values (`25.0`), default newest (spec P-25) | `Data.DataModelVersion`; lookup join and assertion |
 | `peril_code` | `NVARCHAR(10)` NULL | `settings_metadata` `perilCode` on submit | Detail page; traceability (not part of the lookup join, R4) |
 | `region_code` | `NVARCHAR(10)` NULL | `settings_metadata` `regionCode` | Detail page; traceability |
@@ -258,7 +258,9 @@ script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 
 | Field | Source | Rule |
 |---|---|---|
-| `id`, `name`, `origin` | `list_comparable_analyses(submission_id=…)` | Only rows whose results state is ready |
+| `id`, `name` | `list_comparable_analyses(submission_id=…)` | Only rows whose results state is ready |
+| `origin` | `irp_analysis.rdm_id` | `RDM` when set, else `RMS` (spec P-27) |
+| `engine` | `irp_analysis.is_group`, `settings_metadata` | `Group` for a group, else `AnalysisSettings.engine` (`DLM · 23.0`); `engineType` `HD` lists the row disabled (FR-025) |
 | `irp_id`, `irp_app_analysis_id` | `irp_analysis` | `irp_app_analysis_id` must parse as `int`, else the row is listed disabled with the reason (FR-005) |
 | `perspectives` | `loss_results.perspectives` keys | Intersection input |
 | `peril_code`, `region_code`, `currency` | `_parse_settings(settings_metadata)` | Recorded on the manifest; `currency` is checked against the archive at stage |
@@ -271,11 +273,13 @@ script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 `requested_from_submission_id` is the page's submission (spec P-16), ordered
 newest export first (`requested_at DESC, export_id`, then analysis name).
 Manifest columns, plus `export_ordinal` (1 for the newest export, counted over
-the unfiltered list), `client_name` (join `dbo.Client`), and `origin` (own,
-broker, or group) and `aal` — both read from the `irp_analysis` row over
+the unfiltered list), `client_name` (join `dbo.Client`), and `origin` (`RMS` or
+`RDM` from `rdm_id`, spec P-27), `engine` (`Group` or the settings engine, as
+on the form row above) and `aal` — all read from the `irp_analysis` row over
 `WORKBENCH` by `manifest.irp_analysis_id`, `aal` from
 `loss_results.perspectives[manifest.perspective_code].aal` at render time and
 formatted by `aal_display` (spec P-20) — plus a derived `status`. The
+manifest's own `engine_type` is the Archive engine column. The
 manifest row decides it alone; the `export` `irp_job` is not read:
 
 | Condition | Displayed status |
