@@ -18,9 +18,9 @@ from typing import Any
 
 from sqlalchemy import text
 
+from app.config import TY
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import STORED_RETURN_PERIODS, _utcnow
-from app.services.export_service import TY
 from app.workers import broker, dispatch, runtime
 from app.workers.queues import rwb_actor
 from db import execute, execute_command, execute_one, get_connection, is_unique_violation

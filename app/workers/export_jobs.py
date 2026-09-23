@@ -36,10 +36,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from dramatiq.middleware import TimeLimitExceeded
 
-from app.config import settings
+from app.config import TY, settings
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import _uid, _utcnow
-from app.services.export_service import TY
 from app.services.irp_gateway import IRPAPIError, IRPIntegrationError
 from app.workers import broker, dispatch, runtime
 from app.workers.queues import rwb_actor

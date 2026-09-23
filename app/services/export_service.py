@@ -22,7 +22,7 @@ from typing import Any, Literal
 
 from sqlalchemy import text
 
-from app.config import settings
+from app.config import TY, settings
 from app.services import (
     analysis_service,
     rwb_job_service,
@@ -53,10 +53,6 @@ TERMINAL_STATUSES = frozenset({LOADED, FAILED, CLOSED})
 DATA_NAME_MAX_LEN = 150
 CRM_ID_MAX_LEN = 30
 RETRY_EXPORT_JOB_MAX_AGE = timedelta(days=7)
-# The treaty-level export (spec 016). Offered when every selected analysis was
-# run with treaties; the analyst ticks the treaties to write and names each one
-# on the form, and every ticked treaty gets its own manifest row at submit.
-TY = "TY"
 
 
 class ExportError(Exception):
@@ -779,7 +775,7 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBr
 
 __all__ = [
     "QUEUED", "IN_PROGRESS", "LOADED", "FAILED", "CLOSED",
-    "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN", "TY",
+    "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN",
     "ExportError", "ExportValidationError", "ExportNotFound", "ExportActionRefused",
     "ExportedMark", "ExportableAnalysis", "TreatyChoice", "Client",
     "ExportAnalysisDetail",
