@@ -365,7 +365,7 @@ def test_rows_show_counts_aal_error_and_stop_polling(client, export):
 
 
 def test_section_lists_this_submissions_exports_newest_first_with_ordinals(client, export):
-    other = seed_submission(client.db.user_a, name="Other")
+    other = seed_submission(client.db.user_a, name="Other", crm_ids=("CRM-OTHER",))
     seed_manifest(submission_id=other, irp_app_analysis_id=41958, perspective_code="RP")
     older = seed_manifest(submission_id=export["submission_id"], irp_analysis_id=export["a"],
                           irp_app_analysis_id=41958, perspective_code="RL",

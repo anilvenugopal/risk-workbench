@@ -54,6 +54,7 @@ from db import (
     execute_one,
     execute_scalar,
     get_connection,
+    is_unique_violation,
     row_limit,
 )
 
@@ -142,13 +143,26 @@ class ContractInput:
     contract_status_code: str = IN_PROCESS
 
 
+@dataclass(frozen=True)
+class ContractOwner:
+    """The submission that already holds a CRM ID (FR-003, note 33 D14)."""
+    submission_id: str
+    name: str
+
+
 class ContractInvalid(ValueError):
     """A contract row the service will not write. ``index`` is the row's position
-    in the posted list (``None`` for a single-row edit) so the form can mark it."""
+    in the posted list (``None`` for a single-row edit) so the form can mark it.
+    ``owner`` is set when the CRM ID belongs to another submission; the message
+    then ends "is already a contract on" and the form appends the linked name."""
 
-    def __init__(self, message: str, *, index: int | None = None) -> None:
+    def __init__(
+        self, message: str, *, index: int | None = None,
+        owner: ContractOwner | None = None,
+    ) -> None:
         super().__init__(message)
         self.index = index
+        self.owner = owner
 
 
 @dataclass
@@ -314,30 +328,61 @@ def _default_expiration(inception: date) -> date:
     return anniversary - timedelta(days=1)
 
 
+def _taken_elsewhere(
+    prepared: Sequence[dict[str, Any]], *, exclude_contract_id: str | None = None,
+) -> None:
+    """``ContractInvalid`` naming the owner for the first prepared row whose CRM
+    ID is already a contract on another submission. One query for the whole
+    form, normalised like the P-10 filter (lower-cased, trimmed); the contract
+    being edited keeps its own CRM ID."""
+    keys = sorted({row["crm_id"].lower() for row in prepared})
+    if not keys:
+        return
+    clause, params = _in_clause("LOWER(TRIM(crm_id))", keys, "crm")
+    owners = {
+        row["crm_id"].strip().lower():
+            ContractOwner(str(row["submission_id"]), row["submission_name"])
+        for row in execute(
+            f"""
+            SELECT crm_id, submission_id, submission_name, contract_id
+            FROM v_contract WHERE {clause}
+            """,
+            params, connection="WORKBENCH",
+        )
+        if exclude_contract_id is None or str(row["contract_id"]) != exclude_contract_id
+    }
+    for index, row in enumerate(prepared):
+        owner = owners.get(row["crm_id"].lower())
+        if owner is not None:
+            raise ContractInvalid(
+                f"{row['crm_id']} is already a contract on", index=index, owner=owner)
+
+
 def _prepare_contracts(
     contracts: Sequence[ContractInput], *, existing: Sequence[Contract] = (),
     editing_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """The bound parameters for each posted contract row, validated as one set
-    (FR-003): a CRM ID is present and unique within the submission, case-insensitive
-    and trimmed, across the posted rows and the deal's stored contracts (less the
-    row being edited); the treaty type and status are rows of their kind tables;
-    dates parse; a blank expiration is defaulted. ``ContractInvalid`` names the
-    first bad row."""
+    (FR-003): a CRM ID is present and unique across the Workbench, case-insensitive
+    and trimmed, across the posted rows, the deal's stored contracts (less the
+    row being edited) and every other submission's contracts; the treaty type
+    and status are rows of their kind tables; dates parse; a blank expiration is
+    defaulted. ``ContractInvalid`` names the first bad row, with ``owner`` set
+    when another submission holds the CRM ID."""
     treaty_types = {code for code, _ in treaty_type_kinds()}
     statuses = {code for code, _ in contract_status_kinds()}
-    taken = {c.crm_id.casefold(): c.crm_id for c in existing
+    taken = {c.crm_id.lower(): c.crm_id for c in existing
              if editing_id is None or c.id != editing_id}
     prepared: list[dict[str, Any]] = []
     for index, row in enumerate(contracts):
         crm_id = (row.crm_id or "").strip()
         if not crm_id:
             raise ContractInvalid("Enter the CRM ID.", index=index)
-        if crm_id.casefold() in taken:
+        if crm_id.lower() in taken:
             raise ContractInvalid(
-                f"{taken[crm_id.casefold()]} is already a contract on this submission.",
+                f"{taken[crm_id.lower()]} is already a contract on this submission.",
                 index=index)
-        taken[crm_id.casefold()] = crm_id
+        taken[crm_id.lower()] = crm_id
         if row.treaty_type_code not in treaty_types:
             raise ContractInvalid("Choose a treaty type from the list.", index=index)
         status = row.contract_status_code or IN_PROCESS
@@ -355,6 +400,7 @@ def _prepare_contracts(
             "exp": expiration if expiration is not None else _default_expiration(inception),
             "status": status,
         })
+    _taken_elsewhere(prepared, exclude_contract_id=editing_id)
     return prepared
 
 
@@ -533,33 +579,51 @@ def create_submission(
         "now": now,
         "actor": actor,
     }
-    with get_connection("WORKBENCH") as conn, conn.begin():
-        conn.execute(text(
-            """
-            INSERT INTO submission
-                (id, assigned_analyst_id, name, cedant_name, client_id,
-                 data_vintage, treaty_year, links_to_submission_id,
-                 directory_path, status_code, inserted_at, updated_at,
-                 inserted_by, updated_by)
-            VALUES
-                (:id, :owner, :name, :cedant, :client, :vintage, :ty, :lt,
-                 :dir, 'ACTIVE', :now, :now, :actor, :actor)
-            """
-        ), params)
-        conn.execute(text(
-            """
-            INSERT INTO submission_status_event
-                (id, submission_id, status_code, reason, at, inserted_by)
-            VALUES (:eid, :sid, 'ACTIVE', NULL, :now, :actor)
-            """
-        ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "actor": actor})
-        # One microsecond apart, so the rows read back in the order the analyst
-        # entered them (list_contracts orders by inserted_at).
-        for index, row in enumerate(prepared):
-            conn.execute(text(_CONTRACT_INSERT), {
-                **row, "id": str(uuid.uuid4()), "sid": sid,
-                "now": now + timedelta(microseconds=index), "actor": actor})
+    try:
+        with get_connection("WORKBENCH") as conn, conn.begin():
+            conn.execute(text(
+                """
+                INSERT INTO submission
+                    (id, assigned_analyst_id, name, cedant_name, client_id,
+                     data_vintage, treaty_year, links_to_submission_id,
+                     directory_path, status_code, inserted_at, updated_at,
+                     inserted_by, updated_by)
+                VALUES
+                    (:id, :owner, :name, :cedant, :client, :vintage, :ty, :lt,
+                     :dir, 'ACTIVE', :now, :now, :actor, :actor)
+                """
+            ), params)
+            conn.execute(text(
+                """
+                INSERT INTO submission_status_event
+                    (id, submission_id, status_code, reason, at, inserted_by)
+                VALUES (:eid, :sid, 'ACTIVE', NULL, :now, :actor)
+                """
+            ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "actor": actor})
+            # One microsecond apart, so the rows read back in the order the analyst
+            # entered them (list_contracts orders by inserted_at).
+            for index, row in enumerate(prepared):
+                conn.execute(text(_CONTRACT_INSERT), {
+                    **row, "id": str(uuid.uuid4()), "sid": sid,
+                    "now": now + timedelta(microseconds=index), "actor": actor})
+    except Exception as exc:
+        _reraise_if_taken(exc, prepared)
     return CreateResult(created=True, submission_id=sid)
+
+
+def _reraise_if_taken(
+    exc: Exception, prepared: Sequence[dict[str, Any]], *,
+    exclude_contract_id: str | None = None,
+) -> None:
+    """A write that lost the race to ``uq_contract_crm_id`` between the
+    ``_prepare_contracts`` lookup and the commit is reported like the lookup
+    would have; any other failure is re-raised unchanged."""
+    if is_unique_violation(exc):
+        try:
+            _taken_elsewhere(prepared, exclude_contract_id=exclude_contract_id)
+        except ContractInvalid as taken:
+            raise taken from exc
+    raise exc
 
 
 def get_submission(submission_id: Any) -> Submission | None:
@@ -1339,17 +1403,21 @@ def _contract_submission(contract_id: Any) -> str:
 
 
 def add_contract(*, submission_id: Any, contract: ContractInput, actor_id: Any) -> str:
-    """One more contract on an ACTIVE deal (FR-004), validated against the deal's
-    contracts by ``_prepare_contracts``; returns the new id."""
+    """One more contract on an ACTIVE deal (FR-004), validated by
+    ``_prepare_contracts`` against the deal's contracts and every other
+    submission's; returns the new id."""
     sid = str(submission_id)
     _require_active(_load_status(sid))
     [row] = _prepare_contracts([contract], existing=list_contracts(sid))
     new_id = str(uuid.uuid4())
-    execute_command(
-        _CONTRACT_INSERT,
-        {**row, "id": new_id, "sid": sid, "now": _utcnow(), "actor": str(actor_id)},
-        connection="WORKBENCH",
-    )
+    try:
+        execute_command(
+            _CONTRACT_INSERT,
+            {**row, "id": new_id, "sid": sid, "now": _utcnow(), "actor": str(actor_id)},
+            connection="WORKBENCH",
+        )
+    except Exception as exc:
+        _reraise_if_taken(exc, [row])
     return new_id
 
 
@@ -1365,18 +1433,21 @@ def update_contract(
     _require_active(_load_status(sid))
     [row] = _prepare_contracts(
         [contract], existing=list_contracts(sid), editing_id=cid)
-    rows_affected = execute_command(
-        """
-        UPDATE contract
-        SET crm_id = :crm_id, treaty_type_code = :tt, inception_date = :inc,
-            expiration_date = :exp, updated_at = :now, updated_by = :actor
-        WHERE id = :id AND updated_at = :expected
-        """,
-        {"crm_id": row["crm_id"], "tt": row["tt"], "inc": row["inc"],
-         "exp": row["exp"], "now": _utcnow(), "actor": str(actor_id),
-         "id": cid, "expected": expected_updated_at},
-        connection="WORKBENCH",
-    )
+    try:
+        rows_affected = execute_command(
+            """
+            UPDATE contract
+            SET crm_id = :crm_id, treaty_type_code = :tt, inception_date = :inc,
+                expiration_date = :exp, updated_at = :now, updated_by = :actor
+            WHERE id = :id AND updated_at = :expected
+            """,
+            {"crm_id": row["crm_id"], "tt": row["tt"], "inc": row["inc"],
+             "exp": row["exp"], "now": _utcnow(), "actor": str(actor_id),
+             "id": cid, "expected": expected_updated_at},
+            connection="WORKBENCH",
+        )
+    except Exception as exc:
+        _reraise_if_taken(exc, [row], exclude_contract_id=cid)
     if rows_affected == 0:
         raise ConcurrencyConflict(
             "This contract changed since you opened it — reload and re-apply.")

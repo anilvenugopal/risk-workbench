@@ -133,7 +133,9 @@ class TestSubmissionMigration:
 
     def test_submission_indexes(self):
         """The list's order is a contract aggregate since spec 017 T-11, so the
-        inception-keyed covering index is gone; the two lookup indexes stay."""
+        inception-keyed covering index is gone; the two lookup indexes stay.
+        ``uq_contract_crm_id`` (T-15) is unique and unfiltered: a CRM ID on a
+        closed deal blocks like one on an active deal."""
         names = {r["name"] for r in execute(
             "SELECT name FROM sys.indexes "
             "WHERE object_id = OBJECT_ID('dbo.submission') AND name IS NOT NULL",
@@ -143,6 +145,10 @@ class TestSubmissionMigration:
         assert execute_scalar(
             "SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.contract') "
             "AND name = 'ix_contract_submission_id'", {}, connection="WORKBENCH") == 1
+        assert execute(
+            "SELECT is_unique, has_filter FROM sys.indexes "
+            "WHERE object_id = OBJECT_ID('dbo.contract') AND name = 'uq_contract_crm_id'",
+            {}, connection="WORKBENCH") == [{"is_unique": True, "has_filter": False}]
 
     def test_submission_foreign_keys_present(self):
         n = execute_scalar(

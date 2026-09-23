@@ -182,8 +182,8 @@ def upgrade() -> None:
     # ── contract (0..N per submission; one per CRM ID) ──────────────────────────
     # The CRM ID is the contract (FR doc line 57). Treaty type, the term and the
     # Won / Lost / In Process status live here, not on the submission (spec 017
-    # P-02, P-03, P-15). CRM ID uniqueness within a submission is the service's
-    # case-insensitive check; no global uniqueness (note 32 D30).
+    # P-02, P-03, P-15). A CRM ID is unique across the Workbench (note 33
+    # D12-D13): the service lookup names the owner, the index catches the race.
     op.create_table(
         "contract",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
@@ -208,6 +208,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
     )
     op.create_index("ix_contract_submission_id", "contract", ["submission_id"])
+    op.create_index("uq_contract_crm_id", "contract", ["crm_id"], unique=True)
 
     # One row per contract, for CIC's linking SQL and the January bulk update by
     # CRM ID (spec 017 FR-013). The Workbench reads `contract` directly.
@@ -1255,6 +1256,7 @@ def downgrade() -> None:
     op.drop_index("ix_submission_status_event_submission_id",
                   table_name="submission_status_event")
     op.drop_table("submission_status_event")
+    op.drop_index("uq_contract_crm_id", table_name="contract")
     op.drop_index("ix_contract_submission_id", table_name="contract")
     op.drop_table("contract")
     op.drop_index("ix_submission_cedant_name", table_name="submission")

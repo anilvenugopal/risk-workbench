@@ -206,11 +206,12 @@ def _error_banner(field_errors: dict[str, str], action: str) -> list[str]:
 def _form_context(
     *, mode: str, form: dict, submission, links_to: str | None = None,
     errors: list[str] | None = None, field_errors: dict[str, str] | None = None,
-    warnings: list | None = None,
+    field_owners: dict | None = None, warnings: list | None = None,
 ) -> dict:
     """The render context for ``pages/submission_form.html``. ``errors``,
     ``field_errors`` and ``warnings`` are three same-shaped collections the
-    template treats differently, so they are keyword-only."""
+    template treats differently, so they are keyword-only. ``field_owners``
+    holds the ``ContractOwner`` a contract row's error links to."""
     return {
         "mode": mode,
         "treaty_types": submission_service.treaty_type_kinds(),
@@ -221,6 +222,7 @@ def _form_context(
         "link_target": submission_service.get_submission(links_to),
         "errors": errors or [],
         "field_errors": field_errors or {},
+        "field_owners": field_owners or {},
         "warnings": warnings or [],
         "min_suggest_term": submission_service.MIN_SUGGEST_TERM,
         "min_treaty_year": MIN_TREATY_YEAR,
@@ -230,14 +232,15 @@ def _form_context(
 
 def _reshow_form(
     request: Request, *, mode: str, nav_key: str, form: dict, submission,
-    links_to: str | None, errors=None, field_errors=None, warnings=None,
-    status_code: int = 200,
+    links_to: str | None, errors=None, field_errors=None, field_owners=None,
+    warnings=None, status_code: int = 200,
 ):
     return _render(
         request, "pages/submission_form.html", nav_key,
         _form_context(mode=mode, form=form, submission=submission,
                       links_to=links_to, errors=errors,
-                      field_errors=field_errors, warnings=warnings),
+                      field_errors=field_errors, field_owners=field_owners,
+                      warnings=warnings),
         status_code=status_code)
 
 
@@ -1222,7 +1225,9 @@ def create(
         # The message sits under the row it names (US1 acceptance 3).
         field_errors = {f"contract_{exc.index}": str(exc)}
         return _reshow(errors=_error_banner(field_errors, "created"),
-                       field_errors=field_errors, status_code=422)
+                       field_errors=field_errors,
+                       field_owners={f"contract_{exc.index}": exc.owner},
+                       status_code=422)
     except UnknownLinkError:
         return _reshow(field_errors={
             "links_to_submission_id": _UNKNOWN_LINK_MESSAGE}, status_code=422)
@@ -1611,9 +1616,11 @@ _CONTRACT_CLOSED_MESSAGE = "Reopen this submission before changing its contracts
 
 def _contracts_partial(request: Request, submission_id: str, *, status_code: int = 200,
                        contract_error: str | None = None,
+                       contract_error_owner=None,
                        add_row: dict | None = None, edit_row: dict | None = None):
     """``partials/contract_table.html`` (``#contracts``). ``add_row`` or
-    ``edit_row`` carry a refused post back into its open editor."""
+    ``edit_row`` carry a refused post back into its open editor;
+    ``contract_error_owner`` is the submission the banner links to."""
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _not_found(request)
@@ -1624,6 +1631,7 @@ def _contracts_partial(request: Request, submission_id: str, *, status_code: int
         "treaty_types": submission_service.treaty_type_kinds(),
         "contract_statuses": submission_service.contract_status_kinds(),
         "contract_error": contract_error,
+        "contract_error_owner": contract_error_owner,
         "add_row": add_row,
         "edit_row": edit_row,
     }, status_code=status_code)
@@ -1659,7 +1667,8 @@ def add_contract(
             actor_id=request.state.user.id)
     except ContractInvalid as exc:
         return _contracts_partial(request, submission_id, status_code=422,
-                                  contract_error=str(exc), add_row=row)
+                                  contract_error=str(exc),
+                                  contract_error_owner=exc.owner, add_row=row)
     except SubmissionClosed:
         return _contracts_partial(request, submission_id, status_code=409,
                                   contract_error=_CONTRACT_CLOSED_MESSAGE)
@@ -1693,7 +1702,8 @@ def update_contract(
         return _not_found(request)
     except ContractInvalid as exc:
         return _contracts_partial(request, submission_id, status_code=422,
-                                  contract_error=str(exc), edit_row=row)
+                                  contract_error=str(exc),
+                                  contract_error_owner=exc.owner, edit_row=row)
     except SubmissionClosed:
         return _contracts_partial(request, submission_id, status_code=409,
                                   contract_error=_CONTRACT_CLOSED_MESSAGE)

@@ -42,7 +42,7 @@
 <div id="contracts" class="contract-band" x-data="{ adding: {{ 'true' if add_row else 'false' }} }"
      hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }">
   {% if contract_error %}
-  <div class="form-banner form-banner--error" role="alert">{{ contract_error }}</div>
+  <div class="form-banner form-banner--error" role="alert">{{ contract_error }}{% if contract_error_owner %} <a href="/submissions/{{ contract_error_owner.submission_id }}" target="_blank" rel="noopener">{{ contract_error_owner.name }}</a>.{% endif %}</div>
   {% endif %}
 
   <div class="contract-band__head">

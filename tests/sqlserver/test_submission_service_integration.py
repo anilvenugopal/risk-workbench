@@ -47,12 +47,23 @@ import pytest
 
 from app.services import submission_service as svc
 from app.services.errors import UnknownLinkError
-from db import execute, execute_command, get_engine
+from db import (
+    SQLServerQueryError,
+    execute,
+    execute_command,
+    get_engine,
+    is_unique_violation,
+)
 
 # Re-collect the entire unit submission-service suite against the fixture below.
 from tests.unit.test_submission_service import *  # noqa: F401,F403
 
 pytestmark = pytest.mark.sqlserver
+
+
+def _contract_input(inception: date = date(2026, 4, 1)) -> svc.ContractInput:
+    """One contract row with a CRM ID no other deal holds (FR-003)."""
+    return svc.ContractInput(f"C-{uuid.uuid4().hex[:8]}", "per_risk_xol", inception)
 
 
 def _cleanup(
@@ -192,7 +203,7 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     a, b = iteration1_db.user_a, iteration1_db.user_b
     sid = svc.create_submission(
         name=f"MarkerDeal_{uuid.uuid4().hex[:8]}", cedant_name="Marker Cedant",
-        contracts=[svc.ContractInput("C-1", "per_risk_xol", date(2026, 4, 1))],
+        contracts=[_contract_input()],
         actor_id=a, confirmed=True,
     ).submission_id
 
@@ -236,7 +247,7 @@ def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
     for index in range(4):
         svc.create_submission(
             name=f"CapDeal{tag}_{index}", cedant_name=f"CapCedant{tag} {index}",
-            contracts=[svc.ContractInput("C-1", "per_risk_xol", date(2026, 4, 1))],
+            contracts=[_contract_input()],
             actor_id=a, confirmed=True)
 
     assert len(svc.cedant_suggestions(f"CapCedant{tag}", limit=2)) == 2
@@ -267,14 +278,14 @@ def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db)
     tag = uuid.uuid4().hex[:8]
     sid = svc.create_submission(
         name=f"LinkDeal{tag}", cedant_name=f"LinkCedant{tag}",
-        contracts=[svc.ContractInput("C-1", "per_risk_xol", date(2026, 4, 1))],
+        contracts=[_contract_input()],
         actor_id=a, confirmed=True).submission_id
 
     for bad in (str(uuid.uuid4()), "not-a-uuid"):
         with pytest.raises(UnknownLinkError):
             svc.create_submission(
                 name=f"LinkDeal{tag}_stale", cedant_name=f"LinkCedant{tag}",
-                contracts=[svc.ContractInput("C-1", "per_risk_xol", date(2026, 4, 1))],
+                contracts=[_contract_input()],
                 links_to_submission_id=bad, actor_id=a, confirmed=True)
         with pytest.raises(UnknownLinkError):
             svc.update_submission(
@@ -285,9 +296,30 @@ def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db)
     # names the same deal and is stored in the canonical lowercase form.
     target = svc.create_submission(
         name=f"LinkDeal{tag}_target", cedant_name=f"LinkCedant{tag}",
-        contracts=[svc.ContractInput("C-1", "per_risk_xol", date(2025, 4, 1))],
+        contracts=[_contract_input(date(2025, 4, 1))],
         actor_id=a, confirmed=True).submission_id
     svc.update_submission(
         submission_id=sid, expected_updated_at=svc.get_submission(sid).updated_at,
         actor_id=a, confirmed=True, links_to_submission_id=target.upper())
     assert svc.get_submission(sid).links_to_submission_id == target
+
+
+def test_the_crm_id_index_is_case_insensitive_on_sql_server(iteration1_db):
+    """T-15: ``uq_contract_crm_id`` inherits the database's default collation,
+    which must be case-insensitive for the index to back the service's
+    lower-cased lookup. A case-sensitive database fails here, not in production."""
+    a = iteration1_db.user_a
+    crm_id = f"case{uuid.uuid4().hex[:8]}"
+    sid = svc.create_submission(
+        name=f"CaseDeal{uuid.uuid4().hex[:8]}", cedant_name="Case Cedant",
+        contracts=[svc.ContractInput(crm_id, "per_risk_xol", date(2026, 4, 1))],
+        actor_id=a, confirmed=True).submission_id
+    with pytest.raises(SQLServerQueryError) as raised:
+        execute_command(
+            svc._CONTRACT_INSERT,
+            {"id": str(uuid.uuid4()), "sid": sid, "crm_id": crm_id.upper(),
+             "tt": "per_risk_xol", "inc": date(2026, 4, 1), "exp": date(2027, 3, 31),
+             "status": "IN_PROCESS", "now": svc._utcnow(), "actor": a},
+            connection="WORKBENCH")
+    assert is_unique_violation(raised.value)
+    assert "uq_contract_crm_id" in str(raised.value)

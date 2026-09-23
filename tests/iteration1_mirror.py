@@ -44,6 +44,7 @@ ITERATION1_SCHEMA = [
         contract_status_code TEXT NOT NULL DEFAULT 'IN_PROCESS',
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
+    "CREATE UNIQUE INDEX uq_contract_crm_id ON contract (crm_id COLLATE NOCASE)",
     # Same text as alembic/versions/0001_initial.py: SQLite runs it unchanged.
     """CREATE VIEW v_contract AS
 SELECT s.id            AS submission_id,

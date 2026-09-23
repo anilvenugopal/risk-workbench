@@ -82,12 +82,15 @@ def _csrf() -> str:
     return generate_csrf_token()
 
 
-def _payload(*, crm_ids: str = "T-1", treaty_type_code: str = "per_risk_xol",
+def _payload(*, crm_ids: str | None = None, treaty_type_code: str = "per_risk_xol",
              inception_date: str = "2026-04-01", expiration_date: str = "",
              contract_status: str = "IN_PROCESS", **overrides) -> dict:
     """The create form's post: the submission fields plus one contract row per
-    CRM ID in ``crm_ids`` (comma-separated; blank posts no row), every row on
-    the same treaty type, dates and status."""
+    CRM ID in ``crm_ids`` (comma-separated; blank posts no row; ``None`` posts
+    one row with a CRM ID no other deal holds), every row on the same treaty
+    type, dates and status."""
+    if crm_ids is None:
+        crm_ids = f"T-{uuid.uuid4().hex[:6]}"
     ids = [value.strip() for value in crm_ids.split(",") if value.strip()]
     form = {
         "name": "TY2604_AmericanFamily",
@@ -2020,6 +2023,50 @@ def test_create_refuses_a_repeated_crm_id_and_an_unknown_treaty_type(client):
     assert _count() == 0
 
 
+def _owner_link(sid: str, name: str) -> str:
+    return f'<a href="/submissions/{sid}" target="_blank" rel="noopener">{name}</a>.'
+
+
+def test_create_refuses_a_crm_id_another_deal_holds_and_links_that_deal(client):
+    """FR-003 (note 33 D14): the message sits under the typed row and the deal
+    name opens the owner in a new tab."""
+    owner, _ = _deal(client, name="Owner deal", crm_ids="A-1")
+    res = client.post("/submissions", data=_payload(name="Second deal",
+                                                    crm_ids="A-9, a-1 "))
+    assert res.status_code == 422
+    assert "a-1 is already a contract on " + _owner_link(owner, "Owner deal") in res.text
+    assert res.text.count('class="contract-row__error"') == 1
+    assert res.text.count('class="is-error"') == 1
+    assert 'value="A-9"' in res.text and 'value="a-1"' in res.text
+    assert _count() == 1
+
+
+def test_contract_add_and_edit_refuse_a_crm_id_another_deal_holds_and_link_it(client):
+    owner, _ = _deal(client, name="Owner deal", crm_ids="A-1")
+    sid, _ = _deal(client, name="Second deal", crm_ids="B-1", confirmed="1")
+    added = client.post(
+        f"/submissions/{sid}/contracts", headers=_HX,
+        data={"crm_id": " a-1 ", "treaty_type_code": "stop_loss",
+              "inception_date": "2026-04-01", "expiration_date": "",
+              "contract_status_code": "", "csrf_token": _csrf()})
+    assert added.status_code == 422
+    assert ('role="alert">a-1 is already a contract on '
+            + _owner_link(owner, "Owner deal")) in added.text
+    assert 'x-data="{ adding: true }"' in added.text and 'value=" a-1 "' in added.text
+
+    b1 = _contract(sid, "B-1")
+    edited = client.post(
+        f"/submissions/{sid}/contracts/{b1.id}", headers=_HX,
+        data={"crm_id": "A-1", "treaty_type_code": "aggregate_xol",
+              "inception_date": "2026-04-01", "expiration_date": "",
+              "updated_at": str(b1.updated_at), "csrf_token": _csrf()})
+    assert edited.status_code == 422
+    assert ('role="alert">A-1 is already a contract on '
+            + _owner_link(owner, "Owner deal")) in edited.text
+    assert 'x-data="{ editing: true }"' in edited.text and 'value="A-1"' in edited.text
+    assert [c.crm_id for c in submission_service.list_contracts(sid)] == ["B-1"]
+
+
 def test_statuses_post_saves_modeling_status_and_returns_the_head_fragment(client):
     sid, marker = _deal(client, name="Completed deal")
     response = client.post(
@@ -2237,7 +2284,7 @@ def test_contract_posts_without_a_csrf_token_write_nothing(client):
 
 
 def test_data_vintage_saves_and_the_edit_form_carries_no_contract_fields(client):
-    sid, _ = _deal(client, name="Vintage deal", data_vintage="2026-06-30")
+    sid, _ = _deal(client, name="Vintage deal", data_vintage="2026-06-30", crm_ids="T-1")
     assert str(submission_service.get_submission(sid).data_vintage) == "2026-06-30"
     page = client.get(f"/submissions/{sid}").text
     assert "Data vintage" in page and "2026-06-30" in page

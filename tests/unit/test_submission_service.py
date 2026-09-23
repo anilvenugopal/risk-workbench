@@ -27,6 +27,7 @@ from app.services.errors import (
 from app.services.submission_service import (
     ContractInput,
     ContractInvalid,
+    ContractOwner,
     add_contract,
     cedant_suggestions,
     create_submission,
@@ -45,21 +46,30 @@ from app.services.submission_service import (
     update_submission,
 )
 from app.workers import entity_jobs
-from db import execute, execute_command, execute_one, execute_scalar
+from db import (
+    SQLServerQueryError,
+    execute,
+    execute_command,
+    execute_one,
+    execute_scalar,
+    is_unique_violation,
+)
 
 STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
 
 
 def _mk(db, *, owner=None, name="TY2604_AmericanFamily", cedant="American Family",
         tt="per_risk_xol", inc=date(2026, 4, 1), ty=2026, confirmed=True,
-        crm="CRM-1", contracts=None):
+        crm=None, contracts=None):
     # confirmed=True by default: test setup must always create its baseline row,
     # even when a look-alike already exists in a shared dev DB (an unconfirmed
     # create would short-circuit with a warning and write nothing). Tests that
     # specifically exercise the duplicate-warning path pass confirmed=False.
     # One contract by default, carrying ``tt`` and ``inc``; ``contracts=[]`` makes
-    # a deal with none.
+    # a deal with none. The CRM ID is unique per call (FR-003: one CRM ID names
+    # one contract across the Workbench) unless the test names it.
     if contracts is None:
+        crm = crm or f"CRM-{uuid.uuid4().hex[:6]}"
         contracts = [ContractInput(crm_id=crm, treaty_type_code=tt, inception_date=inc)]
     res = create_submission(
         name=name, cedant_name=cedant, treaty_year=ty, contracts=contracts,
@@ -900,7 +910,78 @@ def test_create_refuses_a_bad_contract_row_and_writes_nothing(
         create_submission(name="Refused", cedant_name="R Re", contracts=rows,
                           actor_id=iteration1_db.user_a, confirmed=True)
     assert raised.value.index == index and str(raised.value) == message
+    assert raised.value.owner is None
     assert list_submissions(owner_ids=[iteration1_db.user_a], name="Refused").rows == []
+
+
+def test_create_refuses_a_crm_id_that_is_a_contract_on_another_deal(iteration1_db):
+    """FR-003 (note 33 D12-D14): the refusal names the row and the owning deal,
+    whatever the case and whitespace of the typed value."""
+    owner = _mk(iteration1_db, name="Owner deal", crm="X-1").submission_id
+    with pytest.raises(ContractInvalid) as raised:
+        create_submission(name="Second", cedant_name="S Re",
+                          contracts=[_row("X-9"), _row(" x-1 ")],
+                          actor_id=iteration1_db.user_a, confirmed=True)
+    assert raised.value.index == 1
+    assert str(raised.value) == "x-1 is already a contract on"
+    assert raised.value.owner == ContractOwner(owner, "Owner deal")
+    assert list_submissions(owner_ids=[iteration1_db.user_a], name="Second").rows == []
+
+
+def test_add_and_edit_refuse_a_crm_id_another_deal_holds_but_a_row_keeps_its_own(
+        iteration1_db):
+    a = iteration1_db.user_a
+    owner = _mk(iteration1_db, name="Owner deal", crm="X-1").submission_id
+    sid = _mk(iteration1_db, name="Second", crm="Y-1").submission_id
+    with pytest.raises(ContractInvalid) as raised:
+        _add(iteration1_db, sid, "X-1")
+    assert raised.value.owner == ContractOwner(owner, "Owner deal")
+    assert raised.value.index == 0
+    y1 = _contract(sid, "Y-1")
+    with pytest.raises(ContractInvalid) as raised:
+        update_contract(contract_id=y1.id, actor_id=a,
+                        expected_updated_at=y1.updated_at, contract=_row("x-1"))
+    assert raised.value.owner == ContractOwner(owner, "Owner deal")
+    # The same-deal duplicate keeps its own wording and names no owner.
+    _add(iteration1_db, sid, "Y-2")
+    with pytest.raises(ContractInvalid) as raised:
+        _add(iteration1_db, sid, " y-2 ")
+    assert str(raised.value) == "Y-2 is already a contract on this submission."
+    assert raised.value.owner is None
+    # A row keeps its own CRM ID on edit, in any case.
+    update_contract(contract_id=y1.id, actor_id=a, expected_updated_at=y1.updated_at,
+                    contract=_row("y-1", "stop_loss"))
+    assert _contract(sid, "y-1").treaty_type_code == "stop_loss"
+    assert [c.crm_id for c in list_contracts(sid)] == ["y-1", "Y-2"]
+
+
+@pytest.mark.parametrize("modeling_status", ["COMPLETED", "CANCELLED"])
+def test_a_crm_id_on_a_closed_deal_still_blocks(iteration1_db, modeling_status):
+    """Note 33 decision 3: the owner's Modeling status never frees its CRM IDs."""
+    a = iteration1_db.user_a
+    owner = _mk(iteration1_db, name="Closed deal", crm="Z-1").submission_id
+    set_statuses(submission_id=owner, modeling_status=modeling_status, reason="done",
+                 expected_updated_at=_marker(owner), actor_id=a)
+    with pytest.raises(ContractInvalid) as raised:
+        _mk(iteration1_db, name="Second", crm="Z-1")
+    assert raised.value.owner == ContractOwner(owner, "Closed deal")
+
+
+def test_the_crm_id_index_refuses_a_case_variant_written_around_the_service(
+        iteration1_db):
+    """``uq_contract_crm_id`` is the race catch behind the service lookup; the
+    SQLite mirror's ``COLLATE NOCASE`` index must collide like SQL Server's
+    case-insensitive default collation does."""
+    sid = _mk(iteration1_db, crm="abc").submission_id
+    with pytest.raises(SQLServerQueryError) as raised:
+        execute_command(
+            svc._CONTRACT_INSERT,
+            {"id": str(uuid.uuid4()), "sid": sid, "crm_id": "ABC", "tt": "per_risk_xol",
+             "inc": date(2026, 4, 1), "exp": date(2027, 3, 31), "status": "IN_PROCESS",
+             "now": svc._utcnow(), "actor": iteration1_db.user_a},
+            connection="WORKBENCH")
+    assert is_unique_violation(raised.value)
+    assert [c.crm_id for c in list_contracts(sid)] == ["abc"]
 
 
 def test_expiration_default_handles_a_leap_day(iteration1_db):
@@ -972,7 +1053,7 @@ def test_contract_attribute_writes_are_gated_on_active_but_status_is_not(
 def test_contract_status_stale_marker_conflicts_and_unknown_code_is_refused(
         iteration1_db):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db).submission_id
+    sid = _mk(iteration1_db, crm="CRM-1").submission_id
     cid = _contract(sid, "CRM-1").id
     with pytest.raises(ConcurrencyConflict):
         set_contract_status(contract_id=cid, to_status="WON",
@@ -1369,8 +1450,8 @@ def test_in_force_needs_won(iteration1_db):
     a = iteration1_db.user_a
     for name, status in (("Lost", "LOST"), ("In process", "IN_PROCESS"), ("Won", "WON")):
         sid = _mk(iteration1_db, owner=a, name=name, cedant=name, contracts=[]).submission_id
-        _add(iteration1_db, sid, "T-1", inc=date(2026, 1, 1), exp=date(2026, 12, 31),
-             status=status)
+        _add(iteration1_db, sid, f"T-{status}", inc=date(2026, 1, 1),
+             exp=date(2026, 12, 31), status=status)
     assert _in_force(iteration1_db, date(2026, 6, 1)) == {"Won"}
 
 

@@ -192,7 +192,7 @@
        ignored. #}
     {% if mode == 'create' %}
     {% set rows = form.contract_rows or [{}] %}
-    {% macro contract_row(row, error) %}
+    {% macro contract_row(row, error, owner) %}
     <div class="contract-row contract-row--edit">
       <input type="text" name="contract_crm_id" placeholder="CRM ID" autocomplete="off"
              aria-label="CRM ID" value="{{ row.crm_id or '' }}"{% if error %} class="is-error"{% endif %}>
@@ -216,7 +216,7 @@
         <button class="contract-row__del" type="button" @click="remove($event)"
                 title="Remove row" aria-label="Remove row">×</button>
       </span>
-      {% if error %}<span class="contract-row__error">{{ error }}</span>{% endif %}
+      {% if error %}<span class="contract-row__error">{{ error }}{% if owner %} <a href="/submissions/{{ owner.submission_id }}" target="_blank" rel="noopener">{{ owner.name }}</a>.{% endif %}</span>{% endif %}
     </div>
     {% endmacro %}
     <div class="contract-band contract-band--form">
@@ -233,10 +233,11 @@
         </div>
         <div x-ref="rows">
           {% for row in rows %}
-          {{ contract_row(row, field_errors['contract_' ~ loop.index0]) }}
+          {{ contract_row(row, field_errors['contract_' ~ loop.index0],
+                          field_owners['contract_' ~ loop.index0]) }}
           {% endfor %}
         </div>
-        <template x-ref="blank">{{ contract_row({}, none) }}</template>
+        <template x-ref="blank">{{ contract_row({}, none, none) }}</template>
       </div>
     </div>
     {% endif %}
