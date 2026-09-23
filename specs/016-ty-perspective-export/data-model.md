@@ -22,6 +22,13 @@ Constraint change: `uq_rwb_loss_result_manifest_export_analysis` is now
 column, index, and the procedure are unchanged. `perspective_code` takes `TY`
 beside the four portfolio codes (no `CHECK`, 014 T-19).
 
+`stage.rwb_loss_schema_version` stays at 1 and so does
+`export_jobs.REQUIRED_LOSS_SCHEMA_VERSION`. `loss_schema.sql` installs and never
+alters, so a development `rwb_loss` still carrying the spec-014 manifest is reset,
+not upgraded: `make bootstrap-loss-reset` (T-09). The version number starts
+tracking the table's shape at cutover, when CIC's repository holds manifests and
+the change scripts of 014 O-12 come back.
+
 `stage.rwb_loss_result_file.output_level` takes `Treaty` for a treaty data
 set's file; `result_file` then names the derived per-treaty Parquet file the
 stage worker wrote under the working directory

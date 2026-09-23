@@ -6,6 +6,12 @@ holds CIC's five tables from db/bootstrap/loss_dev_mirror.sql. Application SQL
 names both by two-part name, so it runs unchanged over this mirror. The load
 procedure is not mirrored: the unit tier fakes ``db.execute_procedure`` and the
 SQL Server tier runs the real one.
+
+The manifest's unique key differs in one way the unit tier cannot see: SQL Server
+treats two NULLs as equal in a UNIQUE constraint, SQLite treats every NULL as
+distinct. Spec 014's one-row-per-(export, analysis) rule for portfolio
+perspectives, whose ``treaty_number`` and ``treaty_name`` are NULL, is therefore
+enforced only in the SQL Server tier.
 """
 
 from __future__ import annotations

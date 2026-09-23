@@ -56,7 +56,7 @@
 | T-12 | The exports section keeps the analysis name column and a Treaty column follows it; each row is one manifest row, so its DOM id and its Retry and Close forms carry `manifest_id` | Approved | FR-011 |
 | T-13 | An analysis whose results were retrieved before this release has no `treaties` key, or entries without `has_loss` (retrieved before 2026-09-21), and is offered no TY until its results are retrieved again: an entry without the key reads as no loss. No backfill, the dev database is rebuilt | Approved | Pre-cutover rule (no backwards compatibility) |
 | T-14 | `irp_job_service.find_export_job` ignores a job with a `completed_at`, so Retry on the submit branch asks Risk Modeler for a fresh export instead of re-stamping the terminal job id and leaving the row reading in progress for good | Approved | Defect found 2026-09-17 while grouping the submit worker; user approved the fix |
-| T-15 | The tick state gates Export in Alpine (`analysisPicks.treatiesOk`) and is re-checked server-side in `create_export`; the ticked count in each list's head is rendered server-side and catches up with the next fragment swap, so no live counter is kept in the browser | Approved | P-03; note 31 D26 (build it cheap) |
+| T-15 | The tick state gates Export in Alpine (`analysisPicks.treatiesOk`) and is re-checked server-side in `create_export`; the treaty list's head carries only the `all` and `none` links, so no count is rendered or kept in the browser | Approved | P-03; note 31 D26 (build it cheap) |
 | T-16 | The gateway keeps `treatyType`, `riskLimit`, `attachmentPoint`, and `occurrenceLimit` beside treaty identity, and `loss_results.treaties` stores them. The cart renders the type through `treaty_service.display_value` and the amounts through `analysis_service.fmt_loss`; no new formatting helper and no EDM join | Approved | P-12; [research.md#R7](research.md#r7--the-treaties-endpoint-already-carries-the-terms-t-16) |
 | T-17 | One Risk Modeler export request per analysis, not per manifest row: the treaty rows of one analysis share a loss table, so they share a job id and a poller-enqueued stage job | Approved | P-09; contracts/jobs.md §3 |
 | T-18 | Which treaties took loss is one `GET /analyses/{id}/stats` at `TY` scoped `exposureResourceType=TREATY` per applied treaty, made in `retrieve_analysis_results` after the treaties read and stored as `loss_results.treaties[].has_loss` (`true` when the read answers rows). A failed read fails the job with `loss_results` untouched; no partial or unknown flag is stored. The cart reads the stored flag and never calls stats (Article 11) | Approved | P-13; [research.md#R8](research.md#r8--which-treaties-took-loss-t-18) |
@@ -65,7 +65,7 @@
 
 | ID | Question | Status | What is built meanwhile |
 |---|---|---|---|
-| O-04 (spec) | Exposure value when a treaty's rows are combined | Open | The largest exposure value among the combined rows; one constant in `export_jobs._combine_treaty_rows` to change when Cheng's query is read |
+| O-04 (spec) | Exposure value when a treaty's rows are combined | Open | The largest exposure value among the combined rows, from the `ExpValue` aggregation in `export_jobs._combine_treaty_rows`; one line to change when Cheng's query is read |
 | O-01 | Whether `GET /analyses/{id}/treaties` on a group analysis returns the members' treaties | Closed 2026-09-21 | It does, and the treaty-scoped stats read answers a group the same way (research R8); T-04 is Approved and spec O-05 closed |
 
 ---

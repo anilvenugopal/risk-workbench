@@ -24,15 +24,15 @@ Everything not named here is unchanged.
   Each row shows the number, the name, the type label
   (`treaty_service.display_value(code, key="treatyType")`), and
   `risk {risk_limit} · att {attachment_point} · occ {occurrence_limit}`
-  through `analysis_service.fmt_loss` (P-12). The head reads
-  "Treaties · {n} of {m} ticked" with `all` and `none` links that tick or clear
-  that analysis's boxes. The data name field is shown only for a ticked treaty,
-  by CSS, and Export is disabled while any cart row has no tick.
+  through `analysis_service.fmt_loss` (P-12). The head reads "Treaties" with
+  `all` and `none` links that tick or clear that analysis's boxes. The data name
+  field is shown only for a ticked treaty, by CSS, and Export is disabled while
+  any cart row has no tick.
 - Both `hx-include` lists (the analyses table and the perspective select) add
   `[name^='treaty['], [name^='treaty_data_name[']`, so ticks and typed names
   survive every fragment re-render and come back re-checked and re-filled.
 - Submit validation messages at TY, in this order:
-  "{name} was not run with treaties." ·
+  "{name} has no treaty with TY loss." ·
   "Tick at least one treaty for {name}." ·
   "Treaty {number} is not one of {name}'s treaties." ·
   "Data name for {name} treaty {number} is longer than 150 characters."
