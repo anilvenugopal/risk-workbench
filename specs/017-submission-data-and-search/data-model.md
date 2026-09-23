@@ -79,8 +79,8 @@ JOIN submission s ON s.id = c.submission_id
 ```
 
 The Workbench's own queries read `contract` directly; the view exists for
-CIC's linking SQL and the January bulk update, which key on `crm_id`
-(note 32 D25).
+CIC's linking SQL, which keys on `crm_id`. The January bulk update script
+writes `contract` directly (FR-023, note 32 D25).
 
 ## 5. Predicates the lists run (T-05, T-11)
 

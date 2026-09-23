@@ -35,6 +35,13 @@
 - Q: Data vintage required or optional on the submission? → Optional; the EDM often does not exist at creation. The export keeps it required and pre-fills from it (P-19).
 - Q: "Client" or "Client ID"? → Client ID (P-05).
 
+### Session 2026-09-23 (the bulk update, before the Wed 23 Sep demo)
+
+- Q: Where does the January bulk update run? → In SQL, by CIC, against `rwb_workbench` (Wendy, note 32 D25: "not here, but in SQL"). The Workbench ships the script; it is not a screen and not a route (P-21, FR-023).
+- Q: What does one extract row carry? → A CRM ID and the status CRM holds for it; each contract moves to the status beside its CRM ID, not a blanket move to Won (Ben's clarifying question and Wendy's "Yes", note 32 D25).
+- Q: What does the script do with a CRM ID the Workbench has never seen? → Report and skip. CRM holds every deal and the Workbench holds the modeled ones, so the extract will name contracts the Workbench lacks (assumed 2026-09-23, to confirm on the demo).
+- Q: What words does the CRM extract use for status? → Open (O-01). The script takes the Workbench codes or labels; Wendy said "bound, lost, won or lost" on 9/18.
+
 ## Evidence for the plan's technical decisions
 
 Each section closes one `T-nn` row in [plan.md](plan.md). Codebase facts were
@@ -248,6 +255,14 @@ ISO-8601 text; both order the same. The dropped index's comment recorded a
 plan-shape intent, not a measurement; the submissions table is in the
 hundreds of rows.
 
+**Evidence.** 2026-09-23, note 33 O33-6: a scratch database on
+`infra-sqlserver-1` migrated from `0001_initial.py` and seeded with
+`seed_demo_submissions.py --count 2000` (3,113 contracts). The default order
+over all 2,000 rows matched an independent Python sort on the same key, and
+a page of 50 took 13-20 ms on the default sort (pages 1, 20 and 40), 9 ms
+sorted by name, 6-17 ms with the in-force, contract-status, CRM-ID and
+three-filter combinations. No index is owed at this scale.
+
 **Alternatives rejected.** `updated_at DESC` (recency): a different meaning
 from the one the client accepted (FR doc line 116). `MIN` inception: places
 a deal with one old and one new contract under the old one. A stored
@@ -330,3 +345,42 @@ proves it; the column would be a second copy of the value. *A filtered
 index excluding Completed or Cancelled owners*: rejected by decision 3, and
 the owner's status is on `submission`, which a filtered index on `contract`
 cannot see.
+
+### R15 — The bulk update is a script (T-16)
+
+**Decision.** `infra/scripts/bulk_update_contract_status.sql`: the extract is
+pasted into a `#crm_status` temp table between two markers; `@dry_run`
+defaults to 1; each row resolves to a `contract_status_kind` code
+(`UPPER(REPLACE(TRIM(status), ' ', '_'))`, so a code or a label in any case)
+and to a contract by `LOWER(TRIM(crm_id))`, the P-10 and R14 normalisation;
+four result sets (summary, problems, skipped CRM IDs, the change list); an
+unknown status or a CRM ID listed twice raises and writes nothing; otherwise
+one UPDATE on `contract` in a transaction sets `contract_status_code`, moves
+`updated_at` and clears `updated_by`.
+
+**Rationale.** Wendy asked for SQL, not a screen (note 32 D25). Contract
+status has no history (P-02), so an UPDATE is the whole change; the moved
+`updated_at` makes an analyst's stale page conflict like any other edit
+(T-02), and a NULL `updated_by` records that no analyst made it. The unique
+index (T-15) is what makes "the contract for this CRM ID" one row. Refusing
+the whole run on a bad extract is cheaper than a January applied in part: the
+problem list names the rows, the extract is fixed and run again. An unmatched
+CRM ID is expected, not an error, because CRM holds every deal and the
+Workbench holds the modeled ones.
+
+**Evidence.** Dry run against the dev database on 2026-09-23 through
+`sqlcmd`; `tests/sqlserver/test_bulk_update_contract_status.py` from WSL2
+against `infra-sqlserver-1` the same day (dry run, apply, second run
+idempotent, unknown status, duplicate CRM ID).
+
+**Alternatives rejected.** *A route or admin screen*: the client asked for
+SQL, and the January extract is a file, not a form. *Writing through
+`v_contract`*: the view is the extract (T-04); the script reads `contract`
+directly as the Workbench does. *`BULK INSERT` from a CSV path*: needs the
+file on the server's file system and a path per environment; pasting the
+extract as VALUES works in SSMS and `sqlcmd` alike, and the extract is a few
+hundred rows. *Skipping bad rows and applying the rest*: a run applied in
+part is harder to reason about than one refused whole. *Mapping CRM's own
+words (Bound → Won) in the script*: the extract's vocabulary is unknown
+(O-01); the mapping belongs to whoever builds the extract until CIC says
+otherwise.

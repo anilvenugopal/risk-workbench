@@ -334,3 +334,18 @@ refusal linking the first) after Rebuild.
   its known inserted_at tiebreak and passed on rerun. SQL Server tier not run:
   Rebuild needed for the index, then `make test-sql`. **Stop for Ben's
   click-through (quickstart §3 Story 1 step 3) before the bulk status update.**
+
+## Phase 10: The January bulk update script (note 32 D25, note 33 §10, 2026-09-23)
+
+**Purpose**: the SQL job CIC runs after CRM closes out a renewal date, demoed
+Wed 23 Sep. Baseline: unit tier 2,027 passed.
+
+**Independent test**: quickstart.md §3 "Bulk update" after Rebuild and
+`make seed-demo`.
+
+- [x] T074 [FR-023] [P-21] [T-16] `infra/scripts/bulk_update_contract_status.sql`: the extract block between two markers into `#crm_status`; `@dry_run` default 1; resolution over `contract_status_kind` (code or label, any case) and `contract` (`LOWER(TRIM(…))`); four result sets (summary, problems, skipped CRM IDs, change list); RAISERROR and no write on an unknown status or a CRM ID listed twice; one UPDATE in a transaction setting `contract_status_code`, `updated_at` and `updated_by = NULL`
+- [x] T075 [FR-023] `tests/sqlserver/test_bulk_update_contract_status.py`: dry run reports and writes nothing; apply sets each contract to its status, moves `updated_at`, clears `updated_by`; a second run changes nothing; unknown status and duplicate CRM ID each write nothing
+  - Proof: run 2026-09-23 from WSL2 against `infra-sqlserver-1` (dev `rwb_workbench`, rows created and deleted by the test): 4 passed, with `test_connectivity.py` 4 passed. Not yet run through `make test-sql`
+- [x] T076 [FR-023] [P-21] spec.md (in scope, out of scope, P-21, O-01, FR-023); plan.md (T-16, project structure, testing); research.md (session 2026-09-23, R15); quickstart.md §2 and §3 Bulk update; data-model.md §4; the migration's `v_contract` comment; `docs/FUNCTIONAL_REQUIREMENTS.md` line 72, `docs/DATA_MODEL.md` §4 and `docs/PRD.md` §7.2 name the script
+- [ ] T077 [O-01] Demo Wed 23 Sep on seeded data: dry run, apply, second run, a bad row. Ask what words the CRM extract uses for status and who maps them; record the answer in O-01
+- [x] T078 [FR-007] [FR-014] [FR-016] [FR-018] [T-11] Search checks on SQL Server (note 33 O33-6): a scratch database `rwb_workbench_017` on `infra-sqlserver-1`, migrated and seeded with `seed_demo_submissions.py --count 2000` (3,113 contracts), dropped afterwards; `list_submissions` compared with an independent Python computation over the same rows for the default order over all 2,000 rows, the page-1 contract summary, in force on two dates, P-18 (63 seeded deals hold the two attributes on different contracts and are correctly excluded), contract status, treaty type, five CRM IDs in mixed case and padding, a CRM ID fragment, inception, treaty year, client, Modeling status, cedant, name, owner and a three-filter combination: 18 checks passed; a page of 50 in 6-20 ms on every sort and filter (research.md R11). Not exercised: the EDM and RDM library filters (the seeder writes no EDMs) and the screens themselves (`linux-box` down)

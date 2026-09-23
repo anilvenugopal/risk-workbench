@@ -38,8 +38,9 @@ make wsl-test-sql    # WSL2
 Covers `contract` and its FKs, `uq_contract_crm_id` (unique, unfiltered, and
 case-insensitive under the server's collation), the three contract statuses,
 the eleven treaty codes, the dropped submission columns and index,
-`v_contract`, and the `dbo.Client` read (skipped when absent). **Unverified
-until someone runs it.**
+`v_contract`, the `dbo.Client` read (skipped when absent), and the bulk
+update script's four cases (`test_bulk_update_contract_status.py`).
+**Unverified until someone runs it.**
 
 ## 3. Click-through
 
@@ -120,6 +121,30 @@ no contract.
 7. Enter twenty-one CRM IDs on any list: `CRM ID accepts 20 values or fewer.`
    and no rows.
 8. `/edms/sync`: name search and paging only, unchanged.
+
+### Bulk update — Contract status from a CRM extract (FR-023)
+
+Set up: `make seed-demo` (or `make wsl-seed-demo`) after Rebuild. Pick three
+seeded CRM IDs from the submissions list (they read `CRM-2027-1001`).
+
+1. Open `infra/scripts/bulk_update_contract_status.sql` against
+   `rwb_workbench` in SSMS or Azure Data Studio. Replace the rows between the
+   EXTRACT markers with the three CRM IDs, two as `Won` and one as `Lost`,
+   plus one CRM ID the Workbench does not have. Run: the summary reads
+   `to_update 3, not_in_workbench 1, dry_run 1`, the change list shows the
+   three rows with their old status, and nothing is written.
+2. Set `@dry_run = 0`, run: `3 contract(s) updated.` Each deal's contract
+   table shows the new status, and **In force as of** today on the
+   submissions list returns the Won deals whose term covers today.
+3. Run the same extract again: `to_update 0, already_at_status 3`.
+4. Change one status to `Bound`, run: the problem list names the row,
+   `Nothing written`, no contract changed. List one CRM ID twice: the same.
+
+From the host without SSMS (a dry run unless `@dry_run` is edited):
+
+```bash
+docker exec -i infra-sqlserver-1 bash -c '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -d rwb_workbench -W' < infra/scripts/bulk_update_contract_status.sql
+```
 
 ### Extract
 

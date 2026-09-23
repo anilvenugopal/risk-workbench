@@ -115,6 +115,7 @@ service and the templates that read deal status and deal dates change.
 | T-13 | Constitution Article 4 patch: `contract.contract_status_code` in the in-place list; no rule change | Approved | [research.md#R13](research.md#r13--constitution-patch-t-13) |
 | T-14 | `deal_status` → `contract_status` everywhere (kind table, column, query param, labels, service names); no alias kept | Approved | [research.md#R2](research.md#r2--the-contract-grain-t-03) |
 | T-15 | `uq_contract_crm_id` unique index on `contract.crm_id` plus one service lookup over `v_contract` that names the owner; the refusal links the owning submission; the owner's status never frees a CRM ID | Approved | [research.md#R14](research.md#r14--crm-id-unique-across-the-workbench-t-15) |
+| T-16 | The bulk update is one T-SQL script over a `#crm_status` temp table with a dry-run flag; it updates `contract` directly (no view, no service, no event), clears `updated_by`, and refuses the whole run on an unknown status or a duplicate CRM ID | Approved | [research.md#R15](research.md#r15--the-bulk-update-is-a-script-t-16) |
 
 ---
 
@@ -181,8 +182,10 @@ app/templates/pages/submission_export_new.html # Contract select; client and dat
 app/static/js/app.js                          # contract row editor sliver; export contract select
 app/static/css/submissions.css                # contract table
 infra/scripts/seed_db.py                      # contract_status_kind MERGE
+infra/scripts/bulk_update_contract_status.sql # CIC's January bulk update: Contract status per CRM ID from a CRM extract
 tests/iteration1_mirror.py                    # contract DDL, kind rename, view
 tests/sqlserver/test_submission_migration.py  # contract table, view, dropped columns and index
+tests/sqlserver/test_bulk_update_contract_status.py # the script's dry run, apply, unknown status and duplicate cases
 tests/unit/                                   # see Testing
 docs/FUNCTIONAL_REQUIREMENTS.md · docs/DATA_MODEL.md · docs/PRD.md · .specify/memory/constitution.md
 docs/ui_previews/submission_contracts.html    # new preview: create form editor + deal card contract table
@@ -222,5 +225,11 @@ None.
   `inception_date` / `treaty_type_code` / `deal_status_code`,
   `ix_submission_list_order` is gone, `v_contract` exists, `COALESCE(DATE,
   DATETIME2)` orders as expected. Unverified until someone runs
-  `make test-sql`.
+  `make test-sql`. The bulk update script: dry run writes nothing, apply
+  sets each contract to its status and moves `updated_at`, a second run
+  changes nothing, an unknown status or a duplicate CRM ID writes nothing
+  (`test_bulk_update_contract_status.py`, run 2026-09-23 from WSL2 against
+  `infra-sqlserver-1`). The default sort and every list filter checked
+  against 2,000 seeded submissions on a scratch database, 18 checks, one
+  page in 6-20 ms (tasks T078, research.md R11).
 - **IRP sandbox**: N/A.

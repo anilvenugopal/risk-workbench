@@ -1,6 +1,6 @@
 # Feature Specification: Submission Data and Cross-Entity Search (Iteration 12)
 
-**Branch**: `017-submission-data-and-search` | **Created**: 2026-09-17 | **Amended**: 2026-09-22 (CRM ID unique across the Workbench, note 33)
+**Branch**: `017-submission-data-and-search` | **Created**: 2026-09-17 | **Amended**: 2026-09-23 (the bulk Contract status update script, note 32 D25)
 
 ## Status
 
@@ -19,11 +19,12 @@ An analyst records what CRM knows about a deal at the grain CRM holds it: each *
 - A **Client** from CIC's repository client list on the submission, optional, labelled "Client ID"; CIC's eleven treaty types read from the maintained list.
 - The export form pre-fills client and data vintage from the submission and offers the submission's contracts for CRM ID and treaty inception.
 - Submission-attribute filters on the EDM and RDM libraries; multi-CRM-ID, contract status, client and "in force as of" filters on the submissions list and both libraries; the list sorted by the latest contract inception.
+- The **bulk Contract status update**: the SQL script CIC runs against `contract` after CRM closes out a renewal date, one status per CRM ID (note 32 D25).
 
 ## Out of scope
 
 - Peril as a search dimension; tag search in Risk Modeler (tagging stays CRM ID only, note 29 D25); user-authored SQL in the Workbench (note 30 O30-10).
-- The CRM sync itself: CIC applies its January extract to the contract table by CRM ID in SQL (note 32 D25). The reason a deal was lost; retention and archiving policy (note 18 D13); an "expired more than N years ago" filter (note 32 D26).
+- A CRM sync: the Workbench never reads CRM; CIC produces the extract the bulk update script takes. The reason a deal was lost; retention and archiving policy (note 18 D13); an "expired more than N years ago" filter (note 32 D26).
 - Client creation or edits to the repository client list; a cross-submission analyses list, an Analyses group in Ctrl-J and a per-analysis page (P-08); searching Risk Modeler's own EDMs, RDMs and analyses, and filters for EDMs linked to no submission or excluding industry databases (note 32 D28–D30, held).
 - Ordering contracts within a submission, or designating one as primary (P-17).
 
@@ -60,6 +61,8 @@ Status words appear here only. "Confirmed with client on" is the date a built sc
 | P-18 | Contract-level filters (CRM ID, treaty type, inception, contract status, in force) are evaluated against one contract row together; submission-level filters (owner, cedant, client, treaty year, Modeling status, name) against the submission | Approved | user 2026-09-21; FR-016 one level up | |
 | P-19 | **Data vintage** is one optional date on the submission, the in-force as-of date of the data CIC received in the EDM; the export's required data vintage pre-fills from it | Approved | note 32 D23; user 2026-09-21 | 2026-09-18 |
 | P-20 | Treaty year stays on the submission; the form fills it from the data vintage and the server from the earliest contract inception when blank; it may be blank on a submission with no contract | Approved | FR doc line 49; user 2026-09-21 | |
+| P-21 | The January bulk update is a SQL script CIC runs against `rwb_workbench`, not a screen: one CRM ID and one status per extract row, each contract set to the status beside its CRM ID; a dry run first; a status the Workbench lacks or a CRM ID listed twice writes nothing; a CRM ID with no contract is reported and skipped | Approved | note 32 D25; note 33 §10 | |
+| O-01 | The status words in CIC's CRM extract: the script takes the Workbench codes or labels (Won, Lost, In Process); whether the extract says "Bound" or other words, and who maps them, is CIC's answer | Open | note 32 D25 ("bound, lost, won or lost") | |
 
 ---
 
@@ -132,6 +135,7 @@ An earthquake hits New York. The analyst arrives at the EDM library with a list 
 - **FR-020**: The functional requirements document is corrected: a submission is one cedant's modeling package holding zero or more contracts, each a CRM ID with its own treaty type, dates and status (lines 44, 47, 48, 57); name and cedant are required at creation (line 52); treaty year defaults from the earliest contract inception (line 49); the status row names Modeling status and Contract status (line 62); the list filters row (line 115); the labels Cedant and Client ID (line 50); data vintage defined in Wendy's words. The 9/18 corrections to global search and the library filters stand.
 - **FR-021**: The submission page's deal card is amended: its Treaty and Term groups and the CRM band become one contract table with headers and in-place row editing, and the create form gains the contract editor of FR-004 (P-14). A rendered preview covering the create form with three rows, an Active deal's contract table with mixed statuses, a deal with no contract, a Completed deal (only contract status editable) and the repository unreachable is approved before templates or routes are written. The EDM, RDM, analyses and exports tables are unchanged.
 - **FR-022**: A submission carries an optional **data vintage** date, the in-force as-of date of the data CIC received in the EDM, entered on the create form and edited on the deal card; it pre-fills the export's data vintage (P-19).
+- **FR-023**: The Workbench ships `infra/scripts/bulk_update_contract_status.sql`, the SQL script CIC runs against `rwb_workbench` to apply a CRM extract: one row per CRM ID with its status (a Workbench code or label, any case). Each named contract's Contract status is set to that status in place, its `updated_at` moved and `updated_by` cleared; no reason, no history, no screen. A dry run reports the changes first. The script writes nothing when a status is unknown or a CRM ID is listed twice; a CRM ID the Workbench has no contract for is reported and skipped (P-21).
 
 ## Key Entities
 
