@@ -31,9 +31,10 @@ service and the templates that read deal status and deal dates change.
   transaction.** Contract rows post as parallel repeated fields
   (`contract_crm_id`, `contract_treaty_type`, `contract_inception`,
   `contract_expiration`, `contract_status`, positionally aligned);
-  `create_submission` validates every row (CRM ID present and unique within
-  the submission, treaty type in the list, dates parse) and inserts them after
-  the submission row. A blank expiration is filled server-side as inception
+  `create_submission` validates every row (CRM ID present and unique across
+  the Workbench — one lookup over `v_contract` for the whole form names the
+  owning submission; `uq_contract_crm_id` catches the race — treaty type in
+  the list, dates parse) and inserts them after the submission row. A blank expiration is filled server-side as inception
   plus one year minus one day; the same rule runs on the page's add and edit
   (T-12).
 - **Contract edits on the page are three routes.** `POST …/contracts` adds,
@@ -113,6 +114,7 @@ service and the templates that read deal status and deal dates change.
 | T-12 | Contract rows post as parallel repeated fields; `create_submission` writes submission and contracts in one transaction; blank expiration filled server-side | Approved | [research.md#R12](research.md#r12--posting-contracts-with-the-form-t-12) |
 | T-13 | Constitution Article 4 patch: `contract.contract_status_code` in the in-place list; no rule change | Approved | [research.md#R13](research.md#r13--constitution-patch-t-13) |
 | T-14 | `deal_status` → `contract_status` everywhere (kind table, column, query param, labels, service names); no alias kept | Approved | [research.md#R2](research.md#r2--the-contract-grain-t-03) |
+| T-15 | `uq_contract_crm_id` unique index on `contract.crm_id` plus one service lookup over `v_contract` that names the owner; the refusal links the owning submission; the owner's status never frees a CRM ID | Approved | [research.md#R14](research.md#r14--crm-id-unique-across-the-workbench-t-15) |
 
 ---
 
@@ -148,7 +150,8 @@ Material interactions:
   module constant (T-04).
 - **Article 7 (one data-access package)**: the `dbo.Client` read stays a
   bound `db.execute` on `LOSS` (T-06); every contract write goes through
-  `submission_service` on `WORKBENCH`.
+  `submission_service` on `WORKBENCH`; the CRM ID owner lookup is one bound
+  `db.execute` over `v_contract` (T-15).
 - **Article 8 (server-rendered)**: contract rows are HTMX fragments; the
   create form's row editor and the export form's Contract select are Alpine
   slivers that only add rows and copy values.
@@ -197,7 +200,11 @@ None.
 
 - **Unit** (2,010 passed on this branch before the amendment): create with
   zero, one and three contract rows in one transaction; a blank or duplicate
-  CRM ID refuses the whole save with the row named; blank expiration filled
+  CRM ID refuses the whole save with the row named; a CRM ID another
+  submission holds refuses create, add and edit with the owner's id and name
+  in `ContractInvalid.owner`, in any case or whitespace, on a Completed or
+  Cancelled owner too, while a row keeps its own CRM ID on edit; a raw
+  case-variant insert trips `uq_contract_crm_id` (T-15); blank expiration filled
   as inception + 1 year − 1 day; treaty year from the earliest contract
   inception and `None` with none; contract status set on a Completed
   submission with no event, other attributes refused when not Active; the

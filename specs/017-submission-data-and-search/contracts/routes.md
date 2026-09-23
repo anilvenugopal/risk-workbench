@@ -10,7 +10,7 @@ T-12, T-14.
 | Route | Form fields | Gate | Success | Errors |
 |---|---|---|---|---|
 | `POST /submissions/{sid}/statuses` | `modeling_status` ∈ `submission_status_kind.code`, `reason` (optional), `updated_at` | Modeling status transition rules unchanged | event written, cached column stamped; re-render `#deal-head` | 409 on `updated_at` mismatch; 422 on an unknown code |
-| `POST /submissions/{sid}/contracts` | `crm_id` (required), `treaty_type_code` (required, in the list), `inception_date` (ISO, required), `expiration_date` (ISO or blank → inception + 1 year − 1 day), `contract_status_code` (default `IN_PROCESS`) | Modeling status Active | row inserted; re-render `#contracts` | 409 `SubmissionClosed`; 422 with the field named: blank CRM ID, duplicate CRM ID on this submission, unknown code, unparseable date |
+| `POST /submissions/{sid}/contracts` | `crm_id` (required), `treaty_type_code` (required, in the list), `inception_date` (ISO, required), `expiration_date` (ISO or blank → inception + 1 year − 1 day), `contract_status_code` (default `IN_PROCESS`) | Modeling status Active | row inserted; re-render `#contracts` | 409 `SubmissionClosed`; 422 with the field named: blank CRM ID, duplicate CRM ID on this submission, CRM ID already a contract on another submission (that submission named and linked), unknown code, unparseable date |
 | `POST /submissions/{sid}/contracts/{cid}` | the same fields except status, plus `updated_at` | Modeling status Active | attributes updated in place; re-render `#contracts` | 409 `SubmissionClosed` or stale `updated_at`; 422 as above |
 | `POST /submissions/{sid}/contracts/{cid}/status` | `contract_status_code`, `updated_at` | none (P-12) | status updated in place, no event; re-render `#contracts` | 409 stale `updated_at`; 422 unknown code |
 | `POST /submissions/{sid}/contracts/{cid}/delete` | none | Modeling status Active | row deleted; re-render `#contracts` | 409 `SubmissionClosed` |
@@ -43,8 +43,9 @@ not shown; contracts are edited on the page (§1).
 
 Validation: the whole save is refused with the row index named when a row's
 CRM ID is blank, repeats another row's or an existing contract's on this
-submission (case-insensitive, trimmed), its treaty type is not in the list,
-or a date does not parse. A posted `client_id` not in a reachable list → 422
+submission, or is already a contract on another submission (case-insensitive,
+trimmed; the message names that submission and links to it, opening in a new
+tab), its treaty type is not in the list, or a date does not parse. A posted `client_id` not in a reachable list → 422
 "Choose a client from the list."
 
 ## 3. Query parameters shared by the three lists
@@ -102,6 +103,11 @@ class Contract: id; submission_id; crm_id; treaty_type_code; treaty_type_label
 @dataclass(frozen=True)
 class ContractInput: crm_id: str; treaty_type_code: str; inception_date: date
                      expiration_date: date | None; contract_status_code: str = "IN_PROCESS"
+@dataclass(frozen=True)
+class ContractOwner: submission_id: str; name: str
+class ContractInvalid(ValueError): index: int | None; owner: ContractOwner | None
+    # owner is set when another submission holds the CRM ID; the message then
+    # ends "is already a contract on" and the template appends the linked name
 
 def create_submission(*, …, data_vintage=None, contracts: list[ContractInput] = (), …) -> str
 def update_submission(*, …, data_vintage=None, …) -> None        # no contract fields

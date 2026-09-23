@@ -1,6 +1,6 @@
 # Feature Specification: Submission Data and Cross-Entity Search (Iteration 12)
 
-**Branch**: `017-submission-data-and-search` | **Created**: 2026-09-17 | **Amended**: 2026-09-21 (contract grain, note 32)
+**Branch**: `017-submission-data-and-search` | **Created**: 2026-09-17 | **Amended**: 2026-09-22 (CRM ID unique across the Workbench, note 33)
 
 ## Status
 
@@ -55,7 +55,7 @@ Status words appear here only. "Confirmed with client on" is the date a built sc
 | P-13 | The EDM and RDM libraries carry no Modeling status filter | Approved | research.md 2026-09-18 | |
 | P-14 | The submission page above the tables is one deal card; with this amendment its Treaty and Term groups and the CRM band become one **contract table** with headers, and a new rendered preview is approved before it is built | Approved | user 2026-09-18; note 32 D13–D16; user 2026-09-21 | 2026-09-18 (the card as built that morning) |
 | P-15 | Treaty type is a contract attribute; the submission has none. One submission may hold contracts of different types; CIC still opens a second submission when the modeling differs | Approved | note 32 D19; user 2026-09-21 | 2026-09-18 |
-| P-16 | A submission carries zero or more contracts. The create form manages them in full (none, one or many, every attribute); name and cedant are the only fields required at creation. A contract requires its CRM ID, unique within the submission case-insensitively | Approved | note 32 O32-7; user 2026-09-21 | |
+| P-16 | A submission carries zero or more contracts. The create form manages them in full (none, one or many, every attribute); name and cedant are the only fields required at creation. A contract requires its CRM ID, unique across the Workbench case-insensitively | Approved | note 32 O32-7; user 2026-09-21; note 33 D12–D14 | 2026-09-22 (the client's own decision on the call) |
 | P-17 | No contract is primary. The list's default sort is the latest contract inception descending, then name; a submission with no contract sorts by its creation date in the same key. Any place that needs one contract's value asks the analyst or aggregates | Approved | user 2026-09-21 | |
 | P-18 | Contract-level filters (CRM ID, treaty type, inception, contract status, in force) are evaluated against one contract row together; submission-level filters (owner, cedant, client, treaty year, Modeling status, name) against the submission | Approved | user 2026-09-21; FR-016 one level up | |
 | P-19 | **Data vintage** is one optional date on the submission, the in-force as-of date of the data CIC received in the EDM; the export's required data vintage pre-fills from it | Approved | note 32 D23; user 2026-09-21 | 2026-09-18 |
@@ -73,7 +73,7 @@ Jessica opens one submission for Allstate's modeling package and enters eight CR
 
 1. **Given** the create form, **When** the analyst saves with name and cedant and no contract, **Then** the submission saves with no treaty type, inception or expiration, treaty year blank, and its page shows an empty contract table with an Add control.
 2. **Given** the create form, **When** the analyst adds three contract rows, **Then** each row takes a CRM ID, treaty type, inception, expiration and status (In Process by default), the second and third rows open with the first row's dates already filled, typing an inception fills that row's expiration as inception plus one year minus one day (the server does the same for a blank expiration), and saving writes the submission and its three contracts together.
-3. **Given** a contract row on the create form or the page, **When** its CRM ID is blank or repeats another contract's on the same submission, **Then** the save is refused with a message under that row.
+3. **Given** a contract row on the create form or the page, **When** its CRM ID is blank or repeats another contract's on the same submission, **Then** the save is refused with a message under that row; **When** it repeats a contract's on another submission, **Then** the save is refused and the message under that row names and links that submission.
 4. **Given** any submission, **When** the analyst opens its page, **Then** the deal card shows **Modeling status** with its history and the contract table shows each contract's CRM ID, treaty type, inception, expiration and **Contract status** under those headers; no control shows both statuses.
 5. **Given** a submission whose Modeling status is Completed or Cancelled, **When** the analyst sets one contract to Won and another to Lost, **Then** both save with no reason asked, the Modeling status and its history are unchanged, and every other field stays locked.
 6. **Given** an Active submission, **When** the analyst edits one contract's expiration in place, **Then** only that contract changes; **When** the analyst removes a contract, **Then** its status and dates go with it.
@@ -112,7 +112,7 @@ An earthquake hits New York. The analyst arrives at the EDM library with a list 
 
 - **FR-001**: The existing submission status is presented as **Modeling status** everywhere the analyst sees it, with the values Active, Completed and Cancelled (P-01). Its rules are unchanged: every transition records a reason, transitions are reversible, only Active accepts changes. No Hold value.
 - **FR-002**: Each contract carries a **Contract status** of Won, Lost or In Process (P-02), In Process on creation, editable on the submission page by any analyst in every Modeling status (P-12), with no reason and no history. The submission itself carries no deal status. Contract status is displayed, filtered and edited apart from Modeling status and never shares a control with it.
-- **FR-003**: A contract carries a CRM ID (required, free text without format validation, unique within its submission case-insensitively), a treaty type from the maintained list (required), an inception (required), an expiration (required; when left blank it is set to inception plus one year minus one day) and a contract status (P-03, P-15, P-16). The submission carries no treaty type, inception or expiration.
+- **FR-003**: A contract carries a CRM ID (required, free text without format validation, unique across the Workbench case-insensitively; a CRM ID already on another submission refuses the save with a message naming and linking that submission, whatever either submission's status — D14), a treaty type from the maintained list (required), an inception (required), an expiration (required; when left blank it is set to inception plus one year minus one day) and a contract status (P-03, P-15, P-16). The submission carries no treaty type, inception or expiration.
 - **FR-004**: A submission carries zero or more contracts. The create form lets the analyst add, edit and remove contract rows with every attribute before saving; the submission and its contracts are written together. Name and cedant are the only fields required at creation (P-16). On the submission page the analyst adds a contract, edits a contract's attributes in place and removes a contract; attribute edits other than contract status are gated on Modeling status Active like every other field.
 - **FR-005**: A new contract row, on the create form or the page, pre-fills its inception and expiration from the contract row entered before it; the first row starts blank (P-03).
 - **FR-006**: Treaty year stays on the submission. The form fills it from the data vintage until the analyst types a year, and the server fills it from the earliest contract inception when it is left blank; it stays editable and may be blank on a submission with no contract (P-20).
@@ -136,7 +136,7 @@ An earthquake hits New York. The analyst arrives at the EDM library with a list 
 ## Key Entities
 
 - **Submission**: the modeling package for one cedant. Carries name, cedant, client, treaty year, data vintage, Modeling status, owner, and zero or more contracts. No treaty type, no dates, no deal status of its own.
-- **Contract**: one CRM ID on a submission, with its treaty type, inception, expiration and contract status. The join key to CIC's systems and the row CIC's January extract updates.
+- **Contract**: one CRM ID on one submission, with its treaty type, inception, expiration and contract status. The CRM ID is unique across the Workbench. The join key to CIC's systems and the row CIC's January extract updates.
 - **Client**: a row of CIC's repository client list, identified by client ID, read-only for the Workbench; distinct from the Workbench cedant string.
 - **Treaty type**: CIC's eleven modeling reinsurance structures, a list the Workbench seeds and maintains; an attribute of a contract.
 - **In force as of a date**: a query over a contract's status and dates, never a stored value.

@@ -287,3 +287,50 @@ built, the task says so. Baseline: unit tier 2,010 passed.
   the migration test's negative assertions; two preview notes corrected.
 - Unit tier after T065: 2,020 passed (baseline 2,010). SQL Server tier not run
   (T056 unverified until `make test-sql`; Rebuild needed).
+
+## Phase 9: CRM ID unique across the Workbench (note 33 D12–D14, 2026-09-22)
+
+**Purpose**: a CRM ID names one contract on one submission. Phase 8 enforced
+uniqueness within a submission only; the client said on 9/22 that sharing a
+CRM ID across submissions "should not be allowed". Add the unique index, the
+owner lookup and the linked refusal. Baseline: unit tier 2,020 passed.
+
+**Independent test**: quickstart.md §3 Story 1 step 3 (the second deal's
+refusal linking the first) after Rebuild.
+
+### Schema and mirrors
+
+- [x] T066 [US1] [FR-003] [T-15] [P-16] `alembic/versions/0001_initial.py`: `op.create_index("uq_contract_crm_id", "contract", ["crm_id"], unique=True)` after `ix_contract_submission_id`, dropped first in `downgrade()`; the contract-table comment cites note 33 D12–D13 instead of "note 32 D30". `tests/iteration1_mirror.py`: `CREATE UNIQUE INDEX uq_contract_crm_id ON contract (crm_id COLLATE NOCASE)`. DB lifecycle: Rebuild (developer runs `make db-rebuild`)
+
+### Service
+
+- [x] T067 [US1] [FR-003] [T-15] [P-16] `app/services/submission_service.py`: `ContractOwner(submission_id, name)`; `ContractInvalid.owner`; `_taken_elsewhere` (one `db.execute` over `v_contract`, `LOWER(TRIM(crm_id)) IN (…)`, less the contract being edited, raising the owner-naming `ContractInvalid`); `_prepare_contracts` calls it once after the row loop and switches the posted-rows check from `.casefold()` to `.lower()`; `create_submission`, `add_contract` and `update_contract` catch a unique violation and re-raise the owner-naming `ContractInvalid`
+
+### Routes and templates
+
+- [x] T068 [US1] [FR-003] [T-15] `app/routers/submissions.py`: the create POST passes `field_owners`; `_contracts_partial` takes `contract_error_owner`. `pages/submission_form.html` `contract_row` macro and `partials/contract_table.html` banner append `<a href="/submissions/{id}" target="_blank" rel="noopener">{name}</a>.` when an owner is set. No preview: a link inside an existing error slot (docs/UI_WORKFLOW.md rule 1 exemption)
+
+### Tests
+
+- [x] T069 [US1] [FR-003] [T-15] `tests/unit/test_submission_service.py`: `_mk` gives each deal its own CRM ID; cross-deal refusal on create, add and edit with `owner` checked; a row keeps its own CRM ID on edit; case and whitespace variants; same-deal wording unchanged; Completed and Cancelled owners still block; a raw case-variant insert trips the mirror's index. `tests/unit/test_submission_routes.py`: `_payload` gives each deal its own CRM ID; create, add and edit posts return 422 with the owner anchor and the typed row echoed. `tests/unit/test_export_routes.py`: the second seeded deal takes its own CRM ID
+- [x] T070 [T-15] `tests/sqlserver/test_submission_migration.py::test_submission_indexes` asserts `uq_contract_crm_id` `is_unique = 1, has_filter = 0`; `test_submission_service_integration.py` gives each deal its own CRM ID and adds the collation proof (a case-variant raw insert raises with `uq_contract_crm_id` in the message)
+  - Proof: SQL Server tier unverified until the developer runs Rebuild and `make test-sql`
+
+### Docs and polish
+
+- [x] T071 [P] [FR-003] [P-16] [T-15] `docs/FUNCTIONAL_REQUIREMENTS.md` lines 54 (Partial → Implemented, confirmed 9/22) and 57; `docs/PRD.md` §7.2 line 467 and §7.2b (the CRM ID is the hard block in the soft identity pattern); `docs/DATA_MODEL.md` ER line 125, §4 prose and the 2026-09-22 change log entry; spec.md P-16, FR-003, US1 acceptance 3, Key Entities; plan.md design summary, T-15, Article 7, Testing; research.md session 2026-09-22, the reversed 9/21 answer, R14; data-model.md §3 and §9; contracts/routes.md §1, §2 and §6; quickstart.md §2, §3 and §4
+- [x] T072 Subtraction review per AGENTS.md §Code Quality: `grep -rn "within its submission\|within the submission" app tests alembic docs specs/017*` returns only research.md history; no comment restating the index; no helper that only renames the query
+- [x] T073 Run `uv run pytest tests/unit` and report "unit tier, N passed (baseline 2,020)"; state that the SQL Server tier (T070) is unverified until Rebuild and `make test-sql`
+
+### Phase 9 dependencies
+
+- T066 → T067 → T068. T069 follows T067–T068; T070 follows T066. T071–T073 last.
+- Order: T066–T068 · T069–T070 · T071–T073 · stop for Ben's click-through before the bulk status update work (note 33 §12: uniqueness lands before the Wed 23 Sep demo).
+
+### Phase 9 status, 2026-09-22
+
+- T066–T073 done 2026-09-22 in one pass (no new layout, no preview). Unit tier
+  2,027 passed (baseline 2,020); the geohaz latest-lookup test failed once on
+  its known inserted_at tiebreak and passed on rerun. SQL Server tier not run:
+  Rebuild needed for the index, then `make test-sql`. **Stop for Ben's
+  click-through (quickstart §3 Story 1 step 3) before the bulk status update.**

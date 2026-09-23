@@ -48,7 +48,7 @@ no index on `submission` can serve (T-11). `ix_submission_cedant_name` and
 |---|---|---|
 | `id` | UNIQUEIDENTIFIER PK DEFAULT NEWID() | |
 | `submission_id` | UNIQUEIDENTIFIER NOT NULL FK `submission.id` | |
-| `crm_id` | NVARCHAR(255) NOT NULL | free text, no format validation; unique within the submission case-insensitively, enforced in the service as `add_crm_id` does today (FR-003) |
+| `crm_id` | NVARCHAR(255) NOT NULL | free text, no format validation; unique across the Workbench case-insensitively, enforced by `uq_contract_crm_id` and the service lookup that names the owner (FR-003, T-15) |
 | `treaty_type_code` | NVARCHAR(50) NOT NULL FK `treaty_type_kind.code` | |
 | `inception_date` | DATE NOT NULL | |
 | `expiration_date` | DATE NOT NULL | the service fills inception + 1 year − 1 day when the form sends blank (P-03) |
@@ -57,9 +57,9 @@ no index on `submission` can serve (T-11). `ix_submission_cedant_name` and
 | `updated_at` | DATETIME2 NOT NULL DEFAULT GETUTCDATE() | the R1 concurrency marker for in-place edits (T-02) |
 | `inserted_by`, `updated_by` | UNIQUEIDENTIFIER NULL FK `app_user.id` | |
 
-Index: `ix_contract_submission_id (submission_id)`. No global uniqueness on
-`crm_id`: the industry-database workaround reuses one reserved CRM ID across
-several submissions (note 32 D30).
+Indexes: `ix_contract_submission_id (submission_id)` and
+`uq_contract_crm_id (crm_id) UNIQUE`, unfiltered, under the database's
+case-insensitive default collation (note 33 D12–D13; research.md R14).
 
 ## 4. `v_contract` — view, the FR-013 extract (T-04)
 
@@ -139,8 +139,10 @@ an in-memory SQLite schema named `dbo` to a second engine registered as `LOSS`.
 ## 9. Docs to update (owners)
 
 - `docs/DATA_MODEL.md` §4: the Submission and Contract entities, the seed
-  table row for `contract_status_kind`, the view.
-- `docs/PRD.md` §7.2a: Modeling status vs Contract status.
+  table row for `contract_status_kind`, the view, `uq_contract_crm_id`.
+- `docs/PRD.md` §7.2a: Modeling status vs Contract status; §7.2 line 467
+  and §7.2b: the CRM ID is unique across the Workbench and is the hard block
+  in the otherwise soft identity pattern.
 - `docs/FUNCTIONAL_REQUIREMENTS.md`: the lines FR-020 names.
 - `.specify/memory/constitution.md` Article 4: the in-place list names
   `contract.contract_status_code` instead of `submission.deal_status_code`

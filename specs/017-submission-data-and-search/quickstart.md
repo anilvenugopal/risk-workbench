@@ -35,9 +35,11 @@ make test-sql        # Docker
 make wsl-test-sql    # WSL2
 ```
 
-Covers `contract` and its FKs, the three contract statuses, the eleven treaty
-codes, the dropped submission columns and index, `v_contract`, and the
-`dbo.Client` read (skipped when absent). **Unverified until someone runs it.**
+Covers `contract` and its FKs, `uq_contract_crm_id` (unique, unfiltered, and
+case-insensitive under the server's collation), the three contract statuses,
+the eleven treaty codes, the dropped submission columns and index,
+`v_contract`, and the `dbo.Client` read (skipped when absent). **Unverified
+until someone runs it.**
 
 ## 3. Click-through
 
@@ -53,7 +55,11 @@ codes, the dropped submission columns and index, `v_contract`, and the
    2027-01-15: treaty year reads 2027 before you save. Save: the contract table shows three rows under the
    headers CRM ID · Treaty type · Inception · Expiration · Contract status,
    all In Process.
-3. Edit row two's CRM ID to `a-1` and save: refused, the row named.
+3. Edit row two's CRM ID to `a-1` and save: refused, the row named. Open
+   the create form again and save a second deal with CRM ID ` a-1 `: refused,
+   the row names the first deal and its name opens that deal in a new tab. On
+   the second deal's page (create it with `B-1`) add `A-1`: the banner links
+   the first deal. Edit the first deal's `A-1` row keeping `A-1`: saves.
 4. Press the Status pencil, set Modeling status to Completed with a reason.
    The row pencils and Add disappear; each row's Contract status select is
    still live. Set `A-1` to Won and `A-2` to Lost: both save, the Modeling
@@ -129,6 +135,7 @@ Modeling status. Submission C returns no row.
 
 `docs/FUNCTIONAL_REQUIREMENTS.md` lines 44–62 describe a submission holding
 zero or more contracts, name and cedant required at creation, Modeling status
-and Contract status, labels Cedant and Client ID; line 115 lists the filters.
-`docs/DATA_MODEL.md` §4 shows `contract` and `v_contract`.
+and Contract status, labels Cedant and Client ID; line 54 reads Implemented
+(CRM ID is the only guaranteed-unique attribute); line 115 lists the filters.
+`docs/DATA_MODEL.md` §4 shows `contract`, `uq_contract_crm_id` and `v_contract`.
 `.specify/memory/constitution.md` Article 4 names `contract.contract_status_code`.

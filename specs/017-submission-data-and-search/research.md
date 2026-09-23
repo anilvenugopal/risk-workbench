@@ -23,7 +23,14 @@
 - Q: Note 32 D17–D20 move status, treaty type, inception and expiration to the CRM ID. Is the CRM ID row now the entity, and what is it called? → Yes: `contract`, the noun FR doc line 57 has used since 8/4 and the word Cheryl and Wendy chose on 9/18. `deal_status` is renamed `contract_status` throughout (P-02, P-15, T-14).
 - Q: With treaty type and inception off the submission, what is required at creation: at least one contract (A), treaty type and inception optional on the submission (B), or deal-level defaults kept beside the contract (C)? → None of the three as posed. The create form manages contracts in full — none, one or many, with every attribute — and name and cedant are the only submission fields required (P-16).
 - Q: Is a "primary contract" (the first entered, per Wendy's cat-first convention) acceptable as the source of the list sort, the export pre-fill and the treaty-year default? → **No.** The user rejected the concept twice as a hole that would be hard to climb out of. Every place that needed one contract's value was re-derived: the list sorts on the latest contract inception (an aggregate); the export form asks the analyst to pick the contract and picks it only when there is exactly one; the carry-down default is form entry order; treaty year defaults from the earliest contract inception (P-17, P-06, P-03, P-20).
-- Q: Is the CRM ID required on a contract, and unique where? → Required; unique within the submission, case-insensitive. Not globally unique: the industry-database workaround reuses one reserved CRM ID across several submissions (P-16).
+- Q: Is the CRM ID required on a contract, and unique where? → Required; unique within the submission, case-insensitive. Not globally unique: the industry-database workaround reuses one reserved CRM ID across several submissions (P-16). **Reversed 2026-09-22 (note 33 D12–D14)**: the "note 32 D30" reading was wrong. D30 is the industry-database decision (a placeholder deal for a data set with no CRM ID, note 32 §8.6) and says nothing about reusing a CRM ID; no decision in notes 30–32 permits one CRM ID on two submissions. See the 2026-09-22 session and R14.
+
+### Session 2026-09-22 (note 33)
+
+- Q: Can one CRM ID be a contract on two submissions? → **No.** Cheryl and Wendy on the call: "That should not be allowed… That CRM ID is unique." Neither could construct a case for sharing one (note 33 D12). A CRM ID names one contract on one submission; `contract.submission_id` as a required FK is that rule, no bridge table (D13).
+- Q: What happens when an analyst enters a CRM ID that already exists? → Block the save and link to the owning submission (Ben, D14). The refusal reads "`A-1` is already a contract on *Deal name*." with the deal name opening the owner in a new tab. Within-submission duplicates keep the existing wording (P-16, FR-003, T-15).
+- Q: Does the owner's Modeling status or the contract's Contract status free the CRM ID? → No. A CRM ID on a Completed or Cancelled deal, or a Lost contract, blocks like any other (decision 3, 2026-09-22).
+- Q: Anil's `/crm/{crm_id}` redirect (note 33 O33-7)? → Declined on timing; out of scope for 017.
 - Q: Default sort? → Latest contract inception descending, then name; a submission with no contract placed by its creation date in the same key (P-17). "Last updated" was offered as the alternative meaning of "most relevant right now" and not taken, since the client accepted inception descending in FR doc line 116.
 - Q: Data vintage required or optional on the submission? → Optional; the EDM often does not exist at creation. The export keeps it required and pre-fills from it (P-19).
 - Q: "Client" or "Client ID"? → Client ID (P-05).
@@ -71,8 +78,8 @@ that the in-force rule would then have to ignore.
 `submission` loses `treaty_type_code`, `inception_date`, `expiration_date`
 and `deal_status_code` and gains `data_vintage DATE NULL`. `treaty_year`
 stays. Zero contracts are allowed. The CRM ID is required on a contract and
-unique within its submission case-insensitively (the existing service rule;
-no index). Expiration is required and defaults to inception plus one year
+unique across the Workbench case-insensitively (R14, T-15). Expiration is
+required and defaults to inception plus one year
 minus one day when the form sends blank. The "make them all the same"
 control, its route and `reset_crm_dates` are deleted; a new row pre-fills
 its dates from the row before it.
@@ -275,3 +282,51 @@ to Article 4's in-place list (its changelog lines 7–14). The column no longer
 exists. A patch version (v4.1.2) substitutes `contract.contract_status_code`
 with the same description; no rule changes, so no template sync beyond the
 version line.
+
+### R14 — CRM ID unique across the Workbench (T-15)
+
+**Decision.** `uq_contract_crm_id`, a plain unique index on
+`contract.crm_id`, plus one service lookup: `_prepare_contracts` runs a
+single `SELECT … FROM v_contract WHERE LOWER(TRIM(crm_id)) IN (…)` for every
+posted row and raises `ContractInvalid` with `owner = (submission_id, name)`
+for the first hit; the form renders the owner's name as a link that opens
+the owning submission in a new tab. The three writes (`create_submission`,
+`add_contract`, `update_contract`) catch a unique violation, re-run the
+lookup and raise the same `ContractInvalid`, so two analysts saving the same
+CRM ID at once both see the owner rather than a 500. The row being edited is
+excluded from the lookup so a contract keeps its own CRM ID. The index
+inherits the database's case-insensitive default collation; the SQLite
+mirror declares `COLLATE NOCASE` on the index, and a SQL Server tier test
+inserts a case variant around the service and expects the violation, so a
+case-sensitive database fails the tier rather than silently allowing `abc`
+and `ABC`. Normalisation is `LOWER(TRIM(…))`, the same as the P-10 CRM ID
+filter, and the in-memory check among posted rows uses `.lower()` so the
+three checks agree (note 33 O33-1 trap a).
+
+**Evidence.** Note 33 D12–D14 (2026-09-22): Cheryl and Wendy, "That should
+not be allowed… That CRM ID is unique"; neither could name a case for one
+CRM ID on two submissions. FR doc line 54 has said "CRM ID is the only
+guaranteed-unique attribute" since 8/4 and was marked Partial until this
+change. The previous "no global uniqueness (note 32 D30)" comment in the
+migration cited the industry-database decision, which reserves a placeholder
+deal and says nothing about CRM IDs.
+
+**Existing duplicates.** Pre-cutover the answer is Rebuild: `make
+db-rebuild` (the developer's call) recreates `contract` with the index; the
+demo seeder's `crm_sequence` is global so `make seed-demo` still runs.
+Post-cutover the failure mode is different from T-13's: a duplicate CRM ID
+already in `contract` blocks the migration that adds the index, so the
+cutover checklist must run `SELECT LOWER(TRIM(crm_id)), COUNT(*) FROM
+contract GROUP BY 1 HAVING COUNT(*) > 1` first and resolve every row by
+hand.
+
+**Alternatives rejected.** *Service lookup only*: two concurrent saves both
+pass the lookup and both commit; the rule the client stated would then hold
+only most of the time. *Index only*: the violation message names no owner,
+and the analyst's next step is to find the deal, which is what D14 asks the
+Workbench to do. *A computed `LOWER(TRIM(crm_id))` key column*: the default
+collation already makes the plain index case-insensitive, and the tier test
+proves it; the column would be a second copy of the value. *A filtered
+index excluding Completed or Cancelled owners*: rejected by decision 3, and
+the owner's status is on `submission`, which a filtered index on `contract`
+cannot see.
