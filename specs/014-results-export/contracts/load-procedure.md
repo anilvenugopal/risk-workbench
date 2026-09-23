@@ -16,8 +16,15 @@ or by a person in SQL Server Management Studio. The lookup join is on
 | Check | Error |
 |---|---|
 | `@@TRANCOUNT > 0` on entry | `50000` "usp_load_elt_result must be called outside a transaction" |
+| `sp_getapplock @Resource = 'stage.usp_load_elt_result', @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 900000` returned a negative value | `50004` "could not acquire the load lock within 15 minutes (sp_getapplock returned {n})" |
 | Claim `UPDATE … SET load_status = 'loading', error_message = NULL WHERE manifest_id = @manifest_id AND stage_status = 'staged' AND load_status IN ('pending','failed')` affected 0 rows | `50001` with the reason read from the row: "manifest {id} not found", "manifest {id} is not staged (stage_status {s})", "manifest {id} is loading", or "manifest {id} already loaded as data ID {data_id}" |
 | Any stage `event_id` matches more than one lookup row (join on `EventID` and `ModelVersion`) | `50003` "event {event_id} matches {n} historical lookup rows for model version {v}" |
+
+Loads of one repository run one at a time: the lock is taken inside the
+procedure's transaction, before the claim, so a waiting load holds no page or
+row lock, and two loads of adjacent manifests cannot deadlock on the clustered
+index of `stage.rwb_loss_result_elt_data` (research R20). The transaction
+owns the lock, so `COMMIT` and `ROLLBACK` both release it.
 
 A model version `dbo.Lookup_RMS_HistoricalRDS` does not carry is not a
 precondition failure (spec P-24): the classification join matches nothing,
@@ -136,6 +143,9 @@ though the procedure's own read is chained.
 
 The client team's own accounts need `EXECUTE ON stage.usp_load_elt_result` to
 run a load by hand.
+
+`sp_getapplock` and `sp_releaseapplock` need no grant: `EXECUTE` on both is
+granted to `public`.
 
 ## 5. Development bootstrap
 

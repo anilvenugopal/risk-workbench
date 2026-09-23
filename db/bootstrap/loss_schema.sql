@@ -170,10 +170,10 @@ GO
 -- Classify, correct, and load one staged analysis into dbo.Data, dbo.RMSELT, and
 -- dbo.RMS_HistoricalRDS. Callable without the Workbench:
 --     EXEC stage.usp_load_elt_result @manifest_id = <id>;
--- Errors: 50000 called inside a transaction; 50001 the manifest row cannot be
--- claimed (the message says why); 50003 an event matches more than one lookup
--- row. Every error leaves zero target rows and load_status = 'failed' with the
--- message. A model version the lookup does not carry is not an error: every
+-- Errors: 50000 called inside a transaction; 50004 the load lock was not
+-- granted within 15 minutes; 50001 the manifest row cannot be claimed (the
+-- message says why); 50003 an event matches more than one lookup row. Every
+-- error leaves zero target rows and load_status = 'failed' with the message. A model version the lookup does not carry is not an error: every
 -- event classifies as stochastic and historical_row_count is 0 (9/11 D8).
 CREATE OR ALTER PROCEDURE stage.usp_load_elt_result
     @manifest_id INT
@@ -192,6 +192,23 @@ BEGIN
 
     BEGIN TRY
         BEGIN TRANSACTION;
+
+        -- Loads run one at a time. Two manifests of one export sit in adjacent
+        -- ranges of the clustered index on stage.rwb_loss_result_elt_data, and
+        -- two concurrent loads' page locks across that boundary deadlock
+        -- (issue #124). A waiter here holds no page or row lock. Owned by the
+        -- transaction, so every COMMIT and ROLLBACK releases it.
+        DECLARE @lock INT;
+        EXEC @lock = sp_getapplock @Resource = 'stage.usp_load_elt_result',
+                                   @LockMode = 'Exclusive',
+                                   @LockOwner = 'Transaction',
+                                   @LockTimeout = 900000;
+        IF @lock < 0
+        BEGIN
+            SET @msg = CONCAT('could not acquire the load lock within 15 minutes ',
+                              '(sp_getapplock returned ', @lock, ')');
+            THROW 50004, @msg, 1;
+        END;
 
         -- The claim is the duplicate guard: only a staged, not-yet-loaded row
         -- can be loaded, and a concurrent second call sees zero rows here.

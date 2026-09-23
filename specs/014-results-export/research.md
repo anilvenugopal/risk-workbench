@@ -754,6 +754,72 @@ value is not recorded anywhere.
   (T-33) — the seed would stop being CIC's table, and CIC's own column holds
   `25.0`.
 
+## R20 — Loads of one repository run one at a time (issue #124)
+
+**Evidence** (2026-09-22, export `7AC58BAA-933B-4FBD-BCCD-5B4C38149DD7`): a
+`load_results_export` job failed with "Transaction (Process ID 67) was
+deadlocked on lock resources with another process and has been chosen as the
+deadlock victim." Manifest 1 ended `failed` carrying that text; manifest 2
+loaded as data ID 1. The deadlock graph in the `system_health` ring buffer
+(14:38:33.248) names both sides as `stage.usp_load_elt_result`, spids 67 and
+76, the two threads of the `load_results_export` worker (`RWB_WORKER_THREADS`
+default 2, `infra/scripts/start-all.sh`). Both analyses were portfolio-level
+`GU` with 14,063 rows each; nothing about TY is involved. spid 67 was on the
+classify `UPDATE`, holding page 787 and waiting for 990; spid 76 was on the
+`exp_value` `UPDATE`, holding 990 and waiting for 787. Both pages belong to
+`stage.rwb_loss_result_elt_data` and are adjacent in the clustered index
+chain: 787 holds manifest 1's last rows, 990 holds manifest 2's first rows,
+and no page mixes the two.
+
+The two manifests of one export occupy adjacent ranges of the clustered
+index `(manifest_id, event_id)`. `SHOWPLAN_TEXT` shows every `UPDATE` as a
+clustered index seek, but at 14k rows SQL Server takes page locks, and an
+`ORDERED FORWARD` range seek reads one page past its own range to find the
+range's end. The procedure is one transaction, so those page locks are held
+to commit. Two loads reaching across the same boundary in opposite directions
+close the cycle. Running the procedure's three `UPDATE` statements
+concurrently for manifests 1 and 2 against the dev mirror, rolled back,
+deadlocked 4 times in 5.
+
+**Decision**: `sp_getapplock @Resource = 'stage.usp_load_elt_result',
+@LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 900000`
+immediately after `BEGIN TRANSACTION` and before the claim `UPDATE`. A waiter
+holds no page or row lock while it queues, so no cycle can form; owned by the
+transaction, the lock is released on every `COMMIT` and `ROLLBACK`. A timeout
+raises 50004 with `@claimed` still 0, so the `CATCH` leaves the manifest row
+alone and the worker's `_load_one` stamps `load_status = 'failed'` with the
+message, retryable from the exports table. Measured on the dev mirror:
+
+| Check | Result |
+|---|---|
+| The same concurrent test, with the lock | 8 of 8 clean |
+| Release on `ROLLBACK`, not only `COMMIT` | holder rolled back 16:43:24.506, waiter granted 16:43:24.506 |
+| Timeout path | returns -1 with `XACT_STATE() = 1`, so `THROW` and the `CATCH` run normally |
+| Permission | `EXECUTE ON sys.sp_getapplock` is granted to `public`; the `LOSS` login needs no grant |
+
+The schema version stays at 1: `CREATE OR ALTER PROCEDURE` replaces the body
+when `loss_schema.sql` is re-run, and the version gate tracks table shape.
+
+**Cost**: the loads of one export serialize. On export `7AC58BAA` the two
+loads took 1.25 s and 1.20 s, so the load phase of a 44.5 s export goes from
+about 1.25 s to about 2.45 s. Staging is unaffected.
+
+**Alternatives rejected**:
+
+- *Retry the load on deadlock in the actor* — R12 already rejects actor
+  retries because they hammer deterministic failures. A second reason applies
+  here: a retry's backoff would have to outlast the winner's remaining
+  transaction, which the worker cannot know, so a retry can lose the race
+  again. `max_retries=0` stays.
+- *One thread for the `load_results_export` queue* — `start-all.sh` applies
+  one `RWB_WORKER_THREADS` to every queue, and the stage queue uses its
+  parallelism: this export's two stage jobs ran concurrently in 6.56 s and
+  6.23 s with no contention (constitution Article 10).
+
+Not covered: `elt.upload_parquet` (the stage worker) writes the same clustered
+index without taking the lock, so a stage-versus-load deadlock stays possible
+in principle. None has been observed.
+
 ## Clarifications
 
 ### Session 2026-09-21
