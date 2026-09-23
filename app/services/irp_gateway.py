@@ -444,6 +444,20 @@ def resolved_capture(detail: dict, *,
     return resolved_payload(run, partitions=partitions), error
 
 
+def analysis_treaty(row: dict) -> dict:
+    """One row of GET /platform/riskdata/v1/analyses/{analysisId}/treaties, in the
+    gateway's own keys: identity plus the four terms the export form shows per
+    treaty (spec 016 P-12). Cedant and producer are dropped. The fake gateway
+    maps the same way, so the unit tier sees the keys the real one produces."""
+    return {"treaty_id": str(row.get("treatyId")),
+            "treaty_number": row.get("treatyNumber"),
+            "treaty_name": row.get("treatyName"),
+            "treaty_type": row.get("treatyType"),
+            "attachment_point": row.get("attachmentPoint"),
+            "occurrence_limit": row.get("occurrenceLimit"),
+            "risk_limit": row.get("riskLimit")}
+
+
 @dataclass(frozen=True)
 class ModelProfileEntry:
     irp_id: int
@@ -1341,15 +1355,7 @@ class _RealGateway:
     def list_analysis_treaties(self, *, analysis_id: int) -> list[dict]:
         # GET /platform/riskdata/v1/analyses/{analysisId}/treaties — the
         # treaties Risk Modeler applied when the analysis ran (spec 016 T-04).
-        # Identity plus the four terms the export form shows per treaty
-        # (spec 016 P-12); cedant and producer are dropped.
-        return [{"treaty_id": str(t.get("treatyId")),
-                 "treaty_number": t.get("treatyNumber"),
-                 "treaty_name": t.get("treatyName"),
-                 "treaty_type": t.get("treatyType"),
-                 "attachment_point": t.get("attachmentPoint"),
-                 "occurrence_limit": t.get("occurrenceLimit"),
-                 "risk_limit": t.get("riskLimit")}
+        return [analysis_treaty(t)
                 for t in self._client().analysis.search_analysis_treaties_paginated(
                     analysis_id)]
 

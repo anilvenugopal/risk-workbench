@@ -50,6 +50,7 @@ from app.services.irp_gateway import (
     SubmitResult,
     SubPortfolioResult,
     TreatyDetail,
+    analysis_treaty,
     collapse_run_description,
 )
 
@@ -930,13 +931,7 @@ class FakeIRP:
         self.treaty_calls.append(str(analysis_id))
         if self.raise_on_analysis_treaties:
             raise RuntimeError("fake IRP: forced treaties failure")
-        return [{"treaty_id": str(t.get("treatyId")),
-                 "treaty_number": t.get("treatyNumber"),
-                 "treaty_name": t.get("treatyName"),
-                 "treaty_type": t.get("treatyType"),
-                 "attachment_point": t.get("attachmentPoint"),
-                 "occurrence_limit": t.get("occurrenceLimit"),
-                 "risk_limit": t.get("riskLimit")}
+        return [analysis_treaty(t)
                 for t in self._analysis_treaties.get(str(analysis_id), [])]
 
     def _results(self, call: str, analysis_id, perspective_code,
