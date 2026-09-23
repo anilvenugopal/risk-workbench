@@ -210,8 +210,8 @@ def upgrade() -> None:
     op.create_index("ix_contract_submission_id", "contract", ["submission_id"])
     op.create_index("uq_contract_crm_id", "contract", ["crm_id"], unique=True)
 
-    # One row per contract, for CIC's linking SQL and the January bulk update by
-    # CRM ID (spec 017 FR-013). The Workbench reads `contract` directly.
+    # One row per contract, for CIC's linking SQL by CRM ID (spec 017 FR-013).
+    # The Workbench and the bulk update script read `contract` directly.
     # CREATE VIEW must be alone in its batch.
     op.execute(sa.text("""CREATE VIEW v_contract AS
 SELECT s.id            AS submission_id,
