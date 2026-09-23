@@ -387,17 +387,19 @@ def _stage_treaties(targets: list[dict], table_dir: Path, work_dir: Path) -> lis
     """Stage each of the analysis's eligible treaty rows from the treaty-level
     table (spec 016 contracts/jobs.md §4 step 6): a row is matched to the
     combined table rows of its treaty number and name. Returns the per-row
-    failure messages for rows whose treaty the table does not hold."""
+    failure messages for rows whose treaty the table does not hold, and fails the
+    whole analysis when the table matches none of them."""
     files = _perspective_files(table_dir, "Treaty", TY)
     table = _read_treaty_table(files)
     if table.empty:
         raise StageFailure("Risk Modeler returned no treaty (TY) loss rows for this analysis")
     by_treaty = {(r["treaty_number"], r["treaty_name"] or ""): r for r in targets}
+    combined = _combine_treaty_rows(table)
     staged: set[int] = set()
     skipped = 0
     # The index is the treaty's position in the table, so a derived file keeps
     # its name whether or not the analyst ticked the treaties before it.
-    for index, treaty in enumerate(_combine_treaty_rows(table), start=1):
+    for index, treaty in enumerate(combined, start=1):
         row = by_treaty.get((treaty.number, treaty.name))
         if row is None:
             skipped += 1
@@ -408,6 +410,16 @@ def _stage_treaties(targets: list[dict], table_dir: Path, work_dir: Path) -> lis
                         staged_row_count=count, treaty_ids=",".join(treaty.ids),
                         aal=treaty.aal, error_message=None)
         staged.add(row["manifest_id"])
+    if not staged:
+        # FR-005 matches on the number and name as written, with no trimming or
+        # inference, and T-10 (the Parquet column types) is still Assumed. A
+        # numeric TreatyNum reading "1.0" against a ticked "1" therefore misses
+        # every row, so name what the table actually held rather than repeating
+        # the per-row message once per treaty.
+        held = "; ".join(f"{t.number} {t.name}" for t in combined)
+        raise StageFailure(
+            "no ticked treaty matches the loss table Risk Modeler returned, which holds "
+            f"{held}")
     if skipped:
         logger.info("export %s analysis %s: %d treaties in the loss table have no row to "
                     "stage", targets[0]["export_id"], targets[0]["irp_analysis_id"], skipped)

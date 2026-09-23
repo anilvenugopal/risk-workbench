@@ -100,9 +100,13 @@ Every exit but success stamps each eligible row that is not yet staged
      `manifest_id` with `output_level = 'Treaty'`;
    - the row is stamped `stage_status = 'staged'`, `staged_at`,
      `staged_row_count`, `treaty_ids`, `aal`, `error_message = NULL`.
-   One `INFO` line reports the skipped count when it is not zero. An eligible
-   row whose treaty is not in the table is stamped failed: "treaty {number}
-   {name} is not in the loss table Risk Modeler returned".
+   Matching no eligible row at all fails the whole analysis with "no ticked
+   treaty matches the loss table Risk Modeler returned, which holds {number}
+   {name}; …", listing every combined treaty: the match is exact (FR-005) and
+   T-10 is still Assumed, so the first live run says what the table held.
+   Otherwise one `INFO` line reports the skipped count when it is not zero, and
+   an eligible row whose treaty is not in the table is stamped failed: "treaty
+   {number} {name} is not in the loss table Risk Modeler returned".
 7. Remove the working directory.
 8. `ensure_pending_rwb_job` for the analysis's one `load_results_export`
    (§1) and `dispatch.dispatch`. A failure stamps `load_status = 'failed'`

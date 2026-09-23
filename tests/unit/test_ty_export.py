@@ -527,6 +527,24 @@ def test_ty_archive_with_no_treaty_rows_fails_every_row_naming_ty(ty_staging, fa
     assert _load_jobs() == []
 
 
+def test_a_table_matching_no_ticked_treaty_fails_the_analysis_naming_what_it_held(
+        ty_staging, fake_irp):
+    fake_irp.export_archive_path = build_archive(
+        ty_staging["tmp"] / "other", anls_id=41960, output_level="Treaty",
+        treaty_rows=[{"TreatyId": 33831, "TreatyNum": "PR1.0", "TreatyName": "PR1",
+                      "EventId": 1001, "Rate": 0.001, "Loss": 100.0, "StdDevI": 1.0,
+                      "StdDevC": 2.0, "ExpValue": 50.0}])
+
+    export_jobs.run_pending(worker_id="w1")
+
+    rows = _rows(ty_staging)
+    assert all(r["stage_status"] == "failed" for r in rows)
+    assert all(r["error_message"] == (
+        "no ticked treaty matches the loss table Risk Modeler returned, which holds "
+        "PR1.0 PR1") for r in rows)
+    assert _load_jobs() == []
+
+
 def test_ty_file_missing_columns_fails_every_row_naming_them(ty_staging, fake_irp):
     fake_irp.export_archive_path = build_archive(
         ty_staging["tmp"] / "narrow", anls_id=41960, output_level="Treaty",
