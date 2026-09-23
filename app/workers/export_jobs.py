@@ -109,10 +109,6 @@ def _load_eligible(row: dict) -> bool:
             and row["closed_at"] is None)
 
 
-def _row_label(row: dict) -> str | None:
-    return row.get("treaty_number") or row.get("treaty_name")
-
-
 # ── submit_results_export ────────────────────────────────────────────────────
 
 
@@ -281,7 +277,7 @@ def _chunk_index(path: Path) -> int:
 
 
 def _stage_file(manifest_id: int, work_dir: Path, path: Path, perspective_code: str,
-                output_level: str = "Portfolio") -> int:
+                output_level: str) -> int:
     # upload_parquet checks the same thing, but its message names the mapping,
     # not the file the analyst has to look at.
     missing = [c for c in ELT_COLUMN_MAP if c not in pq.ParquetFile(path).schema.names]
@@ -497,7 +493,8 @@ def _stage(targets: list[dict], irp_job_id: str, work_dir: Path) -> list[str]:
         manifest = targets[0]
         total = 0
         for path in _perspective_files(table_dir, "Portfolio", perspective_code):
-            total += _stage_file(manifest["manifest_id"], work_dir, path, perspective_code)
+            total += _stage_file(manifest["manifest_id"], work_dir, path, perspective_code,
+                                 output_level="Portfolio")
         if total == 0:
             raise StageFailure(
                 f"Risk Modeler returned no {perspective_code} loss rows for this analysis")
@@ -638,7 +635,7 @@ def _load_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
     for row in eligible:
         data_id, reason = _load_one(row["manifest_id"])
         if reason is not None:
-            label = _row_label(row)
+            label = row.get("treaty_number") or row.get("treaty_name")
             reasons.append(f"{label}: {reason}" if label else reason)
         else:
             data_ids.append(data_id)

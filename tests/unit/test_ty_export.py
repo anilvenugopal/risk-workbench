@@ -298,8 +298,7 @@ def test_a_ty_row_requests_the_treaty_output_level_with_the_fixed_perspective(de
 
     assert fake_irp.export_submits[0]["loss_details"] == [{
         "metricType": "LOSS_TABLES", "outputLevels": ["Treaty"],
-        "perspectiveCodes": [export_jobs.TY_REQUEST_PERSPECTIVE_CODE]}]
-    assert export_jobs.TY_REQUEST_PERSPECTIVE_CODE == "GR"
+        "perspectiveCodes": ["GR"]}]
 
 
 def test_the_ticked_treaty_rows_share_one_export_request(deal, fake_irp):
