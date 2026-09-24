@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 # ── Preflight checks ──────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ if [ ! -f "infra/.env" ]; then
     exit 1
 fi
 
-source infra/scripts/dev/wsl-env.sh
+source infra/scripts/wsl-env.sh
 
 COMPOSE="docker compose -f infra/docker-compose.yml --env-file infra/.env"
 

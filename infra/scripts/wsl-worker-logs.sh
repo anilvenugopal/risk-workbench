@@ -3,12 +3,12 @@
 # wsl-workers.sh, all in one terminal, each line prefixed with its queue name.
 #
 # Usage:
-#   bash infra/scripts/dev/wsl-worker-logs.sh                    # every queue
-#   bash infra/scripts/dev/wsl-worker-logs.sh --queue upload_edm # one queue
+#   bash infra/scripts/wsl-worker-logs.sh                    # every queue
+#   bash infra/scripts/wsl-worker-logs.sh --queue upload_edm # one queue
 
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 LOG_DIR=.dev-logs
@@ -25,7 +25,7 @@ if [ -n "$FILTER_QUEUE" ]; then
     exec tail -n 50 -F "$LOG_DIR/worker-$FILTER_QUEUE.log"
 fi
 
-QUEUES="$(bash -c 'source infra/scripts/dev/wsl-env.sh && uv run python -m app.workers.queues')"
+QUEUES="$(bash -c 'source infra/scripts/wsl-env.sh && uv run python -m app.workers.queues')"
 [ -z "$QUEUES" ] && { echo "ERROR: could not list queue names." >&2; exit 1; }
 
 FILES=()

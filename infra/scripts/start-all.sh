@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # start-all.sh — start every process on the Linux box.
 #
-# This script runs inside the linux-box container in dev. In production, each
-# block below maps 1:1 to a systemd unit file. The commands are identical.
+# This script runs inside the Linux application container under Docker or Podman.
+# A native RHEL9 host uses infra/scripts/rhel9/rhel9-start.sh instead.
 #
 # Process layout (mirrors production):
 #   redis-server   → background daemon

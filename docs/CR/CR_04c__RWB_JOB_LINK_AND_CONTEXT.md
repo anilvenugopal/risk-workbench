@@ -407,7 +407,7 @@ Ordered; each step is its own commit; verify with `uv run pytest tests/unit`
    (`irp_analysis_id` etc.). **Does not run on an existing DB** — Alembic
    tracks applied state via one `alembic_version` row (`"0001"`); no new
    revision id here means `upgrade head` on an already-`0001` DB is a no-op.
-2. `infra/scripts/dev/patches/2026_08_rwb_job_link_context_{1..6}_*.sql` (new,
+2. `infra/scripts/patches/2026_08_rwb_job_link_context_{1..6}_*.sql` (new,
    plain SQL, not an Alembic revision) — six files, run in that numeric
    order, bringing an existing, non-empty DB to the same shape without
    dropping data: `_1_columns`, `_2_kind_tables`, `_3_seed_kinds`,
@@ -882,7 +882,7 @@ double-process the same row (each is scoped by a `requestor_type` no other
 block claims, and every block skips rows another block already resolved via
 `link_type IS NULL`).
 
-Find each row in `infra/scripts/dev/patches/2026_08_rwb_job_link_context_4_backfill.sql`
+Find each row in `infra/scripts/patches/2026_08_rwb_job_link_context_4_backfill.sql`
 by searching for the exact text in the "Find by searching for" column — each
 string appears exactly once in that file, in its `WHERE` clause.
 

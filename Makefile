@@ -13,8 +13,8 @@
 #     overhead. Faster reload and debugger attach.
 #     Targets: wsl-setup, wsl-start, wsl-stop, wsl-db-*, wsl-test, lint
 #
-# Production uses the same commands as wsl-* but via systemd units.
-# See infra/scripts/dev/start-all.sh for the mapping.
+# The container launcher is infra/scripts/start-all.sh. RHEL9 uses the
+# platform-specific scripts under infra/scripts/rhel9/.
 
 .PHONY: help \
         start stop logs shell \
@@ -106,7 +106,7 @@ format:   ## [Docker] Run ruff formatter
 # SQL Server runs in Docker. Everything else (app, Redis, workers, poller)
 # runs directly in your WSL2 shell — same processes as production.
 #
-# All env loading and idempotency logic lives in infra/scripts/dev/*.sh, not here.
+# WSL env loading and idempotency logic lives in infra/scripts/wsl-*.sh, not here.
 # Makefile targets are thin dispatchers only — no secrets, no env parsing.
 #
 # First time: make wsl-setup
@@ -116,10 +116,10 @@ wsl-setup:   ## [WSL2] Create databases and run migrations (after manual system 
 	@echo "  Prerequisites: uv, ODBC Driver 18, Redis must be installed first."
 	@echo "  See docs/SCAFFOLDING.md Steps 2-4 if this is your first time."
 	@echo ""
-	bash infra/scripts/dev/wsl-setup.sh
+	bash infra/scripts/wsl-setup.sh
 
 wsl-start:   ## [WSL2] Start SQL Server + Redis (idempotent — safe if already running)
-	@bash infra/scripts/dev/wsl-start.sh
+	@bash infra/scripts/wsl-start.sh
 
 wsl-stop:   ## [WSL2] Stop SQL Server container and Redis
 	$(COMPOSE) stop sqlserver
@@ -127,38 +127,38 @@ wsl-stop:   ## [WSL2] Stop SQL Server container and Redis
 	@echo "Stopped."
 
 wsl-app:   ## [WSL2] Start the web app (uvicorn with live reload on :8000)
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload'
 
 wsl-worker:   ## [WSL2] Start one queue's Dramatiq worker (usage: make wsl-worker QUEUE=upload_edm)
 	@test -n "$(QUEUE)" || (echo "Usage: make wsl-worker QUEUE=<job_type>  (see: make wsl-worker-list)" && exit 1)
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run dramatiq app.workers.entrypoint -Q "$(QUEUE)" --processes "$${RWB_WORKER_PROCESSES:-1}" --threads "$${RWB_WORKER_THREADS:-2}"'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run dramatiq app.workers.entrypoint -Q "$(QUEUE)" --processes "$${RWB_WORKER_PROCESSES:-1}" --threads "$${RWB_WORKER_THREADS:-2}"'
 
 wsl-workers:   ## [WSL2] Start every queue's Dramatiq worker in the background (logs: make wsl-worker-logs)
-	@bash infra/scripts/dev/wsl-workers.sh start
+	@bash infra/scripts/wsl-workers.sh start
 
 wsl-workers-stop:   ## [WSL2] Stop the background workers started by `make wsl-workers`
-	@bash infra/scripts/dev/wsl-workers.sh stop
+	@bash infra/scripts/wsl-workers.sh stop
 
 wsl-worker-logs:   ## [WSL2] Live tail of background worker logs, all queues (usage: make wsl-worker-logs [QUEUE=upload_edm])
-	@bash infra/scripts/dev/wsl-worker-logs.sh $(if $(QUEUE),--queue $(QUEUE))
+	@bash infra/scripts/wsl-worker-logs.sh $(if $(QUEUE),--queue $(QUEUE))
 
 wsl-worker-list:   ## [WSL2] List available queue names for `make wsl-worker QUEUE=...`
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run python -m app.workers.queues'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python -m app.workers.queues'
 
 wsl-worker-health:   ## [WSL2] Report live/dead status of every queue's worker (PID file + process scan)
-	@bash infra/scripts/dev/wsl-worker-health.sh
+	@bash infra/scripts/wsl-worker-health.sh
 
 wsl-poller:   ## [WSL2] Start the IRP job poller
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run python -m app.poller.run --loop'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python -m app.poller.run --loop'
 
 wsl-db-bootstrap:   ## [WSL2] Create the app databases (safe to re-run — skips existing)
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run python infra/scripts/dev/bootstrap_db.py'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/dev/bootstrap_db.py'
 
 wsl-db-migrate:   ## [WSL2] Run pending Alembic migrations on WORKBENCH
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run alembic upgrade head'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run alembic upgrade head'
 
 wsl-db-seed:   ## [WSL2] Insert the dev fixture admin (the kind tables come from the migration)
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run python infra/scripts/dev/seed_dev_fixtures.py'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/dev/seed_dev_fixtures.py'
 
 wsl-db-rebuild:   ## [WSL2] DESTRUCTIVE — rebuild the Workbench schema from the migration
 	@echo ""
@@ -166,22 +166,22 @@ wsl-db-rebuild:   ## [WSL2] DESTRUCTIVE — rebuild the Workbench schema from th
 	@echo "           rwb_loss — all data lost."
 	@echo ""
 	@read -p "  Type 'yes' to confirm: " C && [ "$$C" = "yes" ]
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run alembic downgrade base'
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run alembic upgrade head'
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run python infra/scripts/dev/seed_dev_fixtures.py'
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run python infra/scripts/dev/bootstrap_loss.py --reset-stage'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run alembic downgrade base'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run alembic upgrade head'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/dev/seed_dev_fixtures.py'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/dev/bootstrap_loss.py --reset-stage'
 
 wsl-bootstrap-loss:   ## [WSL2] Apply CIC's table mirror + the stage schema to rwb_loss and seed Client / historical lookup
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run python infra/scripts/dev/bootstrap_loss.py'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/dev/bootstrap_loss.py'
 
 wsl-bootstrap-loss-reset:   ## [WSL2] DESTRUCTIVE — drop the stage tables in rwb_loss, then wsl-bootstrap-loss
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run python infra/scripts/dev/bootstrap_loss.py --reset-stage'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/dev/bootstrap_loss.py --reset-stage'
 
 wsl-test:   ## [WSL2] Run unit tests (no SQL Server needed)
 	uv run pytest tests/unit -v
 
 wsl-test-sql:   ## [WSL2] Run SQL Server integration tests
-	@bash -c 'source infra/scripts/dev/wsl-env.sh && uv run pytest tests/sqlserver -v --run-sqlserver'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run pytest tests/sqlserver -v --run-sqlserver'
 
 wsl-user-setup:   ## [WSL2] Interactive user provisioning CLI (provision, create, reset password)
 	@bash infra/scripts/run_user_setup.sh

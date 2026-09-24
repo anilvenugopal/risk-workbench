@@ -163,7 +163,7 @@ should print `aof_enabled:1`.
 ### Step 7 — Create databases and run migrations
 
 ```bash
-bash infra/scripts/dev/wsl-setup.sh
+bash infra/scripts/wsl-setup.sh
 ```
 
 This is the automated setup script. Steps 2–5 above are prerequisites for it.
@@ -253,10 +253,17 @@ Before any iteration that changes the schema, choose one:
 | **Migrate** | Schema changed but data must be kept | `make wsl-db-migrate` |
 | **Skip** | No schema change | nothing |
 
-There is one revision (`0001_initial.py`), amended in place until production
-cutover, so Rebuild is `alembic downgrade base && alembic upgrade head` rather
-than a new revision. Production runs the same two commands — see
-`infra/scripts/README.md`.
+Through spec 017, there is one revision (`0001_initial.py`) amended in place.
+WSL2 and Docker rebuild with
+`alembic downgrade base && alembic upgrade head`. An existing RHEL9 database may
+have been built from an older edit whose tables do not match the current
+`downgrade()`, so production rebuilds with
+`APP_DIR=/rms bash infra/scripts/rhel9/rhel9-db-rebuild.sh` instead.
+
+After specs 016 and 017 merge, rebuild RHEL9 once with that script, freeze
+`0001_initial.py`, and create a new Alembic revision for every later schema change.
+From then on deployments run `alembic upgrade head` without rebuilding the database,
+and the two RHEL9 rebuild scripts are removed. See `infra/scripts/README.md`.
 
 `rwb_loss` is not migrated by Alembic. `make db-rebuild` / `make wsl-db-rebuild`
 end by running `bootstrap-loss --reset-stage`, which drops the stage tables (so a
@@ -283,7 +290,7 @@ When you need to pause execution and inspect state:
 **Step 2** — Start uvicorn under debugpy:
 
 ```bash
-bash -c 'source infra/scripts/dev/wsl-env.sh && \
+bash -c 'source infra/scripts/wsl-env.sh && \
     uv run python -m debugpy --listen 0.0.0.0:5678 --wait-for-client \
     -m uvicorn app.main:app --host 0.0.0.0 --port 8000'
 ```

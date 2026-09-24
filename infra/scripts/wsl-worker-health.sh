@@ -14,14 +14,14 @@
 #   `dramatiq app.workers.entrypoint -Q <queue>` processes directly via ps.
 #
 # Usage:
-#   bash infra/scripts/dev/wsl-worker-health.sh                  # both modes, default PID_DIR
-#   PID_DIR=/path/to/pids bash infra/scripts/dev/wsl-worker-health.sh
-#   bash infra/scripts/dev/wsl-worker-health.sh --queue upload_edm   # filter to one queue
+#   bash infra/scripts/wsl-worker-health.sh                  # both modes, default PID_DIR
+#   PID_DIR=/path/to/pids bash infra/scripts/wsl-worker-health.sh
+#   bash infra/scripts/wsl-worker-health.sh --queue upload_edm   # filter to one queue
 
 set -uo pipefail
 # No "-e": report on every queue even if one lookup fails.
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 PID_DIR="${PID_DIR:-.dev-pids}"
@@ -34,7 +34,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-QUEUES="$(bash -c 'source infra/scripts/dev/wsl-env.sh 2>/dev/null; uv run python -m app.workers.queues' 2>/dev/null)"
+QUEUES="$(bash -c 'source infra/scripts/wsl-env.sh 2>/dev/null; uv run python -m app.workers.queues' 2>/dev/null)"
 if [ -z "$QUEUES" ]; then
     echo "ERROR: could not list queue names (python -m app.workers.queues returned nothing)." >&2
     exit 1

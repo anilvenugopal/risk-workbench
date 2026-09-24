@@ -1,10 +1,10 @@
-"""The Workbench rebuild path, end to end, against a throwaway database.
+"""The temporary Workbench rebuild paths, end to end, against a scratch database.
 
-Rebuilding the schema is `alembic downgrade base && alembic upgrade head`
-(issue #121) — the same two commands in WSL2, Docker and RHEL9. Nothing else
-runs `downgrade()`, so without this test drift there is silent until a release
-needs it. `tests/unit/test_architecture_guards.py` catches the common case
-statically; this catches what only the server can tell us, such as a drop
+Through spec 017, WSL2 and Docker run `alembic downgrade base && alembic upgrade
+head`. An existing RHEL9 database drops the tables it actually has before the
+upgrade because it may have been built from an older edit of `0001_initial.py`.
+`tests/unit/test_architecture_guards.py` catches migration table-list drift
+statically; this catches failures that only SQL Server can expose, such as a drop
 ordered before the foreign key that depends on it.
 
 Runs alembic as a subprocess: `alembic/env.py` resolves the connection from the

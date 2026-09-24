@@ -10,7 +10,7 @@
 # into the server and re-run these exact steps by hand to see precisely
 # where it broke. It installs this project's Python dependencies and runs
 # database migrations, WITHOUT uv — requirements.txt is committed to git by
-# developers (see infra/scripts/dev/generate-requirements.sh) and arrives with
+# developers (see infra/scripts/generate-requirements.sh) and arrives with
 # the rest of the code; this script never installs or calls uv itself.
 #
 # Run this directly on the RHEL9 box, in the app's own directory
@@ -122,15 +122,15 @@ set +a
 
 alembic upgrade head
 
-# "upgrade head" does nothing on a database that already has this project's one
-# revision stamped, even when that revision gained tables since the last deploy
-# (the file is edited in place until cutover). A deploy that changed the schema
-# therefore needs a rebuild, which is destructive and so is never run from here.
+# Through spec 017, "upgrade head" does nothing on a database that already has
+# 0001 stamped, even when 0001 gained tables since the last deploy. A deploy that
+# changed the schema therefore needs a rebuild, which is destructive and is never
+# run from here. After specs 016 and 017 merge, 0001 is frozen and later changes
+# use new revision files, so this note and the rebuild scripts are removed.
 echo ""
-echo "NOTE: 'upgrade head' above is a no-op on a database that already has this"
-echo "      project's single revision stamped, which is every deploy after the"
-echo "      first. If this deploy changed the schema, the database still has the"
-echo "      old one and nothing above changed that."
+echo "NOTE THROUGH SPEC 017: 'upgrade head' above is a no-op on a database that"
+echo "      already has 0001 stamped. If this deploy edited 0001, the database"
+echo "      still has the schema built by the earlier edit."
 echo "      The only thing that does is a rebuild, which DROPS EVERY TABLE in the"
 echo "      Workbench database and loses all Workbench data. It is a separate,"
 echo "      deliberate decision, not a step of this install:"

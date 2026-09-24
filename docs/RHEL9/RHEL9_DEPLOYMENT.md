@@ -100,7 +100,7 @@ PYTHON_BIN=python3.14 bash infra/scripts/rhel9/rhel9-app-install.sh
 [infra/scripts/rhel9/rhel9-app-install.sh](../../infra/scripts/rhel9/rhel9-app-install.sh)
 builds/updates `.venv`, installs from `requirements.txt` (committed to git
 by developers — see
-[infra/scripts/dev/generate-requirements.sh](../../infra/scripts/dev/generate-requirements.sh)
+[infra/scripts/generate-requirements.sh](../../infra/scripts/generate-requirements.sh)
 — never generated or transferred by hand), and runs `alembic upgrade
 head`. No `uv` involved at any point on the server.
 
@@ -279,7 +279,7 @@ new code — an operator still stops the workers (`rhel9-stop.sh`) beforehand
 and starts them again (`rhel9-start.sh`) afterward; the deploy script itself
 still does not stop/start them.
 
-- **A "successful" migration doesn't always mean the schema is current.** This project keeps one migration file, edited in place, instead of a new file per change. On a database that already has that migration recorded as applied, `alembic upgrade head` does nothing — even if the file gained new tables or seed rows since. If a job or query fails with "Invalid object name" for a table that clearly exists in the code, this is why. Fix: rebuild the schema — `APP_DIR=/rms bash infra/scripts/rhel9/rhel9-db-rebuild.sh`, which loads `infra/.env`, asks you to type the database name, and drops every table it finds with `infra/scripts/rhel9/drop_workbench_tables.py` and then runs `alembic upgrade head` as the app login. It drops every table in the Workbench database, so stop the app first (`rhel9-stop.sh`) and expect to lose all Workbench data. It creates no databases and never uses the SA login, and it creates no accounts — a rebuilt database has none until one is provisioned with `infra/scripts/user_setup.py`.
+- **Through spec 017, a successful migration does not always mean the schema is current.** Until specs 016 and 017 merge, the project edits `0001_initial.py` in place. On a database that already has that revision recorded as applied, `alembic upgrade head` does nothing even if the file gained tables or seed rows. Rebuild with `APP_DIR=/rms bash infra/scripts/rhel9/rhel9-db-rebuild.sh`; do not run `alembic downgrade base` against an existing RHEL9 database because its tables may come from an older edit whose shape the current `downgrade()` does not describe. The rebuild script loads `infra/.env`, asks you to type the database name, drops every table it finds with `infra/scripts/rhel9/drop_workbench_tables.py`, and then runs `alembic upgrade head` as the app login. Stop the app first (`rhel9-stop.sh`) and expect to lose all Workbench data. The script creates no database or account. After specs 016 and 017 merge, run this rebuild once more, freeze `0001_initial.py`, and use a new revision file plus `alembic upgrade head` for every later schema change; remove both RHEL9 rebuild scripts then.
 - **systemd unit files** for uvicorn, Dramatiq workers, the poller, and
   Valkey — not yet written; Steps 5-6 above run them in the
   foreground/manually as a proof of concept only. Deliberately deferred for

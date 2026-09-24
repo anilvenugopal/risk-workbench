@@ -5,8 +5,9 @@ build_sqlalchemy_url) so it uses the same env-var resolution as the app.
 The URL is set programmatically — NOT via alembic.ini — so the credentials never
 reach ConfigParser, which reads a percent sign in a password as interpolation.
 
-Dev strategy: single revision (0001_initial.py), drop-create-seed per iteration.
-No revision accumulation until production cutover.
+Through spec 017, the development strategy is one edited 0001_initial.py revision
+and drop-create-seed per schema change. After specs 016 and 017 merge, 0001 is
+frozen and each later schema change gets a new revision file.
 """
 
 from __future__ import annotations

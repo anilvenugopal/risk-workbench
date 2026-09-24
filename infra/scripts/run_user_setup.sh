@@ -9,7 +9,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 if [ -n "${WSL_DISTRO_NAME:-}" ]; then
-    source "$ROOT/infra/scripts/dev/wsl-env.sh"
+    source "$ROOT/infra/scripts/wsl-env.sh"
 else
     set -a
     source "$ROOT/infra/.env"

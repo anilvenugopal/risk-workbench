@@ -11,7 +11,7 @@
 # We override the three server vars here for WSL2.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/../../.env"
+ENV_FILE="$SCRIPT_DIR/../.env"
 
 if [ ! -f "$ENV_FILE" ]; then
     echo "ERROR: $ENV_FILE not found. Copy infra/.env.example to infra/.env and fill it in." >&2

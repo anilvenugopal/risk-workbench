@@ -1,26 +1,31 @@
 # infra/scripts
 
-The directory a script sits in says where it may run.
+Script placement describes the operating system or the data a script manages. It
+does not distinguish production from development by itself.
 
-| Directory | Runs on | Contents |
+| Location | Runs on | Contents |
 |---|---|---|
-| `dev/` | a developer machine only — WSL2 or the `linux-box` container | database creation, the loss dev mirror, the fixture admin, the `wsl-*` and `start-all`/`stop-all` process scripts, `generate-requirements.sh`, hand-applied `patches/` |
-| `rhel9/` | the production server only | one-time provisioning, code delivery, install, start/stop, worker health, drain check, export-archive sweep |
-| here (top level) | both | `user_setup.py` and its `run_user_setup.sh` wrapper, `check-port.sh`, `mail_smoke_test.py` |
+| `dev/` | a development database only | database creation, the loss dev mirror, and the fixture admin |
+| `rhel9/` | RHEL9 deployment tasks | provisioning, code delivery, install, start/stop, worker health, drain check, database rebuild, and export-archive sweep; client scripts such as `rhel9-ssh-deploy.sh` run from the pushing machine |
+| `patches/` | the database named by the operator | hand-applied SQL changes for an existing non-empty Workbench database |
+| top-level `wsl-*` | Ubuntu under WSL2 | environment loading and native process commands; these may use any `APP_ENV` whose database is exposed through the WSL2 host |
+| top-level `start-all.sh` / `stop-all.sh` | the Linux application container | container process launch and shutdown for Docker or Podman |
+| other top-level scripts | any host with the named prerequisites | dependency export, user provisioning, port checks, and mail checks |
 
-Nothing in `dev/` is safe on the production server. The deploy copies every tracked
-file, so `dev/` is present there — what stops it running is the refusal inside each
-script, not its absence. `dev/bootstrap_db.py` creates databases as the SA login and
-`dev/seed_dev_fixtures.py` inserts an account whose password is in the repository;
-both refuse to run unless `APP_ENV` is `development`.
-`dev/bootstrap_loss.py` refuses unless `MSSQL_LOSS_DATABASE` is `rwb_loss`, because at
-CIC the loss repository is `CRE_Trial_ELT_Repository` and the DBA installs
-`loss_schema.sql` into it by hand.
+The deployment copies every tracked script. A directory name is therefore not a
+production check. The three executable scripts in `dev/` refuse unsafe targets
+before changing anything: `bootstrap_db.py` and `seed_dev_fixtures.py` require
+`APP_ENV=development`, and `bootstrap_loss.py` requires
+`MSSQL_LOSS_DATABASE=rwb_loss`. `wsl-env.sh` intentionally changes database hosts
+to `localhost`; source it only from Ubuntu WSL2 where SQL Server is exposed through
+the host. RHEL9 scripts use their own documented prerequisites and can be exercised
+on RHEL9 under WSL before they run on the server.
 
 ## Rebuilding the Workbench schema
 
-The Workbench keeps one Alembic revision, edited in place, so a schema change is a
-rebuild rather than an upgrade: empty the database, then `alembic upgrade head`.
+Through spec 017, the Workbench keeps one Alembic revision edited in place, so a
+schema change is a rebuild rather than an upgrade: empty the database, then
+`alembic upgrade head`.
 Everything stays inside the Workbench database and needs no server-level rights, so
 the production app login can do it — no SA login, no `CREATE DATABASE`.
 

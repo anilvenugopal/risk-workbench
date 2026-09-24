@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# rhel9-db-rebuild.sh — rebuild the Workbench schema on the production server:
+# rhel9-db-rebuild.sh — rebuild the Workbench schema on an RHEL9 host:
 # drop every table it finds, then alembic upgrade head.
 #
 # DESTRUCTIVE: every table in the Workbench database is dropped and recreated.
 # All Workbench data is lost — submissions, jobs, audit rows, user accounts.
 # It does not touch the loss repository or DATABRIDGE.
 #
-# Why this exists: the project keeps one Alembic revision, edited in place. On a
-# database that already has that revision stamped, "alembic upgrade head" does
-# nothing, even though the file gained tables or seed rows since — so a deploy
-# that changed the schema needs this script, not rhel9-app-install.sh.
+# Why this exists: through spec 017, the project keeps one Alembic revision
+# edited in place. On a database that already has that revision stamped,
+# "alembic upgrade head" does nothing, even though the file gained tables or
+# seed rows since — so a deploy that changed the schema needs this script, not
+# rhel9-app-install.sh.
 #
 # THIS SCRIPT EXPIRES. Spec 017 holds the last in-place edit of 0001_initial.py.
 # Run this once after 017 ships, which leaves the server at exactly what 0001

@@ -167,9 +167,11 @@ make debug-up        # start with debugpy on :5678 for VS Code attach
 The unit tier is the exception: `uv run pytest tests/unit` runs from any host shell
 with no container and no database. Prefer it over `make test`.
 
-**Where a script may run** — `infra/scripts/` is split by environment, and the
-directory is the contract: `dev/` never runs on the production server, `rhel9/` only
-runs there, and anything at the top level runs in both. See
+**Where a script may run** — `infra/scripts/` groups scripts by platform and data
+scope, not by `APP_ENV`. `dev/` contains only scripts that create or seed development
+databases and each executable refuses an unsafe target. `rhel9/` runs on RHEL9,
+including RHEL9 under WSL. Top-level `wsl-*` scripts run on Ubuntu WSL2, while
+`start-all.sh` and `stop-all.sh` run inside the Linux application container. See
 [infra/scripts/README.md](infra/scripts/README.md).
 
 See [docs/SCAFFOLDING.md](docs/SCAFFOLDING.md) for full setup and debugging tutorial.
@@ -247,7 +249,7 @@ are the tier to run after every change. SQL Server tests use the real driver.
 `uv run pytest tests/sqlserver --run-sqlserver` typed into Git Bash or PowerShell
 fails every test with "Could not connect to WORKBENCH database" even when
 `infra-sqlserver-1` is healthy. The ODBC driver and the `MSSQL_*` env vars live in
-the `linux-box` container (Docker) or are exported by `infra/scripts/dev/wsl-env.sh`
+the `linux-box` container (Docker) or are exported by `infra/scripts/wsl-env.sh`
 (WSL2); the Windows host has neither. `make test-sql` and `make wsl-test-sql` exist
 because of this — use them.
 

@@ -125,7 +125,7 @@ One OS process per queue, always:
 dramatiq app.workers.entrypoint -Q upload_edm --processes 1 --threads 2
 ```
 
-- **Dev, Docker** (`infra/scripts/dev/start-all.sh`): loops over
+- **Docker or Podman container** (`infra/scripts/start-all.sh`): loops over
   `python -m app.workers.queues`, backgrounds one process per queue with
   `--pid-file .dev-pids/worker-<queue>.pid`, logs to
   `.dev-logs/worker-<queue>.log`.
@@ -136,7 +136,7 @@ dramatiq app.workers.entrypoint -Q upload_edm --processes 1 --threads 2
   files under `/var/lib/risk-workbench/`.
 
 Check what's actually running, on either dev path, without trusting the
-start script's own printed output: `bash infra/scripts/dev/wsl-worker-health.sh`
+start script's own printed output: `bash infra/scripts/wsl-worker-health.sh`
 (or the RHEL9 equivalent, `rhel9-worker-health.sh`) lists every queue with
 its PID-file status and an independent process-scan side by side.
 
