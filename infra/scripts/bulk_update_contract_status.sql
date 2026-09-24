@@ -1,21 +1,26 @@
--- Bulk update of Contract status from a CRM extract (spec 017 FR-023, note 32 D25).
+-- Bulk update of Contract status from CIC's CRM (spec 017 FR-023, note 34 D10-D13).
 --
 -- CIC runs this in SQL against rwb_workbench after CRM closes out a renewal
--- date. The extract is one row per CRM ID with the status CRM holds for it;
--- every contract named is set to that status. The Workbench reads `contract`
--- directly, so the lists and "in force as of" see the change at once. Contract
--- status has no history (spec 017 P-02): the row's updated_at moves and
--- updated_by is cleared, so an analyst's edit from a stale page is refused.
+-- date. The source is dbo.CRMContractStatus in CIC's loss repository: one row
+-- per CRM ID with the status CRM holds for it, in CRM's words Open / Won / Lost
+-- (the Workbench uses the same words since note 34 D9). Every Workbench
+-- contract whose CRM ID appears in the source is set to the source's status.
+-- The Workbench reads `contract` directly, so the lists and "in force as of"
+-- see the change at once. Contract status has no history (spec 017 P-02): the
+-- row's updated_at moves and updated_by is cleared, so an analyst's edit from a
+-- stale page is refused.
 --
--- 1. Leave @dry_run = 1 for the first run: it reports what would change and
+-- 1. The SOURCE line below names rwb_loss, the development database. In
+--    production replace it with the name of CIC's loss repository; nothing
+--    else differs between environments. The login running the script needs
+--    SELECT on that table.
+-- 2. Leave @dry_run = 1 for the first run: it reports what would change and
 --    writes nothing. Set it to 0 to apply.
--- 2. Replace the rows between the EXTRACT markers with the CRM extract. The
---    status is the Workbench code (WON, LOST, IN_PROCESS) or its label
---    (Won, Lost, In Process), any case.
--- 3. Run the whole script as one batch. It writes nothing when the extract
---    names a status the Workbench does not have or lists a CRM ID twice. A
---    CRM ID with no contract in the Workbench is reported and skipped: CRM
---    holds deals the Workbench never modeled.
+-- 3. Run the whole script as one batch. It writes nothing when the source
+--    carries a status the Workbench does not have or lists a CRM ID twice
+--    (two spellings of the same CRM ID). A CRM ID with no contract in the
+--    Workbench is counted and skipped: CRM holds deals the Workbench never
+--    modeled. A Workbench contract with no source row is left alone.
 
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
@@ -25,11 +30,10 @@ DECLARE @dry_run BIT = 1;
 DROP TABLE IF EXISTS #crm_status;
 CREATE TABLE #crm_status (crm_id NVARCHAR(255) NOT NULL, status NVARCHAR(50) NOT NULL);
 
--- ==== EXTRACT: replace these rows with the CRM extract ====
-INSERT INTO #crm_status (crm_id, status) VALUES
-    ('CRM-2027-1001', 'Won'),
-    ('CRM-2027-1002', 'Lost');
--- ==== END EXTRACT ====
+-- ==== SOURCE: the CRM status relation; change the database name per environment ====
+INSERT INTO #crm_status (crm_id, status)
+SELECT CRMID, Status FROM rwb_loss.dbo.CRMContractStatus;
+-- ==== END SOURCE ====
 
 DROP TABLE IF EXISTS #resolved;
 CREATE TABLE #resolved (
@@ -46,7 +50,7 @@ CREATE TABLE #resolved (
 INSERT INTO #resolved (crm_id, status, new_status, contract_id, old_status, submission_name)
 SELECT x.crm_id, x.status, k.code, c.id, c.contract_status_code, s.name
 FROM #crm_status x
-LEFT JOIN contract_status_kind k ON k.code = UPPER(REPLACE(TRIM(x.status), ' ', '_'))
+LEFT JOIN contract_status_kind k ON k.code = UPPER(TRIM(x.status))
 LEFT JOIN contract c ON LOWER(TRIM(c.crm_id)) = LOWER(TRIM(x.crm_id))
 LEFT JOIN submission s ON s.id = c.submission_id;
 
@@ -56,7 +60,7 @@ DECLARE @duplicates INT = (
         SELECT LOWER(TRIM(crm_id)) AS crm_key FROM #crm_status
         GROUP BY LOWER(TRIM(crm_id)) HAVING COUNT(*) > 1) d);
 
-SELECT (SELECT COUNT(*) FROM #crm_status)                                         AS extract_rows,
+SELECT (SELECT COUNT(*) FROM #crm_status)                                         AS source_rows,
        (SELECT COUNT(*) FROM #resolved WHERE contract_id IS NOT NULL
                                          AND new_status IS NOT NULL
                                          AND old_status <> new_status)             AS to_update,
@@ -75,10 +79,7 @@ SELECT MIN(crm_id), MIN(status), 'CRM ID listed more than once'
 FROM #crm_status GROUP BY LOWER(TRIM(crm_id)) HAVING COUNT(*) > 1
 ORDER BY crm_id;
 
--- CRM IDs the Workbench has no contract for: skipped, not an error.
-SELECT crm_id, status FROM #resolved WHERE contract_id IS NULL ORDER BY crm_id;
-
--- The change list: keep this result with the extract as the record of the run.
+-- The change list: keep this result as the record of the run.
 SELECT crm_id, submission_name, old_status, new_status
 FROM #resolved
 WHERE contract_id IS NOT NULL AND new_status IS NOT NULL AND old_status <> new_status
