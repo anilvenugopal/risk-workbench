@@ -6,11 +6,13 @@ can reference tables or constraints that were never installed. Querying SQL
 Server for the installed tables avoids that mismatch.
 
 The script prints every table and requires the operator to type the configured
-database name before executing any DDL.
+database name before executing any DDL. ``--yes`` exists for the automated
+scratch-database test; the RHEL9 rebuild command does not pass it.
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -40,7 +42,14 @@ _LIST_FOREIGN_KEYS = text("""
 """)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="skip the database-name prompt",
+    )
+    args = parser.parse_args(argv)
     database = get_connection_config("WORKBENCH")["database"]
 
     with get_connection("WORKBENCH") as conn:
@@ -54,11 +63,12 @@ def main() -> int:
         for schema_name, table_name in tables:
             print(f"    {schema_name}.{table_name}")
 
-        print()
-        confirmation = input("Type the database name to confirm: ")
-        if confirmation != database:
-            print("Aborted.", file=sys.stderr)
-            return 1
+        if not args.yes:
+            print()
+            confirmation = input("Type the database name to confirm: ")
+            if confirmation != database:
+                print("Aborted.", file=sys.stderr)
+                return 1
 
         foreign_keys = conn.execute(_LIST_FOREIGN_KEYS).all()
 
