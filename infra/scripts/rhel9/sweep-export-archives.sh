@@ -20,10 +20,10 @@
 # Reports and deletes nothing unless --delete is given.
 #
 # Usage:
-#   bash infra/scripts/sweep-export-archives.sh                        # report, 90 days
-#   bash infra/scripts/sweep-export-archives.sh --older-than 30
-#   bash infra/scripts/sweep-export-archives.sh --older-than 90 --delete
-#   bash infra/scripts/sweep-export-archives.sh --dir "$EXPORT_STAGING_DIR" --older-than 7 --delete
+#   bash infra/scripts/rhel9/sweep-export-archives.sh                        # report, 90 days
+#   bash infra/scripts/rhel9/sweep-export-archives.sh --older-than 30
+#   bash infra/scripts/rhel9/sweep-export-archives.sh --older-than 90 --delete
+#   bash infra/scripts/rhel9/sweep-export-archives.sh --dir "$EXPORT_STAGING_DIR" --older-than 7 --delete
 #
 # The last form clears what the stage worker cannot: a stage that fails and is
 # never retried keeps its whole extracted tree, since only the next attempt on
@@ -32,7 +32,7 @@
 #
 # Cron on RHEL9, daily at 02:00, deleting archives past 90 days:
 #   0 2 * * * EXPORT_ARCHIVE_DIR=/mnt/lossshare/export_archive bash \
-#       /rms/infra/scripts/sweep-export-archives.sh --older-than 90 --delete
+#       /rms/infra/scripts/rhel9/sweep-export-archives.sh --older-than 90 --delete
 
 set -uo pipefail
 # No "-e": the summary and exit code have to report a directory the share

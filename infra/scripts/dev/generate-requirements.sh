@@ -12,17 +12,17 @@
 #
 #   Generate mode (default) — regenerate the real file in place, then
 #   review and commit it yourself:
-#     bash infra/scripts/generate-requirements.sh
+#     bash infra/scripts/dev/generate-requirements.sh
 #
 #   CI check mode — verify the committed requirements.txt still matches
 #   what pyproject.toml/uv.lock would produce right now, WITHOUT touching
 #   the real file. Fails loudly (exit code 1) if someone changed
 #   dependencies without regenerating the file:
-#     bash infra/scripts/generate-requirements.sh --check
+#     bash infra/scripts/dev/generate-requirements.sh --check
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
 # "$1" is the first argument typed after the script's name on the command
@@ -57,7 +57,7 @@ if [ "$MODE" = "--check" ]; then
     else
         echo "ERROR: requirements.txt is OUT OF DATE." >&2
         echo "       pyproject.toml or uv.lock changed without regenerating it." >&2
-        echo "       Run 'bash infra/scripts/generate-requirements.sh' (no --check)" >&2
+        echo "       Run 'bash infra/scripts/dev/generate-requirements.sh' (no --check)" >&2
         echo "       and commit the result. Diff:" >&2
         cat /tmp/requirements-diff.txt >&2
         exit 1

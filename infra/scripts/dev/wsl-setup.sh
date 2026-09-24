@@ -10,14 +10,14 @@
 # This script:
 #   - uv sync (install Python deps)
 #   - Start SQL Server container and wait for it to be healthy
-#   - Create rwb_workbench, rwb_exposure, rwb_loss (skips existing)
+#   - Create rwb_workbench and rwb_loss (skips existing)
 #   - Run Alembic migrations on rwb_workbench
 #
 # Safe to re-run: every step checks state before acting.
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
 # ── Preflight checks ──────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ if [ ! -f "infra/.env" ]; then
     exit 1
 fi
 
-source infra/scripts/wsl-env.sh
+source infra/scripts/dev/wsl-env.sh
 
 COMPOSE="docker compose -f infra/docker-compose.yml --env-file infra/.env"
 
@@ -76,7 +76,7 @@ echo ""
 
 # ── Step 3: Create databases ──────────────────────────────────────────────────
 echo "=== Step 3: Create databases (skips existing) ==="
-uv run python infra/scripts/bootstrap_db.py
+uv run python infra/scripts/dev/bootstrap_db.py
 echo ""
 
 # ── Step 4: Migrations ────────────────────────────────────────────────────────

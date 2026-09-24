@@ -12,12 +12,12 @@
 # `make wsl-worker-health` finds any others by process scan.
 #
 # Usage:
-#   bash infra/scripts/wsl-workers.sh          # start (skips queues already up)
-#   bash infra/scripts/wsl-workers.sh stop
+#   bash infra/scripts/dev/wsl-workers.sh          # start (skips queues already up)
+#   bash infra/scripts/dev/wsl-workers.sh stop
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
 LOG_DIR=.dev-logs
@@ -25,7 +25,7 @@ PID_DIR=.dev-pids
 ACTION="${1:-start}"
 
 # shellcheck source=/dev/null
-source infra/scripts/wsl-env.sh
+source infra/scripts/dev/wsl-env.sh
 
 QUEUES="$(uv run python -m app.workers.queues)"
 

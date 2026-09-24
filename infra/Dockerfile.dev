@@ -9,7 +9,7 @@
 #
 # When you go to production:
 #   1. Install the same packages on the real Linux server.
-#   2. Convert each block in infra/scripts/start-all.sh into a systemd unit.
+#   2. Convert each block in infra/scripts/dev/start-all.sh into a systemd unit.
 #   3. The commands are identical — only the wrapper changes.
 
 FROM python:3.12-slim
@@ -59,7 +59,7 @@ COPY deploy ./deploy
 COPY db ./db
 
 # ── Startup ───────────────────────────────────────────────────────────────────
-COPY infra/scripts/start-all.sh /usr/local/bin/start-all.sh
+COPY infra/scripts/dev/start-all.sh /usr/local/bin/start-all.sh
 RUN chmod +x /usr/local/bin/start-all.sh
 
 EXPOSE 80 8000
