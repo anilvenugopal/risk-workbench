@@ -16,7 +16,7 @@ All database access goes through the `db/` package. App code calls `get_connecti
 | `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — read-only; app code never sends SQL (reads go through irp-integration methods, worker-side, plus the one bounded single-row point-of-action check permitted on the request path; constitution Art. 11 v3.2.0); never DDL |
 
 - **Pooling:** `MSSQL_POOL_SIZE` (default 5), `MSSQL_POOL_MAX_OVERFLOW` (default 5), `MSSQL_POOL_RECYCLE` (default 1800s). For 30 concurrent users: `POOL_SIZE=10`, `MAX_OVERFLOW=20`.
-- **Dev DB strategy:** drop-create-seed via a single Alembic revision (`0001_initial.py`) until production cutover. `EXPOSURE` is bootstrapped by an idempotent SQL script. `LOSS` in dev is `make bootstrap-loss` (`infra/scripts/bootstrap_loss.py`): `loss_dev_mirror.sql` recreates CIC's five tables, `loss_schema.sql` installs the `stage` schema, then `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` are seeded. Neither is under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
+- **Dev DB strategy:** drop-create-seed via a single Alembic revision (`0001_initial.py`) until production cutover. `EXPOSURE` is bootstrapped by an idempotent SQL script. `LOSS` in dev is `make bootstrap-loss` (`infra/scripts/bootstrap_loss.py`): `loss_dev_mirror.sql` recreates CIC's five loss tables and `dbo.CRMContractStatus` (the CRM status table the January bulk update reads, spec 017 FR-023), `loss_schema.sql` installs the `stage` schema, then `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` are seeded. Neither is under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
 - **Redis:** `REDIS_URL` (default `redis://localhost:6379/0`). Dramatiq broker; stateless.
 
 ---
@@ -145,7 +145,7 @@ erDiagram
     datetime inserted_at
   }
   contract_status_kind {
-    string code PK "IN_PROCESS / WON / LOST"
+    string code PK "OPEN / WON / LOST"
     string label
     int sort_order
     datetime inserted_at
@@ -176,12 +176,12 @@ erDiagram
 - **`submission` is the root.** No hierarchy above it: one cedant's modeling project. `cedant_name` is the primary filter; `treaty_year` defaults to the earliest contract inception year and supports renewal-year grouping; `data_vintage` is the in-force as-of date of the EDM data, one per submission by convention and the export form's default (spec 017, note 32 D23). These are the system of record — there is no CRM/treaty-system integration to derive them from.
 - **`cedant_name` is a plain string**, kept consistent by autocomplete over existing values — deliberately not its own table.
 - **`contract`** is the CRM ID (spec 017, note 32 D17–D22): 0..N per submission, each with its `crm_id`, `treaty_type_code`, `inception_date`, `expiration_date` and `contract_status_code`. **`crm_id` is unique across the Workbench** (`uq_contract_crm_id`, case-insensitive under the default collation; note 33 D12–D14): a CRM ID names one contract on one submission, whatever either submission's status, and the service refuses a reuse with a link to the submission that holds it. No contract is primary (P-17). The list's default order is `COALESCE((SELECT MAX(c.inception_date) FROM contract c WHERE c.submission_id = s.id), s.inserted_at) DESC, s.name`, so a submission with no contract sorts by its creation date. Contract-level list filters (CRM ID, treaty type, inception, Contract status, in force) share one `EXISTS` over `contract`, so one row must satisfy them together (P-18).
-- **`v_contract`** is a view: one row per contract — the contract's columns plus the submission's name, cedant, client, treaty year, data vintage and Modeling status; a submission with no contract emits no row. It is the CRM-ID-grain extract for CIC's linking SQL (spec 017 FR-013); the January bulk status update, `infra/scripts/bulk_update_contract_status.sql`, writes `contract` directly (FR-023, note 32 D25). "In force as of D" is `contract_status_code = 'WON' AND inception_date <= D AND expiration_date >= D`, computed at query time, never stored (P-09).
+- **`v_contract`** is a view: one row per contract — the contract's columns plus the submission's name, cedant, client, treaty year, data vintage and Modeling status; a submission with no contract emits no row. It is the CRM-ID-grain extract for CIC's linking SQL (spec 017 FR-013); the January bulk status update, `infra/scripts/bulk_update_contract_status.sql`, reads `dbo.CRMContractStatus` in the loss repository and writes `contract` directly (FR-023, note 32 D25, note 34 D11). "In force as of D" is `contract_status_code = 'WON' AND inception_date <= D AND expiration_date >= D`, computed at query time, never stored (P-09).
 - **`client_id`** is `dbo.Client.ClientID` in `rwb_loss`, read over the `LOSS` connection and never a foreign key (another database). Optional; the Workbench never writes to the client list (spec 017 P-04).
 - **`links_to_submission_id`** is a manual, nullable self-reference to a related submission — usually last year's deal for the same cedant and treaty type, but not necessarily a renewal (design note 08 CR8, superseding the earlier `renews_from_submission_id`). Most deals have none. The analyst picks the related deal by name; a submission cannot link to itself (`ck_submission_no_self_link`).
 - **`submission.name` is NOT unique.** Two genuinely distinct deals can share every naming-convention attribute (same cedant, inception, treaty type) and differ only by the manual/optional CRM ID (design note 03 §4). The UUID `id` is the key; create/rename runs a **non-blocking** "a similar deal already exists" warning, never a hard reject. *(Unlike the EDM/RDM name-collision check, which is **blocking** as of 2026-07-27 — issue #17, §5.)*
 - **Modeling status** (`status_code`) is `ACTIVE` / `COMPLETED` / `CANCELLED`, event-sourced, no system-enforced transition preconditions (`COMPLETED → ACTIVE` allowed). **There is no delete** — a submission can carry real Risk Modeler assets; `CANCELLED` is the withdrawal state.
-- **Contract status** (`contract.contract_status_code`) is `IN_PROCESS` / `WON` / `LOST` from `contract_status_kind`, updated in place with the contract's `updated_at` concurrency check, no reason and no event row, in every Modeling status (spec 017 P-02, P-12). Every other contract write needs Modeling status Active.
+- **Contract status** (`contract.contract_status_code`) is `OPEN` / `WON` / `LOST` from `contract_status_kind`, updated in place with the contract's `updated_at` concurrency check, no reason and no event row, in every Modeling status (spec 017 P-02, P-12). Every other contract write needs Modeling status Active.
 
 **Associations:**
 - `submission_edm` has primary key (`submission_id`, `edm_id`) and reverse index (`edm_id`, `submission_id`).
@@ -590,6 +590,8 @@ never starts RDM upload work. Association detach is request-path SQL only.
 
 Results viewing reads `irp_analysis.loss_results` (§6), the bounded per-perspective extract the `retrieve_analysis_results` worker writes (§8). Row-level loss data exists only for the export to the Loss Repository, and lives in that repository, not in `rwb_workbench`: the export record is `stage.rwb_loss_result_manifest` (one row per analysis per export), the archive's Parquet files are `stage.rwb_loss_result_file`, and every staged event is `stage.rwb_loss_result_elt_data`, all in CIC's `CRE_Trial_ELT_Repository` under the Workbench's `stage` schema. Schema, the load procedure, and the mapping onto CIC's `dbo.Data`, `dbo.RMSELT`, and `dbo.RMS_HistoricalRDS`: [`specs/014-results-export/data-model.md`](../specs/014-results-export/data-model.md). The `analysis_result_meta` / `result_export` / `delivery_kind` design of 2026-07 was never built and is withdrawn.
 
+The loss repository also holds `dbo.CRMContractStatus` (`CRMID NVARCHAR(50)` primary key, `Status NVARCHAR(50)`: Open, Won or Lost), a CIC-owned table (a view over the linked CRM copy in production) that the Workbench never writes; `infra/scripts/bulk_update_contract_status.sql` reads it to set `contract.contract_status_code` (spec 017 FR-023, note 34 D11, D12). The development mirror is in `db/bootstrap/loss_dev_mirror.sql`.
+
 ---
 
 ## 10. IRP reference cache
@@ -734,7 +736,7 @@ erDiagram
 | `audit_log` | Who did what, when — **DEFERRED**. |
 | `submission` | The deal and top-level entity. `name` is a non-unique label; `id` is the key. |
 | `contract` | 0..N contracts (CRM IDs) per submission: treaty type, term and Contract status. |
-| `contract_status_kind` | `IN_PROCESS` / `WON` / `LOST`. |
+| `contract_status_kind` | `OPEN` / `WON` / `LOST`. |
 | `v_contract` | View: one row per contract with its submission's attributes (spec 017 FR-013). |
 | `treaty_type_kind` | Contract treaty-type vocabulary. |
 | `submission_status_kind` | `ACTIVE` / `COMPLETED` / `CANCELLED`. |
@@ -774,7 +776,7 @@ erDiagram
 | `role_kind` | `analyst`, `admin` (confirm with team); `admin` has `is_admin=true`. |
 | `submission_status_kind` | `ACTIVE`, `COMPLETED`, `CANCELLED`. |
 | `treaty_type_kind` | CIC's eleven modeling treaty types (spec 017 FR-012): `aggregate_xol`, `aggregate_cat_xol`, `risk_aggregate_xol`, `per_occurrence_xol`, `per_occurrence_cat_xol`, `per_risk_xol`, `stop_loss`, `reinstatement_premium_protection`, `second_third_fourth_event_risk_exposed`, `top_and_drop`, `top_and_aggregate`. |
-| `contract_status_kind` | `IN_PROCESS`, `WON`, `LOST` (spec 017). |
+| `contract_status_kind` | `OPEN`, `WON`, `LOST` (spec 017). |
 | `irp_analysis_status_kind` | `pending`, `ready`, `error`. |
 | `irp_job_type_kind` | `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`. |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
@@ -808,6 +810,7 @@ erDiagram
 
 ## Change log
 
+- **2026-09-23 — Spec 017 Contract status Open and the CRM status table (note 34).** `contract_status_kind` seeds `OPEN` (label Open) in place of `IN_PROCESS`, matching CIC's CRM words; `contract.contract_status_code` defaults to `'OPEN'`. `rwb_loss` gains the mirror of CIC's `dbo.CRMContractStatus`, the source of the January bulk update.
 - **2026-09-22 — Spec 017 contract grain (note 32).** `contract` replaces `submission_crm_id`: the CRM ID is the contract and carries `treaty_type_code`, `inception_date`, `expiration_date` and `contract_status_code` (FK `contract_status_kind`, which replaces `deal_status_kind`). `submission` loses `treaty_type_code`, `inception_date`, `expiration_date` and `deal_status_code`, gains nullable `data_vintage`; `ix_submission_list_order` dropped (the sort key is an aggregate over `contract`). `v_contract` replaces `v_submission_crm_id` and emits no row for a submission without a contract. Same day, note 33 D12–D14: `uq_contract_crm_id`, a unique index on `contract.crm_id`; a CRM ID is one contract on one submission across the Workbench.
 - **2026-09-16 — Spec 014 loss results export.** `irp_job.export_id` (nullable, indexed). `rwb_job_type_kind`: `submit_results_export`, `stage_results_export`, `load_results_export` added; `download_export_file` and `push_results_to_loss_repo` dropped (neither ever had a worker). `rwb_job_context_type_kind` gains `result_export`. §9's `analysis_result_meta` / `result_export` / `delivery_kind` withdrawn unbuilt: the export record is `stage.rwb_loss_result_manifest` in CIC's loss repository (`specs/014-results-export/data-model.md`). §1: `LOSS` is CIC's `CRE_Trial_ELT_Repository`, mirrored in dev as `rwb_loss`; the `stage` schema is installed by a CIC DBA from `db/bootstrap/loss_schema.sql`.
 - **2026-09-16 — Import analyses by Risk Modeler id (#101).** `irp_analysis.imported_at` (nullable `DATETIME2`) separates the two kinds of row on the `submission_id` leg of `ck_irp_analysis_origin`: a group the Workbench composed, and an analysis the analyst pulled in by its `appAnalysisId`. An imported row sets `submission_id`, `irp_id`, `irp_app_analysis_id`, `exposure_resource_id` when Risk Modeler reports a portfolio pointer, and a `submitted_settings` block holding the currency code alone. New filtered index `ix_irp_analysis_irp_id` (`WHERE irp_id IS NOT NULL`) serves the duplicate check and the delete guard.

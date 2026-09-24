@@ -12,7 +12,7 @@ references: [plan.md](plan.md) T-01 … T-14.
 | Analyst sees | Column / table | Values |
 |---|---|---|
 | Modeling status | `submission.status_code` → `submission_status_kind`; history in `submission_status_event` | `ACTIVE`, `COMPLETED`, `CANCELLED` (unchanged) |
-| Contract status | `contract.contract_status_code` → `contract_status_kind` | `WON`, `LOST`, `IN_PROCESS` |
+| Contract status | `contract.contract_status_code` → `contract_status_kind` | `WON`, `LOST`, `OPEN` |
 | Contract, CRM ID | `contract` (one row per CRM ID) | |
 | Cedant | `submission.cedant_name` | free text (unchanged) |
 | Client ID | `submission.client_id` | `dbo.Client.ClientID` in `rwb_loss`; no FK |
@@ -22,7 +22,7 @@ references: [plan.md](plan.md) T-01 … T-14.
 ## 1. `contract_status_kind` — kind table (T-01)
 
 `deal_status_kind` renamed. Same shape as every kind table (`code` PK,
-`label`, `sort_order`, `inserted_at`). Seed: `('IN_PROCESS', 'In Process',
+`label`, `sort_order`, `inserted_at`). Seed: `('OPEN', 'Open',
 10)`, `('WON', 'Won', 20)`, `('LOST', 'Lost', 30)`.
 
 ## 2. `submission` — four columns removed, one added (T-03)
@@ -52,7 +52,7 @@ no index on `submission` can serve (T-11). `ix_submission_cedant_name` and
 | `treaty_type_code` | NVARCHAR(50) NOT NULL FK `treaty_type_kind.code` | |
 | `inception_date` | DATE NOT NULL | |
 | `expiration_date` | DATE NOT NULL | the service fills inception + 1 year − 1 day when the form sends blank (P-03) |
-| `contract_status_code` | NVARCHAR(50) NOT NULL DEFAULT `'IN_PROCESS'` FK `contract_status_kind.code` | updated in place (Article 4 "other status") |
+| `contract_status_code` | NVARCHAR(50) NOT NULL DEFAULT `'OPEN'` FK `contract_status_kind.code` | updated in place (Article 4 "other status") |
 | `inserted_at` | DATETIME2 NOT NULL DEFAULT GETUTCDATE() | |
 | `updated_at` | DATETIME2 NOT NULL DEFAULT GETUTCDATE() | the R1 concurrency marker for in-place edits (T-02) |
 | `inserted_by`, `updated_by` | UNIQUEIDENTIFIER NULL FK `app_user.id` | |
@@ -80,7 +80,9 @@ JOIN submission s ON s.id = c.submission_id
 
 The Workbench's own queries read `contract` directly; the view exists for
 CIC's linking SQL, which keys on `crm_id`. The January bulk update script
-writes `contract` directly (FR-023, note 32 D25).
+reads `dbo.CRMContractStatus` in the loss repository (CIC-owned; mirrored in
+`db/bootstrap/loss_dev_mirror.sql`) and writes `contract` directly (FR-023,
+note 32 D25, note 34 D11).
 
 ## 5. Predicates the lists run (T-05, T-11)
 

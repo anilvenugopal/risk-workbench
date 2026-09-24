@@ -5,7 +5,7 @@ concurrency on the request path, no external system, no background work:
 
 1. **Edit** the deal's fields (`POST /submissions/{id}`)
 2. **Reassign** its owner (`POST /submissions/{id}/reassign`)
-3. **Change the statuses** — Modeling ACTIVE / COMPLETED / CANCELLED and Submission WON / LOST / IN_PROCESS, saved together (`POST /submissions/{id}/statuses`)
+3. **Change the statuses** — Modeling ACTIVE / COMPLETED / CANCELLED and Contract WON / LOST / OPEN, saved together (`POST /submissions/{id}/statuses`)
 4. **Add / remove CRM-ID tags** (`POST …/crm-ids`, `POST …/crm-ids/{tag_id}/delete`)
 
 Modeling status is the one that matters architecturally: it is the **only event-sourced status

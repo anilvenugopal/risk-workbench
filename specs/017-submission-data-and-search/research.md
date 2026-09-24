@@ -5,7 +5,7 @@
 ### Session 2026-09-17
 
 - Q: Where do inception and expiration live: deal-level defaults with optional per-CRM-ID overrides (A), CRM-ID grain only with the submission inception dropped and at least one CRM ID required (B), or CRM-ID grain only with a placeholder contract row for submissions without a CRM ID (C)? → A at the time. **Reversed 2026-09-18 on the design call and 2026-09-21 in this spec**: the dates live on the contract only (see the 2026-09-21 session and R2). B and C were rejected on 9/17 for deriving the sort and forcing a CRM ID on deals that have none; the 9/21 answer is neither B nor C — zero contracts are allowed and the sort is an aggregate (R11).
-- Q: Is Hold seeded as the fourth Modeling status value (A), a label only (B), or dropped (C)? → C, dropped. Submission status = In Process (now contract status) carries the paused-deal meaning (P-01).
+- Q: Is Hold seeded as the fourth Modeling status value (A), a label only (B), or dropped (C)? → C, dropped. Submission status = Open (now contract status) carries the paused-deal meaning (P-01).
 - Q: Is Client optional at creation and afterwards (A), required at creation (B), or required before Won (C)? → A, optional throughout (P-04).
 - Q: Where does a Ctrl-J analysis result land? → None. Analysis search is removed from this spec (P-08).
 - Q: When a Won submission's CRM ID has no expiration, is it never in force (A), in force for a year (B), or open-ended (C)? → A. **Moot since 2026-09-21**: expiration is NOT NULL on the contract (P-03); the predicate is unchanged.
@@ -35,12 +35,19 @@
 - Q: Data vintage required or optional on the submission? → Optional; the EDM often does not exist at creation. The export keeps it required and pre-fills from it (P-19).
 - Q: "Client" or "Client ID"? → Client ID (P-05).
 
-### Session 2026-09-23 (the bulk update, before the Wed 23 Sep demo)
+### Session 2026-09-23 (the bulk update, before the 23 Sep call)
 
 - Q: Where does the January bulk update run? → In SQL, by CIC, against `rwb_workbench` (Wendy, note 32 D25: "not here, but in SQL"). The Workbench ships the script; it is not a screen and not a route (P-21, FR-023).
 - Q: What does one extract row carry? → A CRM ID and the status CRM holds for it; each contract moves to the status beside its CRM ID, not a blanket move to Won (Ben's clarifying question and Wendy's "Yes", note 32 D25).
-- Q: What does the script do with a CRM ID the Workbench has never seen? → Report and skip. CRM holds every deal and the Workbench holds the modeled ones, so the extract will name contracts the Workbench lacks (assumed 2026-09-23, to confirm on the demo).
-- Q: What words does the CRM extract use for status? → Open (O-01). The script takes the Workbench codes or labels; Wendy said "bound, lost, won or lost" on 9/18.
+- Q: What does the script do with a CRM ID the Workbench has never seen? → Count and skip. CRM holds every deal and the Workbench holds the modeled ones, so the source names contracts the Workbench lacks; with a full CRM view the list would run to thousands of rows, so the summary carries the count only (note 34 D10, §5).
+- Q: What words does the CRM extract use for status? → Answered the same afternoon, below (O-01).
+
+### Session 2026-09-23 (afternoon, note 34 D9–D13)
+
+- Q: What words does CIC's CRM use for status? → "Literally open, won, or lost" (Wendy). The Workbench Contract status In Process is renamed Open, code and label, so the words match and the script maps nothing (D9; O-01 closed). The rename is a code change (`OPEN`) inside `0001_initial.py` before the last rebuild (D14): the script's join reads `contract_status_kind.code`, never the label.
+- Q: Where does the script read the statuses from? → A two-column relation, CRM ID and status, in CIC's loss repository: a table Cheryl builds now with about five real CRM IDs, Ross's view over the linked CRM copy in production (D11, D12). Not a pasted list. The Workbench mirrors it as `dbo.CRMContractStatus (CRMID NVARCHAR(50) PK, Status NVARCHAR(50))` in `rwb_loss`; the names are proposed to Cheryl and follow hers if they differ.
+- Q: Update every contract, or the ones named? → Every Workbench contract whose CRM ID appears in the source (D10). A contract with no source row is left alone.
+- Q: How is it run? → From SSMS by hand first, nightly later (D13). The nightly phase and its unattended error handling are open (note 34 O34-3), not built here.
 
 ## Evidence for the plan's technical decisions
 
@@ -53,7 +60,7 @@ re-read on branch `017-submission-data-and-search` at `227b15c` on
 **Decision.** Modeling status keeps `submission.status_code`,
 `submission_status_kind` and `submission_status_event` unchanged. Contract
 status is `contract.contract_status_code NVARCHAR(50) NOT NULL DEFAULT
-'IN_PROCESS'` with FK to `contract_status_kind` (`WON`, `LOST`, `IN_PROCESS`),
+'OPEN'` with FK to `contract_status_kind` (`WON`, `LOST`, `OPEN`),
 the 9/18 `deal_status_kind` renamed. It is updated in place under the
 contract row's own `updated_at` marker, records no reason and no event, and is
 accepted in every Modeling status.
@@ -145,7 +152,7 @@ inception date, contract status codes, in force). The libraries wrap the
 whole in their existing `EXISTS` over the association table.
 
 **Rationale.** P-18: "Per Risk XOL + Won" must be one contract, not a Per
-Risk XOL In Process beside an Aggregate XOL Won. One `EXISTS` body evaluates
+Risk XOL Open beside an Aggregate XOL Won. One `EXISTS` body evaluates
 the clauses against one contract row, the same construction R4 used on 9/18
 for "one submission satisfies every filter". Parameter prefixes are
 unchanged (`crm`, `tt`, `inc`, `cs` for contract status, `asof`).
@@ -348,15 +355,18 @@ cannot see.
 
 ### R15 — The bulk update is a script (T-16)
 
-**Decision.** `infra/scripts/bulk_update_contract_status.sql`: the extract is
-pasted into a `#crm_status` temp table between two markers; `@dry_run`
-defaults to 1; each row resolves to a `contract_status_kind` code
-(`UPPER(REPLACE(TRIM(status), ' ', '_'))`, so a code or a label in any case)
-and to a contract by `LOWER(TRIM(crm_id))`, the P-10 and R14 normalisation;
-four result sets (summary, problems, skipped CRM IDs, the change list); an
-unknown status or a CRM ID listed twice raises and writes nothing; otherwise
-one UPDATE on `contract` in a transaction sets `contract_status_code`, moves
-`updated_at` and clears `updated_by`.
+**Decision.** `infra/scripts/bulk_update_contract_status.sql`: `#crm_status`
+is loaded by `INSERT … SELECT CRMID, Status FROM rwb_loss.dbo.CRMContractStatus`,
+the one line that changes per environment (CIC's loss repository name in
+production); `@dry_run` defaults to 1; each row resolves to a
+`contract_status_kind` code (`UPPER(TRIM(status))`, so Open / Won / Lost in
+any case) and to a contract by `LOWER(TRIM(crm_id))`, the P-10 and R14
+normalisation; three result sets (summary with counts, problems, the change
+list); an unknown status or a CRM ID spelled twice raises and writes nothing;
+otherwise one UPDATE on `contract` in a transaction sets
+`contract_status_code`, moves `updated_at` and clears `updated_by`. The
+source's primary key on `CRMID` refuses an exact duplicate; the script's
+duplicate check catches two spellings of one CRM ID (case or padding).
 
 **Rationale.** Wendy asked for SQL, not a screen (note 32 D25). Contract
 status has no history (P-02), so an UPDATE is the whole change; the moved
@@ -366,21 +376,31 @@ index (T-15) is what makes "the contract for this CRM ID" one row. Refusing
 the whole run on a bad extract is cheaper than a January applied in part: the
 problem list names the rows, the extract is fixed and run again. An unmatched
 CRM ID is expected, not an error, because CRM holds every deal and the
-Workbench holds the modeled ones.
+Workbench holds the modeled ones; with a full CRM view (D10) they would run to
+thousands of rows, so the summary counts them and lists nothing. The source is
+a relation, not a paste, because CIC keeps a copy of the CRM statuses on a
+linked server and Ross can expose it as a view (note 34 D11); the same script
+reads Cheryl's test table in development (D12) and the view in production.
 
 **Evidence.** Dry run against the dev database on 2026-09-23 through
 `sqlcmd`; `tests/sqlserver/test_bulk_update_contract_status.py` from WSL2
 against `infra-sqlserver-1` the same day (dry run, apply, second run
-idempotent, unknown status, duplicate CRM ID).
+idempotent, unknown status, duplicate CRM ID), first with pasted rows and
+again in the afternoon with the rows written to `dbo.CRMContractStatus`. The
+dev collation is `SQL_Latin1_General_CP1_CI_AS`, so a case variant of a CRM
+ID cannot be a second primary-key row; the duplicate test uses a leading
+space instead.
 
 **Alternatives rejected.** *A route or admin screen*: the client asked for
 SQL, and the January extract is a file, not a form. *Writing through
 `v_contract`*: the view is the extract (T-04); the script reads `contract`
-directly as the Workbench does. *`BULK INSERT` from a CSV path*: needs the
-file on the server's file system and a path per environment; pasting the
-extract as VALUES works in SSMS and `sqlcmd` alike, and the extract is a few
-hundred rows. *Skipping bad rows and applying the rest*: a run applied in
-part is harder to reason about than one refused whole. *Mapping CRM's own
-words (Bound → Won) in the script*: the extract's vocabulary is unknown
-(O-01); the mapping belongs to whoever builds the extract until CIC says
-otherwise.
+directly as the Workbench does. *Pasting the extract as VALUES rows between
+two markers* (the 9/23 morning version): superseded the same afternoon when
+CIC made the source a table, then a view (note 34 D11, D12). *A synonym in
+`rwb_workbench` for the source table*: the migration would have to name the
+loss database, which differs per environment; one literal three-part name in
+the script is the smaller edit. *Skipping bad rows and applying the rest*: a
+run applied in part is harder to reason about than one refused whole; to be
+revisited before the nightly schedule (note 34 O34-3). *Mapping CRM's own
+words in the script*: unnecessary once In Process became Open (note 34 D9);
+the three words are the same on both sides.

@@ -55,7 +55,7 @@ update script's four cases (`test_bulk_update_contract_status.py`).
    already filled; change row three's expiration to 2029-12-31. Set data vintage
    2027-01-15: treaty year reads 2027 before you save. Save: the contract table shows three rows under the
    headers CRM ID · Treaty type · Inception · Expiration · Contract status,
-   all In Process.
+   all Open.
 3. Edit row two's CRM ID to `a-1` and save: refused, the row named. Open
    the create form again and save a second deal with CRM ID ` a-1 `: refused,
    the row names the first deal and its name opens that deal in a new tab. On
@@ -73,7 +73,7 @@ update script's four cases (`test_bulk_update_contract_status.py`).
    no contract status column. The list is ordered by inception descending; the
    contract-less submission from step 1 sits among today's deals. The
    **Modeling status** picker offers Active, Completed, Cancelled; the
-   **Contract status** picker offers Won, Lost, In Process; no Hold anywhere.
+   **Contract status** picker offers Won, Lost, Open; no Hold anywhere.
 
 ### Story 2 — client, data vintage, treaty type, export pre-fill
 
@@ -122,23 +122,29 @@ no contract.
    and no rows.
 8. `/edms/sync`: name search and paging only, unchanged.
 
-### Bulk update — Contract status from a CRM extract (FR-023)
+### Bulk update — Contract status from CIC's CRM table (FR-023)
 
-Set up: `make seed-demo` (or `make wsl-seed-demo`) after Rebuild. Pick three
-seeded CRM IDs from the submissions list (they read `CRM-2027-1001`).
+Set up: Rebuild (it creates `dbo.CRMContractStatus` in `rwb_loss`), then
+`make seed-demo` (or `make wsl-seed-demo`). The seeder fills the table with one
+row per seeded contract, about a third carrying a status the contract does not,
+plus ten CRM IDs the Workbench lacks; its last print line reports the counts.
 
 1. Open `infra/scripts/bulk_update_contract_status.sql` against
-   `rwb_workbench` in SSMS or Azure Data Studio. Replace the rows between the
-   EXTRACT markers with the three CRM IDs, two as `Won` and one as `Lost`,
-   plus one CRM ID the Workbench does not have. Run: the summary reads
-   `to_update 3, not_in_workbench 1, dry_run 1`, the change list shows the
-   three rows with their old status, and nothing is written.
-2. Set `@dry_run = 0`, run: `3 contract(s) updated.` Each deal's contract
+   `rwb_workbench` in SSMS or Azure Data Studio and run it as is. The summary
+   reads `to_update` about a third of the contracts, `not_in_workbench 10`,
+   `dry_run 1`; the change list shows each row with its old and new status;
+   nothing is written.
+2. Set `@dry_run = 0`, run: `N contract(s) updated.` Each deal's contract
    table shows the new status, and **In force as of** today on the
    submissions list returns the Won deals whose term covers today.
-3. Run the same extract again: `to_update 0, already_at_status 3`.
-4. Change one status to `Bound`, run: the problem list names the row,
-   `Nothing written`, no contract changed. List one CRM ID twice: the same.
+3. Run again: `to_update 0, already_at_status` the full count.
+4. Insert `('CRM-BAD-1', 'Bound')` into `rwb_loss.dbo.CRMContractStatus` and
+   run: the problem list names the row, `Nothing written`, no contract
+   changed. Delete the row afterwards.
+
+In production the one SOURCE line names CIC's loss repository instead of
+`rwb_loss`; the login running the script needs SELECT on
+`dbo.CRMContractStatus` there.
 
 From the host without SSMS (a dry run unless `@dry_run` is edited):
 
