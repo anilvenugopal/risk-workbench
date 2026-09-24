@@ -599,6 +599,31 @@ def test_a_closed_treaty_row_is_never_re_staged(ty_staging):
     assert len(_load_jobs()) == 1  # the one from the first run, none re-armed
 
 
+def test_retry_after_a_rejection_stamps_the_new_job_on_the_row_that_rides_along(ty_env,
+                                                                                 fake_irp):
+    """Retry re-arms the analysis's request from one row; the sibling that
+    failed with it is staged by the same job and must trace to it (FR-015)."""
+    fake_irp.raise_on_export_submit_for = {41960}
+    export_id = _create(ty_env, [ty_env["c"]], treaty_picks={ty_env["c"]: BOTH_TREATIES})
+    export_jobs.run_pending(worker_id="w1")
+    first, second = _manifest_rows(export_id)
+    assert (first["stage_status"], second["stage_status"]) == ("failed", "failed")
+    fake_irp.raise_on_export_submit_for = set()
+
+    assert svc.apply_retry(ty_env["submission_id"], export_id, first["manifest_id"]) == "submit"
+    export_jobs.run_pending(worker_id="w1")
+    irp_id = execute_one("SELECT irp_id FROM irp_job", {}, connection="WORKBENCH")["irp_id"]
+    assert [r["irp_export_job_id"] for r in _manifest_rows(export_id)] == [irp_id, None]
+    fake_irp.finish(irp_id)
+    poller.poll_once()
+    export_jobs.run_pending(worker_id="w1")
+
+    rows = _manifest_rows(export_id)
+    assert [(r["stage_status"], r["irp_export_job_id"]) for r in rows] == [
+        ("staged", irp_id), ("staged", irp_id)]
+    assert len(_load_jobs()) == 1
+
+
 # ── the load worker: every eligible row (T-05) ───────────────────────────────
 
 

@@ -482,7 +482,8 @@ def _stage(targets: list[dict], irp_job_id: str, work_dir: Path) -> list[str]:
                            f"match analysis currency {anchor['data_currency']!r}")
     facts = dict(loss_table_type=table_dir.name,
                  engine_type=metadata.get("Engine Type") or None,
-                 zip_file=archive.relative_to(root).as_posix())
+                 zip_file=archive.relative_to(root).as_posix(),
+                 irp_export_job_id=job["irp_id"])
     for row in targets:
         _stamp_manifest(row["manifest_id"], **facts)
 
