@@ -6,7 +6,7 @@ All provisioning actions below can be performed via the interactive CLI:
 
 ```bash
 make wsl-user-setup              # WSL2 / local
-./infra/scripts/run_user_setup   # production server
+./infra/scripts/run_user_setup.sh   # production server
 ```
 
 The menu has four options:

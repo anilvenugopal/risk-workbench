@@ -395,6 +395,18 @@ def group_partitions(detail: dict) -> list[dict] | None:
     return None
 
 
+def grouped_analysis_names(detail: dict) -> list[str]:
+    """The member analyses a group's own detail names under
+    ``groupedAnalysisIds``. A group composed in Risk Modeler or the Workbench
+    carries the property; a broker group captured from an RDM (``INGP``) does
+    not, so its members cannot be listed."""
+    for prop in detail.get("additionalProperties") or []:
+        if isinstance(prop, dict) and prop.get("key") == "groupedAnalysisIds":
+            return [entry["name"] for entry in prop.get("properties") or []
+                    if isinstance(entry, dict) and entry.get("name")]
+    return []
+
+
 def resolved_payload(run: ResolvedRun | None, *,
                      partitions: list[dict] | None = None) -> dict:
     """The workbench's ``resolved`` key inside ``settings_metadata``

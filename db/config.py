@@ -11,20 +11,23 @@ the only difference is `AUTH_TYPE`.
     MSSQL_{NAME}_USER         username                 (required for SQL auth)
     MSSQL_{NAME}_PASSWORD     password                 (required for SQL auth)
     MSSQL_{NAME}_PORT         port                     (optional, default 1433)
-    MSSQL_{NAME}_DATABASE     default database         (optional)
+    MSSQL_{NAME}_DATABASE     default database         (required unless the
+                                                        caller passes database=)
 
 Global (apply to every connection):
 
     MSSQL_DRIVER     ODBC driver name   (default 'ODBC Driver 18 for SQL Server')
     MSSQL_TRUST_CERT trust server cert  (default 'yes')
+    MSSQL_ENCRYPT    encrypt connection (default 'no')
     MSSQL_TIMEOUT    connect timeout s  (default '30')
 
-This module has no third-party imports, so it is trivially testable.
+SQLAlchemy's URL type is the only import, so this module is trivially testable.
 """
 
 import os
-import urllib.parse
 from typing import Dict, Optional
+
+from sqlalchemy.engine import URL
 
 from .errors import SQLServerConfigurationError
 
@@ -54,10 +57,11 @@ def get_connection_config(connection_name: str) -> Dict[str, str]:
     config: Dict[str, str] = {
         "name": name,
         "server": os.getenv(f"{prefix}SERVER") or "",
-        "port": os.getenv(f"{prefix}PORT", "1433"),
+        "port": os.getenv(f"{prefix}PORT") or "1433",
         "database": os.getenv(f"{prefix}DATABASE", "") or "",
         "driver": os.getenv("MSSQL_DRIVER", "ODBC Driver 18 for SQL Server"),
         "trust_cert": os.getenv("MSSQL_TRUST_CERT", "yes"),
+        "encrypt": os.getenv("MSSQL_ENCRYPT", "no"),
         "timeout": os.getenv("MSSQL_TIMEOUT", "30"),
         "auth_type": auth_type,
     }
@@ -81,43 +85,50 @@ def get_connection_config(connection_name: str) -> Dict[str, str]:
     return config
 
 
-def build_odbc_connection_string(config: Dict[str, str], database: Optional[str] = None) -> str:
-    """Build the raw ODBC connection string from a config dict.
+def build_sqlalchemy_url(config: Dict[str, str], database: Optional[str] = None) -> URL:
+    """Build the URL the pyodbc dialect turns into an ODBC connection string.
 
-    Works for both auth modes: SQL auth adds UID/PWD, Windows auth adds
-    Trusted_Connection=yes (the Kerberos ticket is established separately).
+    URL.create escapes the credentials, so a password holding `;` or `{` — which
+    a hand-built ODBC string breaks on — reaches pyodbc intact. Windows auth
+    passes no username: that is how the dialect knows to add
+    Trusted_Connection=Yes (the Kerberos ticket is established separately).
     """
     db = database or config.get("database") or None
-    parts = [
-        f"DRIVER={{{config['driver']}}}",
-        f"SERVER={config['server']},{config['port']}",
-    ]
-    if db:
-        parts.append(f"DATABASE={db}")
+    if db is None:
+        raise SQLServerConfigurationError(
+            f"Connection '{config['name']}' has no database: set "
+            f"MSSQL_{config['name']}_DATABASE or pass database=."
+        )
+
+    query = {
+        "driver": config["driver"],
+        "TrustServerCertificate": config["trust_cert"],
+        "Connection Timeout": config["timeout"],
+        "Encrypt": config["encrypt"],
+    }
+
     if config["auth_type"] == "WINDOWS":
-        parts.append("Trusted_Connection=yes")
-    else:
-        parts.append(f"UID={config['user']}")
-        parts.append(f"PWD={config['password']}")
-    parts.append(f"TrustServerCertificate={config['trust_cert']}")
-    parts.append(f"Connection Timeout={config['timeout']}")
-    return ";".join(parts) + ";"
+        return URL.create(
+            "mssql+pyodbc",
+            host=config["server"],
+            port=int(config["port"]),
+            database=db,
+            query=query,
+        )
 
-
-def build_sqlalchemy_url(config: Dict[str, str], database: Optional[str] = None) -> str:
-    """Wrap the ODBC string in a SQLAlchemy URL via odbc_connect.
-
-    Using `odbc_connect=` means SQLAlchemy passes our exact ODBC string straight
-    to pyodbc — identical behavior for SQL and Kerberos auth — while we still get
-    SQLAlchemy's connection pool. No ORM, no dialect-specific string-building.
-    """
-    odbc = build_odbc_connection_string(config, database=database)
-    return "mssql+pyodbc:///?odbc_connect=" + urllib.parse.quote_plus(odbc)
+    return URL.create(
+        "mssql+pyodbc",
+        username=config["user"],
+        password=config["password"],
+        host=config["server"],
+        port=int(config["port"]),
+        database=db,
+        query=query,
+    )
 
 
 __all__ = [
     "get_connection_config",
-    "build_odbc_connection_string",
     "build_sqlalchemy_url",
     "VALID_AUTH_TYPES",
 ]

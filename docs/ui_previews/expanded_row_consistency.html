@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expanded Row Layout · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* TOKENS — inlined from docs/ui_previews/_scaffold.html */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0;
+  --color-brand:var(--c-navy-700); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-warning:var(--c-amber-700); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600;
+  --fs-hero:28px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-6:24px; --space-7:32px;
+  --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-4)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1)}
+.rules{margin:var(--space-4) 0 0;padding-left:var(--space-6);color:var(--text-secondary);font-size:var(--fs-label)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-2)}
+.tile__note{font-size:var(--fs-caption);color:var(--text-tertiary);margin:0 0 var(--space-2)}
+.badge{display:inline-flex;align-items:center;padding:0 var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid transparent}
+.badge--info{background:var(--color-info-bg);color:var(--color-info);border-color:var(--color-info-border)}
+
+/* expanded row body — rules copied from app/static/css/details.css */
+.drow__body{border:1px solid var(--border-default);border-left:3px solid var(--color-brand);background:var(--surface-panel);padding:var(--space-3) var(--space-4);border-radius:0 var(--radius-md) var(--radius-md) 0;box-shadow:var(--shadow-sm)}
+.drow__body--split{display:flex;align-items:flex-start;gap:var(--space-6);flex-wrap:wrap}
+.row-meta{flex:1 1 380px;min-width:300px}
+.row-results{flex:0 1 460px;min-width:320px}
+.row-src{font-size:var(--fs-caption);color:var(--text-tertiary);margin:0 0 var(--space-3)}
+.row-src b{font-weight:var(--fw-medium);color:var(--text-secondary)}
+.row-src b.row-src__name{font-size:var(--fs-h3);font-weight:var(--fw-semibold);color:var(--text-primary)}
+.settings-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-3) var(--space-4);margin:0}
+.settings-grid dt{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.settings-grid dd{margin:2px 0 0;font-size:var(--fs-label);font-weight:var(--fw-medium);overflow-wrap:anywhere}
+.settings-grid dd.blank{color:var(--text-disabled);font-weight:var(--fw-regular)}
+.settings-grid__wide{grid-column:1 / -1}
+.settings-grid__wide ul{list-style:none;margin:0;padding:0}
+.settings-grid__wide summary{cursor:pointer;color:var(--text-tertiary);font-weight:var(--fw-regular)}
+.row-results__head{display:flex;align-items:center;gap:var(--space-2);min-height:22px;margin-bottom:var(--space-2)}
+.row-results__title{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.row-results__ccy{font-size:var(--fs-caption);color:var(--text-tertiary);margin-left:auto}
+select.persp{font:inherit;font-size:var(--fs-caption);padding:0 var(--space-1);border-radius:var(--radius-sm);border:1px solid var(--border-default);background:var(--surface-panel);color:var(--text-secondary)}
+.ep-shell{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.ep{border-collapse:collapse;width:100%;font-size:var(--fs-label);font-variant-numeric:tabular-nums}
+.ep th,.ep td{padding:3px var(--space-3);border-bottom:1px solid var(--border-faint);text-align:right}
+.ep th{font-size:var(--fs-eyebrow);text-transform:uppercase;letter-spacing:.05em;color:var(--text-tertiary);font-weight:var(--fw-semibold);background:var(--surface-recessed)}
+.ep .l,.ep .rp{text-align:left}
+.ep tr.aal td{border-top:1px solid var(--border-default);font-weight:var(--fw-semibold)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note"><strong>PREVIEW.</strong> Proposed expanded-row layout for every analysis type. Static mockup; the real row is built from <code>partials/analysis_results_inline.html</code> and <code>details.css</code>. See <code>docs/UI_WORKFLOW.md</code>.</div>
+
+  <div class="hero">Expanded row: one layout</div>
+  <div class="sub">Every analysis type puts the same blocks in the same order. A block with nothing to show is left out.</div>
+  <ol class="rules">
+    <li><b>First line:</b> analysis name · Analysis id · Submitted date, then · RDM name on a broker row.</li>
+    <li><b>Field line:</b> Analysis type · Subperil · Framework · Run by, always on one line.</li>
+    <li><b>Members</b> (group rows only): full width, five entries then +N more. A group whose members Risk Modeler does not name reads <i>not returned</i>.</li>
+    <li><b>Regions &amp; rates</b> (every row): full width, one line per region and peril, even for a single partition.</li>
+    <li><b>Treaties</b>: full width, five entries then +N more. Left out when the run applied none; <i>not returned</i> when the read failed.</li>
+  </ol>
+
+  <div class="eyebrow">Analyst-executed · DLM</div>
+  <p class="tile__note">One partition, two treaties.</p>
+  <div class="drow__body drow__body--split">
+    <div class="row-meta">
+      <p class="row-src"><b class="row-src__name">CRE_Acme 2026_NA WS DLM v23</b> &middot; Analysis: <b>42336</b> &middot; Submitted: <b>2026-09-10 15:58</b></p>
+      <dl class="settings-grid">
+        <div><dt>Analysis type</dt><dd>Exceedance Probability</dd></div>
+        <div><dt>Subperil</dt><dd>Surge + Wind</dd></div>
+        <div><dt>Framework</dt><dd>ELT</dd></div>
+        <div><dt>Run by</dt><dd>B. Bailey</dd></div>
+        <div class="settings-grid__wide"><dt>Regions &amp; rates</dt><dd><ul>
+          <li>NA · WS — RMS 17.0 NA Stochastic Event Rates</li></ul></dd></div>
+        <div class="settings-grid__wide"><dt>Treaties</dt><dd><ul>
+          <li>T-2026-01 · Cat XL Layer 1 · USD</li>
+          <li>T-2026-02 · Cat XL Layer 2 · USD</li></ul></dd></div>
+      </dl>
+    </div>
+    <div class="row-results" data-results></div>
+  </div>
+
+  <div class="eyebrow">Analyst-executed · HD</div>
+  <p class="tile__note">One PLT partition, so the line carries the simulation set. No treaties applied, so no Treaties block.</p>
+  <div class="drow__body drow__body--split">
+    <div class="row-meta">
+      <p class="row-src"><b class="row-src__name">CRE_Acme 2026_NZ EQ HD v3</b> &middot; Analysis: <b>42306</b> &middot; Submitted: <b>2026-09-09 16:05</b></p>
+      <dl class="settings-grid">
+        <div><dt>Analysis type</dt><dd>Exceedance Probability</dd></div>
+        <div><dt>Subperil</dt><dd>Multi-SubPeril</dd></div>
+        <div><dt>Framework</dt><dd>PLT</dd></div>
+        <div><dt>Run by</dt><dd>B. Bailey</dd></div>
+        <div class="settings-grid__wide"><dt>Regions &amp; rates</dt><dd><ul>
+          <li>NZ · EQ — RMS 2020 Time-Dependent Rates (1,978,459 periods)</li></ul></dd></div>
+      </dl>
+    </div>
+    <div class="row-results" data-results></div>
+  </div>
+
+  <div class="eyebrow">Workbench-composed group</div>
+  <p class="tile__note">Seven members and six treaties, so both lists show five and +N more. Click +2 more to open the rest.</p>
+  <div class="drow__body drow__body--split">
+    <div class="row-meta">
+      <p class="row-src"><b class="row-src__name">CRE_Acme 2026_Group</b> &middot; Analysis: <b>42342</b> &middot; Submitted: <b>2026-09-11 02:47</b></p>
+      <dl class="settings-grid">
+        <div><dt>Analysis type</dt><dd>Exceedance Probability</dd></div>
+        <div><dt>Subperil</dt><dd>Multi-SubPeril</dd></div>
+        <div><dt>Framework</dt><dd>ELT</dd></div>
+        <div><dt>Run by</dt><dd>B. Bailey</dd></div>
+        <div class="settings-grid__wide"><dt>Members</dt><dd>
+          <ul><li>CRE_Acme 2026_NA WS DLM v23</li><li>CRE_Acme 2026_NA EQ DLM v23</li><li>CRE_Acme 2026_NA SCS DLM v23</li><li>CRE_Acme 2026_NA WT DLM v23</li><li>CRE_Acme 2026_NA WF DLM v23</li></ul>
+          <details><summary>+2 more</summary><ul><li>CRE_Acme 2026_NA FL DLM v23</li><li>CRE_Acme 2026_CB WS DLM v23</li></ul></details></dd></div>
+        <div class="settings-grid__wide"><dt>Regions &amp; rates</dt><dd><ul>
+          <li>CB · WS — RMS 17.0 Caribbean Stochastic Event Rates</li>
+          <li>NA · EQ — RMS 17.0 NA Stochastic Event Rates</li>
+          <li>NA · WS — RMS 17.0 NA Stochastic Event Rates</li></ul></dd></div>
+        <div class="settings-grid__wide"><dt>Treaties</dt><dd>
+          <ul><li>T-2026-01 · Cat XL Layer 1 · USD</li><li>T-2026-02 · Cat XL Layer 2 · USD</li><li>T-2026-03 · Cat XL Layer 3 · USD</li><li>T-2026-04 · Quota Share 20% · USD</li><li>T-2026-05 · Per Risk XL · USD</li></ul>
+          <details><summary>+1 more</summary><ul><li>T-2026-06 · Aggregate Stop Loss · USD</li></ul></details></dd></div>
+      </dl>
+    </div>
+    <div class="row-results" data-results></div>
+  </div>
+
+  <div class="eyebrow">Group imported from Risk Modeler</div>
+  <p class="tile__note">Members come from the group's Risk Modeler detail. Submitted and Run by are the import's time and the analyst who imported it.</p>
+  <div class="drow__body drow__body--split">
+    <div class="row-meta">
+      <p class="row-src"><b class="row-src__name">CRE_Mixed_RM_Group</b> &middot; Analysis: <b>42077</b> &middot; Submitted: <b>2026-09-16 10:12</b></p>
+      <dl class="settings-grid">
+        <div><dt>Analysis type</dt><dd>Exceedance Probability</dd></div>
+        <div><dt>Subperil</dt><dd>Multi-SubPeril</dd></div>
+        <div><dt>Framework</dt><dd>PLT</dd></div>
+        <div><dt>Run by</dt><dd>B. Bailey</dd></div>
+        <div class="settings-grid__wide"><dt>Members</dt><dd><ul>
+          <li>CRE_EQ_HI_RES_US EQ wFFSL wDS - PERS Stochastic</li>
+          <li>CRE_HU_US_DLM USFL 85pct SS v23 Stochastic</li>
+          <li>CRE_HU_US_DLM USFL 85pct SS v23 Historical</li>
+          <li>CRE_WS_JP_COM_HD_JPWS_Stochastic_Typhoon-Only</li></ul></dd></div>
+        <div class="settings-grid__wide"><dt>Regions &amp; rates</dt><dd><ul>
+          <li>JP · WS — RMS V2.0 Stochastic Event Rates - Typhoon Events Only (50,000 periods)</li>
+          <li>NA · EQ — RMS 17.0 NA Stochastic Event Rates</li>
+          <li>NA · WS — RMS 17.0 NA Stochastic Event Rates</li></ul></dd></div>
+      </dl>
+    </div>
+    <div class="row-results" data-results></div>
+  </div>
+
+  <div class="eyebrow">Analysis imported from Risk Modeler</div>
+  <p class="tile__note">A single analysis pulled in by id. Same layout as an analyst-executed DLM.</p>
+  <div class="drow__body drow__body--split">
+    <div class="row-meta">
+      <p class="row-src"><b class="row-src__name">CIC_NA_EQ_Legacy_2025</b> &middot; Analysis: <b>41980</b> &middot; Submitted: <b>2026-09-16 10:12</b></p>
+      <dl class="settings-grid">
+        <div><dt>Analysis type</dt><dd>Exceedance Probability</dd></div>
+        <div><dt>Subperil</dt><dd>Fire + Shake + Sprinkler Leakage</dd></div>
+        <div><dt>Framework</dt><dd>ELT</dd></div>
+        <div><dt>Run by</dt><dd>B. Bailey</dd></div>
+        <div class="settings-grid__wide"><dt>Regions &amp; rates</dt><dd><ul>
+          <li>NA · EQ — RMS 17.0 NA Stochastic Event Rates</li></ul></dd></div>
+        <div class="settings-grid__wide"><dt>Treaties</dt><dd><ul>
+          <li>T-2025-11 · Cat XL Layer 1 · USD</li></ul></dd></div>
+      </dl>
+    </div>
+    <div class="row-results" data-results></div>
+  </div>
+
+  <div class="eyebrow">Broker-provided · DLM</div>
+  <p class="tile__note">Captured from a broker RDM. The RDM name moves to the end of the first line. Submitted is Risk Modeler's create date. Run by stays <i>not returned</i> (spec 011 FR-022).</p>
+  <div class="drow__body drow__body--split">
+    <div class="row-meta">
+      <p class="row-src"><b class="row-src__name">Broker NA WS Surge v23</b> &middot; Analysis: <b>42086</b> &middot; Submitted: <b>2026-01-15 20:30</b> &middot; RDM: <b>Acme_Broker_RDM_2026</b></p>
+      <dl class="settings-grid">
+        <div><dt>Analysis type</dt><dd>Exceedance Probability</dd></div>
+        <div><dt>Subperil</dt><dd>Surge Only</dd></div>
+        <div><dt>Framework</dt><dd>ELT</dd></div>
+        <div><dt>Run by</dt><dd class="blank">not returned</dd></div>
+        <div class="settings-grid__wide"><dt>Regions &amp; rates</dt><dd><ul>
+          <li>NA · WS — RMS 17.0 NA Stochastic Event Rates</li></ul></dd></div>
+        <div class="settings-grid__wide"><dt>Treaties</dt><dd><ul>
+          <li>B-01 · Broker Cat XL · USD</li></ul></dd></div>
+      </dl>
+    </div>
+    <div class="row-results" data-results></div>
+  </div>
+
+  <div class="eyebrow">Broker-provided · RDM group <span class="badge badge--info">group</span></div>
+  <p class="tile__note">Risk Modeler does not name an RDM group's members, so Members reads <i>not returned</i>. A group imported before PR #125 looks the same until it is imported again.</p>
+  <div class="drow__body drow__body--split">
+    <div class="row-meta">
+      <p class="row-src"><b class="row-src__name">Broker NA WS Group</b> &middot; Analysis: <b>42166</b> &middot; Submitted: <b>2024-04-12 09:52</b> &middot; RDM: <b>Acme_Broker_RDM_2026</b></p>
+      <dl class="settings-grid">
+        <div><dt>Analysis type</dt><dd>Exceedance Probability</dd></div>
+        <div><dt>Subperil</dt><dd>Wind Only</dd></div>
+        <div><dt>Framework</dt><dd>ELT</dd></div>
+        <div><dt>Run by</dt><dd class="blank">not returned</dd></div>
+        <div class="settings-grid__wide"><dt>Members</dt><dd class="blank">not returned</dd></div>
+        <div class="settings-grid__wide"><dt>Regions &amp; rates</dt><dd><ul>
+          <li>NA · WS — RMS 17.0 NA Stochastic Event Rates</li></ul></dd></div>
+      </dl>
+    </div>
+    <div class="row-results" data-results></div>
+  </div>
+
+  <div class="eyebrow">Error state · regions &amp; rates and treaties not captured</div>
+  <p class="tile__note">The read at finalize failed. Both blocks stay in position and read <i>not returned</i>; results pending.</p>
+  <div class="drow__body drow__body--split">
+    <div class="row-meta">
+      <p class="row-src"><b class="row-src__name">CRE_Acme 2026_NA EQ DLM v23</b> &middot; Analysis: <b>42337</b> &middot; Submitted: <b>2026-09-10 16:02</b></p>
+      <dl class="settings-grid">
+        <div><dt>Analysis type</dt><dd>Exceedance Probability</dd></div>
+        <div><dt>Subperil</dt><dd>Fire + Shake</dd></div>
+        <div><dt>Framework</dt><dd>ELT</dd></div>
+        <div><dt>Run by</dt><dd>B. Bailey</dd></div>
+        <div class="settings-grid__wide"><dt>Regions &amp; rates</dt><dd class="blank">not returned</dd></div>
+        <div class="settings-grid__wide"><dt>Treaties</dt><dd class="blank">not returned</dd></div>
+      </dl>
+    </div>
+    <div class="row-results">
+      <div class="row-results__head"><span class="row-results__title">Condensed results</span></div>
+      <p style="margin:0;font-size:var(--fs-label);color:var(--text-tertiary)">Results pending — retrieval is queued or running.</p>
+    </div>
+  </div>
+
+</div>
+
+<template id="results">
+  <div class="row-results__head">
+    <span class="row-results__title">Condensed results</span>
+    <select class="persp"><option>Gross (GR)</option></select>
+    <select class="persp"><option>OEP</option></select>
+    <span class="row-results__ccy">USD, millions</span>
+  </div>
+  <div class="ep-shell"><table class="ep">
+    <thead><tr><th class="l">Return period</th><th>OEP</th></tr></thead>
+    <tbody>
+      <tr><td class="rp">1000</td><td>412.6M</td></tr>
+      <tr><td class="rp">250</td><td>231.9M</td></tr>
+      <tr><td class="rp">100</td><td>148.2M</td></tr>
+      <tr><td class="rp">50</td><td>96.4M</td></tr>
+      <tr class="aal"><td class="rp">AAL</td><td>8.7M</td></tr>
+    </tbody>
+  </table></div>
+</template>
+<script>
+  const t = document.getElementById('results');
+  document.querySelectorAll('[data-results]').forEach(el => el.appendChild(t.content.cloneNode(true)));
+</script>
+</body>
+</html>

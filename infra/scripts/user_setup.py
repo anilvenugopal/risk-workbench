@@ -15,10 +15,14 @@ from __future__ import annotations
 
 import pathlib
 import sys
-import urllib.parse
 
 # ── env loading ──────────────────────────────────────────────────────────────
-_ROOT = pathlib.Path(__file__).parent.parent.parent
+# The repo root holds the db package: infra/scripts is also mounted at
+# /workspace/scripts inside linux-box, so walk up rather than count parents.
+_ROOT = next(p for p in pathlib.Path(__file__).resolve().parents
+             if (p / "db" / "config.py").is_file())
+sys.path.insert(0, str(_ROOT))
+
 try:
     from dotenv import load_dotenv
     load_dotenv(_ROOT / "infra" / ".env")
@@ -44,21 +48,13 @@ console = Console()
 # ── database connection ───────────────────────────────────────────────────────
 
 def _engine():
-    import os
     from sqlalchemy import create_engine
-    server   = os.environ.get("MSSQL_WORKBENCH_SERVER", "localhost")
-    port     = os.environ.get("MSSQL_WORKBENCH_PORT", "1433")
-    user     = os.environ.get("MSSQL_WORKBENCH_USER", "sa")
-    password = os.environ["MSSQL_WORKBENCH_PASSWORD"]
-    database = os.environ.get("MSSQL_WORKBENCH_DATABASE", "rwb_workbench")
-    driver   = os.environ.get("MSSQL_DRIVER", "ODBC Driver 18 for SQL Server")
-    trust    = os.environ.get("MSSQL_TRUST_CERT", "yes")
-    odbc = (
-        f"DRIVER={{{driver}}};SERVER={server},{port};DATABASE={database};"
-        f"UID={user};PWD={password};TrustServerCertificate={trust};"
+
+    from db.config import build_sqlalchemy_url, get_connection_config
+    return create_engine(
+        build_sqlalchemy_url(get_connection_config("WORKBENCH")),
+        pool_pre_ping=True,
     )
-    url = "mssql+pyodbc:///?odbc_connect=" + urllib.parse.quote_plus(odbc)
-    return create_engine(url, pool_pre_ping=True)
 
 
 def _rows(conn, sql: str, **params) -> list[dict]:

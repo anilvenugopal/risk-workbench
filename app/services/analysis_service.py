@@ -92,12 +92,14 @@ class PerspectiveResults:
 class SubmittedSettings:
     """The expanded row's Analysis settings group, read from the submit-time
     snapshot ``irp_analysis.submitted_settings``. An imported row's snapshot
-    holds only the currency code Risk Modeler reports for the analysis. Broker
-    rows have no snapshot at all, which the row renders as *not returned*."""
+    holds only the currency code Risk Modeler reports for the analysis and, for
+    a group, the member names its detail lists. Broker rows have no snapshot at
+    all, which the row renders as *not returned*."""
     construction_occupancy: str | None = None
     # submitted_settings.currency.code — the own row's pairing-guard value.
     currency: str | None = None
-    # spec 012 — the group row's member analyses, in approved-plan order.
+    # spec 012 — the group row's member analyses, in approved-plan order; an
+    # imported group's in the order Risk Modeler lists them.
     member_names: list[str] = field(default_factory=list)
 
 
@@ -176,10 +178,8 @@ class ResolvedDetails:
     # One entry per partition, in stored order (already sorted at write time).
     partitions: list[str] | None = None
     treaties: list[str] | None = None
-    # Set only when the run resolved on exactly one partition (P-08). The label
-    # comes from the framework, never from which value resolved, so a PLT
-    # partition whose set is missing still reads Simulation set (FR-006).
-    single_label: str | None = None
+    # The Compare line's value when the run resolved on exactly one partition:
+    # the simulation set for a PLT partition, else the event rate scheme (P-05).
     single_value: str | None = None
     summary: str | None = None
 
@@ -228,10 +228,8 @@ def _resolved_view(settings: dict | None) -> ResolvedDetails:
     if len(stored) == 1:
         only = stored[0]
         if only.get("framework") == "PLT":
-            view.single_label = "Simulation set"
             view.single_value = _simulation_set_label(only.get("simulation_set"))
         else:
-            view.single_label = "Event rate scheme"
             view.single_value = _scheme_name(only.get("event_rate_scheme"))
         view.summary = view.single_value
     else:

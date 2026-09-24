@@ -15,29 +15,30 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+# The repo root holds the db package: infra/scripts is also mounted at
+# /workspace/scripts inside linux-box, so walk up rather than count parents.
+sys.path.insert(0, str(next(
+    p for p in Path(__file__).resolve().parents if (p / "db" / "config.py").is_file()
+)))
+
+from db.config import build_sqlalchemy_url, get_connection_config  # noqa: E402
 
 DATABASES = ["rwb_workbench", "rwb_exposure", "rwb_loss"]
 
 
 def _master_engine() -> Engine:
-    server = os.environ["MSSQL_WORKBENCH_SERVER"]
-    port = os.environ.get("MSSQL_WORKBENCH_PORT", "1433")
-    user = os.environ.get("MSSQL_WORKBENCH_USER", "sa")
-    password = os.environ["MSSQL_SA_PASSWORD"]
-    driver = os.environ.get("MSSQL_DRIVER", "ODBC Driver 18 for SQL Server")
-    trust = os.environ.get("MSSQL_TRUST_CERT", "yes")
-
-    odbc = (
-        f"DRIVER={{{driver}}};SERVER={server},{port};DATABASE=master;"
-        f"UID={user};PWD={password};TrustServerCertificate={trust};"
+    config = get_connection_config("WORKBENCH")
+    # CREATE DATABASE needs server-level rights, which the app login lacks.
+    config["password"] = os.environ["MSSQL_SA_PASSWORD"]
+    return create_engine(
+        build_sqlalchemy_url(config, database="master"),
+        isolation_level="AUTOCOMMIT",
     )
-    import urllib.parse
-    url = "mssql+pyodbc:///?odbc_connect=" + urllib.parse.quote_plus(odbc)
-    return create_engine(url, isolation_level="AUTOCOMMIT")
 
 
 def main() -> int:

@@ -302,6 +302,16 @@ Implementation replaces the first two with the captures in
 
 ## Clarifications
 
+### Session 2026-09-23
+
+- Q: Should the expanded row's layout differ by analysis type? → A: No. Every
+  type puts the same blocks in the same order. One partition no longer renders
+  as a single Event rate scheme or Simulation set field; every row lists its
+  partitions full width, and the block is renamed from Run details to Regions &
+  rates, including the Compare modal's tooltip (P-08). A PLT partition whose set
+  did not resolve now reads as its region and peril alone, the way a group's
+  list already read it.
+
 ### Session 2026-09-11
 
 - Q: Store the region rows? → A: No. Follow irp-integration's inference from

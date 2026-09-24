@@ -2,17 +2,31 @@
    table's Engine column carries it, and a collapsed value is never restated
    here. #}
 {%- import 'partials/analysis_row_macros.html' as row -%}
+{# The id keeps +N more open across the grid's 3s poll: app.js restores every
+   details[id] after a swap. #}
+{%- macro capped_list(entries, id) -%}
+{%- set cap = 5 -%}
+{%- set rest = entries[cap:] -%}
+<ul>{% for e in entries[:cap] %}<li>{{ e }}</li>{% endfor %}</ul>
+{%- if rest %}
+<details id="{{ id }}"><summary>+{{ rest|length }} more</summary>
+  <ul>{% for e in rest %}<li>{{ e }}</li>{% endfor %}</ul></details>
+{%- endif %}
+{%- endmacro -%}
 {%- set d = a.display -%}
 {%- set s = a.submitted if a.submitted is defined else None -%}
 {%- set r = a.resolved -%}
 <div class="row-meta">
-  <p class="row-src">
-    {%- if a.rdm_name is defined and a.rdm_name %}RDM: <b class="row-src__name">{{ a.rdm_name }}</b>
-    {%- else %}<b class="row-src__name">{{ a.full_name or a.name or '—' }}</b>{% endif %}
+  {# The collapsed Submitted column's value (FR-024): an own row's submit
+     time, a broker row's Risk Modeler create date. #}
+  {%- set submitted = a.created_at if a.created_at is defined else a.inserted_at %}
+  <p class="row-src"><b class="row-src__name">{{ a.full_name or a.name or '—' }}</b>
     &middot; Analysis: <b>{{ a.app_analysis_id or '—' }}</b>
-    {%- if a.created_at is defined and a.created_at %}
-    &middot; Submitted: <b><time data-utc="{{ a.created_at }}"
-      title="{{ a.created_at }}">{{ a.created_at }}</time></b>{% endif %}</p>
+    {%- if submitted %}
+    &middot; Submitted: <b><time data-utc="{{ submitted }}"
+      title="{{ submitted }}">{{ submitted }}</time></b>{% endif %}
+    {%- if a.rdm_name is defined and a.rdm_name %}
+    &middot; RDM: <b>{{ a.rdm_name }}</b>{% endif %}</p>
 
   <dl class="settings-grid">
     {% for label, val in [
@@ -25,31 +39,25 @@
     {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>
     {% endif %}
     {% endfor %}
-    {# Partitions that were never captured carry the neutral Run details
-       label: the framework, and so the right label, is unknown (P-08). #}
-    {% if not r.partitions %}
-    <div><dt>Run details</dt><dd class="blank">not returned</dd></div>
-    {% elif r.partitions|length == 1 %}
-    {% set label, val = r.single_label, r.single_value %}
-    {% if val %}<div><dt>{{ label }}</dt><dd title="{{ val }}">{{ val }}</dd></div>
-    {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>
-    {% endif %}
-    {% endif %}
     {% if s and s.member_names %}
     <div class="settings-grid__wide"><dt>Members</dt>
-      <dd><ul>{% for n in s.member_names %}<li>{{ n }}</li>{% endfor %}</ul></dd></div>
+      <dd>{{ capped_list(s.member_names, 'analysis-' ~ a.id ~ '-members') }}</dd></div>
+    {% elif a.is_group %}
+    <div class="settings-grid__wide"><dt>Members</dt><dd class="blank">not returned</dd></div>
     {% endif %}
-    {% if r.partitions and r.partitions|length >= 2 %}
-    <div class="settings-grid__wide"><dt>Run details</dt>
-      <dd><ul>{% for e in r.partitions %}<li>{{ e }}</li>{% endfor %}</ul></dd></div>
+    {% if r.partitions %}
+    <div class="settings-grid__wide"><dt>Regions &amp; rates</dt>
+      <dd>{{ capped_list(r.partitions, 'analysis-' ~ a.id ~ '-regions-rates') }}</dd></div>
+    {% else %}
+    <div class="settings-grid__wide"><dt>Regions &amp; rates</dt><dd class="blank">not returned</dd></div>
     {% endif %}
     {# No entry at all when the run applied none; not returned when the read
        failed (P-04). #}
     {% if r.treaties is none %}
-    <div><dt>Treaties</dt><dd class="blank">not returned</dd></div>
+    <div class="settings-grid__wide"><dt>Treaties</dt><dd class="blank">not returned</dd></div>
     {% elif r.treaties %}
     <div class="settings-grid__wide"><dt>Treaties</dt>
-      <dd><ul>{% for t in r.treaties %}<li>{{ t }}</li>{% endfor %}</ul></dd></div>
+      <dd>{{ capped_list(r.treaties, 'analysis-' ~ a.id ~ '-treaties') }}</dd></div>
     {% endif %}
   </dl>
 </div>
