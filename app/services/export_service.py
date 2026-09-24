@@ -294,8 +294,7 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         # read at results retrieval (spec 016 FR-002, P-13), one entry per
         # (number, name) — a group repeats a treaty once per member and keeps it
         # when any copy has loss. The list gates the TY offer and is what the
-        # cart lists to tick. An entry without has_loss (retrieved before the
-        # flag existed) reads as no loss (T-13).
+        # cart lists to tick.
         treaties = list({(t.get("treaty_number"), t.get("treaty_name")): t
                          for t in loss_results.get("treaties") or []
                          if t.get("has_loss")}.values())
@@ -604,7 +603,7 @@ def list_export_rows(submission_id: Any) -> list[ExportAnalysisDetail]:
             engine_type=row["engine_type"], peril_code=row["peril_code"],
             region_code=row["region_code"],
             data_id=row["data_id"],
-            # A treaty row's AAL is its own combined rows' sum of rate × loss,
+            # A treaty row's AAL is its own rows' sum of rate × loss,
             # written by the stage worker (P-10); a portfolio row reads the
             # analysis's stored AAL at that perspective.
             aal=(row.get("aal") if row["perspective_code"] == TY

@@ -12,8 +12,8 @@ into CIC's three tables in one transaction.
 The stage and load workers act on every eligible manifest row of one analysis
 in one export. A portfolio-level perspective has one such row; at TY there is
 one per treaty the analyst ticked on the export form. The stage worker matches
-each row to its treaty in the treaty-level loss table by number and name,
-combining that treaty's rows per event before upload; the load worker then
+each row to its treaty in the treaty-level loss table by number and name and
+uploads that treaty's rows as Risk Modeler wrote them; the load worker then
 loads each treaty row through the same procedure. Every actor resumes from the
 rows' ``stage_status`` / ``load_status``; nothing here recomputes what the
 analyst approved on the form.
@@ -308,7 +308,7 @@ def _stage_file(manifest_id: int, work_dir: Path, path: Path, perspective_code: 
 
 @dataclass
 class TreatyLosses:
-    """One treaty's combined loss rows out of a treaty-level table."""
+    """One treaty's loss rows out of a treaty-level table."""
     number: str
     name: str
     ids: list[str]
@@ -333,23 +333,14 @@ def _text_value(value: Any) -> str:
     return "" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value)
 
 
-def _combine_treaty_rows(table: pd.DataFrame) -> list[TreatyLosses]:
-    """Spec P-11: within one analysis, one treaty's rows (whatever their treaty
-    IDs) become one row per event — loss summed, independent standard deviation
-    summed, correlated standard deviation the root of the sum of squares, the
-    event's rate kept. The exposure value is the largest of the combined rows
-    until spec O-04 is closed. Treaties come back in (number, name) order."""
-    keys = ["TreatyNum", "TreatyName"]
-    table = table.assign(_sq=table["StdDevC"] ** 2)
-    combined = (table.groupby([*keys, "EventId"], sort=True, dropna=False)
-                .agg(Rate=("Rate", "first"), Loss=("Loss", "sum"), StdDevI=("StdDevI", "sum"),
-                     _sq=("_sq", "sum"), ExpValue=("ExpValue", "max"))
-                .reset_index())
-    combined["StdDevC"] = combined["_sq"] ** 0.5
+def _split_treaty_rows(table: pd.DataFrame) -> list[TreatyLosses]:
+    """One entry per treaty, in (number, name) order, holding the treaty's rows
+    as Risk Modeler wrote them: the table already has one row per treaty and
+    event (spec 016 P-11)."""
     out: list[TreatyLosses] = []
-    for (number, name), frame in combined.groupby(keys, sort=True, dropna=False):
-        source = table[(table["TreatyNum"] == number) & (table["TreatyName"] == name)]
-        ids = sorted({int(v) for v in source["TreatyId"].tolist()})
+    for (number, name), frame in table.groupby(["TreatyNum", "TreatyName"], sort=True,
+                                               dropna=False):
+        ids = sorted({int(v) for v in frame["TreatyId"].dropna().tolist()})
         out.append(TreatyLosses(
             number=_text_value(number), name=_text_value(name), ids=[str(i) for i in ids],
             rows=frame[["EventId", "Rate", "Loss", "StdDevI", "StdDevC", "ExpValue"]],
@@ -381,21 +372,21 @@ def _write_treaty_file(source: Path, index: int, treaty: TreatyLosses) -> Path:
 
 def _stage_treaties(targets: list[dict], table_dir: Path, work_dir: Path) -> list[str]:
     """Stage each of the analysis's eligible treaty rows from the treaty-level
-    table (spec 016 contracts/jobs.md §4 step 6): a row is matched to the
-    combined table rows of its treaty number and name. Returns the per-row
-    failure messages for rows whose treaty the table does not hold, and fails the
-    whole analysis when the table matches none of them."""
+    table (spec 016 contracts/jobs.md §4 step 6): a row is matched to the table
+    rows of its treaty number and name. Returns the per-row failure messages
+    for rows whose treaty the table does not hold, and fails the whole analysis
+    when the table matches none of them."""
     files = _perspective_files(table_dir, "Treaty", TY)
     table = _read_treaty_table(files)
     if table.empty:
         raise StageFailure("Risk Modeler returned no treaty (TY) loss rows for this analysis")
     by_treaty = {(r["treaty_number"], r["treaty_name"] or ""): r for r in targets}
-    combined = _combine_treaty_rows(table)
+    treaties = _split_treaty_rows(table)
     staged: set[int] = set()
     skipped = 0
     # The index is the treaty's position in the table, so a derived file keeps
     # its name whether or not the analyst ticked the treaties before it.
-    for index, treaty in enumerate(combined, start=1):
+    for index, treaty in enumerate(treaties, start=1):
         row = by_treaty.get((treaty.number, treaty.name))
         if row is None:
             skipped += 1
@@ -407,12 +398,9 @@ def _stage_treaties(targets: list[dict], table_dir: Path, work_dir: Path) -> lis
                         aal=treaty.aal, error_message=None)
         staged.add(row["manifest_id"])
     if not staged:
-        # FR-005 matches on the number and name as written, with no trimming or
-        # inference, and T-10 (the Parquet column types) is still Assumed. A
-        # numeric TreatyNum reading "1.0" against a ticked "1" therefore misses
-        # every row, so name what the table actually held rather than repeating
-        # the per-row message once per treaty.
-        held = "; ".join(f"{t.number} {t.name}" for t in combined)
+        # The match is exact (FR-005): a numeric TreatyNum read as "1.0" misses
+        # a ticked "1", so the message names what the table held.
+        held = "; ".join(f"{t.number} {t.name}" for t in treaties)
         raise StageFailure(
             "no ticked treaty matches the loss table Risk Modeler returned, which holds "
             f"{held}")
@@ -670,8 +658,7 @@ def run_pending(*, worker_id: str = "worker") -> int:
 
 
 __all__ = [
-    "ELT_COLUMN_MAP", "TY_COLUMNS", "TY_REQUEST_PERSPECTIVE_CODE",
-    "REQUIRED_LOSS_SCHEMA_VERSION", "StageFailure",
+    "ELT_COLUMN_MAP", "REQUIRED_LOSS_SCHEMA_VERSION", "StageFailure",
     "submit_results_export", "stage_results_export", "load_results_export",
     "run_one", "run_pending",
 ]

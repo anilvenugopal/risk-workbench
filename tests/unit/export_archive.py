@@ -71,7 +71,8 @@ def _parquet_bytes(rows: Sequence[dict], columns: Sequence[str]) -> bytes:
 
 def _ty_parquet_bytes(rows: Sequence[dict], columns: Sequence[str]) -> bytes:
     data: dict[str, Any] = {
-        "TreatyId": pa.array([int(r["TreatyId"]) for r in rows], pa.int32()),
+        "TreatyId": pa.array([None if r["TreatyId"] is None else int(r["TreatyId"])
+                              for r in rows], pa.int32()),
         "TreatyNum": pa.array([r["TreatyNum"] for r in rows], pa.string()),
         "TreatyName": pa.array([r["TreatyName"] for r in rows], pa.string()),
         "EventId": pa.array([int(r["EventId"]) for r in rows], pa.int32()),

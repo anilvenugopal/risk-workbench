@@ -1,7 +1,7 @@
 """Unit tests for the treaty-level (TY) export (spec 016): the treaties the
 results retrieval records, TY in the perspective intersection, the treaty
 selection the form writes as one manifest row per ticked treaty, the treaty
-request, the staging of each ticked treaty with the P-11 combination, the
+request, the staging of each ticked treaty from the one loss table, the
 per-row load, Retry by manifest row, and both screens.
 
 Harness: the SQLite WORKBENCH and LOSS mirrors, ``fake_irp``, the fixture
@@ -341,7 +341,7 @@ def test_a_job_recorded_by_a_crashed_run_is_stamped_on_every_treaty_row(deal, fa
     assert [r["irp_export_job_id"] for r in _manifest_rows(export_id)] == ["77", "77"]
 
 
-# ── the stage worker: match and combine (T-02, T-03, T-05, T-08) ─────────────
+# ── the stage worker: split and match (T-02, T-03, T-05, T-08) ───────────────
 
 
 @pytest.fixture()
@@ -447,35 +447,34 @@ def test_each_ticked_treaty_row_is_staged_from_the_one_loss_table(ty_staging):
     assert _stage_job()["status_code"] == "succeeded"
 
 
-def test_ty_rows_of_one_treaty_under_two_treaty_ids_are_combined_per_event(ty_env, fake_irp):
-    ty_staging = _arm(ty_env, {"PR1": "AmFam HU 3x2"})
+def test_rows_with_a_null_treaty_name_or_treaty_id_still_stage(ty_env, fake_irp):
+    """A row Risk Modeler wrote without a treaty name or treaty id stays with
+    its treaty; ``treaty_ids`` lists only the ids the table holds."""
+    unnamed = seed_analysis(
+        edm_id=ty_env["edm_id"], name="U", full_name="U long", irp_id="41965",
+        irp_app_analysis_id="41965", perspectives=("GR",),
+        treaties=(TREATIES[0], {"treaty_id": "33834", "treaty_number": "PR3",
+                                "treaty_name": None, "has_loss": True}))
     fake_irp.export_archive_path = build_archive(
-        ty_staging["tmp"] / "group", anls_id=41960, output_level="Treaty", treaty_rows=[
+        ty_env["tmp"] / "nulls", anls_id=41965, output_level="Treaty", treaty_rows=[
             {"TreatyId": 33833, "TreatyNum": "PR1", "TreatyName": "PR1", "EventId": 1001,
              "Rate": 0.002, "Loss": 100.0, "StdDevI": 3.0, "StdDevC": 4.0, "ExpValue": 50.0},
-            {"TreatyId": 44833, "TreatyNum": "PR1", "TreatyName": "PR1", "EventId": 1001,
-             "Rate": 0.002, "Loss": 50.0, "StdDevI": 1.0, "StdDevC": 3.0, "ExpValue": 80.0},
-            {"TreatyId": 33833, "TreatyNum": "PR1", "TreatyName": "PR1", "EventId": 1002,
+            {"TreatyId": None, "TreatyNum": "PR1", "TreatyName": "PR1", "EventId": 1002,
              "Rate": 0.001, "Loss": 10.0, "StdDevI": 1.0, "StdDevC": 1.0, "ExpValue": 20.0},
+            {"TreatyId": 33834, "TreatyNum": "PR3", "TreatyName": None, "EventId": 1001,
+             "Rate": 0.002, "Loss": 7.0, "StdDevI": 1.0, "StdDevC": 1.0, "ExpValue": 9.0},
         ])
+    ty_staging = _arm({**ty_env, "c": unnamed}, {"PR1": "", "PR3": ""})
 
     export_jobs.run_pending(worker_id="w1")
 
-    rows = _rows(ty_staging)
-    assert len(rows) == 1
-    row = rows[0]
-    assert (row["treaty_number"], row["treaty_ids"], row["staged_row_count"]) == (
-        "PR1", "33833,44833", 2)
-    assert row["aal"] == pytest.approx(0.002 * 150 + 0.001 * 10)
-    staged = _elt_rows(row["manifest_id"])
-    combined = staged[0]
-    assert (combined["event_id"], combined["loss"], combined["std_dev_i"]) == (1001, 150.0, 4.0)
-    assert combined["std_dev_c"] == pytest.approx(5.0)   # √(4² + 3²)
-    assert combined["exp_value"] == 80.0                 # the largest (spec O-04)
-    assert combined["rate"] == 0.002
-    single = staged[1]
-    assert (single["event_id"], single["loss"], single["std_dev_c"], single["exp_value"]) == (
-        1002, 10.0, 1.0, 20.0)
+    first, second = _rows(ty_staging)
+    assert (first["treaty_number"], first["stage_status"], first["treaty_ids"],
+            first["staged_row_count"]) == ("PR1", "staged", "33833", 2)
+    assert [r["loss"] for r in _elt_rows(first["manifest_id"])] == [100.0, 10.0]
+    assert (second["treaty_number"], second["treaty_name"], second["stage_status"],
+            second["treaty_ids"], second["staged_row_count"]) == ("PR3", None, "staged",
+                                                                  "33834", 1)
 
 
 def test_a_treaty_the_analyst_left_unticked_is_skipped_and_logged(ty_env, caplog):
