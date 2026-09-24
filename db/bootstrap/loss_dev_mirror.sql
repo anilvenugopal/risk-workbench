@@ -1,5 +1,6 @@
 -- Development mirror of CIC's five loss repository tables (specs/014-results-export/
--- cic-reference/). Applied to rwb_loss by infra/scripts/bootstrap_loss.py; never
+-- cic-reference/) and of the CRM status table the January bulk update reads
+-- (spec 017 FR-023). Applied to rwb_loss by infra/scripts/bootstrap_loss.py; never
 -- run at CIC, where these tables already exist. Idempotent; names no database.
 
 IF OBJECT_ID('dbo.Client') IS NULL
@@ -74,5 +75,17 @@ CREATE TABLE dbo.Lookup_RMS_HistoricalRDS (
     [Name]       NVARCHAR(MAX) NULL,
     [PCS#]       NVARCHAR(225) NULL,
     ModelVersion NVARCHAR(10)  NULL
+);
+GO
+
+-- CIC-owned: Cheryl's test table today, Ross's view over the linked CRM copy in
+-- production (note 34 D11, D12). One row per CRM ID with the status CRM holds,
+-- in CRM's words Open / Won / Lost. Column names as confirmed with CIC;
+-- infra/scripts/bulk_update_contract_status.sql reads them.
+IF OBJECT_ID('dbo.CRMContractStatus') IS NULL
+CREATE TABLE dbo.CRMContractStatus (
+    CRMID  NVARCHAR(50) NOT NULL,
+    Status NVARCHAR(50) NOT NULL,
+    CONSTRAINT PK_CRMContractStatus PRIMARY KEY CLUSTERED (CRMID)
 );
 GO

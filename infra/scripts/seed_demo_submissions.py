@@ -1,5 +1,7 @@
 """Fill the WORKBENCH database with demo submissions and contracts so the
-submission list, its filters and the typeaheads have something to search.
+submission list, its filters and the typeaheads have something to search, and
+the LOSS database's dbo.CRMContractStatus mirror so the January bulk update
+script (infra/scripts/bulk_update_contract_status.sql) has rows to read.
 
 Development only (``APP_ENV=development``). Rows are written through
 ``submission_service``, so they carry the status event, the P-20 treaty year and
@@ -72,8 +74,11 @@ INCEPTION_MONTHS = [1, 4, 6, 7, 10]
 # rwb_loss dbo.Client ids from bootstrap_loss, and "no client chosen".
 CLIENT_IDS = [1, 2, 3, None]
 MODELING_STATUSES = ["ACTIVE"] * 7 + ["COMPLETED"] * 2 + ["CANCELLED"]
-CONTRACT_STATUSES = ["IN_PROCESS"] * 4 + ["WON"] * 4 + ["LOST"] * 2
+CONTRACT_STATUSES = ["OPEN"] * 4 + ["WON"] * 4 + ["LOST"] * 2
 CONTRACTS_PER_SUBMISSION = [0] + [1] * 4 + [2] * 3 + [3] * 2
+# CRM's own status words (note 34 D9), keyed by the Workbench code they match.
+CRM_STATUS_WORDS = {"OPEN": "Open", "WON": "Won", "LOST": "Lost"}
+CRM_ONLY_ROWS = 10
 
 
 @dataclass
@@ -124,6 +129,25 @@ def _plans(count: int) -> list[Plan]:
     return plans
 
 
+def _crm_rows(plans: list[Plan]) -> tuple[list[tuple[str, str]], int]:
+    """One dbo.CRMContractStatus row per seeded contract, about a third with a
+    status the contract does not carry, plus CRM IDs the Workbench lacks.
+    Returns the rows and how many differ from the Workbench."""
+    rng = random.Random(SEED + 1)
+    rows: list[tuple[str, str]] = []
+    differing = 0
+    for plan in plans:
+        for contract in plan.contracts:
+            code = contract.contract_status_code
+            if rng.random() < 1 / 3:
+                code = rng.choice([c for c in CRM_STATUS_WORDS if c != code])
+                differing += 1
+            rows.append((contract.crm_id, CRM_STATUS_WORDS[code]))
+    for n in range(CRM_ONLY_ROWS):
+        rows.append((f"CRM-CRMONLY-{1001 + n}", rng.choice(list(CRM_STATUS_WORDS.values()))))
+    return rows, differing
+
+
 def _analyst_ids() -> list[str]:
     """The three demo analysts' ids, creating any that are missing."""
     ids: list[str] = []
@@ -154,7 +178,9 @@ def _analyst_ids() -> list[str]:
 
 def _clear(names: list[str]) -> int:
     """Delete the submissions a previous run of the same ``--count`` wrote, with
-    their contracts and status events."""
+    their contracts and status events, and every dbo.CRMContractStatus row."""
+    with get_connection("LOSS") as conn, conn.begin():
+        conn.execute(text("DELETE FROM dbo.CRMContractStatus"))
     deleted = 0
     with get_connection("WORKBENCH") as conn, conn.begin():
         # SQL Server binds at most 2,100 parameters per statement.
@@ -209,12 +235,19 @@ def main(argv: list[str] | None = None) -> int:
                     modeling_status=plan.modeling_status, reason="Demo data",
                     expected_updated_at=submission.updated_at, actor_id=actor,
                 )
+        crm_rows, differing = _crm_rows(plans)
+        with get_connection("LOSS") as conn, conn.begin():
+            conn.execute(
+                text("INSERT INTO dbo.CRMContractStatus (CRMID, Status) VALUES (:crm, :status)"),
+                [{"crm": crm, "status": status} for crm, status in crm_rows])
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
     print(f"Demo seed: {len(plans)} submissions, {contracts_written} contracts, owned by "
           f"{', '.join(email for email, _ in ANALYSTS)} (password {ANALYST_PASSWORD})")
+    print(f"Demo seed: {len(crm_rows)} dbo.CRMContractStatus rows, {differing} with a status "
+          f"the contract does not carry, {CRM_ONLY_ROWS} CRM IDs the Workbench lacks")
     return 0
 
 
