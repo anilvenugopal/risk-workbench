@@ -103,13 +103,21 @@ Modeling status, name) stay on `s`.
 **Default order** (P-17):
 
 ```sql
-ORDER BY COALESCE((SELECT MAX(c.inception_date) FROM contract c
-                   WHERE c.submission_id = s.id), s.inserted_at) DESC, s.name
+ORDER BY COALESCE((SELECT c.inception_date FROM contract c
+                   WHERE c.submission_id = s.id
+                   ORDER BY c.inserted_at, c.id <row_limit(1)>),
+                  s.inserted_at) DESC, s.name
 ```
 
-SQL Server resolves `COALESCE(DATE, DATETIME2)` to `DATETIME2` and a date
-sorts as its midnight; SQLite compares the ISO-8601 text, which orders the
-same way. The list's sortable "Inception" column uses the same expression.
+`row_limit(1)` is `LIMIT 1` on SQLite and `OFFSET 0 ROWS FETCH NEXT 1 ROWS
+ONLY` on SQL Server. SQL Server resolves `COALESCE(DATE, DATETIME2)` to
+`DATETIME2` and a date sorts as its midnight; SQLite compares the ISO-8601
+text, which orders the same way. The list's sortable "Inception" column uses
+the same expression, and it is the date the row shows (P-17).
+
+**Row summary.** One query per page over `contract` for the page's
+submissions, with the same contract-level clauses as the EXISTS appended, so
+a filtered row reads only the contracts that matched (note 34 D5).
 
 ## 6. `treaty_type_kind` — reseeded (T-07)
 
@@ -131,7 +139,8 @@ an in-memory SQLite schema named `dbo` to a second engine registered as `LOSS`.
   `updated_at`.
 - `SubmissionRow` (the list): loses `treaty_type_code` / `label`,
   `inception_date`, `expiration_date`, `deal_status_*`; gains
-  `treaty_type_labels` (distinct, seed order), `latest_inception_date`,
+  `treaty_type_labels` (the shown contract's first, the other distinct
+  labels in seed order), `inception_date` (the shown contract's),
   `data_vintage`.
 - `Submission` (the page): the same losses, plus `contracts: list[Contract]`
   in insertion order and `data_vintage`.

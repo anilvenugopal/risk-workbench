@@ -49,6 +49,11 @@
 - Q: Update every contract, or the ones named? → Every Workbench contract whose CRM ID appears in the source (D10). A contract with no source row is left alone.
 - Q: How is it run? → From SSMS by hand first, nightly later (D13). The nightly phase and its unattended error handling are open (note 34 O34-3), not built here.
 
+### Session 2026-09-24 (note 34 D5, D6, O34-4)
+
+- Q: Which contract does a list row show after a search? → The first entered among the contracts that satisfied every contract-level filter together (D5). A search for one CRM ID reads that CRM ID with no "+N more".
+- Q: Which contract does an unfiltered row show, and what does the list sort on? → The first entered, for the CRM ID, treaty type and inception columns alike, and the sort key is that inception (D6; user 2026-09-24: "make them consistent. Inception should be first-entered"). P-17's confirmation column is filled; R11 records the change. O34-4's remaining item is telling the client the rule.
+
 ## Evidence for the plan's technical decisions
 
 Each section closes one `T-nn` row in [plan.md](plan.md). Codebase facts were
@@ -244,23 +249,40 @@ CRM IDs, here's the status on them."* The 9/18 waiver of the US1 preview
 (tasks.md T013) cost one rebuild inside a day; the preview is not waived
 this time.
 
-### R11 — The list sorts on a contract aggregate (T-11)
+### R11 — The list sorts and shows the first-entered or first-matched contract (T-11)
 
-**Decision.** `ORDER BY COALESCE((SELECT MAX(c.inception_date) FROM contract c
-WHERE c.submission_id = s.id), s.inserted_at) DESC, s.name`. The sortable
-Inception column uses the same expression. `ix_submission_list_order` is
-dropped. No denormalised inception on `submission`.
+**Decision.** `ORDER BY COALESCE((SELECT c.inception_date FROM contract c
+WHERE c.submission_id = s.id ORDER BY c.inserted_at, c.id <row_limit(1)>),
+s.inserted_at) DESC, s.name`, where `row_limit(1)` is the dialect's one-row
+cap. The sortable Inception column uses the same expression.
+`ix_submission_list_order` is dropped. No denormalised inception on
+`submission`. The row summary (`_attach_contracts`) appends the same
+contract-level clauses the list's EXISTS uses (`_contract_clauses`) to its
+`WHERE submission_id IN (…)`, so the contracts it reads are exactly the ones
+that satisfied the search; the first by `inserted_at` gives the row its CRM
+ID, treaty type and inception, the rest are "+N more".
 
-**Rationale.** The user rejected a primary contract (2026-09-21). The 85%
-case has every contract on one submission sharing its inception (spec
-SC-004, note 30 O30-8), so the maximum equals the only value; where
-inceptions differ, the newest contract is the one most recently placed. A
-contract-less submission is a deal being opened, and its creation date puts
-it among the current renewals. SQL Server resolves `COALESCE(DATE,
-DATETIME2)` to `DATETIME2` (a date becomes midnight); SQLite compares
-ISO-8601 text; both order the same. The dropped index's comment recorded a
-plan-shape intent, not a measurement; the submissions table is in the
-hundreds of rows.
+**Rationale.** Until 2026-09-24 the CRM ID column read the first-entered
+contract and the inception column `MAX(inception)`, so one row could show
+one contract's CRM ID beside another's date (note 34 D6, O34-4: "mixing
+them is the defect"). The client's answer on 9/23 was first-entered (Wendy:
+"go back to showing the first one"; Ben: "I'm entering the main contract
+first"), and the user set it for all three columns on 2026-09-24. The sort
+key follows the displayed date, or the list would be ordered by a date the
+row does not show. `create_submission` staggers `inserted_at` by one
+microsecond per row, so "first entered" is deterministic for contracts saved
+together; `c.id` breaks any remaining tie. A contract-less submission is a
+deal being opened, and its creation date puts it among the current renewals.
+SQL Server resolves `COALESCE(DATE, DATETIME2)` to `DATETIME2` (a date
+becomes midnight); SQLite compares ISO-8601 text; both order the same. The
+dropped index's comment recorded a plan-shape intent, not a measurement; the
+submissions table is in the hundreds of rows.
+
+**Showing the matched contract** (note 34 D5). P-18 already requires one
+contract to meet every contract-level filter together, which is why the
+clauses are built once; reusing them in the summary query costs nothing new
+and cannot disagree with the EXISTS. A submission-level filter alone leaves
+every contract in the summary.
 
 **Evidence.** 2026-09-23, note 33 O33-6: a scratch database on
 `infra-sqlserver-1` migrated from `0001_initial.py` and seeded with
@@ -270,11 +292,16 @@ a page of 50 took 13-20 ms on the default sort (pages 1, 20 and 40), 9 ms
 sorted by name, 6-17 ms with the in-force, contract-status, CRM-ID and
 three-filter combinations. No index is owed at this scale.
 
-**Alternatives rejected.** `updated_at DESC` (recency): a different meaning
-from the one the client accepted (FR doc line 116). `MIN` inception: places
-a deal with one old and one new contract under the old one. A stored
-`latest_inception_date` maintained on every contract write: a derived value
-with three writers for a sort on a small table.
+**Alternatives rejected.** `MAX` inception (the 9/21–9/23 rule): defensible
+on its own, but it is not the contract the CRM ID column shows, and making
+all three columns read the latest contract would order the list by the
+newest layer rather than the main contract the analyst enters first.
+`updated_at DESC` (recency): a different meaning from the one the client
+accepted (FR doc line 116). `MIN` inception: places a deal with one old and
+one new contract under the old one. A stored inception maintained on every
+contract write: a derived value with three writers for a sort on a small
+table. A `position` column for explicit ordering: out of scope (P-17, spec
+"Out of scope"); entry order is enough.
 
 ### R12 — Posting contracts with the form (T-12)
 

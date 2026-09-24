@@ -53,13 +53,15 @@ service and the templates that read deal status and deal dates change.
   treaty types, inception, contract status, in force) wrapped in one `EXISTS`
   over `contract`, so P-18 holds by construction. The libraries wrap the whole
   in their existing `EXISTS` over the association table (T-05).
-- **The list orders on an aggregate.** `COALESCE((SELECT MAX(c.inception_date)
-  …), s.inserted_at) DESC, s.name`; the sortable Inception column uses the same
-  expression; `ix_submission_list_order` is dropped (T-11).
-- **The list row summarises its contracts.** One extra query per page
-  (`WHERE submission_id IN (…)`, as `_attach_crm_ids` does today) feeds the
-  CRM IDs, distinct treaty type labels and latest inception per row, shown as
-  "first + N more"; contract status is a filter, not a list column.
+- **The list orders on the first-entered contract's inception.**
+  `COALESCE((SELECT c.inception_date … ORDER BY c.inserted_at, c.id` capped to
+  one row`), s.inserted_at) DESC, s.name`; the sortable Inception column uses
+  the same expression; `ix_submission_list_order` is dropped (T-11).
+- **The list row shows one contract.** One extra query per page
+  (`WHERE submission_id IN (…)`) carrying the same contract-level clauses as
+  the list's EXISTS (`_contract_clauses`) feeds the row: the first matched
+  contract's CRM ID, treaty type and inception, the other matches as
+  "+N more"; contract status is a filter, not a list column.
 - **Treaty year** stays on the submission; `_default_treaty_year` takes the
   earliest contract inception when the field is blank, `None` with no
   contract (P-20).
@@ -110,7 +112,7 @@ service and the templates that read deal status and deal dates change.
 | T-08 | `_MAX_FILTER_VALUES` 20 in `app/routers/_list_filters.py` | Approved | [research.md#R7](research.md#r7--the-filter-cap-is-twenty-t-08) |
 | T-09 | Export pre-fill: client and data vintage from the submission; a Contract select fills CRM ID and inception client-side; `export_service.list_clients` replaced | Approved | [research.md#R8](research.md#r8--export-pre-fill-t-09) |
 | T-10 | The deal card's Treaty and Term groups and the CRM band become one contract table; the create form gains the same row editor; preview before build | Approved | [research.md#R10](research.md#r10--the-deal-card-and-the-create-form-t-10) |
-| T-11 | Default sort is `COALESCE(MAX(contract inception), submission.inserted_at) DESC, name`; `ix_submission_list_order` dropped; no denormalised copy | Approved | [research.md#R11](research.md#r11--the-list-sorts-on-a-contract-aggregate-t-11) |
+| T-11 | Default sort is `COALESCE(first-entered contract inception, submission.inserted_at) DESC, name`, the date the row shows; the row summary reuses the EXISTS's contract clauses; `ix_submission_list_order` dropped; no denormalised copy | Approved | [research.md#R11](research.md#r11--the-list-sorts-and-shows-the-first-entered-or-first-matched-contract-t-11) |
 | T-12 | Contract rows post as parallel repeated fields; `create_submission` writes submission and contracts in one transaction; blank expiration filled server-side | Approved | [research.md#R12](research.md#r12--posting-contracts-with-the-form-t-12) |
 | T-13 | Constitution Article 4 patch: `contract.contract_status_code` in the in-place list; no rule change | Approved | [research.md#R13](research.md#r13--constitution-patch-t-13) |
 | T-14 | `deal_status` → `contract_status` everywhere (kind table, column, query param, labels, service names); no alias kept | Approved | [research.md#R2](research.md#r2--the-contract-grain-t-03) |

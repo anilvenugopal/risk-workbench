@@ -357,3 +357,17 @@ Wed 23 Sep. Baseline: unit tier 2,027 passed.
 - [x] T081 [FR-023] [P-21] [T-16] `bulk_update_contract_status.sql` loads `#crm_status` by `INSERT … SELECT CRMID, Status FROM rwb_loss.dbo.CRMContractStatus` (the one per-environment line), resolves a status as `UPPER(TRIM(status))`, drops the skipped-CRM-ID result set (the count stays in the summary); `test_bulk_update_contract_status.py` writes its rows to the table over `LOSS`, points the SOURCE line at `MSSQL_LOSS_DATABASE`, reads three result sets and tests the duplicate with a leading-space spelling (the primary key refuses an exact duplicate under the CI collation)
 - [x] T082 [FR-023] [P-21] [O-01] spec.md (scope, P-21, O-01 closed, FR-023, Key Entities); plan.md (T-16, project structure, testing); research.md (session 2026-09-23 afternoon, R15); quickstart.md §3 Bulk update; data-model.md §4; `docs/FUNCTIONAL_REQUIREMENTS.md` line 72, `docs/DATA_MODEL.md` §1, §4, §9 and the change log, `docs/PRD.md` §7.2 name `dbo.CRMContractStatus`
 - [ ] T083 [FR-023] Send Cheryl the `dbo.CRMContractStatus` DDL; if her column names differ, change the mirror DDL, the script's SELECT line and the seeder's INSERT. Demo Thu 24 Sep against her table
+
+## Phase 11: The row shows the contract that matched (note 34 D5, D6, 2026-09-24)
+
+**Purpose**: a search for one CRM ID lists the submission with that CRM ID
+in the row, not the first-entered one with "+2 more"; the unfiltered row's
+three contract columns read the first-entered contract and the list sorts on
+its inception. Baseline: unit tier 2,027 passed.
+
+**Independent test**: quickstart.md §3 Story 1 step 6.
+
+- [x] T084 [FR-007] [P-17] [T-11] `app/services/submission_service.py`: `_contract_clauses` extracted from `submission_filter_clauses`; `_attach_contracts(rows, filters)` appends those clauses to its contract read and fills `crm_ids`, `treaty_type_labels` (shown contract first) and `inception_date` (renamed from `latest_inception_date`) from the first contract by `inserted_at`; `_FIRST_INCEPTION` (a one-row capped subquery via `row_limit(1)`) replaces `_LATEST_INCEPTION` as the default and the Inception sort key; `partials/submission_row.html` reads `inception_date`
+- [x] T085 [FR-007] `tests/unit/test_submission_service.py`: the summary test reads the first-entered contract; a new test filters the same deal by CRM ID, Contract status, treaty type + status, in force and inception and checks the three columns each time, then a name filter alone leaves every contract; the sort test orders on the first-entered inception
+- [x] T086 [FR-007] [P-17] spec.md (P-17, FR-007, Story 1 scenario 8); plan.md (design summary, T-11); research.md (R11, session 2026-09-24); data-model.md §5 and §8; quickstart.md §3 step 6; `docs/DATA_MODEL.md` §4 and change log; `docs/FUNCTIONAL_REQUIREMENTS.md` line 116
+- [ ] T087 [P-17] Tell Wendy and Cheryl the rule on Thu 24 Sep (note 34 O34-4): the row shows the first-entered contract, or the first that matched the search, and the list sorts on that inception

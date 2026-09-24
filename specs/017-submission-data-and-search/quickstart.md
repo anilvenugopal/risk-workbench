@@ -71,7 +71,10 @@ update script's four cases (`test_bulk_update_contract_status.py`).
 6. **Submissions list**: the row for this deal reads CRM ID "A-1 +1 more",
    treaty types "Per Occurrence Cat XOL +1 more", inception 2027-01-01, and
    no contract status column. The list is ordered by inception descending; the
-   contract-less submission from step 1 sits among today's deals. The
+   contract-less submission from step 1 sits among today's deals. Filter on
+   CRM ID `A-3`: the row reads CRM ID "A-3", treaty type "Top & Drop", no
+   "+1 more"; filter on Contract status Won instead: "A-1" alone. Clear the
+   filters and the row reads "A-1 +1 more" again. The
    **Modeling status** picker offers Active, Completed, Cancelled; the
    **Contract status** picker offers Won, Lost, Open; no Hold anywhere.
 
