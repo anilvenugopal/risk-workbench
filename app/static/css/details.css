@@ -378,6 +378,8 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 /* the form's picker: analyses table on the left, the cart on the right */
 .export-pick { display: flex; gap: var(--space-4); align-items: flex-start; margin-bottom: var(--space-4); }
 .export-pick__list { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+/* a long analysis list scrolls under its sticky header, keeping the cart and the form fields on screen */
+.export-pick__list .dtable-shell { max-height: min(60vh, 600px); }
 .export-pick__search { display: flex; align-items: center; gap: var(--space-3); }
 .export-pick__search input { flex: 1 1 auto; max-width: 340px; }
 .export-pick__count { font-size: var(--fs-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
