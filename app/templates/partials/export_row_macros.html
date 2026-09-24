@@ -11,7 +11,7 @@
   <span class="l"><span class="dt-title{% if a.disabled_reason %} na{% endif %}" title="{{ a.name }}">{{ a.name }}</span></span>
   <span class="l">{{ a.origin }}</span>
   <span class="l">{{ a.engine or '—' }}</span>
-  <span class="l">{% if a.irp_app_analysis_id %}#{{ a.irp_app_analysis_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</span>
+  <span class="l">{% if a.irp_app_analysis_id %}{{ a.irp_app_analysis_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</span>
   <span class="l">{{ a.currency or '' }}</span>
   <span class="l">{{ a.perspectives|join(', ') }}</span>
   <span class="l">{% if a.disabled_reason %}<span class="na" title="Cannot be exported: {{ a.disabled_reason }}.">Cannot be exported: {{ a.disabled_reason }}.</span>{% endif %}</span>
