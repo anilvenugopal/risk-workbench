@@ -1,5 +1,5 @@
 <!-- SPECKIT START -->
-When present, read `specs/014-results-export/plan.md` for the current
+When present, read `specs/017-submission-data-and-search/plan.md` for the current
 technology, project structure, and shell-command decisions.
 <!-- SPECKIT END -->
 
@@ -102,7 +102,7 @@ Read these before any implementation work:
 
 - [docs/PRD.md](docs/PRD.md) — product requirements, feature scope, iteration roadmap
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — canonical entity and relationship definitions
-- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v4.2.0); all compliance gates
+- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v4.2.3); all compliance gates
 
 ## Specification Workflow
 

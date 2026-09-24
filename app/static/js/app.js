@@ -663,12 +663,13 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Treaty year on the submissions list (D16). Typed, not picked — there is no list
-  // of years to offer. A year outside the range never becomes a chip, so it never
+  // A typed chip list (D16): treaty years and CRM IDs on the submissions list and
+  // the libraries. Typed, not picked — there is no list to offer. With minYear /
+  // maxYear set, a value outside the range never becomes a chip, so it never
   // reaches the query: the box shows the message and the committed chips stand.
-  Alpine.data('yearChips', (minYear, maxYear) => ({
+  Alpine.data('chipInput', ({ name, minYear = null, maxYear = null } = {}) => ({
     error: '',
-    get years() {
+    get values() {
       return Array.from(this.$refs.chips.querySelectorAll('input')).map(
         (input) => input.value);
     },
@@ -698,30 +699,32 @@ document.addEventListener('alpine:init', () => {
     commit() {
       const typed = this.$refs.entry.value.trim();
       if (!typed) return;
-      const year = Number(typed);
-      if (!/^\d{4}$/.test(typed) || year < minYear || year > maxYear) {
-        this.error = `Enter a 4-digit year between ${minYear} and ${maxYear}.`;
-        return;
+      if (minYear !== null) {
+        const year = Number(typed);
+        if (!/^\d{4}$/.test(typed) || year < minYear || year > maxYear) {
+          this.error = `Enter a 4-digit year between ${minYear} and ${maxYear}.`;
+          return;
+        }
       }
       this.error = '';
       this.$refs.entry.value = '';
-      if (this.years.includes(typed)) return;   // already applied — nothing changes
+      if (this.values.includes(typed)) return;   // already applied — nothing changes
       this.$refs.chips.appendChild(this.chip(typed));
       this.apply();
     },
-    chip(year) {
+    chip(value) {
       const chip = document.createElement('span');
       chip.className = 'filter-chip';
-      chip.textContent = year;
+      chip.textContent = value;
       const input = document.createElement('input');
       input.type = 'hidden';
-      input.name = 'treaty_year';
-      input.value = year;
+      input.name = name;
+      input.value = value;
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'filter-chip__x';
       remove.textContent = '×';
-      remove.setAttribute('aria-label', `Remove ${year}`);
+      remove.setAttribute('aria-label', `Remove ${value}`);
       chip.append(input, remove);
       return chip;
     },
@@ -731,18 +734,52 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Treaty year follows the inception year until the analyst types their own
-  // (CR5, design note 08 D4). Changing the inception date moves the year unless
-  // it was edited on this render.
-  Alpine.data('treatyYear', () => ({
+  // Export form: the chosen contract's CRM ID and inception go into the two
+  // fields, which stay editable (spec 017 FR-011).
+  Alpine.data('contractPick', () => ({
+    pick(opt) {
+      if (!opt || !opt.value) return;
+      this.$refs.crm.value = opt.dataset.crmId;
+      this.$refs.incept.value = opt.dataset.inception;
+    },
+  }));
+
+  // A contract's expiration follows its inception: one year minus one day,
+  // the default the server applies to a blank expiration (spec 017 P-03).
+  // Used by the create form's rows and the deal card's contract editors.
+  Alpine.magic('fillExpiration', () => (inception, expiration) => {
+    const [y, m, d] = inception.value.split('-').map(Number);
+    if (!y) return;
+    expiration.value = new Date(Date.UTC(y + 1, m - 1, d - 1)).toISOString().slice(0, 10);
+  });
+
+  // Submission create form: the contract rows and the treaty year. A new row is
+  // the blank template with the previous row's dates copied in (FR-005); the
+  // year follows the data vintage until the analyst types a year (P-20).
+  Alpine.data('contractRows', () => ({
     edited: false,
     onYearInput() {
       this.edited = !!this.$refs.year.value.trim();
     },
-    onDateChange(e) {
-      if (this.edited) return;
+    onVintage(e) {
+      if (this.edited || this.$refs.year.value.trim()) return;
       const year = (e.target.value || '').slice(0, 4);
       if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
+    },
+    add() {
+      const rows = this.$refs.rows;
+      const last = rows.lastElementChild;
+      const row = this.$refs.blank.content.firstElementChild.cloneNode(true);
+      if (last) {
+        for (const name of ['contract_inception', 'contract_expiration']) {
+          row.querySelector(`[name=${name}]`).value = last.querySelector(`[name=${name}]`).value;
+        }
+      }
+      rows.appendChild(row);
+      row.querySelector('[name=contract_crm_id]').focus();
+    },
+    remove(e) {
+      e.target.closest('.contract-row').remove();
     },
   }));
 

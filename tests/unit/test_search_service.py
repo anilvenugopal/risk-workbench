@@ -99,7 +99,6 @@ class TestSubmissionsProvider:
     def test_matches_by_name(self, iteration2_db):
         submission_service.create_submission(
             name="Coastal Re HO 2026", cedant_name="Coastal Re",
-            treaty_type_code="cat_xol", inception_date="2026-01-01",
             actor_id=iteration2_db.user_a, confirmed=True,
         )
         groups = search_service.global_search("coastal", user_roles=["analyst"])
@@ -107,14 +106,12 @@ class TestSubmissionsProvider:
         assert submissions.items[0].label == "Coastal Re HO 2026"
 
     def test_matches_by_crm_id(self, iteration2_db):
-        result = submission_service.create_submission(
+        submission_service.create_submission(
             name="Zenith Mutual 2026", cedant_name="Zenith Mutual",
-            treaty_type_code="cat_xol", inception_date="2026-01-01",
+            contracts=[submission_service.ContractInput(
+                crm_id="CRM-9912", treaty_type_code="per_risk_xol",
+                inception_date="2026-01-01")],
             actor_id=iteration2_db.user_a, confirmed=True,
-        )
-        submission_service.add_crm_id(
-            submission_id=result.submission_id, crm_id="CRM-9912",
-            actor_id=iteration2_db.user_a,
         )
         groups = search_service.global_search("9912", user_roles=["analyst"])
         submissions = next(g for g in groups if g.type == "submissions")
@@ -187,7 +184,6 @@ class TestTypeFilter:
         _insert_edm(iteration2_db.engine, name="Coastal HO 2026")
         submission_service.create_submission(
             name="Coastal Re HO 2026", cedant_name="Coastal Re",
-            treaty_type_code="cat_xol", inception_date="2026-01-01",
             actor_id=iteration2_db.user_a, confirmed=True,
         )
         groups = search_service.global_search(

@@ -24,10 +24,17 @@ from db.errors import SQLServerQueryError
 pytestmark = pytest.mark.sqlserver
 
 ITERATION1_TABLES = [
-    "treaty_type_kind", "submission_status_kind", "submission",
-    "submission_crm_id", "submission_status_event", "irp_edm", "irp_rdm",
+    "treaty_type_kind", "submission_status_kind", "contract_status_kind", "submission",
+    "contract", "submission_status_event", "irp_edm", "irp_rdm",
     "submission_edm", "submission_rdm",
 ]
+# research.md R6 — CIC's eleven modeling treaty types (spec 017 FR-012).
+TREATY_TYPE_CODES = {
+    "aggregate_xol", "aggregate_cat_xol", "risk_aggregate_xol",
+    "per_occurrence_xol", "per_occurrence_cat_xol", "per_risk_xol", "stop_loss",
+    "reinstatement_premium_protection", "second_third_fourth_event_risk_exposed",
+    "top_and_drop", "top_and_aggregate",
+}
 REMOVED_TABLES = [
     "customer", "program", "user_customer_access", "package", "submission_package",
 ]
@@ -64,8 +71,51 @@ class TestSubmissionMigration:
     def test_treaty_type_kind_seeds(self):
         codes = {r["code"] for r in execute(
             "SELECT code FROM treaty_type_kind", {}, connection="WORKBENCH")}
-        assert codes == {"cat_xol", "quota_share", "surplus", "per_risk_xol",
-                         "aggregate_xol", "stop_loss"}
+        assert codes == TREATY_TYPE_CODES
+
+    def test_contract_status_kind_seeds(self):
+        codes = {r["code"] for r in execute(
+            "SELECT code FROM contract_status_kind", {}, connection="WORKBENCH")}
+        assert codes == {"OPEN", "WON", "LOST"}
+
+    def test_contract_grain_columns(self):
+        """Spec 017 as amended 2026-09-21: treaty type, the term and the deal
+        status live on ``contract``; the submission keeps client and data
+        vintage (data-model.md §2–§3)."""
+        cols = {r["COLUMN_NAME"] for r in execute(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'submission'", {}, connection="WORKBENCH")}
+        assert {"client_id", "data_vintage", "treaty_year"} <= cols
+        assert not {"treaty_type_code", "inception_date", "expiration_date",
+                    "deal_status_code"} & cols
+        contract = {r["COLUMN_NAME"]: r["IS_NULLABLE"] for r in execute(
+            "SELECT COLUMN_NAME, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'contract'", {}, connection="WORKBENCH")}
+        for required in ("crm_id", "treaty_type_code", "inception_date",
+                         "expiration_date", "contract_status_code", "updated_at"):
+            assert contract[required] == "NO"
+        fks = execute_scalar(
+            "SELECT COUNT(*) FROM sys.foreign_keys "
+            "WHERE parent_object_id = OBJECT_ID('dbo.contract')",
+            {}, connection="WORKBENCH")
+        assert fks == 5  # submission, treaty_type, contract_status, inserted/updated_by
+
+    def test_v_contract_exists_with_date_columns(self):
+        """The view is the FR-013 extract (T-04); its dates come back as DATE."""
+        assert execute_scalar(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.VIEWS "
+            "WHERE TABLE_NAME = 'v_contract'",
+            {}, connection="WORKBENCH") == 1
+        assert execute_scalar(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.VIEWS "
+            "WHERE TABLE_NAME = 'v_submission_crm_id'",
+            {}, connection="WORKBENCH") == 0
+        types = {r["COLUMN_NAME"]: r["DATA_TYPE"] for r in execute(
+            "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'v_contract'", {}, connection="WORKBENCH")}
+        assert types["inception_date"] == "date"
+        assert types["expiration_date"] == "date"
+        assert types["data_vintage"] == "date"
 
     def test_submission_has_no_unique_name_and_no_customer_id(self):
         cols = {r["COLUMN_NAME"] for r in execute(
@@ -81,34 +131,31 @@ class TestSubmissionMigration:
             {}, connection="WORKBENCH")
         assert n == 1
 
-    def test_master_list_index_keys_and_covers(self):
-        """``ix_submission_list_order`` is what keeps a filtered list read off the
-        clustered table. Its DESC key and its included columns are both invisible to
-        the SQLite mirror, so only this tier can check them."""
-        cols = execute(
-            "SELECT c.name, ic.is_descending_key, ic.is_included_column "
-            "FROM sys.indexes i "
-            "JOIN sys.index_columns ic ON ic.object_id = i.object_id "
-            "                         AND ic.index_id = i.index_id "
-            "JOIN sys.columns c ON c.object_id = i.object_id "
-            "                  AND c.column_id = ic.column_id "
-            "WHERE i.object_id = OBJECT_ID('dbo.submission') "
-            "  AND i.name = 'ix_submission_list_order' "
-            "ORDER BY ic.is_included_column, ic.key_ordinal",
-            {}, connection="WORKBENCH")
-        keys = [(r["name"], bool(r["is_descending_key"]))
-                for r in cols if not r["is_included_column"]]
-        assert keys == [("inception_date", True), ("name", False)]
-        included = {r["name"] for r in cols if r["is_included_column"]}
-        assert included == {"cedant_name", "treaty_type_code", "treaty_year",
-                            "status_code", "assigned_analyst_id", "updated_at"}
+    def test_submission_indexes(self):
+        """The list's order is a contract aggregate since spec 017 T-11, so the
+        inception-keyed covering index is gone; the two lookup indexes stay.
+        ``uq_contract_crm_id`` (T-15) is unique and unfiltered: a CRM ID on a
+        closed deal blocks like one on an active deal."""
+        names = {r["name"] for r in execute(
+            "SELECT name FROM sys.indexes "
+            "WHERE object_id = OBJECT_ID('dbo.submission') AND name IS NOT NULL",
+            {}, connection="WORKBENCH")}
+        assert {"ix_submission_cedant_name", "ix_submission_assigned_analyst_id"} <= names
+        assert not {"ix_submission_list_order", "ix_submission_treaty_type_code"} & names
+        assert execute_scalar(
+            "SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.contract') "
+            "AND name = 'ix_contract_submission_id'", {}, connection="WORKBENCH") == 1
+        assert execute(
+            "SELECT is_unique, has_filter FROM sys.indexes "
+            "WHERE object_id = OBJECT_ID('dbo.contract') AND name = 'uq_contract_crm_id'",
+            {}, connection="WORKBENCH") == [{"is_unique": True, "has_filter": False}]
 
     def test_submission_foreign_keys_present(self):
         n = execute_scalar(
             "SELECT COUNT(*) FROM sys.foreign_keys "
             "WHERE parent_object_id = OBJECT_ID('dbo.submission')",
             {}, connection="WORKBENCH")
-        assert n >= 5  # analyst, treaty_type, status, links_to, inserted/updated_by
+        assert n == 5  # analyst, status, links_to, inserted_by, updated_by
 
     @pytest.mark.parametrize("table,entity_column,index_name", [
         ("submission_edm", "edm_id", "ix_submission_edm_edm_submission"),
@@ -148,11 +195,10 @@ def temp_submission():
         with conn.begin():
             conn.execute(text(
                 "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
-                "treaty_type_code, inception_date, status_code, inserted_at, "
-                "updated_at, inserted_by, updated_by) "
-                "VALUES (:id, :uid, 'MigDeal', 'Mig Cedant', 'cat_xol', :inc, "
+                "status_code, inserted_at, updated_at, inserted_by, updated_by) "
+                "VALUES (:id, :uid, 'MigDeal', 'Mig Cedant', "
                 "'ACTIVE', :now, :now, :uid, :uid)"
-            ), {"id": sid, "uid": uid, "inc": now.date(), "now": now})
+            ), {"id": sid, "uid": uid, "now": now})
             conn.execute(text(
                 "INSERT INTO submission_status_event (id, submission_id, status_code, "
                 "at, inserted_by) VALUES (:eid, :sid, 'ACTIVE', :now, :uid)"
@@ -160,13 +206,32 @@ def temp_submission():
     yield sid, uid
     # cleanup (children first)
     for tbl in ("submission_edm", "submission_rdm", "submission_status_event",
-                "submission_crm_id"):
+                "contract"):
         execute_command(f"DELETE FROM {tbl} WHERE submission_id = :sid",
                         {"sid": sid}, connection="WORKBENCH")
     execute_command("DELETE FROM submission WHERE id = :sid", {"sid": sid},
                     connection="WORKBENCH")
     execute_command("DELETE FROM app_user WHERE id = :uid", {"uid": uid},
                     connection="WORKBENCH")
+
+
+# ── spec 017 T-06: the repository client read over LOSS ─────────────────────
+
+def test_dbo_client_reads_over_loss_when_the_table_exists():
+    """``client_service`` reads ``dbo.Client`` in ``rwb_loss``. Spec 014's
+    bootstrap creates the table; without it the read fails open, which is
+    FR-009's own scenario, so the test skips rather than asserts."""
+    from app.services import client_service
+
+    present = execute_scalar(
+        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES "
+        "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Client'",
+        {}, connection="LOSS")
+    if not present:
+        pytest.skip("dbo.Client is not in rwb_loss (spec 014 bootstrap not applied)")
+    clients = client_service.list_clients()
+    assert clients is not None
+    assert clients == sorted(clients, key=lambda c: ((c.name or ""), c.id))
 
 
 # ── T032: event-sourced status transaction atomicity ─────────────────────────

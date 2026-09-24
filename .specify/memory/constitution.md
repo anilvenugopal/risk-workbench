@@ -2,6 +2,47 @@
   Sync Impact Report
   ==================
 
+  --- 2026-09-23 (spec 017 Contract status Open, note 34 D9) ---
+  Version change: 4.2.2 → 4.2.3  (PATCH — Article 4's in-place list reads
+  Won / Lost / Open for `contract.contract_status_code`; no rule changes;
+  13-article numbering stable)
+
+  Renamed: the Contract status In Process is Open, code `OPEN` and label
+  "Open", so the Workbench uses the words CIC's CRM uses (note 34 D9).
+
+  Templates: none. AGENTS.md version reference updated to v4.2.3.
+
+  --- 2026-09-22 (spec 017 contract grain, note 32) ---
+  Version change: 4.2.1 → 4.2.2  (PATCH — Article 4's in-place list names
+  `contract.contract_status_code` in place of `submission.deal_status_code`;
+  no rule changes; 13-article numbering stable)
+
+  Renamed: spec 017's Submission status moved from the submission to the
+  contract as Contract status (note 32 D17: one modeling project, several CRM
+  IDs, different outcomes). `submission.deal_status_code` no longer exists;
+  `contract.contract_status_code` (Won / Lost / In Process) is the in-place
+  status column. `submission.status_code` (Modeling status) stays the one
+  event-sourced status.
+
+  Templates: none. AGENTS.md version reference updated to v4.2.2.
+
+  --- 2026-09-18 (spec 017 Submission status) ---
+  Version change: 4.2.0 → 4.2.1  (PATCH — Article 4's list of in-place status
+  columns gains `submission.deal_status_code`; no rule changes; 13-article
+  numbering stable)
+
+  Clarified: Article 4 names `submission.status_code` as the one event-sourced
+  status and lists the columns that are plain in-place updates. Spec 017 adds a
+  second status column to the same table, `submission.deal_status_code`
+  (Submission status: Won / Lost / In Process, spec 017 P-02, T-02), which
+  carries no reason and no history and is updated in place. It is added to the
+  in-place list so a reader checking whether a status on `submission` is
+  event-sourced finds both columns named. The event-sourced rule for
+  `submission.status_code` (Modeling status) is unchanged.
+
+  Templates: no plan-template Constitution Check title changes (Article 4
+  title unchanged). AGENTS.md version reference updated to v4.2.1.
+
   --- 2026-09-17 (spec 014 /speckit-analyze finding C1) ---
   Version change: 4.1.0 → 4.2.0  (MINOR — Article 3 gains a second carve-out;
   no article redefined or removed; 13-article numbering stable)
@@ -268,8 +309,9 @@ NOT be `UPDATE`-d in place — it MUST:
    (O(1) reads; never recompute-on-read in the hot path).
 
 **Other status is updated in place.** `irp_job.status`, `rwb_job.status_code`,
-`irp_edm.status`, `irp_rdm.status`, and `irp_analysis.status_code` are plain
-updates — a per-transition audit log for them is part of the deferred general
+`irp_edm.status`, `irp_rdm.status`, `irp_analysis.status_code`, and
+`contract.contract_status_code` (Contract status: Won / Lost / Open,
+spec 017) are plain updates — a per-transition audit log for them is part of the deferred general
 auditing capability (CR-002), not built now. `irp_job.last_tracked_at` (not an
 event log) records that a job is still being actively tracked. There is no
 stored `ERROR` status; a failure is a job in `FAILED` or `SUBMISSION FAILED`.
@@ -476,4 +518,4 @@ research begins.
 
 ---
 
-**Version**: 4.2.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-17
+**Version**: 4.2.3 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-23

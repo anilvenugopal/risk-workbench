@@ -90,10 +90,15 @@ def test_form_ticks_the_analyses_carried_from_the_link(client, deal):
 def test_form_renders_defaults_rows_and_disabled_reason(client, deal):
     page = client.get(f"/submissions/{deal['submission_id']}/exports/new")
     assert page.status_code == 200
-    assert 'name="treaty_incept" required\n               value="2026-04-01"' in page.text
-    assert 'name="crm_id" maxlength="30"\n               value="CRM-1"' in page.text
-    assert '<option value="1" >Example Re</option>' in page.text
-    assert '<option value="2" >Retired</option>' in page.text
+    # Two contracts on the deal: nothing is picked until the analyst chooses
+    # one (spec 017 P-06), so CRM ID and inception open blank.
+    assert 'name="treaty_incept" required x-ref="incept"\n               value=""' in page.text
+    assert 'name="crm_id" maxlength="30" x-ref="crm"\n               value=""' in page.text
+    assert '<option value="">Choose a contract…</option>' in page.text
+    assert 'data-crm-id="CRM-1" data-inception="2026-04-01"\n                  >' in page.text
+    assert 'data-crm-id="CRM-2" data-inception="2026-04-01"\n                  >' in page.text
+    assert '<option value="1" >1 - Example Re</option>' in page.text
+    assert '<option value="2" >2 - Retired</option>' in page.text
     assert 'name="model_version" required' in page.text
     assert '<option value="25.0" selected>25.0</option>' in page.text
     assert '<option value="23.0" >23.0</option>' in page.text
@@ -101,6 +106,27 @@ def test_form_renders_defaults_rows_and_disabled_reason(client, deal):
     assert page.text.count('name="analysis_ids"') == 3
     assert 'name="perspective" required\n            disabled' in page.text
     assert "Tick at least one analysis" in page.text
+
+
+def test_form_preselects_the_only_contract_and_the_submission_client(client, deal):
+    sid = seed_submission(client.db.user_a, name="One contract", inception="2027-01-01",
+                          crm_ids=("T-100",))
+    execute_command("UPDATE submission SET client_id = 2, data_vintage = '2026-06-30' "
+                    "WHERE id = :s", {"s": sid}, connection="WORKBENCH")
+    page = client.get(f"/submissions/{sid}/exports/new")
+    assert page.status_code == 200
+    assert 'data-crm-id="T-100" data-inception="2027-01-01"\n                  selected>' in page.text
+    assert 'name="treaty_incept" required x-ref="incept"\n               value="2027-01-01"' in page.text
+    assert 'name="crm_id" maxlength="30" x-ref="crm"\n               value="T-100"' in page.text
+    assert 'name="data_vintage" required\n               value="2026-06-30"' in page.text
+    assert '<option value="2" selected>2 - Retired</option>' in page.text
+
+
+def test_form_without_contracts_disables_the_contract_select(client, deal):
+    sid = seed_submission(client.db.user_a, name="No contract", crm_ids=())
+    page = client.get(f"/submissions/{sid}/exports/new")
+    assert 'aria-label="Contract"\n                @change="pick($event.target.selectedOptions[0])" disabled>' in page.text
+    assert "No contracts on this submission" in page.text
 
 
 def test_form_for_a_gone_submission_shows_the_notice(client, deal):
@@ -189,9 +215,9 @@ def test_post_writes_manifest_rows_and_redirects(client, deal):
         ("A", "Named A", "CRM-9"), ("B", None, "CRM-9")]
     assert len({r["export_id"] for r in rows}) == 1
     assert len(rwb_jobs("submit_results_export")) == 1
-    sub = execute_one("SELECT inception_date FROM submission WHERE id = :s",
-                      {"s": deal["submission_id"]}, connection="WORKBENCH")
-    assert sub["inception_date"] == "2026-04-01"
+    contracts = execute("SELECT inception_date FROM contract WHERE submission_id = :s",
+                        {"s": deal["submission_id"]}, connection="WORKBENCH")
+    assert {c["inception_date"] for c in contracts} == {"2026-04-01"}
 
 
 def test_form_posts_plainly_so_a_422_rerender_is_shown(client, deal):
@@ -339,7 +365,7 @@ def test_rows_show_counts_aal_error_and_stop_polling(client, export):
 
 
 def test_section_lists_this_submissions_exports_newest_first_with_ordinals(client, export):
-    other = seed_submission(client.db.user_a, name="Other")
+    other = seed_submission(client.db.user_a, name="Other", crm_ids=("CRM-OTHER",))
     seed_manifest(submission_id=other, irp_app_analysis_id=41958, perspective_code="RP")
     older = seed_manifest(submission_id=export["submission_id"], irp_analysis_id=export["a"],
                           irp_app_analysis_id=41958, perspective_code="RL",

@@ -25,13 +25,15 @@ a scope wrapper (Article 6 / R7).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
 from sqlalchemy import text
 
+from app.services import client_service
 from app.services._common import (
     _escape_like,
     _in_clause,
@@ -52,14 +54,18 @@ from db import (
     execute_one,
     execute_scalar,
     get_connection,
+    is_unique_violation,
     row_limit,
 )
 
 ACTIVE = "ACTIVE"
+# The one contract status a contract can be in force under (FR-018, P-09).
+WON = "WON"
+OPEN = "OPEN"
 
 # Rows per master-list request. The list is read newest-inception-first, so a
 # page is what an analyst scans before narrowing; it also caps how many ids
-# `_attach_crm_ids` binds, which SQL Server limits to 2,100 per statement.
+# `_attach_contracts` binds, which SQL Server limits to 2,100 per statement.
 PAGE_SIZE = 50
 
 ENTITY_TABLE_SORTS = ("name", "status", "count")
@@ -75,21 +81,28 @@ ENTITY_TABLE_SORT_STARTS_DESCENDING = {
 
 @dataclass
 class SubmissionRow:
-    """One master-list / look-alike row. ``crm_ids`` is filled for the master list
-    only (see ``_attach_crm_ids``); every other reader leaves it empty."""
+    """One master-list / look-alike row. The contract summary (``crm_ids``,
+    ``treaty_type_labels``, ``inception_date``) is filled for the master list
+    only (see ``_attach_contracts``); every other reader leaves it empty."""
     id: str
     name: str
     cedant_name: str
-    treaty_type_code: str
-    treaty_type_label: str | None
-    inception_date: Any
     treaty_year: int | None
     status_code: str
     status_label: str | None
     assigned_analyst_id: str
     assigned_analyst_name: str | None
     updated_at: Any
+    client_id: int | None
+    data_vintage: Any = None
+    client_name: str | None = None
     crm_ids: list[str] = field(default_factory=list)
+    treaty_type_labels: list[str] = field(default_factory=list)
+    inception_date: Any = None
+
+    @property
+    def client_display(self) -> str | None:
+        return client_service.display(self.client_id, self.client_name)
 
 
 @dataclass
@@ -101,15 +114,63 @@ class SubmissionPage:
     has_next: bool
 
 
-@dataclass
-class Submission:
-    """Full detail view of a deal (cached status included)."""
+@dataclass(frozen=True)
+class Contract:
+    """One contract of a deal: a CRM ID with its treaty type, term and status
+    (data-model.md §3). ``updated_at`` is the R1 marker for in-place edits."""
     id: str
-    name: str
-    cedant_name: str
+    submission_id: str
+    crm_id: str
     treaty_type_code: str
     treaty_type_label: str | None
     inception_date: Any
+    expiration_date: Any
+    contract_status_code: str
+    contract_status_label: str | None
+    inserted_at: Any
+    updated_at: Any
+
+
+@dataclass(frozen=True)
+class ContractInput:
+    """What a form posts for one contract row. ``expiration_date`` left ``None``
+    is filled as inception plus one year minus one day (P-03)."""
+    crm_id: str
+    treaty_type_code: str
+    inception_date: Any
+    expiration_date: Any = None
+    contract_status_code: str = OPEN
+
+
+@dataclass(frozen=True)
+class ContractOwner:
+    """The submission that already holds a CRM ID (FR-003, note 33 D14)."""
+    submission_id: str
+    name: str
+
+
+class ContractInvalid(ValueError):
+    """A contract row the service will not write. ``index`` is the row's position
+    in the posted list (``None`` for a single-row edit) so the form can mark it.
+    ``owner`` is set when the CRM ID belongs to another submission; the message
+    then ends "is already a contract on" and the form appends the linked name."""
+
+    def __init__(
+        self, message: str, *, index: int | None = None,
+        owner: ContractOwner | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.index = index
+        self.owner = owner
+
+
+@dataclass
+class Submission:
+    """Full detail view of a deal (cached Modeling status included). Treaty type,
+    the term and the deal status live on ``contracts``."""
+    id: str
+    name: str
+    cedant_name: str
     treaty_year: int | None
     links_to_submission_id: str | None
     directory_path: str | None
@@ -119,6 +180,14 @@ class Submission:
     assigned_analyst_name: str | None
     inserted_at: Any
     updated_at: Any
+    client_id: int | None
+    data_vintage: Any = None
+    client_name: str | None = None
+    contracts: list[Contract] = field(default_factory=list)
+
+    @property
+    def client_display(self) -> str | None:
+        return client_service.display(self.client_id, self.client_name)
 
 
 @dataclass
@@ -130,14 +199,6 @@ class StatusEvent:
     at: Any
     inserted_by: str | None
     inserted_by_name: str | None
-
-
-@dataclass
-class CrmTag:
-    id: str
-    submission_id: str
-    crm_id: str
-    inserted_at: Any
 
 
 @dataclass
@@ -207,6 +268,13 @@ def _as_date(value: Any) -> Any:
     return date.fromisoformat(str(value))
 
 
+def _as_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _as_uuid(value: Any) -> str | None:
     """``value`` as a canonical lowercase UUID string, or ``None`` when it is not
     a UUID at all.
@@ -239,13 +307,101 @@ def _resolve_link_target(links_to: Any) -> str | None:
     return target
 
 
-def _default_treaty_year(treaty_year: int | None, inception_date: Any) -> int | None:
-    """Fall back to the inception year when the analyst left treaty year blank
-    (CR5). An entered year always wins (design note 08, D4)."""
+def _default_treaty_year(treaty_year: int | None, inceptions: Sequence[Any]) -> int | None:
+    """Fall back to the earliest contract inception's year when the analyst left
+    treaty year blank (P-20); ``None`` when the deal has no contract. An entered
+    year always wins (design note 08, D4)."""
     if treaty_year is not None:
         return treaty_year
-    parsed = _as_date(inception_date)
-    return parsed.year if parsed is not None else None
+    parsed = [_as_date(value) for value in inceptions if value is not None]
+    return min(parsed).year if parsed else None
+
+
+def _default_expiration(inception: date) -> date:
+    """Inception plus one year minus one day (P-03): 1/1 to 12/31. A February 29
+    inception lands on February 28 of the next year before the day is taken."""
+    try:
+        anniversary = inception.replace(year=inception.year + 1)
+    except ValueError:
+        anniversary = inception.replace(year=inception.year + 1, day=28)
+    return anniversary - timedelta(days=1)
+
+
+def _taken_elsewhere(
+    prepared: Sequence[dict[str, Any]], *, exclude_contract_id: str | None = None,
+) -> None:
+    """``ContractInvalid`` naming the owner for the first prepared row whose CRM
+    ID is already a contract on another submission. One query for the whole
+    form, normalised like the P-10 filter (lower-cased, trimmed); the contract
+    being edited keeps its own CRM ID."""
+    keys = sorted({row["crm_id"].lower() for row in prepared})
+    if not keys:
+        return
+    clause, params = _in_clause("LOWER(TRIM(crm_id))", keys, "crm")
+    excluded = exclude_contract_id.lower() if exclude_contract_id else None
+    owners = {
+        row["crm_id"].strip().lower():
+            ContractOwner(str(row["submission_id"]).lower(), row["submission_name"])
+        for row in execute(
+            f"""
+            SELECT crm_id, submission_id, submission_name, contract_id
+            FROM v_contract WHERE {clause}
+            """,
+            params, connection="WORKBENCH",
+        )
+        if str(row["contract_id"]).lower() != excluded
+    }
+    for index, row in enumerate(prepared):
+        owner = owners.get(row["crm_id"].lower())
+        if owner is not None:
+            raise ContractInvalid(
+                f"{row['crm_id']} is already a contract on", index=index, owner=owner)
+
+
+def _prepare_contracts(
+    contracts: Sequence[ContractInput], *, existing: Sequence[Contract] = (),
+    editing_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """The bound parameters for each posted contract row, validated as one set
+    (FR-003): a CRM ID is present and unique across the Workbench, case-insensitive
+    and trimmed, across the posted rows, the deal's stored contracts (less the
+    row being edited) and every other submission's contracts; the treaty type
+    and status are rows of their kind tables; dates parse; a blank expiration is
+    defaulted. ``ContractInvalid`` names the first bad row, with ``owner`` set
+    when another submission holds the CRM ID."""
+    treaty_types = {code for code, _ in treaty_type_kinds()}
+    statuses = {code for code, _ in contract_status_kinds()}
+    taken = {c.crm_id.lower(): c.crm_id for c in existing
+             if editing_id is None or c.id != editing_id}
+    prepared: list[dict[str, Any]] = []
+    for index, row in enumerate(contracts):
+        crm_id = (row.crm_id or "").strip()
+        if not crm_id:
+            raise ContractInvalid("Enter the CRM ID.", index=index)
+        if crm_id.lower() in taken:
+            raise ContractInvalid(
+                f"{taken[crm_id.lower()]} is already a contract on this submission.",
+                index=index)
+        taken[crm_id.lower()] = crm_id
+        if row.treaty_type_code not in treaty_types:
+            raise ContractInvalid("Choose a treaty type from the list.", index=index)
+        status = row.contract_status_code or OPEN
+        if status not in statuses:
+            raise ContractInvalid("Choose a contract status from the list.", index=index)
+        try:
+            inception = _as_date(row.inception_date)
+            expiration = _as_date(row.expiration_date)
+        except ValueError:
+            raise ContractInvalid("Enter the dates as YYYY-MM-DD.", index=index) from None
+        if inception is None:
+            raise ContractInvalid("Enter the inception date.", index=index)
+        prepared.append({
+            "crm_id": crm_id, "tt": row.treaty_type_code, "inc": inception,
+            "exp": expiration if expiration is not None else _default_expiration(inception),
+            "status": status,
+        })
+    _taken_elsewhere(prepared, exclude_contract_id=editing_id)
+    return prepared
 
 
 def _require_active(status_code: str | None) -> None:
@@ -264,17 +420,24 @@ def _load_status(submission_id: Any) -> str | None:
 
 
 _ROW_SELECT = """
-    SELECT s.id, s.name, s.cedant_name, s.treaty_type_code,
-           tk.label AS treaty_type_label,
-           s.inception_date, s.treaty_year,
-           s.status_code, sk.label AS status_label,
+    SELECT s.id, s.name, s.cedant_name, s.treaty_year, s.data_vintage,
+           s.status_code, sk.label AS status_label, s.client_id,
            s.assigned_analyst_id, u.display_name AS assigned_analyst_name,
            s.updated_at
     FROM submission s
-    LEFT JOIN treaty_type_kind tk ON tk.code = s.treaty_type_code
     LEFT JOIN submission_status_kind sk ON sk.code = s.status_code
     LEFT JOIN app_user u ON u.id = s.assigned_analyst_id
 """
+
+# The list's inception: the first-entered contract's, or the deal's creation
+# date for a deal with no contract yet (P-17). It is the date the row shows, so
+# the list is ordered by what the analyst reads. ``{cap}`` takes ``row_limit(1)``
+# at query time: the dialects disagree on how to cap a subquery. SQL Server
+# resolves the COALESCE to DATETIME2 and SQLite compares the ISO text; both
+# order the same.
+_FIRST_INCEPTION = ("COALESCE((SELECT c.inception_date FROM contract c "
+                    "WHERE c.submission_id = s.id ORDER BY c.inserted_at, c.id {cap}), "
+                    "s.inserted_at)")
 
 
 def _to_row(row: dict) -> SubmissionRow:
@@ -282,22 +445,21 @@ def _to_row(row: dict) -> SubmissionRow:
         id=_uid(row["id"]),
         name=row["name"],
         cedant_name=row["cedant_name"],
-        treaty_type_code=row["treaty_type_code"],
-        treaty_type_label=row.get("treaty_type_label"),
-        inception_date=row["inception_date"],
         treaty_year=row["treaty_year"],
         status_code=row["status_code"],
         status_label=row.get("status_label"),
         assigned_analyst_id=_uid(row["assigned_analyst_id"]),
         assigned_analyst_name=row.get("assigned_analyst_name"),
         updated_at=row["updated_at"],
+        client_id=row["client_id"],
+        data_vintage=row.get("data_vintage"),
     )
 
 
 def _submission_rows(
     clauses: list[str], params: dict[str, Any], *, exclude_id: Any = None,
     limit: int | None = None, offset: int = 0,
-    order_by: str = "s.inception_date DESC, s.name",
+    order_by: str | None = None,
 ) -> list[SubmissionRow]:
     """Run the shared row query: the master list, the look-alike check and the "links
     to" typeahead all select the same columns, and differ only in their predicates.
@@ -309,6 +471,8 @@ def _submission_rows(
     the one being edited so it cannot be offered as its own link. A value that is not
     a UUID excludes nothing rather than reaching the ``uniqueidentifier`` comparison
     (see ``_as_uuid``)."""
+    if order_by is None:
+        order_by = _order_by(DEFAULT_SORT, descending=True)
     excluded = _as_uuid(exclude_id) if exclude_id is not None else None
     if excluded is not None:
         clauses = [*clauses, "s.id <> :exclude"]
@@ -320,9 +484,15 @@ def _submission_rows(
     return [_to_row(row) for row in execute(sql, params, connection="WORKBENCH")]
 
 
-def _attach_crm_ids(rows: list[SubmissionRow]) -> None:
-    """Set each row's ``crm_ids``, oldest tag first, for the master list's CRM column
-    (CR3). One query covers the page; a deal with no tags keeps the default ``[]``.
+def _attach_contracts(rows: list[SubmissionRow], filters: dict[str, Any]) -> None:
+    """Set each row's contract summary for the master list (FR-007). With a
+    contract-level filter set, only the contracts that satisfy every contract
+    clause together count (P-18): a search for one CRM ID shows that CRM ID,
+    not the first-entered one with the rest behind "+N more". The first
+    contract (by ``inserted_at``) gives the row its CRM ID, treaty type and
+    inception; ``crm_ids`` lists the rest in entry order and
+    ``treaty_type_labels`` the other distinct types in kind-table order. A deal
+    with no contract keeps the defaults.
 
     One bound parameter per row, so the caller has to hand this a page rather than a
     whole table — SQL Server rejects a statement carrying more than 2,100."""
@@ -331,48 +501,83 @@ def _attach_crm_ids(rows: list[SubmissionRow]) -> None:
         return
     params = {f"s{i}": sid for i, sid in enumerate(ids)}
     placeholders = ", ".join(f":{key}" for key in params)
-    tags = execute(
-        "SELECT submission_id, crm_id FROM submission_crm_id "
-        f"WHERE submission_id IN ({placeholders}) ORDER BY inserted_at, id",
+    contract_clauses, more = _contract_clauses(filters)
+    params |= more
+    contracts = execute(
+        "SELECT c.submission_id, c.crm_id, c.inception_date, "
+        "tk.label AS treaty_type_label, tk.sort_order AS treaty_type_order "
+        "FROM contract c "
+        "LEFT JOIN treaty_type_kind tk ON tk.code = c.treaty_type_code "
+        f"WHERE c.submission_id IN ({placeholders})"
+        + "".join(f" AND {clause}" for clause in contract_clauses)
+        + " ORDER BY c.inserted_at, c.id",
         params, connection="WORKBENCH",
     )
-    by_submission: dict[str, list[str]] = {}
-    for tag in tags:
-        by_submission.setdefault(
-            str(tag["submission_id"]).lower(), []).append(tag["crm_id"])
+    by_submission: dict[str, list[dict]] = {}
+    for contract in contracts:
+        by_submission.setdefault(str(contract["submission_id"]).lower(), []).append(contract)
+
     for row in rows:
-        row.crm_ids = by_submission.get(str(row.id).lower(), [])
+        items = by_submission.get(str(row.id).lower(), [])
+        if not items:
+            continue
+        first = items[0]
+        row.crm_ids = [item["crm_id"] for item in items]
+        row.inception_date = _as_date(first["inception_date"])
+        others = {item["treaty_type_label"]: item["treaty_type_order"]
+                  for item in items[1:]
+                  if item["treaty_type_label"] not in (None, first["treaty_type_label"])}
+        row.treaty_type_labels = (
+            [first["treaty_type_label"]] if first["treaty_type_label"] is not None else []
+        ) + sorted(others, key=lambda v: (others[v] or 0, v))
+
+
+def _attach_client_names(rows: list[SubmissionRow]) -> None:
+    """One ``client_names`` read per page; a row keeps ``None`` when the
+    repository cannot be read (FR-009)."""
+    names = client_service.client_names(
+        row.client_id for row in rows if row.client_id is not None)
+    for row in rows:
+        if row.client_id is not None:
+            row.client_name = names.get(int(row.client_id))
 
 
 # ── Create / read / list ─────────────────────────────────────────────────────
 
+_CONTRACT_INSERT = """
+    INSERT INTO contract
+        (id, submission_id, crm_id, treaty_type_code, inception_date,
+         expiration_date, contract_status_code, inserted_at, updated_at,
+         inserted_by, updated_by)
+    VALUES (:id, :sid, :crm_id, :tt, :inc, :exp, :status, :now, :now, :actor, :actor)
+"""
+
+
 def create_submission(
-    *, name: str, cedant_name: str, treaty_type_code: str, inception_date: Any,
-    treaty_year: int | None = None, links_to_submission_id: Any = None,
-    directory_path: str | None = None, crm_ids: list[str] | None = None,
+    *, name: str, cedant_name: str, treaty_year: int | None = None,
+    links_to_submission_id: Any = None, directory_path: str | None = None,
+    client_id: int | None = None, data_vintage: Any = None,
+    contracts: Sequence[ContractInput] = (),
     actor_id: Any, confirmed: bool = False,
 ) -> CreateResult:
-    """Create an ACTIVE submission owned by ``actor_id``.
+    """Create an ACTIVE submission owned by ``actor_id`` with zero or more
+    contracts (FR-004, P-16).
 
-    Runs the non-blocking duplicate check first: unconfirmed look-alikes short-
-    circuit with ``created=False`` and warnings, writing nothing (FR-004). On the
-    write path the submission row and its initial ACTIVE status event commit in
-    one transaction (R2).
+    Every contract row is validated before anything is written
+    (``_prepare_contracts``); then the duplicate check runs: unconfirmed
+    look-alikes short-circuit with ``created=False`` and warnings, writing
+    nothing (FR-004). On the write path the submission row, its initial ACTIVE
+    status event and its contracts commit in one transaction (R2).
 
-    ``treaty_year`` left as ``None`` is filled from the inception year (CR5).
-
-    Each entry in ``crm_ids`` goes through ``add_crm_id`` after the submission
-    commits, so create-time tags follow the same blank and repeat rules as tags
-    added later on the detail page. Blank entries are skipped rather than
-    rejected: the create form submits one comma-separated field, so "CRM-1,"
-    is a stray comma, not a mistake worth a message.
-
-    ``links_to_submission_id`` is checked before the duplicate check, so an id
-    naming no deal is refused without first showing a look-alike warning."""
+    ``treaty_year`` left as ``None`` is filled from the earliest contract
+    inception (P-20). ``links_to_submission_id`` is checked before the duplicate
+    check, so an id naming no deal is refused without first showing a look-alike
+    warning."""
     link_target = _resolve_link_target(links_to_submission_id)
+    prepared = _prepare_contracts(contracts)
     matches = find_similar(
-        name=name, cedant_name=cedant_name, treaty_type_code=treaty_type_code,
-        inception_date=inception_date,
+        name=name, cedant_name=cedant_name,
+        contract_terms=[(row["tt"], row["inc"]) for row in prepared],
     )
     if matches and not confirmed:
         return CreateResult(created=False, warnings=matches)
@@ -380,44 +585,64 @@ def create_submission(
     sid = str(uuid.uuid4())
     now = _utcnow()
     actor = str(actor_id)
-    parsed_inception = _as_date(inception_date)
     params = {
         "id": sid,
         "owner": actor,
         "name": name,
         "cedant": cedant_name,
-        "tt": treaty_type_code,
-        "inc": parsed_inception,
-        "ty": _default_treaty_year(treaty_year, parsed_inception),
+        "client": client_id,
+        "vintage": _as_date(data_vintage),
+        "ty": _default_treaty_year(treaty_year, [row["inc"] for row in prepared]),
         "lt": link_target,
         "dir": directory_path,
         "now": now,
         "actor": actor,
     }
-    with get_connection("WORKBENCH") as conn, conn.begin():
-        conn.execute(text(
-            """
-            INSERT INTO submission
-                (id, assigned_analyst_id, name, cedant_name, treaty_type_code,
-                 inception_date, treaty_year, links_to_submission_id,
-                 directory_path, status_code, inserted_at, updated_at,
-                 inserted_by, updated_by)
-            VALUES
-                (:id, :owner, :name, :cedant, :tt, :inc, :ty, :lt, :dir,
-                 'ACTIVE', :now, :now, :actor, :actor)
-            """
-        ), params)
-        conn.execute(text(
-            """
-            INSERT INTO submission_status_event
-                (id, submission_id, status_code, reason, at, inserted_by)
-            VALUES (:eid, :sid, 'ACTIVE', NULL, :now, :actor)
-            """
-        ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "actor": actor})
-    for crm_id in crm_ids or []:
-        if crm_id.strip():
-            add_crm_id(submission_id=sid, crm_id=crm_id, actor_id=actor)
+    try:
+        with get_connection("WORKBENCH") as conn, conn.begin():
+            conn.execute(text(
+                """
+                INSERT INTO submission
+                    (id, assigned_analyst_id, name, cedant_name, client_id,
+                     data_vintage, treaty_year, links_to_submission_id,
+                     directory_path, status_code, inserted_at, updated_at,
+                     inserted_by, updated_by)
+                VALUES
+                    (:id, :owner, :name, :cedant, :client, :vintage, :ty, :lt,
+                     :dir, 'ACTIVE', :now, :now, :actor, :actor)
+                """
+            ), params)
+            conn.execute(text(
+                """
+                INSERT INTO submission_status_event
+                    (id, submission_id, status_code, reason, at, inserted_by)
+                VALUES (:eid, :sid, 'ACTIVE', NULL, :now, :actor)
+                """
+            ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "actor": actor})
+            # One microsecond apart, so the rows read back in the order the analyst
+            # entered them (list_contracts orders by inserted_at).
+            for index, row in enumerate(prepared):
+                conn.execute(text(_CONTRACT_INSERT), {
+                    **row, "id": str(uuid.uuid4()), "sid": sid,
+                    "now": now + timedelta(microseconds=index), "actor": actor})
+    except Exception as exc:
+        _reraise_if_taken(exc, prepared)
     return CreateResult(created=True, submission_id=sid)
+
+
+def _reraise_if_taken(
+    exc: Exception, prepared: Sequence[dict[str, Any]], *,
+    exclude_contract_id: str | None = None,
+) -> None:
+    """A write that lost the race to ``uq_contract_crm_id`` between the
+    ``_prepare_contracts`` lookup and the commit is reported like the lookup
+    would have; any other failure is re-raised unchanged."""
+    if is_unique_violation(exc):
+        try:
+            _taken_elsewhere(prepared, exclude_contract_id=exclude_contract_id)
+        except ContractInvalid as taken:
+            raise taken from exc
+    raise exc
 
 
 def get_submission(submission_id: Any) -> Submission | None:
@@ -428,14 +653,13 @@ def get_submission(submission_id: Any) -> Submission | None:
         return None
     row = execute_one(
         """
-        SELECT s.id, s.name, s.cedant_name, s.treaty_type_code,
-               tk.label AS treaty_type_label,
-               s.inception_date, s.treaty_year, s.links_to_submission_id,
+        SELECT s.id, s.name, s.cedant_name, s.treaty_year, s.data_vintage,
+               s.links_to_submission_id,
                s.directory_path, s.status_code, sk.label AS status_label,
+               s.client_id,
                s.assigned_analyst_id, u.display_name AS assigned_analyst_name,
                s.inserted_at, s.updated_at
         FROM submission s
-        LEFT JOIN treaty_type_kind tk ON tk.code = s.treaty_type_code
         LEFT JOIN submission_status_kind sk ON sk.code = s.status_code
         LEFT JOIN app_user u ON u.id = s.assigned_analyst_id
         WHERE s.id = :id
@@ -444,13 +668,14 @@ def get_submission(submission_id: Any) -> Submission | None:
     )
     if row is None:
         return None
+    client_name = None
+    if row["client_id"] is not None:
+        client_name = client_service.client_names([row["client_id"]]).get(
+            int(row["client_id"]))
     return Submission(
         id=_uid(row["id"]),
         name=row["name"],
         cedant_name=row["cedant_name"],
-        treaty_type_code=row["treaty_type_code"],
-        treaty_type_label=row.get("treaty_type_label"),
-        inception_date=row["inception_date"],
         treaty_year=row["treaty_year"],
         links_to_submission_id=_uid(row["links_to_submission_id"]),
         directory_path=row["directory_path"],
@@ -460,6 +685,10 @@ def get_submission(submission_id: Any) -> Submission | None:
         assigned_analyst_name=row.get("assigned_analyst_name"),
         inserted_at=row["inserted_at"],
         updated_at=row["updated_at"],
+        client_id=row["client_id"],
+        data_vintage=row.get("data_vintage"),
+        client_name=client_name,
+        contracts=list_contracts(sid),
     )
 
 
@@ -694,7 +923,7 @@ def detach_rdm(*, submission_id: Any, rdm_id: Any) -> bool:
 SORT_COLUMNS = {
     "name": "s.name",
     "cedant": "s.cedant_name",
-    "inception": "s.inception_date",
+    "inception": _FIRST_INCEPTION,
     "year": "s.treaty_year",
 }
 DEFAULT_SORT = "inception"
@@ -706,7 +935,7 @@ SORT_STARTS_DESCENDING = {"name": False, "cedant": False,
 def _order_by(sort: str, descending: bool) -> str:
     """Name and id follow the sorted column so a page boundary falls in the same
     place every request when the sorted column ties."""
-    column = SORT_COLUMNS[sort]
+    column = SORT_COLUMNS[sort].format(cap=row_limit(1))
     tiebreakers = [c for c in ("s.name", "s.id") if c != column]
     return ", ".join([f"{column} {'DESC' if descending else 'ASC'}", *tiebreakers])
 
@@ -714,9 +943,11 @@ def _order_by(sort: str, descending: bool) -> str:
 def list_submissions(
     *, owner_ids: list[Any] | None = None,
     name: str | None = None,
-    cedant_name: str | None = None, crm_id: str | None = None,
+    cedant_name: str | None = None, crm_ids: list[str] | None = None,
     treaty_type_codes: list[str] | None = None, inception_date: Any = None,
     treaty_years: list[int] | None = None, status_codes: list[str] | None = None,
+    contract_status_codes: list[str] | None = None,
+    client_ids: list[Any] | None = None, in_force_as_of: Any = None,
     page: int = 1, sort: str = DEFAULT_SORT, descending: bool = True,
 ) -> SubmissionPage:
     """One page of the master list. Filters AND-combine as bound predicates
@@ -727,9 +958,9 @@ def list_submissions(
     empty list turns that filter off: ``owner_ids=[]`` lists every owner's deals.
 
     ``name`` (CR1) and ``cedant_name`` match on words, every word required — see
-    ``_word_and_clauses``. ``crm_id`` matches a substring of any CRM tag the deal
-    carries (CR3). Owner, treaty type, inception date, treaty year and status are
-    exact.
+    ``_word_and_clauses``. Contract-level filters (CRM IDs, treaty types,
+    inception, contract status, in force) are satisfied by one contract row
+    together (P-18) — see ``submission_filter_clauses``.
 
     ``page`` is 1-based; anything lower is page 1, so a hand-typed ``?page=0``
     reads the first page rather than a negative offset. ``sort`` is a key of
@@ -737,47 +968,14 @@ def list_submissions(
 
     No minimum term length: every read is capped at ``PAGE_SIZE``, so a
     one-character search costs no more than the page it narrows."""
-    clauses: list[str] = []
-    params: dict[str, Any] = {}
-    if owner_ids:
-        # An owner id that is not a UUID binds NULL, which matches no row — the
-        # hand-typed-URL case ``_as_uuid`` exists for.
-        clause, owner_params = _in_clause(
-            "s.assigned_analyst_id", [_as_uuid(o) for o in owner_ids], "owner")
-        clauses.append(clause)
-        params |= owner_params
-    if name:
-        name_clauses, name_params = _word_and_clauses(name, ("s.name",), "n")
-        clauses += name_clauses
-        params |= name_params
-    if cedant_name:
-        cedant_clauses, cedant_params = _word_and_clauses(
-            cedant_name, ("s.cedant_name",), "c")
-        clauses += cedant_clauses
-        params |= cedant_params
-    if crm_id:
-        # EXISTS, not a join: a deal carrying three matching tags is still one row.
-        clauses.append(
-            "EXISTS (SELECT 1 FROM submission_crm_id c "
-            "WHERE c.submission_id = s.id AND c.crm_id LIKE :crm ESCAPE '\\')")
-        params["crm"] = f"%{_escape_like(crm_id.strip())}%"
-    if treaty_type_codes:
-        clause, treaty_type_params = _in_clause(
-            "s.treaty_type_code", treaty_type_codes, "tt")
-        clauses.append(clause)
-        params |= treaty_type_params
-    if inception_date is not None:
-        clauses.append("s.inception_date = :inc")
-        params["inc"] = _as_date(inception_date)
-    if treaty_years:
-        clause, treaty_year_params = _in_clause(
-            "s.treaty_year", [int(year) for year in treaty_years], "ty")
-        clauses.append(clause)
-        params |= treaty_year_params
-    if status_codes:
-        clause, status_params = _in_clause("s.status_code", status_codes, "status")
-        clauses.append(clause)
-        params |= status_params
+    filters = {
+        "owner_ids": owner_ids, "name": name, "cedant_name": cedant_name,
+        "crm_ids": crm_ids, "treaty_type_codes": treaty_type_codes,
+        "inception_date": inception_date, "treaty_years": treaty_years,
+        "status_codes": status_codes, "contract_status_codes": contract_status_codes,
+        "client_ids": client_ids, "in_force_as_of": in_force_as_of,
+    }
+    clauses, params = submission_filter_clauses(filters)
     page = max(1, int(page or 1))
     # One row past the page: its presence is what "there is a next page" means,
     # without a COUNT(*) over the same predicates.
@@ -786,39 +984,162 @@ def list_submissions(
                             order_by=_order_by(sort, descending))
     has_next = len(rows) > PAGE_SIZE
     rows = rows[:PAGE_SIZE]
-    _attach_crm_ids(rows)
+    _attach_contracts(rows, filters)
+    _attach_client_names(rows)
     return SubmissionPage(rows=rows, page=page, has_next=has_next)
 
 
-def status_kinds() -> list[tuple[str, str]]:
-    """Every submission status as (code, label) in display order, for the list's status
-    filter. Read from the kind table (Article 4) rather than a literal, so the "Hold"
-    status CIC asked for on 8/5 reaches the filter when its row is seeded."""
+def submission_filter_clauses(
+    filters: dict[str, Any], alias: str = "s",
+) -> tuple[list[str], dict[str, Any]]:
+    """The ANDed predicates for one set of list filters, and their bound
+    parameters (contracts/routes.md §6). Values OR within a key and AND across
+    keys; a missing or empty key is no filter. ``alias`` is the ``submission``
+    row the predicates read, so the libraries can wrap them in an EXISTS over
+    their own join. Every parameter name carries its key's prefix (research.md
+    R4), so a caller's own ``:q`` or ``:status`` never collides.
+
+    Submission-level keys (owner, name, cedant, treaty year, Modeling status,
+    client) become clauses on ``alias``. Contract-level keys (``crm_ids``,
+    ``treaty_type_codes``, ``inception_date``, ``contract_status_codes``,
+    ``in_force_as_of``) share one ``EXISTS`` over ``contract`` so a single
+    contract satisfies them together (P-18, research.md R4). ``name`` and
+    ``cedant_name`` match on words, every word required (see
+    ``_word_and_clauses``); each ``crm_ids`` value matches a whole CRM ID,
+    case-insensitive and trimmed (P-10); ``in_force_as_of`` is a ``date`` and
+    applies FR-018; the rest are exact."""
+    s = alias
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if filters.get("owner_ids"):
+        # An owner id that is not a UUID binds NULL, which matches no row — the
+        # hand-typed-URL case ``_as_uuid`` exists for.
+        clause, more = _in_clause(
+            f"{s}.assigned_analyst_id",
+            [_as_uuid(o) for o in filters["owner_ids"]], "owner")
+        clauses.append(clause)
+        params |= more
+    if filters.get("name"):
+        more_clauses, more = _word_and_clauses(filters["name"], (f"{s}.name",), "n")
+        clauses += more_clauses
+        params |= more
+    if filters.get("cedant_name"):
+        more_clauses, more = _word_and_clauses(
+            filters["cedant_name"], (f"{s}.cedant_name",), "c")
+        clauses += more_clauses
+        params |= more
+    if filters.get("treaty_years"):
+        clause, more = _in_clause(
+            f"{s}.treaty_year", [int(year) for year in filters["treaty_years"]], "ty")
+        clauses.append(clause)
+        params |= more
+    if filters.get("status_codes"):
+        clause, more = _in_clause(f"{s}.status_code", filters["status_codes"], "ms")
+        clauses.append(clause)
+        params |= more
+    if filters.get("client_ids"):
+        # A NULL client never matches (P-04); a value that is not an integer
+        # binds NULL and matches nothing.
+        clause, more = _in_clause(
+            f"{s}.client_id", [_as_int(c) for c in filters["client_ids"]], "cl")
+        clauses.append(clause)
+        params |= more
+    contract_clauses, more = _contract_clauses(filters)
+    params |= more
+    if contract_clauses:
+        # One EXISTS, not a join: a deal with three matching contracts is still
+        # one row, and every contract-level filter is met by the same contract.
+        clauses.append(
+            f"EXISTS (SELECT 1 FROM contract c WHERE c.submission_id = {s}.id AND "
+            + " AND ".join(contract_clauses) + ")")
+    return clauses, params
+
+
+def _contract_clauses(filters: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    """The contract-level predicates on alias ``c``, shared by the list's
+    EXISTS and by the row summary so both name the same contracts (P-18)."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if filters.get("crm_ids"):
+        clause, more = _in_clause(
+            "LOWER(TRIM(c.crm_id))",
+            [str(value).strip().lower() for value in filters["crm_ids"]], "crm")
+        clauses.append(clause)
+        params |= more
+    if filters.get("treaty_type_codes"):
+        clause, more = _in_clause("c.treaty_type_code", filters["treaty_type_codes"], "tt")
+        clauses.append(clause)
+        params |= more
+    if filters.get("inception_date") is not None:
+        clauses.append("c.inception_date = :inc")
+        params["inc"] = _as_date(filters["inception_date"])
+    if filters.get("contract_status_codes"):
+        clause, more = _in_clause(
+            "c.contract_status_code", filters["contract_status_codes"], "cs")
+        clauses.append(clause)
+        params |= more
+    if filters.get("in_force_as_of") is not None:
+        clauses.append(
+            "c.contract_status_code = :won AND c.inception_date <= :asof "
+            "AND c.expiration_date >= :asof")
+        params["won"] = WON
+        params["asof"] = _as_date(filters["in_force_as_of"])
+    return clauses, params
+
+
+def has_submission_filters(filters: dict[str, Any] | None) -> bool:
+    """Whether any submission-attribute filter is set, so a library adds its
+    EXISTS only then and unlinked EDMs and RDMs stay listed otherwise (FR-016)."""
+    return bool(filters) and any(
+        value is not None and value != [] and value != ""
+        for value in filters.values())
+
+
+def _kinds(table: str) -> list[tuple[str, str]]:
+    """Every row of a kind table as (code, label) in display order. ``table`` is
+    one of the three literals below, never input."""
     rows = execute(
-        "SELECT code, label FROM submission_status_kind ORDER BY sort_order, code",
+        f"SELECT code, label FROM {table} ORDER BY sort_order, code",
         {}, connection="WORKBENCH",
     )
     return [(row["code"], row["label"]) for row in rows]
 
 
+def status_kinds() -> list[tuple[str, str]]:
+    """Modeling statuses, for the list's status filter (Article 4)."""
+    return _kinds("submission_status_kind")
+
+
+def treaty_type_kinds() -> list[tuple[str, str]]:
+    """The maintained treaty-type list, for the form and every treaty-type
+    filter (FR-012)."""
+    return _kinds("treaty_type_kind")
+
+
+def contract_status_kinds() -> list[tuple[str, str]]:
+    """Contract statuses — Won, Lost, Open (T-01)."""
+    return _kinds("contract_status_kind")
+
+
 def find_similar(
-    *, name: str, cedant_name: str, treaty_type_code: str, inception_date: Any,
-    exclude_id: Any = None,
+    *, name: str, cedant_name: str,
+    contract_terms: Sequence[tuple[str, Any]] = (), exclude_id: Any = None,
 ) -> list[SubmissionRow]:
-    """Look-alikes: same ``name`` OR same (cedant + treaty_type + inception)
-    (FR-004/R4). ``exclude_id`` skips the row being renamed. Never raises."""
+    """Look-alikes: same ``name``, OR same cedant with a contract of the same
+    treaty type and inception as one of ``contract_terms`` (FR-004/R4). A deal
+    with no contract is compared on its name alone. ``exclude_id`` skips the row
+    being renamed. Never raises."""
+    clauses = ["s.name = :name"]
+    params: dict[str, Any] = {"name": name, "cedant": cedant_name}
+    for index, (treaty_type_code, inception_date) in enumerate(contract_terms):
+        clauses.append(
+            "(s.cedant_name = :cedant AND EXISTS (SELECT 1 FROM contract c "
+            f"WHERE c.submission_id = s.id AND c.treaty_type_code = :tt{index} "
+            f"AND c.inception_date = :inc{index}))")
+        params[f"tt{index}"] = treaty_type_code
+        params[f"inc{index}"] = _as_date(inception_date)
     return _submission_rows(
-        ["""(s.name = :name
-             OR (s.cedant_name = :cedant AND s.treaty_type_code = :tt
-                 AND s.inception_date = :inc))"""],
-        {
-            "name": name,
-            "cedant": cedant_name,
-            "tt": treaty_type_code,
-            "inc": _as_date(inception_date),
-        },
-        exclude_id=exclude_id,
-    )
+        ["(" + " OR ".join(clauses) + ")"], params, exclude_id=exclude_id)
 
 
 # Both typeahead searches ignore a term this short. `%a%` matches most of the
@@ -876,7 +1197,7 @@ def search_submissions_global(term: str, *, limit: int = 10) -> list[SubmissionR
     like = f"%{_escape_like(trimmed)}%"
     clauses = [
         "(s.name LIKE :q ESCAPE '\\' OR s.cedant_name LIKE :q ESCAPE '\\' "
-        "OR EXISTS (SELECT 1 FROM submission_crm_id c "
+        "OR EXISTS (SELECT 1 FROM contract c "
         "WHERE c.submission_id = s.id AND c.crm_id LIKE :q ESCAPE '\\'))"
     ]
     return _submission_rows(clauses, {"q": like}, limit=limit)
@@ -885,8 +1206,8 @@ def search_submissions_global(term: str, *, limit: int = 10) -> list[SubmissionR
 # ── Edit / reassign (gated + concurrency-checked) ────────────────────────────
 
 _MUTABLE_FIELDS = (
-    "name", "cedant_name", "treaty_type_code", "inception_date",
-    "treaty_year", "links_to_submission_id", "directory_path",
+    "name", "cedant_name", "client_id", "data_vintage", "treaty_year",
+    "links_to_submission_id", "directory_path",
 )
 
 
@@ -896,13 +1217,14 @@ def update_submission(
 ) -> UpdateResult:
     """Edit mutable fields, gated by R3 (ACTIVE) + R1 (concurrency) + R9
     (self-link, and a ``links_to_submission_id`` naming no submission) + R4
-    (non-blocking duplicate warning on rename).
+    (non-blocking duplicate warning on rename). Contracts are edited through
+    ``add_contract`` / ``update_contract`` / ``remove_contract``.
 
-    ``treaty_year`` is refilled from the inception year whenever the merged value
-    is None (CR5) — the column does not record "no treaty year"."""
+    ``treaty_year`` is refilled from the earliest contract inception whenever
+    the merged value is None (P-20)."""
     sid = str(submission_id)
     current = execute_one(
-        "SELECT status_code, name, cedant_name, treaty_type_code, inception_date, "
+        "SELECT status_code, name, cedant_name, client_id, data_vintage, "
         "treaty_year, links_to_submission_id, directory_path "
         "FROM submission WHERE id = :id",
         {"id": sid}, connection="WORKBENCH",
@@ -915,10 +1237,10 @@ def update_submission(
     for f in _MUTABLE_FIELDS:
         if f in fields:
             merged[f] = fields[f]
-    merged["inception_date"] = _as_date(merged["inception_date"])
+    merged["data_vintage"] = _as_date(merged["data_vintage"])
+    contracts = list_contracts(sid)
     merged["treaty_year"] = _default_treaty_year(
-        merged["treaty_year"], merged["inception_date"]
-    )
+        merged["treaty_year"], [c.inception_date for c in contracts])
 
     # Resolve first, self-link second: a submission's own id always exists, so
     # linking to itself must report SelfLinkError, not "not found".
@@ -928,8 +1250,8 @@ def update_submission(
 
     matches = find_similar(
         name=merged["name"], cedant_name=merged["cedant_name"],
-        treaty_type_code=merged["treaty_type_code"],
-        inception_date=merged["inception_date"], exclude_id=sid,
+        contract_terms=[(c.treaty_type_code, c.inception_date) for c in contracts],
+        exclude_id=sid,
     )
     if matches and not confirmed:
         return UpdateResult(updated=False, warnings=matches)
@@ -937,8 +1259,8 @@ def update_submission(
     rows_affected = execute_command(
         """
         UPDATE submission
-        SET name = :name, cedant_name = :cedant, treaty_type_code = :tt,
-            inception_date = :inc, treaty_year = :ty,
+        SET name = :name, cedant_name = :cedant, client_id = :client,
+            data_vintage = :vintage, treaty_year = :ty,
             links_to_submission_id = :lt, directory_path = :dir,
             updated_at = :now, updated_by = :actor
         WHERE id = :id AND updated_at = :expected
@@ -946,8 +1268,8 @@ def update_submission(
         {
             "name": merged["name"],
             "cedant": merged["cedant_name"],
-            "tt": merged["treaty_type_code"],
-            "inc": merged["inception_date"],
+            "client": merged["client_id"],
+            "vintage": merged["data_vintage"],
             "ty": merged["treaty_year"],
             "lt": links_to,
             "dir": merged["directory_path"],
@@ -994,18 +1316,22 @@ def reassign_owner(
         )
 
 
-# ── Status lifecycle (event-sourced) ─────────────────────────────────────────
+# ── Modeling status (event-sourced) ─────────────────────────────────────────
 
-def set_status(
-    *, submission_id: Any, to_status: str, reason: str | None,
+def set_statuses(
+    *, submission_id: Any, modeling_status: str, reason: str | None = None,
     expected_updated_at: Any, actor_id: Any,
 ) -> None:
-    """Transition to ACTIVE / COMPLETED / CANCELLED. No precondition (FR-012);
-    reopen from either closed state is an ordinary transition (FR-011); a
-    same-status set is a recorded no-op, never an error. One transaction (R2):
-    UPDATE cached status_code (with the R1 concurrency check) + INSERT event.
-    There is NO delete function (FR-014)."""
+    """The deal's Modeling status, event-sourced (R2): the cached ``status_code``
+    and the ``submission_status_event`` row are written together under the R1
+    marker. No transition is refused (FR-011, FR-012) and a same-status set is
+    a recorded no-op; there is no delete (FR-014). ``ValueError`` on a code that
+    is not in the kind table. Contract status is ``set_contract_status``."""
+    if modeling_status not in {code for code, _ in status_kinds()}:
+        raise ValueError(f"unknown Modeling status {modeling_status!r}")
     sid = str(submission_id)
+    if _load_status(sid) is None:
+        raise LookupError(f"submission {sid} not found")
     now = _utcnow()
     actor = str(actor_id)
     with get_connection("WORKBENCH") as conn:
@@ -1016,10 +1342,8 @@ def set_status(
                 SET status_code = :s, updated_at = :now, updated_by = :actor
                 WHERE id = :id AND updated_at = :expected
                 """
-            ), {
-                "s": to_status, "now": now, "actor": actor,
-                "id": sid, "expected": expected_updated_at,
-            }).rowcount
+            ), {"s": modeling_status, "now": now, "actor": actor, "id": sid,
+                "expected": expected_updated_at}).rowcount
             if rows_affected == 0:
                 raise ConcurrencyConflict(
                     "This deal changed since you opened it — reload and re-apply."
@@ -1031,7 +1355,7 @@ def set_status(
                 VALUES (:eid, :sid, :s, :reason, :now, :actor)
                 """
             ), {
-                "eid": str(uuid.uuid4()), "sid": sid, "s": to_status,
+                "eid": str(uuid.uuid4()), "sid": sid, "s": modeling_status,
                 "reason": reason, "now": now, "actor": actor,
             })
 
@@ -1064,56 +1388,134 @@ def get_status_history(submission_id: Any) -> list[StatusEvent]:
     ]
 
 
-# ── CRM tags (gated; append-only inserts) ────────────────────────────────────
+# ── Contracts (attributes gated on Active; status in place, ungated) ─────────
 
-def add_crm_id(*, submission_id: Any, crm_id: str, actor_id: Any) -> str:
-    """Add a free-text CRM tag to an ACTIVE deal. Blank/whitespace is rejected
-    (not stored); no format validation. Re-adding a tag the deal already carries
-    (case-insensitive) is a silent no-op — the existing tag id comes back."""
-    cleaned_crm_id = (crm_id or "").strip()
-    if not cleaned_crm_id:
-        raise ValueError("crm_id is blank")
-    _require_active(_load_status(submission_id))
-    for existing in list_crm_ids(submission_id):
-        if existing.crm_id.casefold() == cleaned_crm_id.casefold():
-            return str(existing.id)
-    new_tag_id = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO submission_crm_id (id, submission_id, crm_id, inserted_at, "
-        "inserted_by) VALUES (:id, :sid, :c, :now, :by)",
-        {"id": new_tag_id, "sid": str(submission_id), "c": cleaned_crm_id,
-         "now": _utcnow(), "by": str(actor_id)},
-        connection="WORKBENCH",
-    )
-    return new_tag_id
-
-
-def remove_crm_id(*, crm_tag_id: Any, actor_id: Any) -> None:
-    row = execute_one(
-        "SELECT submission_id FROM submission_crm_id WHERE id = :id",
-        {"id": str(crm_tag_id)}, connection="WORKBENCH",
-    )
-    if row is None:
-        return
-    _require_active(_load_status(row["submission_id"]))
-    execute_command(
-        "DELETE FROM submission_crm_id WHERE id = :id",
-        {"id": str(crm_tag_id)}, connection="WORKBENCH",
-    )
-
-
-def list_crm_ids(submission_id: Any) -> list[CrmTag]:
+def list_contracts(submission_id: Any) -> list[Contract]:
+    """The deal's contracts, oldest first (data-model.md §3)."""
     rows = execute(
-        "SELECT id, submission_id, crm_id, inserted_at FROM submission_crm_id "
-        "WHERE submission_id = :id ORDER BY inserted_at, id",
+        "SELECT c.id, c.submission_id, c.crm_id, c.treaty_type_code, "
+        "tk.label AS treaty_type_label, c.inception_date, c.expiration_date, "
+        "c.contract_status_code, ck.label AS contract_status_label, "
+        "c.inserted_at, c.updated_at "
+        "FROM contract c "
+        "LEFT JOIN treaty_type_kind tk ON tk.code = c.treaty_type_code "
+        "LEFT JOIN contract_status_kind ck ON ck.code = c.contract_status_code "
+        "WHERE c.submission_id = :id ORDER BY c.inserted_at, c.id",
         {"id": str(submission_id)}, connection="WORKBENCH",
     )
     return [
-        CrmTag(
+        Contract(
             id=_uid(row["id"]),
             submission_id=_uid(row["submission_id"]),
             crm_id=row["crm_id"],
+            treaty_type_code=row["treaty_type_code"],
+            treaty_type_label=row.get("treaty_type_label"),
+            inception_date=row["inception_date"],
+            expiration_date=row["expiration_date"],
+            contract_status_code=row["contract_status_code"],
+            contract_status_label=row.get("contract_status_label"),
             inserted_at=row["inserted_at"],
+            updated_at=row["updated_at"],
         )
         for row in rows
     ]
+
+
+def _contract_submission(contract_id: Any) -> str:
+    sid = execute_scalar(
+        "SELECT submission_id FROM contract WHERE id = :id",
+        {"id": str(contract_id)}, connection="WORKBENCH",
+    )
+    if sid is None:
+        raise LookupError(f"contract {contract_id} not found")
+    return str(sid)
+
+
+def add_contract(*, submission_id: Any, contract: ContractInput, actor_id: Any) -> str:
+    """One more contract on an ACTIVE deal (FR-004), validated by
+    ``_prepare_contracts`` against the deal's contracts and every other
+    submission's; returns the new id."""
+    sid = str(submission_id)
+    _require_active(_load_status(sid))
+    [row] = _prepare_contracts([contract], existing=list_contracts(sid))
+    new_id = str(uuid.uuid4())
+    try:
+        execute_command(
+            _CONTRACT_INSERT,
+            {**row, "id": new_id, "sid": sid, "now": _utcnow(), "actor": str(actor_id)},
+            connection="WORKBENCH",
+        )
+    except Exception as exc:
+        _reraise_if_taken(exc, [row])
+    return new_id
+
+
+def update_contract(
+    *, contract_id: Any, contract: ContractInput, expected_updated_at: Any,
+    actor_id: Any,
+) -> None:
+    """A contract's CRM ID, treaty type and term, in place under its R1 marker;
+    gated on the deal being Active. The status field of ``contract`` is ignored:
+    ``set_contract_status`` owns it."""
+    cid = _uid(contract_id)
+    sid = _contract_submission(cid)
+    _require_active(_load_status(sid))
+    [row] = _prepare_contracts(
+        [contract], existing=list_contracts(sid), editing_id=cid)
+    try:
+        rows_affected = execute_command(
+            """
+            UPDATE contract
+            SET crm_id = :crm_id, treaty_type_code = :tt, inception_date = :inc,
+                expiration_date = :exp, updated_at = :now, updated_by = :actor
+            WHERE id = :id AND updated_at = :expected
+            """,
+            {"crm_id": row["crm_id"], "tt": row["tt"], "inc": row["inc"],
+             "exp": row["exp"], "now": _utcnow(), "actor": str(actor_id),
+             "id": cid, "expected": expected_updated_at},
+            connection="WORKBENCH",
+        )
+    except Exception as exc:
+        _reraise_if_taken(exc, [row], exclude_contract_id=cid)
+    if rows_affected == 0:
+        raise ConcurrencyConflict(
+            "This contract changed since you opened it — reload and re-apply.")
+
+
+def set_contract_status(
+    *, contract_id: Any, to_status: str, expected_updated_at: Any, actor_id: Any,
+) -> None:
+    """Won / Lost / Open on one contract, set in place in every Modeling
+    status with no event and no reason (P-02, P-12; Article 4 "other status").
+    ``ValueError`` on a code that is not in the kind table."""
+    if to_status not in {code for code, _ in contract_status_kinds()}:
+        raise ValueError(f"unknown contract status {to_status!r}")
+    cid = _uid(contract_id)
+    _contract_submission(cid)
+    rows_affected = execute_command(
+        """
+        UPDATE contract
+        SET contract_status_code = :status, updated_at = :now, updated_by = :actor
+        WHERE id = :id AND updated_at = :expected
+        """,
+        {"status": to_status, "now": _utcnow(), "actor": str(actor_id),
+         "id": cid, "expected": expected_updated_at},
+        connection="WORKBENCH",
+    )
+    if rows_affected == 0:
+        raise ConcurrencyConflict(
+            "This contract changed since you opened it — reload and re-apply.")
+
+
+def remove_contract(*, contract_id: Any, actor_id: Any) -> None:
+    """Delete one contract of an ACTIVE deal; its status and dates go with it
+    (FR-004). A contract that is already gone is a no-op."""
+    try:
+        sid = _contract_submission(contract_id)
+    except LookupError:
+        return
+    _require_active(_load_status(sid))
+    execute_command(
+        "DELETE FROM contract WHERE id = :id",
+        {"id": str(contract_id)}, connection="WORKBENCH",
+    )

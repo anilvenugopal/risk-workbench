@@ -37,7 +37,7 @@ def _clear_tables() -> None:
         for table in ("stage.rwb_loss_result_elt_data", "stage.rwb_loss_result_file",
                       "stage.rwb_loss_result_manifest", "dbo.RMS_HistoricalRDS",
                       "dbo.RMSELT", "dbo.Data", "dbo.Lookup_RMS_HistoricalRDS",
-                      "dbo.Client"):
+                      "dbo.Client", "dbo.CRMContractStatus"):
             conn.execute(text(f"DELETE FROM {table}"))
         conn.execute(text(
             "INSERT INTO dbo.Client (ClientID, ClientName, ActiveFlag) "

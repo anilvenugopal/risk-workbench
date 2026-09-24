@@ -75,16 +75,21 @@ def main() -> int:
             """))
             print("  [submission_status_kind] seeds OK")
 
-            # treaty_type_kind seeds (idempotent via MERGE) — FR-030 (provisional)
+            # treaty_type_kind seeds (idempotent via MERGE) — CIC's eleven (spec 017 FR-012)
             conn.execute(text("""
                 MERGE treaty_type_kind AS target
                 USING (VALUES
-                    ('cat_xol',       'Cat XoL',      10),
-                    ('quota_share',   'Quota Share',  20),
-                    ('surplus',       'Surplus',      30),
-                    ('per_risk_xol',  'Per-Risk XoL', 40),
-                    ('aggregate_xol', 'Aggregate XoL', 50),
-                    ('stop_loss',     'Stop Loss',    60)
+                    ('aggregate_xol',                          'Aggregate XOL',                             10),
+                    ('aggregate_cat_xol',                      'Aggregate Cat XOL',                         20),
+                    ('risk_aggregate_xol',                     'Risk Aggregate XOL',                        30),
+                    ('per_occurrence_xol',                     'Per Occurrence XOL',                        40),
+                    ('per_occurrence_cat_xol',                 'Per Occurrence Cat XOL',                    50),
+                    ('per_risk_xol',                           'Per Risk XOL',                              60),
+                    ('stop_loss',                              'Stop Loss',                                 70),
+                    ('reinstatement_premium_protection',       'Reinstatement Premium Protection',          80),
+                    ('second_third_fourth_event_risk_exposed', 'Second/Third/Fourth Event - Risk Exposed',  90),
+                    ('top_and_drop',                           'Top & Drop',                               100),
+                    ('top_and_aggregate',                      'Top & Aggregate',                          110)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN

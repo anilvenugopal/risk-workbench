@@ -37,6 +37,7 @@ from app.services import (
     name_check,
     portfolio_service,
     rwb_job_service,
+    submission_service,
     treaty_service,
 )
 from app.services._common import (
@@ -308,14 +309,17 @@ _ROW_SELECT = (
 )
 
 
-def list_edms(*, name: str | None = None,
-              status: str | None = None) -> list[EdmRow]:
+def list_edms(*, name: str | None = None, status: str | None = None,
+              submission_filters: dict[str, Any] | None = None) -> list[EdmRow]:
     """Every EDM in the library, optionally filtered. NO row scoping
     (FR-037 / Article 6) — all analysts see all EDMs. Soft-deleted rows excluded.
 
     ``name`` narrows by case-insensitive substring (``LIKE`` — case-insensitive on
     SQL Server's default collation and on SQLite for ASCII); ``status`` narrows to the
     exact import status; both combine with AND; blank/``None`` are no-ops (US7 / T058).
+    ``submission_filters`` (contracts/routes.md §5, spec 017) keeps an EDM only
+    when one of its linked submissions satisfies every filter together; with
+    none set, EDMs linked to no submission stay listed (FR-016).
     Each returned row's ``.submissions`` is set to its owning submissions (oldest-first)."""
     where = "WHERE deleted_at IS NULL"
     params: dict[str, Any] = {}
@@ -325,6 +329,16 @@ def list_edms(*, name: str | None = None,
     if status:
         where += " AND status = :status"
         params["status"] = status
+    if submission_service.has_submission_filters(submission_filters):
+        # One EXISTS, ANDing every clause against one linked submission at a
+        # time: FR-016's "one linked submission satisfies every filter together".
+        clauses, sub_params = submission_service.submission_filter_clauses(
+            submission_filters, alias="s")
+        where += (
+            " AND EXISTS (SELECT 1 FROM submission_edm a JOIN submission s "
+            "ON s.id = a.submission_id WHERE a.edm_id = irp_edm.id AND "
+            + " AND ".join(clauses) + ")")
+        params |= sub_params
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]

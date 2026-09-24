@@ -19,8 +19,7 @@ from db import execute_command
 
 def _submission(db, name: str) -> str:
     return submission_service.create_submission(
-        name=name, cedant_name=name, treaty_type_code="cat_xol",
-        inception_date="2026-01-01", treaty_year=2026,
+        name=name, cedant_name=name, treaty_year=2026,
         actor_id=db.user_a, confirmed=True).submission_id
 
 

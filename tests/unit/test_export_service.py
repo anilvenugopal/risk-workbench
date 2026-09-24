@@ -175,12 +175,6 @@ def test_find_exported_names_the_newest_export_and_counts_the_earlier_ones(deal)
     assert svc.find_exported([41958], "RL") == {}
 
 
-def test_list_clients_is_every_client_by_name(deal):
-    seed_client(2, "Alpha Mutual", "Y")
-    seed_client(3, "Retired", "N")
-    assert [c.name for c in svc.list_clients()] == ["Alpha Mutual", "Example Re", "Retired"]
-
-
 def test_model_version_choices_newest_first_from_the_lookup(deal):
     seed_lookup_versions("HDv2.1")
     assert svc.model_version_choices() == ["25.0", "23.0", "HDv2.1"]
@@ -229,12 +223,11 @@ def test_create_export_records_the_approved_values_and_enqueues_submit(deal, mon
 
 def test_create_export_never_writes_back_to_the_submission(deal):
     _create(deal, [deal["a"]], crm_id="CRM-changed", treaty_incept=date(2027, 1, 1))
-    sub = execute_one("SELECT inception_date FROM submission WHERE id = :s",
-                      {"s": deal["submission_id"]}, connection="WORKBENCH")
-    tags = execute("SELECT crm_id FROM submission_crm_id WHERE submission_id = :s",
-                   {"s": deal["submission_id"]}, connection="WORKBENCH")
-    assert sub["inception_date"] == "2026-04-01"
-    assert [t["crm_id"] for t in tags] == ["CRM-1"]
+    contracts = execute(
+        "SELECT crm_id, inception_date FROM contract WHERE submission_id = :s",
+        {"s": deal["submission_id"]}, connection="WORKBENCH")
+    assert [(c["crm_id"], c["inception_date"]) for c in contracts] == [
+        ("CRM-1", "2026-04-01")]
 
 
 @pytest.mark.parametrize("overrides, message", [

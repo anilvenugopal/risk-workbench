@@ -90,12 +90,10 @@ def test_delete_by_submission_frees_the_name_of_an_analysis_and_a_group(
             ), {"id": analyst_id, "email": f"del_{analyst_id[:8]}@example.com"})
             conn.execute(text(
                 "INSERT INTO submission (id, assigned_analyst_id, name, "
-                "cedant_name, treaty_type_code, inception_date, status_code) "
-                "VALUES (:id, :analyst, :name, 'Cedant', 'cat_xol', :inception, "
-                "'ACTIVE')"
+                "cedant_name, status_code) "
+                "VALUES (:id, :analyst, :name, 'Cedant', 'ACTIVE')"
             ), {"id": submission_id, "analyst": analyst_id,
-                "name": f"Delete deal {submission_id}",
-                "inception": datetime.now(timezone.utc).date()})
+                "name": f"Delete deal {submission_id}"})
             conn.execute(text(
                 "INSERT INTO submission_edm (submission_id, edm_id) "
                 "VALUES (:s, :e)"), {"s": submission_id, "e": edm_id})
