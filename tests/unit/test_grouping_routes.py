@@ -711,7 +711,9 @@ def test_finish_stops_when_the_members_cannot_be_grouped(
     assert "data-inspection-ready" not in response.text
 
 
-def test_finish_stops_without_an_env_vintage_default(iteration2_db, fake_irp):
+def test_finish_stops_without_an_env_vintage_default(iteration2_db, fake_irp, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "default_analysis_currency_vintage", "")
     ctx = _seeded_submission()
 
     response = _finish(_client(), ctx)

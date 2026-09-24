@@ -35,6 +35,20 @@ DEFAULT_ROWS = [
     {"EventId": 3001, "Loss": 500.0, "StdDevI": 3.0, "StdDevC": 4.0, "ExpValue": 600.0},
 ]
 
+# A treaty-level (TY) table (spec 016 research R1): the CSV sample's columns,
+# one row per treaty and event. Two per-risk layers sharing the same events.
+TY_COLUMNS = ("TreatyId", "TreatyNum", "TreatyName", "EventId", "Rate", "Loss",
+              "StdDevI", "StdDevC", "ExpValue")
+TY_ROWS = [
+    {"TreatyId": 33833, "TreatyNum": "PR1", "TreatyName": "PR1", **row}
+    for row in DEFAULT_ROWS
+] + [
+    {"TreatyId": 33832, "TreatyNum": "PR2", "TreatyName": "Layer two",
+     "EventId": 1001, "Loss": 40.0, "StdDevI": 2.0, "StdDevC": 3.0, "ExpValue": 80.0},
+    {"TreatyId": 33832, "TreatyNum": "PR2", "TreatyName": "Layer two",
+     "EventId": 3001, "Loss": 60.0, "StdDevI": 1.0, "StdDevC": 4.0, "ExpValue": 90.0},
+]
+
 
 def _parquet_bytes(rows: Sequence[dict], columns: Sequence[str]) -> bytes:
     n = len(rows)
@@ -55,6 +69,24 @@ def _parquet_bytes(rows: Sequence[dict], columns: Sequence[str]) -> bytes:
     return sink.getvalue()
 
 
+def _ty_parquet_bytes(rows: Sequence[dict], columns: Sequence[str]) -> bytes:
+    data: dict[str, Any] = {
+        "TreatyId": pa.array([None if r["TreatyId"] is None else int(r["TreatyId"])
+                              for r in rows], pa.int32()),
+        "TreatyNum": pa.array([r["TreatyNum"] for r in rows], pa.string()),
+        "TreatyName": pa.array([r["TreatyName"] for r in rows], pa.string()),
+        "EventId": pa.array([int(r["EventId"]) for r in rows], pa.int32()),
+        "Rate": pa.array([float(r.get("Rate", 0.001)) for r in rows], pa.float64()),
+        "Loss": pa.array([float(r["Loss"]) for r in rows], pa.float64()),
+        "StdDevI": pa.array([float(r["StdDevI"]) for r in rows], pa.float64()),
+        "StdDevC": pa.array([float(r["StdDevC"]) for r in rows], pa.float64()),
+        "ExpValue": pa.array([float(r["ExpValue"]) for r in rows], pa.float64()),
+    }
+    sink = io.BytesIO()
+    pq.write_table(pa.table({c: data[c] for c in columns}), sink)
+    return sink.getvalue()
+
+
 def build_archive(
     dest_dir: Path, *,
     job_id: int = 25437617, analysis_name: str = "CRE_Port_Template",
@@ -63,14 +95,23 @@ def build_archive(
     perspectives: Sequence[str] = ("GR",),
     rows: Sequence[dict] | None = None, chunks: int = 1,
     metadata: bool = True, columns: Sequence[str] = ELT_COLUMNS,
+    output_level: str = "Portfolio", treaty_rows: Sequence[dict] | None = None,
 ) -> Path:
     """Write ``{job_id}_{analysis_name}_Losses.zip`` under ``dest_dir`` and return
     its path. Knobs: ``metadata=False`` omits metadata.csv; ``loss_table`` names
     the loss-table folder (``PLT`` or an unknown name); extra ``perspectives``
     add sibling perspective folders; ``rows=[]`` writes empty Parquet files;
     ``columns`` drops or renames Parquet columns; ``chunks`` splits the rows
-    across ``_0.._n`` files."""
+    across ``_0.._n`` files. ``output_level="Treaty"`` writes the treaty-level
+    layout instead — one ``Treaty/TY`` folder holding ``treaty_rows`` (default
+    ``TY_ROWS``) with the ``TY_COLUMNS`` (or ``columns`` when given) — and
+    ``perspectives`` then only fills ``PerspCodes`` in metadata.csv."""
     rows = DEFAULT_ROWS if rows is None else list(rows)
+    treaty = output_level == "Treaty"
+    if treaty:
+        rows = TY_ROWS if treaty_rows is None else list(treaty_rows)
+        if columns is ELT_COLUMNS:
+            columns = TY_COLUMNS
     top = f"{job_id}_{analysis_name}_Losses"
     dest_dir.mkdir(parents=True, exist_ok=True)
     path = dest_dir / f"{top}.zip"
@@ -79,17 +120,19 @@ def build_archive(
             out = io.StringIO()
             writer = csv.writer(out)
             writer.writerow(["AnlsId", "AnalysisName", "AnalysisCurrency", "Engine Type",
-                             "ModelVersion", "Peril", "Region", "PerspCodes"])
+                             "ModelVersion", "Peril", "Region", "PerspCodes",
+                             "Granularities"])
             writer.writerow([anls_id, analysis_name, currency, engine_type, "25.0",
-                             "Earthquake", "NAEQ", ",".join(perspectives)])
+                             "Earthquake", "NAEQ", ",".join(perspectives), output_level])
             archive.writestr(f"{top}/{loss_table}/metadata.csv", out.getvalue())
-        for perspective in perspectives:
+        folders = ["TY"] if treaty else list(perspectives)
+        for perspective in folders:
             for chunk in range(chunks):
                 chunk_rows = rows[chunk::chunks]
                 archive.writestr(
-                    f"{top}/{loss_table}/Portfolio/{perspective}/"
-                    f"{job_id}_{analysis_name}_{loss_table}_Portfolio_{perspective}_{chunk}.parquet",
-                    _parquet_bytes(chunk_rows, columns))
+                    f"{top}/{loss_table}/{output_level}/{perspective}/"
+                    f"{job_id}_{analysis_name}_{loss_table}_{output_level}_{perspective}_{chunk}.parquet",
+                    (_ty_parquet_bytes if treaty else _parquet_bytes)(chunk_rows, columns))
     return path
 
 

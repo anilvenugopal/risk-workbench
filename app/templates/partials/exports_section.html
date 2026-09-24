@@ -1,11 +1,11 @@
-{# The exports table (contracts/routes.md §5): one row per analysis of every
-   export requested from this submission, newest export first. Every row
-   repeats its export's columns on the right; the # column is the export's
-   ordinal and a heavier rule opens each export's block. The four selects
-   filter the rows, and the values in force ride on the poll, Retry, and Close
-   URLs. Polls every 10s only while some analysis is not terminal. Retry and
-   Close re-render the whole section, with `action_message` when one was
-   refused (§7, §8). #}
+{# The exports table (contracts/routes.md §5): one row per manifest row of
+   every export requested from this submission — an analysis, or one treaty of
+   an analysis at TY (spec 016 P-09) — newest export first. Every row repeats
+   its export's columns on the right; the # column is the export's ordinal and a
+   heavier rule opens each export's block. The four selects filter the rows, and
+   the values in force ride on the poll, Retry, and Close URLs. Polls every 10s
+   only while some row is not terminal. Retry and Close re-render the whole
+   section, with `action_message` when one was refused (§7, §8). #}
 {% import "partials/export_row_macros.html" as rows_macros %}
 {% macro filter_select(name, all_label, options, current, labels=none) -%}
 <select name="{{ name }}" class="wf-field__input" style="width:auto"
@@ -48,56 +48,60 @@
   {% if rows %}
   <div class="dtable-shell">
     <div class="dtable dtable--wraphead export-analyses"
-         style="--cols: 44px minmax(300px,2fr) 70px 125px 80px minmax(150px,1fr) 90px 80px 60px 70px 90px 90px 90px 100px 100px 80px 170px 70px 90px 90px minmax(140px,1fr) 110px 110px 110px minmax(190px,1.3fr) 170px 130px; min-width: 3015px">
+         style="--cols: 44px minmax(300px,2fr) 150px 60px 100px 70px 90px 80px 90px 125px 80px minmax(150px,1fr) 90px 90px 90px 90px 90px 100px 100px 80px 100px minmax(140px,1.3fr) 110px 110px 110px minmax(190px,1.3fr) 190px 190px 130px; min-width: 3355px">
       <div class="dtable__head">
-        <span class="l">#</span><span class="l">Analysis</span><span class="l">Origin</span>
-        <span class="l">Status</span><span class="l">Data ID</span><span class="l">Data name</span>
-        <span class="l">AAL</span><span class="l">Currency</span><span class="l">Peril</span>
-        <span class="l">Region</span><span class="l">Staged</span><span class="l">Stochastic</span>
-        <span class="l">Historical</span><span class="l">Exposure raised</span>
-        <span class="l">Std dev zeroed</span><span class="l">RM id</span><span class="l">Last updated</span>
-        <span class="l">Engine</span><span class="l">Model version</span><span class="l">Perspective</span>
-        <span class="l">Client</span><span class="l">CRM ID</span><span class="l">Treaty inception</span>
-        <span class="l">Data vintage</span><span class="l">Requested by</span><span class="l">Requested at</span>
+        <span class="l">#</span><span class="l">Analysis</span><span class="l">Treaty</span>
+        <span class="l">Origin</span><span class="l">Engine</span><span class="l">Peril</span>
+        <span class="l">Region</span><span class="l">Currency</span><span class="l">AAL</span>
+        <span class="l">Status</span>
+        <span class="l">Data ID</span><span class="l">Data name</span><span class="l">Perspective</span>
+        <span class="l">Model version</span>
+        <span class="l">Staged</span><span class="l">Stochastic</span><span class="l">Historical</span>
+        <span class="l">Exposure raised</span><span class="l">Std dev zeroed</span>
+        <span class="l">RM id</span><span class="l">Archive engine</span><span class="l">Client</span>
+        <span class="l">CRM ID</span><span class="l">Treaty inception</span><span class="l">Data vintage</span>
+        <span class="l">Requested by</span><span class="l">Requested at</span><span class="l">Last updated</span>
         <span class="l"></span>
       </div>
       {% for a in shown %}
       <div class="drow-static export-analysis{% if loop.changed(a.export_id) %} export-analysis--first{% endif %}"
-           id="export-analysis-{{ a.export_id }}-{{ a.irp_analysis_id }}">
+           id="export-analysis-{{ a.export_id }}-{{ a.manifest_id }}">
         <span class="l export-ordinal">#{{ a.export_ordinal }}</span>
         <span class="l"><span class="dt-title" title="{{ a.analysis_name }}">{{ a.analysis_name }}</span></span>
+        <span class="l" title="{{ 'Treaty IDs ' ~ a.treaty_ids|join(', ') if a.treaty_ids else '' }}">{{ a.treaty_label or '—' }}</span>
         <span class="l">{{ a.origin }}</span>
+        <span class="l">{{ a.engine or '—' }}</span>
+        <span class="l">{{ a.peril_code or '—' }}</span>
+        <span class="l">{{ a.region_code or '—' }}</span>
+        <span class="l">{{ a.data_currency or '—' }}</span>
+        <span class="l" title="{{ a.aal }}">{{ a.aal_display }}</span>
         <span class="l">{{ rows_macros.status_chip(a.status) }}</span>
         <span class="l">{{ a.data_id if a.data_id is not none else '—' }}</span>
         <span class="l" title="{{ a.data_name or '' }}">{{ a.data_name or '—' }}</span>
-        <span class="l" title="{{ a.aal }}">{{ a.aal_display }}</span>
-        <span class="l">{{ a.data_currency or '—' }}</span>
-        <span class="l">{{ a.peril_code or '—' }}</span>
-        <span class="l">{{ a.region_code or '—' }}</span>
+        <span class="l">{{ a.perspective_code }}</span>
+        <span class="l">{{ a.data_model_version or '—' }}</span>
         <span class="l">{{ '{:,}'.format(a.staged_row_count) if a.staged_row_count is not none else '—' }}</span>
         <span class="l">{{ '{:,}'.format(a.stochastic_row_count) if a.stochastic_row_count is not none else '—' }}</span>
         <span class="l">{{ '{:,}'.format(a.historical_row_count) if a.historical_row_count is not none else '—' }}</span>
         <span class="l">{{ '{:,}'.format(a.exp_value_raised_count) if a.exp_value_raised_count is not none else '—' }}</span>
         <span class="l">{{ '{:,}'.format(a.std_dev_zeroed_count) if a.std_dev_zeroed_count is not none else '—' }}</span>
         <span class="l">{{ a.irp_app_analysis_id if a.irp_app_analysis_id is not none else '—' }}</span>
-        <span class="l"><time data-utc="{{ a.updated_at }}" title="{{ a.updated_at }} UTC">{{ a.updated_at }}</time></span>
         <span class="l">{{ a.engine_type or '—' }}</span>
-        <span class="l">{{ a.data_model_version or '—' }}</span>
-        <span class="l">{{ a.perspective_code }}</span>
         <span class="l">{{ a.client_name or '—' }}</span>
         <span class="l">{{ a.crm_id or '—' }}</span>
         <span class="l">{{ a.treaty_incept }}</span>
         <span class="l">{{ a.data_vintage }}</span>
         <span class="l" title="{{ a.requested_by_email }}">{{ a.requested_by_email }}</span>
         <span class="l"><time data-utc="{{ a.requested_at }}" title="{{ a.requested_at }} UTC">{{ a.requested_at }}</time></span>
+        <span class="l"><time data-utc="{{ a.updated_at }}" title="{{ a.updated_at }} UTC">{{ a.updated_at }}</time></span>
         <span class="l">
           {% if a.can_retry %}
           <span class="export-analysis__actions">
             {% for action, label in [('retry', 'Retry'), ('close', 'Close')] %}
-            <form hx-post="/submissions/{{ submission_id }}/exports/{{ a.export_id }}/analyses/{{ a.irp_analysis_id }}/{{ action }}{{ query }}"
+            <form hx-post="/submissions/{{ submission_id }}/exports/{{ a.export_id }}/manifests/{{ a.manifest_id }}/{{ action }}{{ query }}"
                   hx-target="#submission-exports" hx-swap="outerHTML"
                   hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"
-                  method="post" action="/submissions/{{ submission_id }}/exports/{{ a.export_id }}/analyses/{{ a.irp_analysis_id }}/{{ action }}{{ query }}">
+                  method="post" action="/submissions/{{ submission_id }}/exports/{{ a.export_id }}/manifests/{{ a.manifest_id }}/{{ action }}{{ query }}">
               <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
               <button class="btn-sm" type="submit">{{ label }}</button>
             </form>

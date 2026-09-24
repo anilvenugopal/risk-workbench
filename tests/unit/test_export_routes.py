@@ -44,6 +44,16 @@ def export(client, deal):
     return make_export(client, deal)
 
 
+def _mid(analysis_id: str, export_id: str | None = None):
+    """Rows, Retry, and Close are keyed by manifest row (spec 016 T-06); every
+    export under test has one row per analysis, so the analysis names it."""
+    clause = " AND export_id = :e" if export_id else ""
+    params = {"a": analysis_id} | ({"e": export_id} if export_id else {})
+    row = execute_one("SELECT manifest_id FROM stage.rwb_loss_result_manifest "
+                      f"WHERE irp_analysis_id = :a{clause}", params, connection="LOSS")
+    return row["manifest_id"] if row else 999999
+
+
 # ── Export link ──────────────────────────────────────────────────────────────
 
 def test_export_link_on_the_submission_results_section_only(client, deal):
@@ -189,7 +199,42 @@ def test_form_posts_plainly_so_a_422_rerender_is_shown(client, deal):
     tag = re.search(r'<form[^>]*id="export-form"[^>]*>', page.text).group(0)
     assert "hx-post" not in tag and 'method="post"' in tag
     assert 'x-data="analysisPicks()"' in tag
-    assert ':disabled="!count"' in page.text
+    assert ':disabled="!count || !treatiesOk"' in page.text
+
+
+def test_post_at_ty_writes_one_row_per_ticked_treaty(client, deal):
+    c = seed_analysis(edm_id=deal["edm_id"], name="C", full_name="C long", irp_id="41960",
+                      irp_app_analysis_id="41960", perspectives=("GU", "GR"),
+                      treaties=(("33833", "PR1", "PR1"), ("33832", "PR2", "Layer two")))
+
+    response = _post(client, deal, [c], perspective="TY", **{
+        f"treaty[{c}]": ["PR1", "PR2"],
+        f"treaty_data_name[{c}][PR1]": "AmFam HU 3x2 2026"})
+
+    assert response.status_code == 303
+    rows = execute("SELECT treaty_number, treaty_name, data_name "
+                   "FROM stage.rwb_loss_result_manifest ORDER BY manifest_id", {},
+                   connection="LOSS")
+    assert [(r["treaty_number"], r["treaty_name"], r["data_name"]) for r in rows] == [
+        ("PR1", "PR1", "AmFam HU 3x2 2026"), ("PR2", "Layer two", "C PR2")]
+
+
+def test_post_at_ty_without_a_tick_rerenders_with_the_ticks_it_had(client, deal):
+    c = seed_analysis(edm_id=deal["edm_id"], name="C", full_name="C long", irp_id="41960",
+                      irp_app_analysis_id="41960", perspectives=("GU", "GR"),
+                      treaties=(("33833", "PR1", "PR1"), ("33832", "PR2", "Layer two")))
+    other = seed_analysis(edm_id=deal["edm_id"], name="D", full_name="D long", irp_id="41961",
+                          irp_app_analysis_id="41961", perspectives=("GU", "GR"),
+                          treaties=(("33833", "PR1", "PR1"),))
+
+    response = _post(client, deal, [c, other], perspective="TY",
+                     **{f"treaty[{c}]": "PR2"})
+
+    assert response.status_code == 422
+    assert "Tick at least one treaty for D long." in response.text
+    kept = response.text.split(f'name="treaty[{c}]" value="PR2"')[1].split(">")[0]
+    assert "checked" in kept
+    assert execute("SELECT 1 FROM stage.rwb_loss_result_manifest", {}, connection="LOSS") == []
 
 
 def test_post_over_an_earlier_export_creates_a_second_one(client, deal):
@@ -235,7 +280,7 @@ def test_post_enqueue_failure_redirects_to_failed_rows_with_retry(client, deal, 
 
 def _row(text, export_id, analysis_id):
     return next(chunk for chunk in text.split('id="export-analysis-')
-                if chunk.startswith(f"{export_id}-{analysis_id}"))
+                if chunk.startswith(f"{export_id}-{_mid(analysis_id, export_id)}"))
 
 
 def test_section_renders_queued_rows_with_the_export_columns(client, export):
@@ -290,7 +335,7 @@ def test_rows_show_counts_aal_error_and_stop_polling(client, export):
     assert section.text.count('<span class="l" title="100.0">100</span>') == 2  # AAL per row
     assert "event 1001 matches 2 historical lookup rows" in section.text
     assert section.text.count(">Retry</button>") == 1
-    assert f"exports/{export['export_id']}/analyses/{export['b']}/retry" in section.text
+    assert f"exports/{export['export_id']}/manifests/{_mid(export['b'])}/retry" in section.text
 
 
 def test_section_lists_this_submissions_exports_newest_first_with_ordinals(client, export):
@@ -338,15 +383,15 @@ def test_status_filter_keeps_the_matching_rows(client, export):
     url = export["section"]
 
     failed = client.get(f"{url}?status=failed")
-    assert f'id="export-analysis-{export["export_id"]}-{export["b"]}"' in failed.text
-    assert f'{export["export_id"]}-{export["a"]}"' not in failed.text
+    assert f'id="export-analysis-{export["export_id"]}-{_mid(export["b"])}"' in failed.text
+    assert f'{export["export_id"]}-{_mid(export["a"], export["export_id"])}"' not in failed.text
     assert loaded["export_id"] not in failed.text
     assert '<option value="failed" selected>Failed</option>' in failed.text
     assert 'retry?status=failed"' in failed.text  # Retry comes back to the same filter
     assert f'hx-get="{url}?status=failed" hx-trigger="every 10s"' in failed.text
 
     only_loaded = client.get(f"{url}?status=loaded")
-    assert f'id="export-analysis-{loaded["export_id"]}-{export["a"]}"' in only_loaded.text
+    assert f'id="export-analysis-{loaded["export_id"]}-{_mid(export["a"], loaded["export_id"])}"' in only_loaded.text
     assert export["export_id"] not in only_loaded.text
     # the ordinal is the export's place among all of them, counted before the filter
     assert re.findall(r'export-ordinal">#(\d)', only_loaded.text) == ["2"]
@@ -399,7 +444,7 @@ def test_submission_page_keeps_the_analyses_grid_and_loads_the_exports_section(c
 # ── Retry ────────────────────────────────────────────────────────────────────
 
 def _retry(client, export, analysis_id, htmx=True, query=""):
-    return client.post(f"{export['url']}/analyses/{analysis_id}/retry{query}",
+    return client.post(f"{export['url']}/manifests/{_mid(analysis_id)}/retry{query}",
                        data={"csrf_token": _csrf()},
                        headers={"HX-Request": "true"} if htmx else {})
 
@@ -422,7 +467,7 @@ def test_retry_on_a_failed_row_rearms_submit_and_rerenders_the_polling_section(c
     assert response.status_code == 200
     assert 'id="submission-exports"' in response.text
     assert 'hx-trigger="every 10s"' in response.text
-    assert f'id="export-analysis-{export["export_id"]}-{export["b"]}"' in response.text
+    assert f'id="export-analysis-{export["export_id"]}-{_mid(export["b"])}"' in response.text
     assert ">queued</span>" in response.text and "Retry</button>" not in response.text
     assert rwb_jobs("submit_results_export")[0]["status_code"] == "pending"
     row = manifest_row(manifest_id=execute_one(
@@ -491,7 +536,7 @@ def test_retry_refused_answers_409_with_the_reason_in_the_section(client, export
     assert plain.status_code == 409
 
 
-def test_retry_404s_for_an_analysis_outside_this_export(client, export):
+def test_retry_404s_for_a_row_outside_this_export(client, export):
     response = _retry(client, export, str(uuid.uuid4()))
     assert response.status_code == 404
 

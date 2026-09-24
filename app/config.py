@@ -11,6 +11,11 @@ from typing import Annotated, Literal
 from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+# The treaty-level export (spec 016). It rides in EXPORT_PERSPECTIVE_CODES and in
+# perspective_code, but it is an output level, not a financial perspective; the
+# request is built in app/workers/export_jobs.py.
+TY = "TY"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -127,8 +132,9 @@ class Settings(BaseSettings):
 
     # ── Loss results export (spec 014) ──────────────────────────────────────────
     # Perspective codes the export form may offer, in display order (T-10);
-    # EXPORT_PERSPECTIVE_CODES is a comma-separated list, not JSON.
-    export_perspective_codes: Annotated[list[str], NoDecode] = ["GU", "GR", "RL", "RP"]
+    # EXPORT_PERSPECTIVE_CODES is a comma-separated list, not JSON. TY is the
+    # treaty-level export (spec 016), offered only to analyses run with treaties.
+    export_perspective_codes: Annotated[list[str], NoDecode] = ["GU", "GR", "RL", "RP", "TY"]
     # Root the downloaded archives are kept under permanently (T-15). The stage
     # worker fails an analysis when it is empty or not a directory; it never
     # creates the directory (an unmounted share would otherwise fill local disk).

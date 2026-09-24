@@ -50,6 +50,7 @@ from app.services.irp_gateway import (
     SubmitResult,
     SubPortfolioResult,
     TreatyDetail,
+    analysis_treaty,
     collapse_run_description,
 )
 
@@ -258,6 +259,17 @@ class FakeIRP:
         # recorded result reads: {"call", "analysis_id", "perspective_code",
         # "exposure_resource_id"} — the idempotency assertions count these
         self.result_calls: list[dict] = []
+        # ── spec-016 applied treaties (list_analysis_treaties) ──────────────
+        # analysis id (str) → the wheel-shaped rows {"treatyId", "treatyNumber",
+        # "treatyName"}; an analysis not seeded ran with no treaties
+        self._analysis_treaties: dict[str, list[dict]] = {}
+        self.raise_on_analysis_treaties = False
+        self.treaty_calls: list[str] = []
+        # (analysis_id, treaty_id) → the rows the treaty-scoped TY stats read
+        # answers; an unseeded treaty answers [] (took no loss)
+        self._treaty_stats: dict[tuple[str, str], list[dict]] = {}
+        # treaty ids whose treaty-scoped stats read raises
+        self.raise_on_treaty_stats_for: set[str] = set()
         # ── spec-014 loss results export ─────────────────────────────────────
         # recorded export submits: {"analysis_id", "loss_details", "job_id"}
         self.export_submits: list[dict] = []
@@ -414,6 +426,20 @@ class FakeIRP:
         self._analysis_results[(str(analysis_id), perspective_code)] = {
             "stats": [] if stats is None else list(stats),
             "ep": [] if ep is None else list(ep)}
+
+    def set_analysis_treaties(self, analysis_id: str | int, treaties: list[dict]) -> None:
+        """Seed what ``list_analysis_treaties`` answers for one analysis, in the
+        wheel's shape (``treatyId``, ``treatyNumber``, ``treatyName``, and the
+        term keys ``treatyType``, ``attachmentPoint``, ``occurrenceLimit``,
+        ``riskLimit``)."""
+        self._analysis_treaties[str(analysis_id)] = list(treaties)
+
+    def set_treaty_stats(self, analysis_id: str | int, treaty_id: str | int,
+                         rows: list[dict]) -> None:
+        """Seed what the TY stats read scoped to one treaty answers. Any
+        non-empty list means the treaty took loss; ``[{"pure_premium": 1.0}]``
+        is enough."""
+        self._treaty_stats[(str(analysis_id), str(treaty_id))] = list(rows)
 
     def run(self, irp_id: str) -> None:
         self.jobs[irp_id] = "RUNNING"
@@ -880,7 +906,19 @@ class FakeIRP:
     # ── spec-011 result reads (worker-only) ──────────────────────────────────
 
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
-                           exposure_resource_id: int) -> list[dict]:
+                           exposure_resource_id: int,
+                           exposure_resource_type: str = "PORTFOLIO") -> list[dict]:
+        if exposure_resource_type == "TREATY":
+            self.result_calls.append({
+                "call": "stats", "analysis_id": str(analysis_id),
+                "perspective_code": perspective_code,
+                "exposure_resource_id": str(exposure_resource_id),
+                "exposure_resource_type": "TREATY"})
+            if str(exposure_resource_id) in self.raise_on_treaty_stats_for:
+                raise IRPIntegrationError(
+                    f"fake IRP: forced stats failure for treaty {exposure_resource_id}")
+            return list(self._treaty_stats.get(
+                (str(analysis_id), str(exposure_resource_id)), []))
         return self._results("stats", analysis_id, perspective_code,
                              exposure_resource_id)
 
@@ -889,12 +927,20 @@ class FakeIRP:
         return self._results("ep", analysis_id, perspective_code,
                              exposure_resource_id)
 
+    def list_analysis_treaties(self, *, analysis_id: int) -> list[dict]:
+        self.treaty_calls.append(str(analysis_id))
+        if self.raise_on_analysis_treaties:
+            raise RuntimeError("fake IRP: forced treaties failure")
+        return [analysis_treaty(t)
+                for t in self._analysis_treaties.get(str(analysis_id), [])]
+
     def _results(self, call: str, analysis_id, perspective_code,
                  exposure_resource_id) -> list[dict]:
         self.result_calls.append({
             "call": call, "analysis_id": str(analysis_id),
             "perspective_code": perspective_code,
-            "exposure_resource_id": str(exposure_resource_id)})
+            "exposure_resource_id": str(exposure_resource_id),
+            "exposure_resource_type": "PORTFOLIO"})
         if perspective_code in self.raise_on_analysis_results_for:
             raise IRPIntegrationError(
                 f"fake IRP: forced {call} failure for perspective "

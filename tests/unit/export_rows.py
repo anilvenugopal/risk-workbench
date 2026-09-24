@@ -57,9 +57,17 @@ def seed_rdm_for(submission_id: str, name: str = "Broker RDM") -> str:
     return rdm_id
 
 
-def loss_results(*codes: str) -> dict:
+def loss_results(*codes: str, treaties: tuple = ()) -> dict:
+    """``treaties`` are (treaty_id, treaty_number, treaty_name) triples, each a
+    treaty that took TY loss, or the whole dict the results retrieval records
+    when a test needs the term values or a treaty that took none (a dict
+    without ``has_loss`` true, spec 016 P-13); a treaty with loss offers TY."""
     return {"perspectives": {code: {"aal": 100.0, "std_dev": 10.0, "oep": {}, "aep": {}}
-                             for code in codes}}
+                             for code in codes},
+            "treaties": [t if isinstance(t, dict) else
+                         {"treaty_id": t[0], "treaty_number": t[1], "treaty_name": t[2],
+                          "has_loss": True}
+                         for t in treaties]}
 
 
 def seed_analysis(*, edm_id: str | None = None, rdm_id: str | None = None,
@@ -67,14 +75,16 @@ def seed_analysis(*, edm_id: str | None = None, rdm_id: str | None = None,
                   irp_id: str | None = "41958", irp_app_analysis_id: str | None = "41958",
                   perspectives: tuple[str, ...] | None = ("GU", "GR", "RL"),
                   currency: str | None = "USD", peril: str = "EQ", region: str = "NAEQ",
-                  is_group: int = 0, inserted_at: str = NOW,
-                  write_app_column: bool = True) -> str:
+                  is_group: int = 0, engine_type: str = "DLM", framework: str = "ELT",
+                  inserted_at: str = NOW, write_app_column: bool = True,
+                  treaties: tuple = ()) -> str:
     """``write_app_column=False`` is the RDM-backfilled broker row: only the
     own-executed finalize path writes ``irp_app_analysis_id``, so a broker row
     carries the id in its metadata snapshot alone (spec 012 FR-023)."""
     analysis_id = str(uuid.uuid4())
-    settings = {"perilCode": peril, "regionCode": region, "engineType": "DLM",
-                "engineVersion": "RL25", "appAnalysisId": irp_app_analysis_id}
+    settings = {"perilCode": peril, "regionCode": region, "engineType": engine_type,
+                "analysisFramework": framework, "engineVersion": "RL25",
+                "appAnalysisId": irp_app_analysis_id}
     if currency:
         settings["currency"] = {"currencyCode": currency, "currencyName": currency}
     execute_command(
@@ -86,7 +96,8 @@ def seed_analysis(*, edm_id: str | None = None, rdm_id: str | None = None,
          "app": (irp_app_analysis_id if write_app_column else None),
          "n": name, "f": full_name,
          "settings": json.dumps(settings), "g": is_group,
-         "results": (json.dumps(loss_results(*perspectives)) if perspectives else None),
+         "results": (json.dumps(loss_results(*perspectives, treaties=treaties))
+                     if perspectives else None),
          "at": inserted_at}, connection="WORKBENCH")
     return analysis_id
 

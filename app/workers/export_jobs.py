@@ -1,14 +1,22 @@
-"""Dramatiq actors for the loss results export (spec 014, contracts/jobs.md).
+"""Dramatiq actors for the loss results export (spec 014, contracts/jobs.md;
+spec 016 for the treaty-level perspective TY).
 
 ``submit_results_export`` asks Risk Modeler for one loss-table export per
-manifest row of an export. The poller enqueues ``stage_results_export`` when
+analysis of an export. The poller enqueues ``stage_results_export`` when
 that export job ends; the stage worker downloads the archive to the permanent
 archive root, checks it against the manifest, and streams its Parquet files
 into ``stage.rwb_loss_result_elt_data``. ``load_results_export`` runs
 ``stage.usp_load_elt_result``, which classifies, corrects, and loads the rows
-into CIC's three tables in one transaction. Every actor resumes from the
-manifest row's ``stage_status`` / ``load_status``; nothing here recomputes what
-the analyst approved on the form.
+into CIC's three tables in one transaction.
+
+The stage and load workers act on every eligible manifest row of one analysis
+in one export. A portfolio-level perspective has one such row; at TY there is
+one per treaty the analyst ticked on the export form. The stage worker matches
+each row to its treaty in the treaty-level loss table by number and name and
+uploads that treaty's rows as Risk Modeler wrote them; the load worker then
+loads each treaty row through the same procedure. Every actor resumes from the
+rows' ``stage_status`` / ``load_status``; nothing here recomputes what the
+analyst approved on the form.
 """
 
 from __future__ import annotations
@@ -19,13 +27,16 @@ import logging
 import re
 import shutil
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 from dramatiq.middleware import TimeLimitExceeded
 
-from app.config import settings
+from app.config import TY, settings
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import _uid, _utcnow
 from app.services.irp_gateway import IRPAPIError, IRPIntegrationError
@@ -43,6 +54,14 @@ ELT_COLUMN_MAP = {
     "Loss": "loss", "StdDevI": "std_dev_i", "StdDevC": "std_dev_c",
     "ExpValue": "exp_value",
 }
+# The treaty-level table's columns (spec 016 research R1, T-10).
+TY_COLUMNS = ("TreatyId", "TreatyNum", "TreatyName", "EventId", "Rate", "Loss",
+              "StdDevI", "StdDevC", "ExpValue")
+# The financial perspective a treaty-level request names. Risk Modeler returns
+# the one TY table whatever code is sent (spec 016 P-08, research R1); GR is
+# the code every analysis able to produce TY has, so the request never fails
+# on it. Deliberate, not an input.
+TY_REQUEST_PERSPECTIVE_CODE = "GR"
 _SIX_HOURS_MS = 6 * 60 * 60 * 1000
 _CHUNK_SUFFIX = re.compile(r"_(\d+)\.parquet$", re.IGNORECASE)
 # The version db/bootstrap/loss_schema.sql stamps. A repository below it fails the
@@ -69,7 +88,36 @@ def _analysis_ids(irp_analysis_id: str) -> dict:
                        {"a": irp_analysis_id}, connection="WORKBENCH") or {}
 
 
+def _analysis_rows(export_id: str, irp_analysis_id: str) -> list[dict]:
+    """Every manifest row of one analysis in one export: one row, or one per
+    ticked treaty at TY."""
+    return [dict(r) for r in execute(
+        "SELECT * FROM stage.rwb_loss_result_manifest "
+        "WHERE export_id = :e AND irp_analysis_id = :a ORDER BY manifest_id",
+        {"e": export_id, "a": irp_analysis_id}, connection="LOSS")]
+
+
+def _stage_eligible(row: dict) -> bool:
+    return (row["stage_status"] != "staged" and row["load_status"] != "loaded"
+            and row["closed_at"] is None)
+
+
+def _load_eligible(row: dict) -> bool:
+    """The procedure's own claim rule (contracts/load-procedure.md), plus never
+    a row the analyst closed."""
+    return (row["stage_status"] == "staged" and row["load_status"] in ("pending", "failed")
+            and row["closed_at"] is None)
+
+
 # ── submit_results_export ────────────────────────────────────────────────────
+
+
+def _loss_details(perspective_code: str) -> list[dict]:
+    if perspective_code == TY:
+        return [{"metricType": "LOSS_TABLES", "outputLevels": ["Treaty"],
+                 "perspectiveCodes": [TY_REQUEST_PERSPECTIVE_CODE]}]
+    return [{"metricType": "LOSS_TABLES", "outputLevels": ["Portfolio"],
+             "perspectiveCodes": [perspective_code]}]
 
 
 def _submit_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
@@ -81,35 +129,44 @@ def _submit_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
         "FROM stage.rwb_loss_result_manifest "
         "WHERE export_id = :e AND stage_status = 'pending' AND irp_export_job_id IS NULL "
         "ORDER BY manifest_id", {"e": export_id}, connection="LOSS")
-    submitted = failed = 0
+    # One Risk Modeler request per analysis: at TY the analysis's ticked treaties
+    # are several manifest rows of one loss table, and they all carry the job id
+    # of that one request. The counters count requests, not rows.
+    groups: dict[str, list[dict]] = {}
     for row in rows:
-        existing = irp_job_service.find_export_job(export_id, row["irp_analysis_id"])
+        groups.setdefault(_uid(row["irp_analysis_id"]), []).append(dict(row))
+    submitted = failed = 0
+    for analysis_id, group in groups.items():
+        first = group[0]
+        existing = irp_job_service.find_export_job(export_id, analysis_id)
         if existing is not None:
-            # A previous run recorded the job and died before stamping the row.
-            _stamp_manifest(row["manifest_id"], irp_export_job_id=existing["irp_id"])
+            # A previous run recorded the job and died before stamping the rows.
+            for row in group:
+                _stamp_manifest(row["manifest_id"], irp_export_job_id=existing["irp_id"])
             submitted += 1
             continue
         try:
             job_id, request_body = irp_gateway.submit_analysis_export_job(
-                analysis_id=int(row["irp_analysis_irp_id"]),
-                loss_details=[{"metricType": "LOSS_TABLES", "outputLevels": ["Portfolio"],
-                               "perspectiveCodes": [row["perspective_code"]]}])
+                analysis_id=int(first["irp_analysis_irp_id"]),
+                loss_details=_loss_details(first["perspective_code"]))
         except IRPAPIError as exc:
-            logger.warning("export submit rejected for analysis %s: %s",
-                           row["irp_analysis_id"], exc)
-            _stamp_manifest(row["manifest_id"], stage_status="failed", error_message=str(exc))
+            logger.warning("export submit rejected for analysis %s: %s", analysis_id, exc)
+            for row in group:
+                _stamp_manifest(row["manifest_id"], stage_status="failed",
+                                error_message=str(exc))
             failed += 1
             continue
         except Exception as exc:  # noqa: BLE001 — Risk Modeler unreachable: stop, resume later
-            logger.exception("export submit stopped at analysis %s", row["irp_analysis_id"])
+            logger.exception("export submit stopped at analysis %s", analysis_id)
             return runtime.JobResult.fail(str(exc), submitted=submitted, failed=failed)
-        analysis = _analysis_ids(_uid(row["irp_analysis_id"]))
+        analysis = _analysis_ids(analysis_id)
         irp_job_service.record_submitted_irp_job(
             irp_job_type="export", requested_from_submission_id=submission_id,
             irp_edm_id=analysis.get("edm_id"), irp_rdm_id=analysis.get("rdm_id"),
-            irp_analysis_id=row["irp_analysis_id"], irp_id=str(job_id),
+            irp_analysis_id=analysis_id, irp_id=str(job_id),
             payload=request_body, request_params=request_body, export_id=export_id)
-        _stamp_manifest(row["manifest_id"], irp_export_job_id=str(job_id))
+        for row in group:
+            _stamp_manifest(row["manifest_id"], irp_export_job_id=str(job_id))
         submitted += 1
     return runtime.JobResult.ok(submitted=submitted, failed=failed)
 
@@ -151,12 +208,11 @@ def _check_loss_schema_version() -> None:
             f"needs {REQUIRED_LOSS_SCHEMA_VERSION}: apply db/bootstrap/loss_schema.sql")
 
 
-def _discard_partial_stage(manifest_id: int, work_dir: Path) -> None:
+def _discard_partial_stage(manifest_id: int) -> None:
     execute_command("DELETE FROM stage.rwb_loss_result_elt_data WHERE manifest_id = :m",
                     {"m": manifest_id}, connection="LOSS")
     execute_command("DELETE FROM stage.rwb_loss_result_file WHERE manifest_id = :m",
                     {"m": manifest_id}, connection="LOSS")
-    _remove_dir(work_dir)
 
 
 def _archive_path(manifest: dict, job: dict, root: Path) -> Path:
@@ -203,16 +259,16 @@ def _read_metadata(table_dir: Path) -> dict:
     return {k.strip(): (v or "").strip() for k, v in rows[0].items() if k}
 
 
-def _perspective_files(table_dir: Path, perspective_code: str) -> list[Path]:
-    portfolio_dir = table_dir / "Portfolio"
-    folders = {p.name for p in portfolio_dir.iterdir() if p.is_dir()} if portfolio_dir.is_dir() else set()
+def _perspective_files(table_dir: Path, output_level: str, perspective_code: str) -> list[Path]:
+    level_dir = table_dir / output_level
+    folders = {p.name for p in level_dir.iterdir() if p.is_dir()} if level_dir.is_dir() else set()
     if perspective_code not in folders:
-        raise StageFailure(f"archive has no Portfolio/{perspective_code} folder")
+        raise StageFailure(f"archive has no {output_level}/{perspective_code} folder")
     extra = sorted(folders - {perspective_code})
     if extra:
         raise StageFailure(
             f"archive holds perspective folders {', '.join(extra)} besides {perspective_code}")
-    return sorted((portfolio_dir / perspective_code).glob("*.parquet"), key=_chunk_index)
+    return sorted((level_dir / perspective_code).glob("*.parquet"), key=_chunk_index)
 
 
 def _chunk_index(path: Path) -> int:
@@ -220,7 +276,8 @@ def _chunk_index(path: Path) -> int:
     return int(match.group(1)) if match else 0
 
 
-def _stage_file(manifest_id: int, work_dir: Path, path: Path, perspective_code: str) -> int:
+def _stage_file(manifest_id: int, work_dir: Path, path: Path, perspective_code: str,
+                output_level: str) -> int:
     # upload_parquet checks the same thing, but its message names the mapping,
     # not the file the analyst has to look at.
     missing = [c for c in ELT_COLUMN_MAP if c not in pq.ParquetFile(path).schema.names]
@@ -230,8 +287,8 @@ def _stage_file(manifest_id: int, work_dir: Path, path: Path, perspective_code: 
     execute_command(
         "INSERT INTO stage.rwb_loss_result_file (manifest_id, result_file, output_level, "
         "perspective_code, chunk_index, staged_at) "
-        "VALUES (:m, :f, 'Portfolio', :p, :c, :now)",
-        {"m": manifest_id, "f": result_file, "p": perspective_code,
+        "VALUES (:m, :f, :level, :p, :c, :now)",
+        {"m": manifest_id, "f": result_file, "level": output_level, "p": perspective_code,
          "c": _chunk_index(path), "now": _utcnow()}, connection="LOSS")
     file_id = execute_one(
         "SELECT result_file_id FROM stage.rwb_loss_result_file "
@@ -246,9 +303,125 @@ def _stage_file(manifest_id: int, work_dir: Path, path: Path, perspective_code: 
     return rows
 
 
-def _stage(manifest: dict, irp_job_id: str) -> None:
-    """Steps 1–7 of contracts/jobs.md §4; raises StageFailure with the reason."""
-    manifest_id = manifest["manifest_id"]
+# ── the treaty-level table (spec 016) ────────────────────────────────────────
+
+
+@dataclass
+class TreatyLosses:
+    """One treaty's loss rows out of a treaty-level table."""
+    number: str
+    name: str
+    ids: list[str]
+    rows: pd.DataFrame
+    aal: float
+
+
+def _read_treaty_table(files: list[Path]) -> pd.DataFrame:
+    frames = []
+    for path in files:
+        names = pq.ParquetFile(path).schema.names
+        missing = [c for c in TY_COLUMNS if c not in names]
+        if missing:
+            raise StageFailure(f"{path.name} is missing columns {', '.join(missing)}")
+        frames.append(pq.read_table(path, columns=list(TY_COLUMNS)).to_pandas())
+    if not frames:
+        return pd.DataFrame(columns=list(TY_COLUMNS))
+    return pd.concat(frames, ignore_index=True)
+
+
+def _text_value(value: Any) -> str:
+    return "" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value)
+
+
+def _split_treaty_rows(table: pd.DataFrame) -> list[TreatyLosses]:
+    """One entry per treaty, in (number, name) order, holding the treaty's rows
+    as Risk Modeler wrote them: the table already has one row per treaty and
+    event (spec 016 P-11)."""
+    out: list[TreatyLosses] = []
+    for (number, name), frame in table.groupby(["TreatyNum", "TreatyName"], sort=True,
+                                               dropna=False):
+        ids = sorted({int(v) for v in frame["TreatyId"].dropna().tolist()})
+        out.append(TreatyLosses(
+            number=_text_value(number), name=_text_value(name), ids=[str(i) for i in ids],
+            rows=frame[["EventId", "Rate", "Loss", "StdDevI", "StdDevC", "ExpValue"]],
+            aal=float((frame["Rate"] * frame["Loss"]).sum())))
+    return out
+
+
+def _write_treaty_file(source: Path, index: int, treaty: TreatyLosses) -> Path:
+    """The derived per-treaty Parquet file beside the archive's TY files, in the
+    nine ELT columns ``upload_parquet`` maps. ``PortInfoName`` and
+    ``PortInfoNum`` carry the treaty so a staged row can be read alone."""
+    n = len(treaty.rows)
+    stem = re.sub(r"_\d+$", "", source.stem)
+    path = source.with_name(f"{stem}__{index}.parquet")
+    table = pa.table({
+        "PortInfoId": pa.nulls(n, pa.int32()),
+        "PortInfoName": pa.array([treaty.name] * n, pa.string()),
+        "PortInfoNum": pa.array([treaty.number] * n, pa.string()),
+        "EventId": pa.array([int(v) for v in treaty.rows["EventId"].tolist()], pa.int64()),
+        "Rate": pa.array(treaty.rows["Rate"].astype(float).tolist(), pa.float64()),
+        "Loss": pa.array(treaty.rows["Loss"].astype(float).tolist(), pa.float64()),
+        "StdDevI": pa.array(treaty.rows["StdDevI"].astype(float).tolist(), pa.float64()),
+        "StdDevC": pa.array(treaty.rows["StdDevC"].astype(float).tolist(), pa.float64()),
+        "ExpValue": pa.array(treaty.rows["ExpValue"].astype(float).tolist(), pa.float64()),
+    })
+    pq.write_table(table, path)
+    return path
+
+
+def _stage_treaties(targets: list[dict], table_dir: Path, work_dir: Path) -> list[str]:
+    """Stage each of the analysis's eligible treaty rows from the treaty-level
+    table (spec 016 contracts/jobs.md §4 step 6): a row is matched to the table
+    rows of its treaty number and name. Returns the per-row failure messages
+    for rows whose treaty the table does not hold, and fails the whole analysis
+    when the table matches none of them."""
+    files = _perspective_files(table_dir, "Treaty", TY)
+    table = _read_treaty_table(files)
+    if table.empty:
+        raise StageFailure("Risk Modeler returned no treaty (TY) loss rows for this analysis")
+    by_treaty = {(r["treaty_number"], r["treaty_name"] or ""): r for r in targets}
+    treaties = _split_treaty_rows(table)
+    staged: set[int] = set()
+    skipped = 0
+    # The index is the treaty's position in the table, so a derived file keeps
+    # its name whether or not the analyst ticked the treaties before it.
+    for index, treaty in enumerate(treaties, start=1):
+        row = by_treaty.get((treaty.number, treaty.name))
+        if row is None:
+            skipped += 1
+            continue
+        path = _write_treaty_file(files[0], index, treaty)
+        count = _stage_file(row["manifest_id"], work_dir, path, TY, output_level="Treaty")
+        _stamp_manifest(row["manifest_id"], stage_status="staged", staged_at=_utcnow(),
+                        staged_row_count=count, treaty_ids=",".join(treaty.ids),
+                        aal=treaty.aal, error_message=None)
+        staged.add(row["manifest_id"])
+    if not staged:
+        # The match is exact (FR-005): a numeric TreatyNum read as "1.0" misses
+        # a ticked "1", so the message names what the table held.
+        held = "; ".join(f"{t.number} {t.name}" for t in treaties)
+        raise StageFailure(
+            "no ticked treaty matches the loss table Risk Modeler returned, which holds "
+            f"{held}")
+    if skipped:
+        logger.info("export %s analysis %s: %d treaties in the loss table have no row to "
+                    "stage", targets[0]["export_id"], targets[0]["irp_analysis_id"], skipped)
+
+    failures: list[str] = []
+    for row in targets:
+        if row["manifest_id"] in staged:
+            continue
+        reason = (f"treaty {row['treaty_number']} {row['treaty_name']} is not in the loss "
+                  "table Risk Modeler returned")
+        _stamp_manifest(row["manifest_id"], stage_status="failed", error_message=reason)
+        failures.append(reason)
+    return failures
+
+
+def _stage(targets: list[dict], irp_job_id: str, work_dir: Path) -> list[str]:
+    """Steps 1–7 of contracts/jobs.md §4 for the eligible rows of one analysis;
+    raises StageFailure with the reason, returns per-row failures (TY only)."""
     job = execute_one(
         "SELECT id, irp_id, status, last_completion_result FROM irp_job WHERE id = :j",
         {"j": irp_job_id}, connection="WORKBENCH")
@@ -266,10 +439,11 @@ def _stage(manifest: dict, irp_job_id: str) -> None:
     if not settings.export_staging_dir or not Path(settings.export_staging_dir).is_dir():
         raise StageFailure(f"Staging root {settings.export_staging_dir or '(unset)'} "
                            "is not available")
-    archive = _archive_path(manifest, job, root)
+    # The archive already on the share, if any row names one (research R6).
+    anchor = next((r for r in targets if r["zip_file"] and (root / r["zip_file"]).is_file()),
+                  targets[0])
+    archive = _archive_path(anchor, job, root)
 
-    work_dir = _working_dir(_uid(manifest["export_id"]), _uid(manifest["irp_analysis_id"]))
-    _remove_dir(work_dir)
     try:
         work_dir.mkdir(parents=True, exist_ok=True)
     except FileNotFoundError:
@@ -281,31 +455,43 @@ def _stage(manifest: dict, irp_job_id: str) -> None:
             bundle.extractall(work_dir)
     except zipfile.BadZipFile as exc:
         # Forget the archive so Retry downloads it again instead of reusing it.
-        _stamp_manifest(manifest_id, zip_file=None)
+        for row in targets:
+            _stamp_manifest(row["manifest_id"], zip_file=None)
         raise StageFailure(f"{archive.name} is not a valid zip file; it will be "
                            "downloaded again on Retry") from exc
 
     table_dir = _loss_table_dir(work_dir)
     metadata = _read_metadata(table_dir)
-    if metadata.get("AnlsId") != str(manifest["irp_app_analysis_id"]):
+    if metadata.get("AnlsId") != str(anchor["irp_app_analysis_id"]):
         raise StageFailure(f"archive AnlsId {metadata.get('AnlsId')!r} does not match "
-                           f"analysis {manifest['irp_app_analysis_id']}")
-    if metadata.get("AnalysisCurrency") != manifest["data_currency"]:
+                           f"analysis {anchor['irp_app_analysis_id']}")
+    if metadata.get("AnalysisCurrency") != anchor["data_currency"]:
         raise StageFailure(f"archive currency {metadata.get('AnalysisCurrency')!r} does not "
-                           f"match analysis currency {manifest['data_currency']!r}")
-    _stamp_manifest(manifest_id, loss_table_type=table_dir.name,
-                    engine_type=metadata.get("Engine Type") or None)
+                           f"match analysis currency {anchor['data_currency']!r}")
+    facts = dict(loss_table_type=table_dir.name,
+                 engine_type=metadata.get("Engine Type") or None,
+                 zip_file=archive.relative_to(root).as_posix(),
+                 irp_export_job_id=job["irp_id"])
+    for row in targets:
+        _stamp_manifest(row["manifest_id"], **facts)
 
-    perspective_code = manifest["perspective_code"]
-    total = 0
-    for path in _perspective_files(table_dir, perspective_code):
-        total += _stage_file(manifest_id, work_dir, path, perspective_code)
-    if total == 0:
-        raise StageFailure(
-            f"Risk Modeler returned no {perspective_code} loss rows for this analysis")
-    _stamp_manifest(manifest_id, stage_status="staged", staged_at=_utcnow(),
-                    staged_row_count=total, error_message=None)
+    perspective_code = anchor["perspective_code"]
+    if perspective_code == TY:
+        failures = _stage_treaties(targets, table_dir, work_dir)
+    else:
+        manifest = targets[0]
+        total = 0
+        for path in _perspective_files(table_dir, "Portfolio", perspective_code):
+            total += _stage_file(manifest["manifest_id"], work_dir, path, perspective_code,
+                                 output_level="Portfolio")
+        if total == 0:
+            raise StageFailure(
+                f"Risk Modeler returned no {perspective_code} loss rows for this analysis")
+        _stamp_manifest(manifest["manifest_id"], stage_status="staged", staged_at=_utcnow(),
+                        staged_row_count=total, error_message=None)
+        failures = []
     _remove_dir(work_dir)
+    return failures
 
 
 def _enqueue_load(manifest: dict, stage_rwb_job_id: Any) -> str | None:
@@ -318,54 +504,67 @@ def _enqueue_load(manifest: dict, stage_rwb_job_id: Any) -> str | None:
         rwb_job_type="load_results_export",
         link_type=link_type, link_id=link_id,
         context_type="irp_analysis", context_id=analysis_id,
-        input_data={"export_id": _uid(manifest["export_id"]), "irp_analysis_id": analysis_id,
-                    "manifest_id": manifest["manifest_id"]})
+        input_data={"export_id": _uid(manifest["export_id"]), "irp_analysis_id": analysis_id})
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="load_results_export")
     return job_id
+
+
+def _fail_unstaged(export_id: str, analysis_id: str, reason: str) -> None:
+    """Every exit but success stamps the rows: Retry is offered from the
+    manifest alone, so an unstamped failure would be stuck for good."""
+    for row in _analysis_rows(export_id, analysis_id):
+        if _stage_eligible(row):
+            _stamp_manifest(row["manifest_id"], stage_status="failed", error_message=reason)
 
 
 def _stage_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
     context = rwb_job_service.load_input_data(rwb_job_id)
     export_id, analysis_id = _uid(context["export_id"]), _uid(context["irp_analysis_id"])
-    manifest = execute_one(
-        "SELECT * FROM stage.rwb_loss_result_manifest "
-        "WHERE export_id = :e AND irp_analysis_id = :a",
-        {"e": export_id, "a": analysis_id}, connection="LOSS")
-    if manifest is None:
+    rows = _analysis_rows(export_id, analysis_id)
+    if not rows:
         return runtime.JobResult.fail(f"no manifest row for export {export_id} analysis "
                                       f"{analysis_id}")
-    if manifest["load_status"] == "loaded":
+    if all(r["load_status"] == "loaded" for r in rows):
         return runtime.JobResult.ok(skipped="loaded")
-    manifest_id = manifest["manifest_id"]
-    if manifest["stage_status"] != "staged":
-        # Every exit but success stamps the row: Retry is offered from the
-        # manifest alone, so an unstamped failure would be stuck for good.
+    targets = [r for r in rows if _stage_eligible(r)]
+    failures: list[str] = []
+    if targets:
+        work_dir = _working_dir(export_id, analysis_id)
         try:
             _check_loss_schema_version()
-            _discard_partial_stage(manifest_id, _working_dir(export_id, analysis_id))
-            _stage(manifest, context["irp_job_id"])
+            for row in targets:
+                _discard_partial_stage(row["manifest_id"])
+            _remove_dir(work_dir)
+            failures = _stage(targets, context["irp_job_id"], work_dir)
         except TimeLimitExceeded:
-            _stamp_manifest(manifest_id, stage_status="failed",
-                            error_message="the run exceeded the worker time limit")
+            _fail_unstaged(export_id, analysis_id, "the run exceeded the worker time limit")
             raise
         except StageFailure as exc:
-            _stamp_manifest(manifest_id, stage_status="failed", error_message=str(exc))
+            _fail_unstaged(export_id, analysis_id, str(exc))
             return runtime.JobResult.fail(str(exc))
         except Exception as exc:  # noqa: BLE001 — every stage failure lands on the manifest
-            logger.exception("stage failed for manifest %s", manifest_id)
-            _stamp_manifest(manifest_id, stage_status="failed", error_message=str(exc))
+            logger.exception("stage failed for export %s analysis %s", export_id, analysis_id)
+            _fail_unstaged(export_id, analysis_id, str(exc))
             return runtime.JobResult.fail(str(exc))
-    try:
-        load_job_id = _enqueue_load(manifest, rwb_job_id)
-    except Exception as exc:  # noqa: BLE001 — staged rows stay; Retry re-arms the load
-        logger.exception("could not queue the load for manifest %s", manifest_id)
-        reason = f"could not queue the load: {exc}"
-        _stamp_manifest(manifest_id, load_status="failed", error_message=reason)
-        return runtime.JobResult.fail(reason)
-    row = execute_one("SELECT staged_row_count FROM stage.rwb_loss_result_manifest "
-                      "WHERE manifest_id = :m", {"m": manifest_id}, connection="LOSS")
-    return runtime.JobResult.ok(staged_row_count=row["staged_row_count"],
-                                load_job_id=load_job_id)
+    rows = _analysis_rows(export_id, analysis_id)
+    loadable = [r for r in rows if _load_eligible(r)]
+    load_job_id = None
+    if loadable:
+        try:
+            load_job_id = _enqueue_load(rows[0], rwb_job_id)
+        except Exception as exc:  # noqa: BLE001 — staged rows stay; Retry re-arms the load
+            logger.exception("could not queue the load for export %s analysis %s",
+                             export_id, analysis_id)
+            reason = f"could not queue the load: {exc}"
+            for row in loadable:
+                _stamp_manifest(row["manifest_id"], load_status="failed", error_message=reason)
+            return runtime.JobResult.fail(reason)
+    staged_row_count = sum(r["staged_row_count"] or 0 for r in rows
+                           if r["stage_status"] == "staged")
+    if failures:
+        return runtime.JobResult.fail("; ".join(failures), staged_row_count=staged_row_count,
+                                      load_job_id=load_job_id)
+    return runtime.JobResult.ok(staged_row_count=staged_row_count, load_job_id=load_job_id)
 
 
 @rwb_actor(max_retries=0, time_limit=_SIX_HOURS_MS)
@@ -386,18 +585,8 @@ def _error_text(exc: BaseException) -> str:
     return match.group(1).strip() if match else text
 
 
-def _load_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
-    context = rwb_job_service.load_input_data(rwb_job_id)
-    manifest_id = int(context["manifest_id"])
-    manifest = execute_one(
-        "SELECT stage_status, load_status, data_id FROM stage.rwb_loss_result_manifest "
-        "WHERE manifest_id = :m", {"m": manifest_id}, connection="LOSS")
-    if manifest is None:
-        return runtime.JobResult.fail(f"no manifest row {manifest_id}")
-    if manifest["load_status"] == "loaded":
-        return runtime.JobResult.ok(skipped="loaded")
-    if manifest["stage_status"] != "staged":
-        return runtime.JobResult.fail("analysis is not staged")
+def _load_one(manifest_id: int) -> tuple[int | None, str | None]:
+    """One procedure call; returns ``(data_id, None)`` or ``(None, reason)``."""
     try:
         execute_procedure("stage.usp_load_elt_result", {"manifest_id": manifest_id},
                           connection="LOSS")
@@ -412,10 +601,36 @@ def _load_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
                 {"e": reason, "now": _utcnow(), "m": manifest_id}, connection="LOSS")
         except Exception:  # noqa: BLE001 — the procedure's CATCH already stamped it
             logger.exception("could not stamp load failure on manifest %s", manifest_id)
-        return runtime.JobResult.fail(reason)
+        return None, reason
     row = execute_one("SELECT data_id FROM stage.rwb_loss_result_manifest WHERE manifest_id = :m",
                       {"m": manifest_id}, connection="LOSS")
-    return runtime.JobResult.ok(data_id=row["data_id"])
+    return row["data_id"], None
+
+
+def _load_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
+    context = rwb_job_service.load_input_data(rwb_job_id)
+    export_id, analysis_id = _uid(context["export_id"]), _uid(context["irp_analysis_id"])
+    rows = _analysis_rows(export_id, analysis_id)
+    if not rows:
+        return runtime.JobResult.fail(f"no manifest row for export {export_id} analysis "
+                                      f"{analysis_id}")
+    if all(r["load_status"] == "loaded" for r in rows):
+        return runtime.JobResult.ok(skipped="loaded")
+    eligible = [r for r in rows if _load_eligible(r)]
+    if not eligible:
+        return runtime.JobResult.fail("analysis is not staged")
+    data_ids: list[int] = []
+    reasons: list[str] = []
+    for row in eligible:
+        data_id, reason = _load_one(row["manifest_id"])
+        if reason is not None:
+            label = row.get("treaty_number") or row.get("treaty_name")
+            reasons.append(f"{label}: {reason}" if label else reason)
+        else:
+            data_ids.append(data_id)
+    if reasons:
+        return runtime.JobResult.fail("; ".join(reasons), data_ids=data_ids)
+    return runtime.JobResult.ok(data_ids=data_ids)
 
 
 @rwb_actor(max_retries=0, time_limit=_SIX_HOURS_MS)

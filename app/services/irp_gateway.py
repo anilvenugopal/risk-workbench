@@ -29,7 +29,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, Sequence, runtime_checkable
+from typing import Any, Literal, Protocol, Sequence, runtime_checkable
 
 # Re-exported so callers (workers, FakeIRP) never import irp-integration directly
 # — this module stays the sole importer (T007). ``submit_portfolio_analysis``
@@ -456,6 +456,20 @@ def resolved_capture(detail: dict, *,
     return resolved_payload(run, partitions=partitions), error
 
 
+def analysis_treaty(row: dict) -> dict:
+    """One row of GET /platform/riskdata/v1/analyses/{analysisId}/treaties, in the
+    gateway's own keys: identity plus the four terms the export form shows per
+    treaty (spec 016 P-12). Cedant and producer are dropped. The fake gateway
+    maps the same way, so the unit tier sees the keys the real one produces."""
+    return {"treaty_id": str(row.get("treatyId")),
+            "treaty_number": row.get("treatyNumber"),
+            "treaty_name": row.get("treatyName"),
+            "treaty_type": row.get("treatyType"),
+            "attachment_point": row.get("attachmentPoint"),
+            "occurrence_limit": row.get("occurrenceLimit"),
+            "risk_limit": row.get("riskLimit")}
+
+
 @dataclass(frozen=True)
 class ModelProfileEntry:
     irp_id: int
@@ -601,10 +615,14 @@ class IRPGateway(Protocol):
     def resolve_app_analysis_id(self, *, app_analysis_id: int) -> str: ...
 
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
-                           exposure_resource_id: int) -> list[dict]: ...
+                           exposure_resource_id: int,
+                           exposure_resource_type: Literal["PORTFOLIO", "TREATY"] = "PORTFOLIO",
+                           ) -> list[dict]: ...
 
     def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
                         exposure_resource_id: int) -> list[dict]: ...
+
+    def list_analysis_treaties(self, *, analysis_id: int) -> list[dict]: ...
 
     def delete_analysis(self, irp_id: str) -> None: ...
 
@@ -1327,12 +1345,18 @@ class _RealGateway:
     # ── spec-011 result reads (worker-only; contracts/irp-gateway.md) ─────────
 
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
-                           exposure_resource_id: int) -> list[dict]:
+                           exposure_resource_id: int,
+                           exposure_resource_type: Literal["PORTFOLIO", "TREATY"] = "PORTFOLIO",
+                           ) -> list[dict]:
         # GET /platform/riskdata/v1/analyses/{analysisId}/stats — RM's row list
         # verbatim. The wheel validates perspective_code against its own
         # PERSPECTIVE_CODES (T-02); the gateway never bypasses that check.
+        # exposure_resource_type TREATY with a treaty id answers that treaty's
+        # own stats: empty when it took no loss at the perspective (spec 016
+        # T-18).
         return self._client().analysis.get_stats(
-            analysis_id, perspective_code, exposure_resource_id)
+            analysis_id, perspective_code, exposure_resource_id,
+            exposure_resource_type=exposure_resource_type)
 
     def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
                         exposure_resource_id: int) -> list[dict]:
@@ -1341,6 +1365,13 @@ class _RealGateway:
         # builder does the filtering and the return-period lookup.
         return self._client().analysis.get_ep(
             analysis_id, perspective_code, exposure_resource_id)
+
+    def list_analysis_treaties(self, *, analysis_id: int) -> list[dict]:
+        # GET /platform/riskdata/v1/analyses/{analysisId}/treaties — the
+        # treaties Risk Modeler applied when the analysis ran (spec 016 T-04).
+        return [analysis_treaty(t)
+                for t in self._client().analysis.search_analysis_treaties_paginated(
+                    analysis_id)]
 
     def delete_analysis(self, irp_id: str) -> None:
         # DELETE /platform/riskdata/v1/analyses/{analysisId} — synchronous.
@@ -1690,10 +1721,13 @@ def resolve_app_analysis_id(*, app_analysis_id: int) -> str:
 
 
 def get_analysis_stats(*, analysis_id: int, perspective_code: str,
-                       exposure_resource_id: int) -> list[dict]:
+                       exposure_resource_id: int,
+                       exposure_resource_type: Literal["PORTFOLIO", "TREATY"] = "PORTFOLIO",
+                       ) -> list[dict]:
     return _active().get_analysis_stats(
         analysis_id=analysis_id, perspective_code=perspective_code,
-        exposure_resource_id=exposure_resource_id)
+        exposure_resource_id=exposure_resource_id,
+        exposure_resource_type=exposure_resource_type)
 
 
 def get_analysis_ep(*, analysis_id: int, perspective_code: str,
@@ -1701,6 +1735,10 @@ def get_analysis_ep(*, analysis_id: int, perspective_code: str,
     return _active().get_analysis_ep(
         analysis_id=analysis_id, perspective_code=perspective_code,
         exposure_resource_id=exposure_resource_id)
+
+
+def list_analysis_treaties(*, analysis_id: int) -> list[dict]:
+    return _active().list_analysis_treaties(analysis_id=analysis_id)
 
 
 def delete_analysis(irp_id: str) -> None:
@@ -1787,7 +1825,7 @@ __all__ = [
     "list_output_profiles", "list_event_rate_schemes", "list_currencies",
     "list_currency_schemes", "list_currency_scheme_vintages",
     "submit_portfolio_analysis", "get_analysis_job",
-    "get_analysis_stats", "get_analysis_ep",
+    "get_analysis_stats", "get_analysis_ep", "list_analysis_treaties",
     "delete_analysis",
     "submit_analysis_export_job", "get_export_job", "download_export_results",
     "fetch_portfolio_stamp",

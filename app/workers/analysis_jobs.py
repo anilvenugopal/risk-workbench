@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from app.config import TY
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import STORED_RETURN_PERIODS, _utcnow
 from app.workers import broker, dispatch, runtime
@@ -335,7 +336,8 @@ def _curve_points(element: dict | None) -> dict | None:
 def build_loss_results_extract(*, perspective_codes: list[str],
                                results: dict[str, tuple[list[dict], list[dict]]],
                                settings: dict | None,
-                               retrieved_at: str) -> dict:
+                               retrieved_at: str,
+                               treaties: list[dict] | None = None) -> dict:
     """The contracts/loss-results.md document from RM's verbatim row lists.
 
     ``results`` maps each perspective code to its ``(stats_rows, ep_elements)``.
@@ -344,7 +346,11 @@ def build_loss_results_extract(*, perspective_codes: list[str],
     → explicitly ``null``. ``aal``/``std_dev`` come from the stats row whose
     ``epType`` is ``OEP`` (none → both ``null``); TCE-OEP/TCE-AEP elements are
     discarded. ``settings`` is the analysis metadata payload — engine fields
-    absent there are stored as ``null``, never omitted."""
+    absent there are stored as ``null``, never omitted. ``treaties`` is what
+    Risk Modeler reports applied to the run (spec 016 T-04), stored verbatim
+    with the four term values the export form shows per treaty and
+    ``has_loss``, whether the treaty's own TY stats read answered any row
+    (T-18); the form offers TY only when a treaty has loss."""
     payload = settings or {}
     perspectives: dict[str, dict | None] = {}
     for code in perspective_codes:
@@ -365,6 +371,7 @@ def build_loss_results_extract(*, perspective_codes: list[str],
         "engine_version": payload.get("engineVersion"),
         "retrieved_at": retrieved_at,
         "perspectives": perspectives,
+        "treaties": list(treaties or []),
     }
 
 
@@ -424,10 +431,24 @@ def _retrieve_analysis_results_body(rwb_job_id: Any) -> runtime.JobResult:
             return runtime.JobResult.fail(f"results read failed for {code}: {exc}")
         results[code] = (stats_rows, ep_rows)
         stats_counts[code] = len(stats_rows)
+    try:
+        treaties = irp_gateway.list_analysis_treaties(analysis_id=int(row["irp_id"]))
+    except Exception as exc:  # noqa: BLE001 — no partial write
+        return runtime.JobResult.fail(f"treaties read failed: {exc}")
+    for treaty in treaties:
+        try:
+            rows = irp_gateway.get_analysis_stats(
+                analysis_id=int(row["irp_id"]), perspective_code=TY,
+                exposure_resource_id=int(treaty["treaty_id"]),
+                exposure_resource_type="TREATY")
+        except Exception as exc:  # noqa: BLE001 — no partial write
+            return runtime.JobResult.fail(
+                f"treaty loss read failed for {treaty['treaty_number']}: {exc}")
+        treaty["has_loss"] = bool(rows)
 
     doc = build_loss_results_extract(
         perspective_codes=codes, results=results, settings=settings,
-        retrieved_at=_utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))
+        retrieved_at=_utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"), treaties=treaties)
     execute_command(
         "UPDATE irp_analysis SET loss_results = :doc, updated_at = :now "
         "WHERE id = :id",

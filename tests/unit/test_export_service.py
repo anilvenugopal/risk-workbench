@@ -6,6 +6,7 @@ derivation. Workers, routes, and Retry have their own modules."""
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import date
 
@@ -53,7 +54,7 @@ def _create(deal, analysis_ids, perspective="GR", **overrides):
 
 # ── list_exportable_analyses ─────────────────────────────────────────────────
 
-def test_own_rows_come_first_then_broker_rows_by_rdm(deal):
+def test_own_rows_come_first_then_rdm_rows_by_rdm(deal):
     rdm_id = seed_rdm_for(deal["submission_id"], "GC RDM")
     seed_analysis(rdm_id=rdm_id, name="GC_HU", full_name=None, irp_id="38812",
                   irp_app_analysis_id="38812", perspectives=("GR",))
@@ -62,16 +63,19 @@ def test_own_rows_come_first_then_broker_rows_by_rdm(deal):
 
     rows = svc.list_exportable_analyses(deal["submission_id"])
 
-    assert sorted(r.origin for r in rows[:3]) == ["group", "own", "own"]
-    assert rows[-1].origin == "broker" and rows[-1].rdm_name == "GC RDM"
-    assert next(r for r in rows if r.id == group).origin == "group"
+    # Origin is the source system (P-27); the Engine column tells a group apart
+    assert [r.origin for r in rows[:3]] == ["RMS", "RMS", "RMS"]
+    assert rows[-1].origin == "RDM" and rows[-1].rdm_name == "GC RDM"
+    assert next(r for r in rows if r.id == group).engine == "Group"
     a = next(r for r in rows if r.analysis_name == "A")
+    assert a.engine == "DLM · RL25"
     assert a.exportable and a.irp_app_analysis_id == 41958 and a.irp_id == "41958"
     assert a.name == "A long" and a.analysis_description == "A long"
     assert a.perspectives == ["GU", "GR", "RL"]
     assert (a.peril_code, a.region_code, a.currency) == ("EQ", "NAEQ", "USD")
-    broker = rows[-1]
-    assert broker.exportable and broker.name == "GC_HU" and broker.analysis_description is None
+    rdm_row = rows[-1]
+    assert rdm_row.exportable and rdm_row.name == "GC_HU" and rdm_row.analysis_description is None
+    assert rdm_row.engine == "DLM · RL25"
 
 
 def test_non_integer_app_id_and_missing_results_are_disabled_with_a_reason(deal):
@@ -99,6 +103,33 @@ def test_a_broker_row_takes_its_app_analysis_id_from_the_metadata_snapshot(deal)
     assert rows[broker].exportable and rows[broker].irp_app_analysis_id == 38812
     assert rows[no_id].disabled_reason == (
         "the analysis has no Risk Modeler application analysis ID")
+
+
+def test_an_hd_analysis_is_disabled_and_refused(deal):
+    hd = seed_analysis(edm_id=deal["edm_id"], name="HD", full_name=None,
+                       irp_app_analysis_id="9", perspectives=None, engine_type="HD")
+
+    rows = {r.id: r for r in svc.list_exportable_analyses(deal["submission_id"])}
+
+    # HD wins over every other reason, so the row never reads "not retrieved yet"
+    assert rows[hd].disabled_reason == "PLT results are not exportable yet"
+    with pytest.raises(svc.ExportValidationError, match=re.escape(
+            "HD cannot be exported: PLT results are not exportable yet.")):
+        _create(deal, [hd])
+
+
+def test_a_plt_group_is_disabled_and_refused(deal):
+    # Risk Modeler reports a group as engineType "Group"; only analysisFramework
+    # says whether its members' losses are a PLT.
+    group = seed_analysis(edm_id=deal["edm_id"], name="PLT group", full_name=None,
+                          is_group=1, engine_type="Group", framework="PLT")
+
+    rows = {r.id: r for r in svc.list_exportable_analyses(deal["submission_id"])}
+
+    assert rows[group].disabled_reason == "PLT results are not exportable yet"
+    with pytest.raises(svc.ExportValidationError, match=re.escape(
+            "PLT group cannot be exported: PLT results are not exportable yet.")):
+        _create(deal, [group])
 
 
 def test_unknown_submission_is_none(deal):
@@ -209,7 +240,7 @@ def test_create_export_never_writes_back_to_the_submission(deal):
 @pytest.mark.parametrize("overrides, message", [
     ({"analysis_ids": []}, "Select at least one analysis"),
     ({"perspective_code": "RP"}, "A long has no RP results"),
-    ({"perspective_code": "TY"}, "Choose a perspective"),
+    ({"perspective_code": "XX"}, "Choose a perspective"),
     ({"client_id": 99}, "Choose a client"),
     ({"treaty_incept": None}, "Treaty inception is required"),
     ({"data_vintage": None}, "Data vintage is required"),
@@ -299,7 +330,14 @@ def test_derive_status(manifest, expected):
 # ── list_export_rows ─────────────────────────────────────────────────────────
 
 def test_list_export_rows_carries_the_export_columns_and_the_origin_on_every_row(deal):
-    export_id = _create(deal, [deal["a"], deal["b"]], data_vintage=date(2025, 12, 31))
+    group = seed_analysis(edm_id=deal["edm_id"], name="Group", full_name="Group long",
+                          irp_id="41990", irp_app_analysis_id="41990", perspectives=("GR",),
+                          is_group=1)
+    rdm_id = seed_rdm_for(deal["submission_id"], "GC RDM")
+    rdm_row = seed_analysis(rdm_id=rdm_id, name="GC_HU", full_name="Z last", irp_id="38812",
+                            irp_app_analysis_id="38812", perspectives=("GR",))
+    export_id = _create(deal, [deal["a"], deal["b"], group, rdm_row],
+                        data_vintage=date(2025, 12, 31))
     seed_export_job(export_id=export_id, irp_analysis_id=deal["b"], irp_id="500",
                     status="RUNNING")
     from db import execute_command
@@ -308,16 +346,19 @@ def test_list_export_rows_carries_the_export_columns_and_the_origin_on_every_row
 
     rows = svc.list_export_rows(deal["submission_id"])
 
-    assert [(r.export_id, r.export_ordinal) for r in rows] == [(export_id, 1), (export_id, 1)]
-    assert [r.analysis_name for r in rows] == ["A long", "B long"]
-    assert [r.status for r in rows] == [svc.QUEUED, svc.IN_PROGRESS]
-    assert [r.origin for r in rows] == ["own", "own"]
+    assert [(r.export_id, r.export_ordinal) for r in rows] == [(export_id, 1)] * 4
+    assert [r.analysis_name for r in rows] == ["A long", "B long", "Group long", "Z last"]
+    assert [r.status for r in rows[:2]] == [svc.QUEUED, svc.IN_PROGRESS]
+    # origin and engine are read from irp_analysis at render time, by the same
+    # rule as the form's picker (rdm_id; is_group else the settings engine)
+    assert [r.origin for r in rows] == ["RMS", "RMS", "RMS", "RDM"]
+    assert [r.engine for r in rows] == ["DLM · RL25", "DLM · RL25", "Group", "DLM · RL25"]
     a = rows[0]
     assert a.client_name == "Example Re" and a.perspective_code == "GR" and a.crm_id == "CRM-1"
     assert str(a.data_vintage) == "2025-12-31" and str(a.treaty_incept) == "2026-04-01"
     assert a.requested_by_email == "analyst.a@example.com" and a.data_model_version == "25.0"
     # AAL is read from irp_analysis.loss_results at the export's perspective (P-20)
-    assert [r.aal for r in rows] == [100.0, 100.0] and a.aal_display == "100"
+    assert [r.aal for r in rows] == [100.0] * 4 and a.aal_display == "100"
     assert not a.is_terminal and not a.can_retry
 
 

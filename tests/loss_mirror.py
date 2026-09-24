@@ -6,6 +6,12 @@ holds CIC's five tables from db/bootstrap/loss_dev_mirror.sql. Application SQL
 names both by two-part name, so it runs unchanged over this mirror. The load
 procedure is not mirrored: the unit tier fakes ``db.execute_procedure`` and the
 SQL Server tier runs the real one.
+
+The manifest's unique key differs in one way the unit tier cannot see: SQL Server
+treats two NULLs as equal in a UNIQUE constraint, SQLite treats every NULL as
+distinct. Spec 014's one-row-per-(export, analysis) rule for portfolio
+perspectives, whose ``treaty_number`` and ``treaty_name`` are NULL, is therefore
+enforced only in the SQL Server tier.
 """
 
 from __future__ import annotations
@@ -46,6 +52,10 @@ LOSS_STAGE_SCHEMA = [
         data_model_version TEXT,
         peril_code TEXT,
         region_code TEXT,
+        treaty_number TEXT,
+        treaty_name TEXT,
+        treaty_ids TEXT,
+        aal REAL,
         zip_file TEXT,
         stage_status TEXT NOT NULL CHECK (stage_status IN ('pending', 'failed', 'staged')),
         staged_at TEXT,
@@ -63,7 +73,7 @@ LOSS_STAGE_SCHEMA = [
         closed_by TEXT,
         inserted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (export_id, irp_analysis_id)
+        UNIQUE (export_id, irp_analysis_id, treaty_number, treaty_name)
     )""",
     """CREATE TABLE stage.rwb_loss_result_file (
         result_file_id INTEGER PRIMARY KEY AUTOINCREMENT,
