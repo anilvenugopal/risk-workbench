@@ -6,9 +6,10 @@ Everything not named here is unchanged.
 ## 1. Export form page and selection fragment (014 §2, §3)
 
 - The perspective `<select>` offers `TY` when it is in
-  `EXPORT_PERSPECTIVE_CODES` and every selected analysis has a non-empty
-  `loss_results.treaties` (FR-001). The analysis row's Perspectives column
-  lists `TY` beside the codes it has results for.
+  `EXPORT_PERSPECTIVE_CODES` and every selected analysis has a
+  `loss_results.treaties` entry with `has_loss` true (FR-001, P-13). The
+  analysis row's Perspectives column lists `TY` beside the codes it has
+  results for.
 - When `TY` is chosen the fragment renders, under the select:
   "TY writes one loss set per ticked treaty, per analysis." (FR-002). No cart
   row shows an AAL line at TY (FR-016).

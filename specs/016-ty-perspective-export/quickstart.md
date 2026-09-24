@@ -45,8 +45,7 @@
    `3x2 2026` and `<analysis name> PR2`; each `DataID`'s `RMSELT` +
    `RMS_HistoricalRDS` rows equal that row's staged count; the sum of both
    rows' counts equals the distinct (treaty, event) pairs in the archive's TY
-   file (acceptance 4, SC-002). Every `Loss` equals the file's value: the
-   sample has one row per treaty and event, so nothing was combined.
+   file (acceptance 4, SC-002). Every `Loss` equals the file's value.
    `stage.rwb_loss_result_manifest.treaty_ids` reads `33833` and `33832`
    (acceptance 5).
 5. Export the same analysis again with only `PR2` ticked: one data set, and
@@ -102,10 +101,10 @@
    either every entry has `has_loss` false or the results were retrieved
    before 2026-09-21 (T-13).
 2. Tick both treaties and export the group at TY: one data set per ticked
-   treaty; the row's `treaty_ids` lists one ID per member, and a combined
-   event's `Loss` equals the sum of the members' losses for that treaty and
-   event in the archive (acceptance 2, P-11).
-2. Export the members without grouping: one data set per member per treaty
+   treaty, whose rows equal the group archive's rows for that treaty, one per
+   event; the row's `treaty_ids` lists every treaty ID the archive carries for
+   it (acceptance 2, P-11).
+3. Export the members without grouping: one data set per member per treaty
    (acceptance 3).
 
 ## Sandbox checks
@@ -131,6 +130,6 @@
 
 | Tier | Command | Covers |
 |---|---|---|
-| Unit | `uv run pytest tests/unit` | Treaties recorded at retrieval; TY intersection; the treaty selection accepted and refused; the shared submit request; staging, combination, and failures; per-row load; Retry and Close by manifest row; both screens (plan.md Testing) |
+| Unit | `uv run pytest tests/unit` | Treaties recorded at retrieval; TY intersection; the treaty selection accepted and refused; the shared submit request; staging and its failures; per-row load; Retry and Close by manifest row; both screens (plan.md Testing) |
 | SQL Server | `make test-sql` | A TY manifest row loads with `Perspective TY` and the data name unchanged; the widened unique key. Unverified until run |
 | IRP sandbox | `make shell`, then `uv run pytest tests/irp --run-irp -k treaty` | The treaties endpoint (T-04) and the treaty-scoped TY stats read (T-18). Unverified until run |

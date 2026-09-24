@@ -79,21 +79,23 @@ Every exit but success stamps each eligible row that is not yet staged
 1–5. As 014 §4, run once for the analysis. The archive is the `zip_file` of
    an eligible row when that file exists under the root (research R6), else
    the download of the job in `input_data`; `zip_file`, `loss_table_type`,
-   `engine_type`, and `data_model_version` are stamped on every eligible row.
+   `engine_type`, and `irp_export_job_id` (the job's `irp_id`) are stamped on
+   every eligible row, so a row staged alongside a Retry traces to the job
+   that produced its archive (FR-015).
 6. **Portfolio codes**: as 014 §4 steps 6–7 (one row).
    **TY**: list `ELT/Treaty/TY/*.parquet` (fail when the folder is missing or
    another folder sits under `Treaty/`); read every file; require the
    `TY_COLUMNS` (`TreatyId`, `TreatyNum`, `TreatyName`, `EventId`, `Rate`,
    `Loss`, `StdDevI`, `StdDevC`, `ExpValue`), failing with the missing names;
    zero rows → fail "Risk Modeler returned no treaty (TY) loss rows for this
-   analysis" (FR-007). Combine per (`TreatyNum`, `TreatyName`, `EventId`) as
-   [data-model.md §2](../data-model.md#2-treaty-data-set-values). Then, per
-   combined treaty in (`TreatyNum`, `TreatyName`) order, `n` its 1-based
+   analysis" (FR-007). Split per (`TreatyNum`, `TreatyName`), a null name
+   reading as `""` ([data-model.md §2](../data-model.md#2-treaty-data-set-values)).
+   Then, per treaty in (`TreatyNum`, `TreatyName`) order, `n` its 1-based
    position in that order:
    - the row is the eligible row whose `treaty_number` and `treaty_name` equal
      the treaty's; no such row (the analyst did not tick it, or it is already
      staged, loaded, or closed) → count it as skipped and move on;
-   - the treaty's combined rows are written to
+   - the treaty's rows are written unchanged to
      `{top}/ELT/Treaty/TY/{source stem}__{n}.parquet` with the nine ELT
      columns (`PortInfoId` null, `PortInfoName` the treaty name, `PortInfoNum`
      the treaty number) and uploaded as 014 §4 step 7 under the row's
@@ -102,8 +104,8 @@ Every exit but success stamps each eligible row that is not yet staged
      `staged_row_count`, `treaty_ids`, `aal`, `error_message = NULL`.
    Matching no eligible row at all fails the whole analysis with "no ticked
    treaty matches the loss table Risk Modeler returned, which holds {number}
-   {name}; …", listing every combined treaty: the match is exact (FR-005) and
-   T-10 is still Assumed, so the first live run says what the table held.
+   {name}; …", listing every treaty in the table: the match is exact (FR-005),
+   so the message says what the table held.
    Otherwise one `INFO` line reports the skipped count when it is not zero, and
    an eligible row whose treaty is not in the table is stamped failed: "treaty
    {number} {name} is not in the loss table Risk Modeler returned".

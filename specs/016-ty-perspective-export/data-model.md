@@ -14,8 +14,8 @@ Four new nullable columns (`db/bootstrap/loss_schema.sql`, mirrored in
 |---|---|---|---|
 | `treaty_number` | `NVARCHAR(64)` NULL | `create_export`, the number the analyst ticked | Both screens; the stage worker's match; the unique key |
 | `treaty_name` | `NVARCHAR(256)` NULL | `create_export`, the name recorded beside that number in `loss_results.treaties` | Both screens; the stage worker's match; the unique key |
-| `treaty_ids` | `NVARCHAR(400)` NULL | Stage worker: the distinct `TreatyId` values found for the treaty, ascending, comma-separated (one for a single analysis, one per member for a group) | Traceability only (FR-006, non-negotiable 2); exports table `title` |
-| `aal` | `FLOAT` NULL | Stage worker: `SUM(rate × loss)` over the treaty's combined rows (P-10) | The exports table at TY, in place of the `loss_results` AAL |
+| `treaty_ids` | `NVARCHAR(400)` NULL | Stage worker: the distinct `TreatyId` values found for the treaty, ascending, comma-separated | Traceability only (FR-006, non-negotiable 2); exports table `title` |
+| `aal` | `FLOAT` NULL | Stage worker: `SUM(rate × loss)` over the treaty's rows (P-10) | The exports table at TY, in place of the `loss_results` AAL |
 
 Constraint change: `uq_rwb_loss_result_manifest_export_analysis` is now
 `UNIQUE (export_id, irp_analysis_id, treaty_number, treaty_name)`. Every other
@@ -38,7 +38,7 @@ position in the table), not a file inside the archive.
 `stage.rwb_loss_result_elt_data` is unchanged. For a treaty data set the
 worker fills `port_info_id` with `NULL`, `port_info_name` with the treaty name,
 and `port_info_num` with the treaty number, so a staged row can be read
-without its manifest; the loss columns hold the combined values of §2.
+without its manifest; the loss columns hold Risk Modeler's values unchanged.
 
 ## 2. Treaty data set values
 
@@ -48,10 +48,10 @@ portfolio-level row; the stage worker fills in what only the loss table knows.
 | Value | Written by | Rule |
 |---|---|---|
 | `data_name` | `create_export` | what the analyst typed for that treaty, or `{analysis_name} {treaty_number}` when they left it blank, cut to 150 characters (P-06) |
-| Combined loss row, per (`treaty_number`, `treaty_name`, `EventId`) | Stage worker | `Loss` summed; `StdDevI` summed; `StdDevC` = √(Σ `StdDevC`²); `Rate` the first row's; `ExpValue` the largest (spec O-04); a treaty and event appearing once are unchanged (P-11) |
-| `treaty_ids` | Stage worker | distinct `TreatyId` of the treaty's rows, ascending |
-| `aal` | Stage worker | Σ `Rate × Loss` over the combined rows |
-| `staged_row_count` | Stage worker | the treaty's combined rows |
+| Loss rows | Stage worker | the table's rows whose `TreatyNum` and `TreatyName` equal the manifest row's, unchanged (P-11) |
+| `treaty_ids` | Stage worker | distinct `TreatyId` of the treaty's rows, ascending; a null `TreatyId` is skipped |
+| `aal` | Stage worker | Σ `Rate × Loss` over the treaty's rows |
+| `staged_row_count` | Stage worker | the treaty's rows |
 
 Everything the procedure writes (`dbo.Data`, `dbo.RMSELT`,
 `dbo.RMS_HistoricalRDS`) follows 014 §5 unchanged: `Data.Perspective` ←
