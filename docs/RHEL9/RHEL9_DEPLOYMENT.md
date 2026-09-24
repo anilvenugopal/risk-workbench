@@ -4,8 +4,8 @@ Deploys Risk Workbench on a RHEL9 server without `uv` — matching production,
 where `uv` is a developer tool only (see [AGENTS.md](../../AGENTS.md)).
 
 Prerequisite: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) completed — git,
-Python 3.14, ODBC Driver 18, Redis/Valkey, nginx, gcc/g++/make, rsync all
-installed.
+Python 3.14, ODBC Driver 18, Redis/Valkey, nginx, gcc/g++/make, rsync, `pgrep`,
+and `ss` all installed.
 
 Placeholders below (`cinreadm`, `/rms`) stand in for whatever
 account and path infra actually assigns — substitute the real values when
@@ -279,7 +279,15 @@ new code — an operator still stops the workers (`rhel9-stop.sh`) beforehand
 and starts them again (`rhel9-start.sh`) afterward; the deploy script itself
 still does not stop/start them.
 
-- **Through spec 017, a successful migration does not always mean the schema is current.** Until specs 016 and 017 merge, the project edits `0001_initial.py` in place. On a database that already has that revision recorded as applied, `alembic upgrade head` does nothing even if the file gained tables or seed rows. Rebuild with `APP_DIR=/rms bash infra/scripts/rhel9/rhel9-db-rebuild.sh`; do not run `alembic downgrade base` against an existing RHEL9 database because its tables may come from an older edit whose shape the current `downgrade()` does not describe. The rebuild script loads `infra/.env`, asks you to type the database name, drops every table it finds with `infra/scripts/rhel9/drop_workbench_tables.py`, and then runs `alembic upgrade head` as the app login. Stop the app first (`rhel9-stop.sh`) and expect to lose all Workbench data. The script creates no database or account. After specs 016 and 017 merge, run this rebuild once more, freeze `0001_initial.py`, and use a new revision file plus `alembic upgrade head` for every later schema change; remove both RHEL9 rebuild scripts then.
+- **Through spec 017, a successful migration does not always mean the schema is current.** Until specs 016 and 017 merge, the project edits `0001_initial.py` in place. On a database that already has that revision recorded as applied, `alembic upgrade head` does nothing even if the file gained tables or seed rows. Do not run `alembic downgrade base` against an existing RHEL9 database because its tables may come from an older edit whose shape the current `downgrade()` does not describe. For a schema-changing deployment:
+
+  1. Run `APP_DIR=/rms bash infra/scripts/rhel9/rhel9-stop.sh`. The command fails if uvicorn, a worker, or the poller remains active.
+  2. Sync the merged code, then install its dependencies with `rhel9-app-install.sh`.
+  3. Run `APP_DIR=/rms bash infra/scripts/rhel9/rhel9-db-rebuild.sh`. The rebuild independently refuses to continue while an app process is active, asks you to type the database name, drops every Workbench table, and runs `alembic upgrade head` as the app login.
+  4. Provision each production account with `.venv/bin/python infra/scripts/user_setup.py` because the rebuild deletes every account and session.
+  5. Run `APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start.sh`. Startup fails if any worker or the poller exits immediately. Verify `/api/health` after startup.
+
+  The rebuild creates no database and does not touch the Loss Repository or DATABRIDGE. After specs 016 and 017 merge, run the rebuild once more, freeze `0001_initial.py`, and use a new revision file plus `alembic upgrade head` for every later schema change; remove both RHEL9 rebuild scripts then.
 - **systemd unit files** for uvicorn, Dramatiq workers, the poller, and
   Valkey — not yet written; Steps 5-6 above run them in the
   foreground/manually as a proof of concept only. Deliberately deferred for

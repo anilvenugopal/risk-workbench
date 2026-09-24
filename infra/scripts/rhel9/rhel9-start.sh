@@ -105,6 +105,20 @@ echo $! > "$PID_DIR/poller.pid"
 echo "  Started (PID $(cat "$PID_DIR/poller.pid")). Log: /var/lib/risk-workbench/poller.log"
 
 echo ""
+echo "=== Verifying workers and poller ==="
+sleep 2
+if ! APP_DIR="$APP_DIR" PID_DIR="$PID_DIR" \
+        bash infra/scripts/rhel9/rhel9-worker-health.sh; then
+    echo "ERROR: one or more Dramatiq workers failed to start." >&2
+    exit 1
+fi
+if ! kill -0 "$(cat "$PID_DIR/poller.pid")" 2>/dev/null; then
+    echo "ERROR: poller exited immediately — check /var/lib/risk-workbench/poller.log" >&2
+    exit 1
+fi
+echo "  Poller is running (PID $(cat "$PID_DIR/poller.pid"))."
+
+echo ""
 echo "=== 6. nginx ==="
 if systemctl is-active --quiet nginx; then
     echo "  Already running (systemd) — deploy scripts reload it, they don't"

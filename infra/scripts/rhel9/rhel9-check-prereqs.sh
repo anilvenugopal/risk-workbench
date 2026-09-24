@@ -38,7 +38,8 @@ check() {
 
 echo "=== 1. System packages ==="
 for pkg in git "$PYTHON_PKG" "${PYTHON_PKG}-devel" "${PYTHON_PKG}-pip" \
-    unixODBC-devel msodbcsql18 gcc gcc-c++ make nginx valkey gettext rsync; do
+    unixODBC-devel msodbcsql18 gcc gcc-c++ make nginx valkey gettext rsync \
+    procps-ng iproute; do
     if rpm -q "$pkg" > /dev/null 2>&1; then
         check "$pkg installed" "yes"
     else
@@ -51,7 +52,7 @@ echo "=== 2. Command-line tools actually work ==="
 # Checking the package is installed (above) isn't quite the same as
 # checking the actual command works — this catches a broken install rpm
 # somehow left behind without the real binary, or a PATH problem.
-for cmd in git "$PYTHON_PKG" nginx valkey-server envsubst rsync; do
+for cmd in git "$PYTHON_PKG" nginx valkey-server envsubst rsync pgrep ss; do
     if command -v "$cmd" > /dev/null 2>&1; then
         check "'$cmd' command available" "yes"
     else

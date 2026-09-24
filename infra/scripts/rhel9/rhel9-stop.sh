@@ -158,4 +158,11 @@ else
 fi
 
 echo ""
-echo "=== Done. Review any WARNING lines above before assuming a clean stop. ==="
+echo "=== Verifying app processes are stopped ==="
+if ! bash infra/scripts/rhel9/rhel9-app-process-check.sh; then
+    echo "ERROR: Risk Workbench did not stop cleanly." >&2
+    exit 1
+fi
+
+echo ""
+echo "=== Done. Risk Workbench app processes are stopped. ==="

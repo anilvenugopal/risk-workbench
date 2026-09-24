@@ -94,6 +94,29 @@ rsync --version
 
 ---
 
+## Process inspection tools
+
+*Automated by rhel9-setup.sh section 2 ("System packages").*
+
+`rhel9-stop.sh`, `rhel9-start.sh`, and `rhel9-db-rebuild.sh` use `pgrep` and
+`ss` to prove that uvicorn, the workers, and the poller are in the expected
+state before reporting success.
+
+### Install
+
+```bash
+sudo dnf install -y procps-ng iproute
+```
+
+### Verify
+
+```bash
+pgrep --version
+ss --version
+```
+
+---
+
 ## Application directory and ownership (`/rms`)
 
 *Automated by rhel9-setup.sh section 5 ("Application directory").*

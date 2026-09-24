@@ -60,8 +60,16 @@ echo "  database: $DATABASE"
 echo "  login:    ${MSSQL_WORKBENCH_USER:-unset}"
 echo ""
 echo "  Every table in $DATABASE is dropped and recreated. All Workbench data"
-echo "  is lost. Stop the app first (rhel9-stop.sh) if it is still running."
+echo "  is lost."
 echo ""
+
+# Do not trust PID files or a previous stop command. The rebuild itself proves
+# that no web, worker, or poller process can write while tables are being dropped.
+if ! bash infra/scripts/rhel9/rhel9-app-process-check.sh; then
+    echo "Run APP_DIR=$APP_DIR bash infra/scripts/rhel9/rhel9-stop.sh, resolve" >&2
+    echo "every reported process, and then run the rebuild again." >&2
+    exit 1
+fi
 
 # Lists the tables it found, then asks for the database name. Confirming here
 # rather than above means the prompt comes after seeing what is actually there.

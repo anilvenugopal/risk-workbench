@@ -52,9 +52,11 @@ fi
 printf "%-25s %-10s %-10s %-10s\n" "QUEUE" "PIDFILE" "PID" "PROCESS"
 printf "%-25s %-10s %-10s %-10s\n" "-----" "-------" "---" "-------"
 
-any_alive=0
+all_healthy=1
+checked=0
 while read -r queue; do
     [ -n "$FILTER_QUEUE" ] && [ "$queue" != "$FILTER_QUEUE" ] && continue
+    checked=$((checked + 1))
 
     pidfile_status="absent"
     pid="-"
@@ -70,23 +72,27 @@ while read -r queue; do
 
     # Matches `dramatiq app.workers.entrypoint -Q <queue>` exactly, so a
     # worker for a DIFFERENT queue never shows as a false positive here.
-    scan_pid="$(pgrep -f "dramatiq app\.workers\.entrypoint.*-Q[= ]$queue\b" | head -1)"
+    scan_pid="$(pgrep -f "dramatiq app\.workers\.entrypoint.*-Q[= ]$queue([[:space:]]|$)" | head -1)"
     scan_status="absent"
     if [ -n "$scan_pid" ]; then
         scan_status="alive (PID $scan_pid)"
-        any_alive=1
     fi
 
-    [ "$pidfile_status" = "alive" ] && any_alive=1
+    if [ "$pidfile_status" != "alive" ] || [ -z "$scan_pid" ]; then
+        all_healthy=0
+    fi
 
     printf "%-25s %-10s %-10s %-20s\n" "$queue" "$pidfile_status" "$pid" "$scan_status"
 done <<< "$QUEUES"
 
 echo ""
-if [ "$any_alive" -eq 1 ]; then
-    echo "At least one queue has a live worker (PID file or process scan)."
-    exit 0
-else
-    echo "No live workers found for any queue."
+if [ "$checked" -eq 0 ]; then
+    echo "ERROR: no queue matched '$FILTER_QUEUE'." >&2
     exit 1
 fi
+if [ "$all_healthy" -ne 1 ]; then
+    echo "ERROR: every queue must have a live PID file and process." >&2
+    exit 1
+fi
+
+echo "Every queue has a live PID file and process."

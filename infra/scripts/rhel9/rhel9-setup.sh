@@ -47,7 +47,7 @@ echo ""
 echo "=== 2. System packages ==="
 # An "array" is just a named list. This is every package this project needs
 # on RHEL9 — the same list we installed by hand earlier, written once here
-# instead of typing "sudo dnf install" nine separate times. unixODBC-devel
+# instead of typing a separate "sudo dnf install" command for each. unixODBC-devel
 # is included here (not in section 3) because it comes from Microsoft's
 # repo, registered just above — grouping it with msodbcsql18 in section 3
 # would be more "obviously ODBC-related," but this script installs it here
@@ -57,7 +57,7 @@ echo "=== 2. System packages ==="
 # transfer fails with "rsync: command not found" even though the deploy
 # script itself runs fine from the pushing machine.
 NEEDED_PKGS=(git "$PYTHON_PKG" "${PYTHON_PKG}-devel" "${PYTHON_PKG}-pip"
-    unixODBC-devel gcc gcc-c++ make nginx valkey gettext rsync)
+    unixODBC-devel gcc gcc-c++ make nginx valkey gettext rsync procps-ng iproute)
 # A second, empty list — we'll only add a package's name here if it turns
 # out to genuinely be missing.
 MISSING_PKGS=()
