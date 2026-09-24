@@ -104,5 +104,5 @@ Worth knowing before picking one up — all of it is *seeded but empty*:
   `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`;
 - four `irp_job_type` kinds with **no poller getter** — `geohaz`, `analysis`, `grouping`,
   `export` — so the poller logs "No getter for irp_job_type" and skips them;
-- no EXPOSURE / LOSS database access anywhere in `app/` yet (only the health probe
-  connects to them).
+- no LOSS database access in the flows drawn here (the health probe connects to it; the
+  results-export workers are where it is actually read and written).

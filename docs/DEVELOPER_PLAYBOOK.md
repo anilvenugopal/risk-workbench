@@ -95,7 +95,7 @@ docker compose -f infra/docker-compose.yml logs -f sqlserver
 ### Step 5 — Bootstrap databases (first time only)
 
 ```powershell
-docker compose -f infra/docker-compose.yml exec linux-box python scripts/bootstrap_db.py
+docker compose -f infra/docker-compose.yml exec linux-box python scripts/dev/bootstrap_db.py
 docker compose -f infra/docker-compose.yml exec linux-box alembic upgrade head
 ```
 
@@ -186,7 +186,6 @@ Edit `infra/.env`. Key changes for WSL2 native mode:
 ```ini
 # In native WSL2 mode, SQL Server is on localhost (port is mapped from container)
 MSSQL_WORKBENCH_SERVER=localhost
-MSSQL_EXPOSURE_SERVER=localhost
 MSSQL_LOSS_SERVER=localhost
 ```
 
@@ -205,7 +204,7 @@ make sqlserver-up
 ### Step 9 — Bootstrap and migrate
 
 ```bash
-python scripts/bootstrap_db.py
+python infra/scripts/dev/bootstrap_db.py
 alembic upgrade head
 ```
 
@@ -337,9 +336,9 @@ make logs-poller         # poller log
 make shell               # bash inside linux-box
 
 # Database
-make db-bootstrap        # Create 3 app databases (first time only)
+make db-bootstrap        # Create the app databases (first time only)
 make db-migrate          # Run alembic upgrade head
-make db-rebuild          # DESTRUCTIVE: drop + recreate + migrate + seed
+make db-rebuild          # DESTRUCTIVE: downgrade base + upgrade head + seed
 
 # Tests
 make test                # Unit tests (fast, no SQL Server)

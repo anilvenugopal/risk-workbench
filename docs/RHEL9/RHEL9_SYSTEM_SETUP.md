@@ -418,7 +418,7 @@ nginx -c /tmp/nginx.conf
 ```
 
 Replace `/home/cinreadm/risk-workbench` with wherever the repo is actually
-checked out. The Docker path (`infra/scripts/start-all.sh`) does this
+checked out. The Docker path (`infra/scripts/dev/start-all.sh`) does this
 automatically with `APP_ROOT=/workspace`.
 
 ### Install — enable as a systemd service

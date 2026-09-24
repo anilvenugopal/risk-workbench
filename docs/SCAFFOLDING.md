@@ -163,13 +163,13 @@ should print `aof_enabled:1`.
 ### Step 7 — Create databases and run migrations
 
 ```bash
-bash infra/scripts/wsl-setup.sh
+bash infra/scripts/dev/wsl-setup.sh
 ```
 
 This is the automated setup script. Steps 2–5 above are prerequisites for it.
 Once those are done, the script handles:
 - Confirming SQL Server is ready
-- Creating `rwb_workbench`, `rwb_exposure`, `rwb_loss` (skips if they exist)
+- Creating `rwb_workbench` and `rwb_loss` (skips if they exist)
 - Running Alembic migrations on `rwb_workbench`
 
 If it fails, read the error, fix it, and run it again — every step is idempotent.
@@ -220,9 +220,9 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 | `make wsl-poller` | Start IRP job poller (interval from `POLL_INTERVAL_SECS`, default 15s). |
 | `make wsl-test` | Run unit tests (no SQL Server needed, fast). |
 | `make wsl-test-sql` | Run SQL Server integration tests. |
-| `make wsl-db-bootstrap` | Create the 3 app databases (skips existing). |
+| `make wsl-db-bootstrap` | Create the app databases (skips existing). |
 | `make wsl-db-migrate` | Run pending Alembic migrations. |
-| `make wsl-db-rebuild` | **Destructive.** Drop and recreate all 3 databases (runs `wsl-bootstrap-loss` last). |
+| `make wsl-db-rebuild` | **Destructive.** Rebuild the `rwb_workbench` schema — `alembic downgrade base`, `upgrade head`, the fixture admin, then `wsl-bootstrap-loss-reset`. |
 | `make wsl-bootstrap-loss` | Apply the dev mirror of CIC's five loss tables and the `stage` schema to `rwb_loss`, then seed `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS`. Idempotent. |
 
 ### Docker commands (partner / Windows users)
@@ -242,23 +242,25 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 
 ## Database Lifecycle
 
-Three databases are managed by the app: `rwb_workbench`, `rwb_exposure`,
-`rwb_loss`. A fourth, DATABRIDGE (Moody's), is never touched by this app.
+Two databases are managed by the app: `rwb_workbench` and `rwb_loss`. A third,
+DATABRIDGE (Moody's), is never touched by this app.
 
 Before any iteration that changes the schema, choose one:
 
 | Option | When | Command |
 |---|---|---|
-| **Rebuild** | Schema changed — drop all 3 and recreate | `make wsl-db-rebuild` |
+| **Rebuild** | Schema changed — drop every table and recreate | `make wsl-db-rebuild` |
 | **Migrate** | Schema changed but data must be kept | `make wsl-db-migrate` |
 | **Skip** | No schema change | nothing |
 
-In dev we use Rebuild (drop-create-seed) rather than accumulating Alembic
-revisions. There is one revision (`0001_initial.py`) which is amended in place
-until production cutover.
+There is one revision (`0001_initial.py`), amended in place until production
+cutover, so Rebuild is `alembic downgrade base && alembic upgrade head` rather
+than a new revision. Production runs the same two commands — see
+`infra/scripts/README.md`.
 
 `rwb_loss` is not migrated by Alembic. `make db-rebuild` / `make wsl-db-rebuild`
-end by running `bootstrap-loss`, which applies `db/bootstrap/loss_dev_mirror.sql`
+end by running `bootstrap-loss --reset-stage`, which drops the stage tables (so a
+changed column definition takes effect) and applies `db/bootstrap/loss_dev_mirror.sql`
 (CIC's five tables), `db/bootstrap/loss_schema.sql` (the Workbench `stage`
 schema and `stage.usp_load_elt_result`), and the two seeds. Run it on its own
 after editing either SQL file.
@@ -281,7 +283,7 @@ When you need to pause execution and inspect state:
 **Step 2** — Start uvicorn under debugpy:
 
 ```bash
-bash -c 'source infra/scripts/wsl-env.sh && \
+bash -c 'source infra/scripts/dev/wsl-env.sh && \
     uv run python -m debugpy --listen 0.0.0.0:5678 --wait-for-client \
     -m uvicorn app.main:app --host 0.0.0.0 --port 8000'
 ```

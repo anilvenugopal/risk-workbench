@@ -86,19 +86,14 @@ Four steps, always in this order:
 3. **Seed the type into `rwb_job_type_kind`.** `rwb_job.rwb_job_type` is a
    kind-table foreign key (Article 3 of the constitution — internal
    categoricals are never bare strings), so the value must exist in
-   `rwb_job_type_kind` before any row can reference it. It's seeded in
-   **two places, kept in sync by hand**:
-   - `alembic/versions/0001_initial.py`'s `upgrade()` — a plain `INSERT`,
-     runs once when the schema is first created (`make db-rebuild` /
-     `wsl-db-rebuild`).
-   - `infra/scripts/seed_db.py` — an idempotent `MERGE`, safe to re-run any
-     time (`make db-bootstrap` / `wsl-db-seed`). This is what backfills a
-     newly-added type into a database that already exists, without a full
-     rebuild.
+   `rwb_job_type_kind` before any row can reference it. It is seeded in one
+   place: the `INSERT` in `alembic/versions/0001_initial.py`'s `upgrade()`.
 
-   Add the same `(code, label, sort_order)` row to both. There's no single
-   source of truth for this list — matching an existing row's shape in both
-   files is the whole job.
+   Add the `(code, label, sort_order)` row there, then rebuild
+   (`make wsl-db-rebuild` / `make db-rebuild`). Because the revision is edited
+   in place, a database that already has it recorded as applied will not pick
+   up the new row from `alembic upgrade head` alone — the rebuild is what
+   applies it.
 
 4. **Call `enqueue_rwb_job`** (or `ensure_pending_rwb_job` for a
    request-path retry) from wherever the job should be triggered, with
@@ -130,7 +125,7 @@ One OS process per queue, always:
 dramatiq app.workers.entrypoint -Q upload_edm --processes 1 --threads 2
 ```
 
-- **Dev, Docker** (`infra/scripts/start-all.sh`): loops over
+- **Dev, Docker** (`infra/scripts/dev/start-all.sh`): loops over
   `python -m app.workers.queues`, backgrounds one process per queue with
   `--pid-file .dev-pids/worker-<queue>.pid`, logs to
   `.dev-logs/worker-<queue>.log`.
@@ -141,7 +136,7 @@ dramatiq app.workers.entrypoint -Q upload_edm --processes 1 --threads 2
   files under `/var/lib/risk-workbench/`.
 
 Check what's actually running, on either dev path, without trusting the
-start script's own printed output: `bash infra/scripts/wsl-worker-health.sh`
+start script's own printed output: `bash infra/scripts/dev/wsl-worker-health.sh`
 (or the RHEL9 equivalent, `rhel9-worker-health.sh`) lists every queue with
 its PID-file status and an independent process-scan side by side.
 

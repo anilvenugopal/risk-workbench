@@ -100,7 +100,7 @@ PYTHON_BIN=python3.14 bash infra/scripts/rhel9/rhel9-app-install.sh
 [infra/scripts/rhel9/rhel9-app-install.sh](../../infra/scripts/rhel9/rhel9-app-install.sh)
 builds/updates `.venv`, installs from `requirements.txt` (committed to git
 by developers — see
-[infra/scripts/generate-requirements.sh](../../infra/scripts/generate-requirements.sh)
+[infra/scripts/dev/generate-requirements.sh](../../infra/scripts/dev/generate-requirements.sh)
 — never generated or transferred by hand), and runs `alembic upgrade
 head`. No `uv` involved at any point on the server.
 
@@ -115,9 +115,12 @@ full reasoning.
 HTTPS access to PyPI during installation unless the packages are staged on
 the server before the deployment.
 
-The three application databases must already exist. `rhel9-app-install.sh`
-does not create databases; it applies the Workbench Alembic migrations and
-verifies `pyodbc` can see `ODBC Driver 18 for SQL Server` and that
+The Workbench database must already exist, created by the DBA with a
+least-privilege app login that has DDL rights inside it. The Workbench does not
+create databases on the server, and the loss repository is CIC's
+`CRE_Trial_ELT_Repository` — the DBA installs `db/bootstrap/loss_schema.sql`
+into it by hand. `rhel9-app-install.sh` applies the Workbench Alembic migrations
+and verifies `pyodbc` can see `ODBC Driver 18 for SQL Server` and that
 `app.config` imports cleanly.
 
 ## 5. Start Redis/Valkey
@@ -276,7 +279,7 @@ new code — an operator still stops the workers (`rhel9-stop.sh`) beforehand
 and starts them again (`rhel9-start.sh`) afterward; the deploy script itself
 still does not stop/start them.
 
-- **A "successful" migration doesn't always mean the schema is current.** This project keeps one migration file, edited in place, instead of a new file per change. On a database that already has that migration recorded as applied, `alembic upgrade head` does nothing — even if the file gained new tables or seed rows since. If a job or query fails with "Invalid object name" for a table that clearly exists in the code, this is why. Fix: rebuild the database — `python infra/scripts/reset_db.py`, then `python -m alembic upgrade head`, then `python infra/scripts/seed_db.py` (same three steps as `make db-rebuild`; RHEL9 has no Make target for this yet, run them directly).
+- **A "successful" migration doesn't always mean the schema is current.** This project keeps one migration file, edited in place, instead of a new file per change. On a database that already has that migration recorded as applied, `alembic upgrade head` does nothing — even if the file gained new tables or seed rows since. If a job or query fails with "Invalid object name" for a table that clearly exists in the code, this is why. Fix: rebuild the schema — `APP_DIR=/rms bash infra/scripts/rhel9/rhel9-db-rebuild.sh`, which loads `infra/.env`, asks you to type the database name, and drops every table it finds with `infra/scripts/rhel9/drop_workbench_tables.py` and then runs `alembic upgrade head` as the app login. It drops every table in the Workbench database, so stop the app first (`rhel9-stop.sh`) and expect to lose all Workbench data. It creates no databases and never uses the SA login, and it creates no accounts — a rebuilt database has none until one is provisioned with `infra/scripts/user_setup.py`.
 - **systemd unit files** for uvicorn, Dramatiq workers, the poller, and
   Valkey — not yet written; Steps 5-6 above run them in the
   foreground/manually as a proof of concept only. Deliberately deferred for

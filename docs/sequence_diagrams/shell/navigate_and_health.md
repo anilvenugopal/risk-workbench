@@ -53,7 +53,6 @@ sequenceDiagram
     participant Ops as Operator / monitor
     participant App as App (route)
     participant WB as rwb_workbench
-    participant EX as rwb_exposure
     participant LO as rwb_loss
     participant R as Redis
 
@@ -61,10 +60,9 @@ sequenceDiagram
         Note over Ops,R: GET /api/health — session-EXEMPT, always HTTP 200
         Ops->>App: GET /api/health
         App->>WB: test_connection("WORKBENCH")
-        App->>EX: test_connection("EXPOSURE")
         App->>LO: test_connection("LOSS")
         App->>R: ping (2s connect timeout)
-        App-->>Ops: 200 — {status, db_workbench, db_exposure, db_loss, redis, env}
+        App-->>Ops: 200 — {status, db_workbench, db_loss, redis, env}
     end
 ```
 
@@ -106,10 +104,11 @@ exposes `searchable_nodes()` for it; only the endpoint is missing.
 - **`/api/health` is deliberately session-exempt**, registered before the session middleware so a
   monitor needs no credentials. It reports reachability only — never row counts, never config
   values beyond the environment name.
-- **It probes all three databases even though the app only uses one today.** `rwb_exposure` and
-  `rwb_loss` are otherwise untouched by `app/` — every write in every flow in this set lands in
-  `rwb_workbench`. The probe is forward-looking, and it is the only reason those connections are
-  configured at all.
+- **It probes both app databases, though only one carries this set's writes.** `rwb_loss` is
+  untouched by the flows here — every write in every flow in this set lands in `rwb_workbench`;
+  the loss repository is reached by the results-export workers. The `EXPOSURE` connection used to
+  be probed too and was removed with issue #121: no schema, no reads, no writes, and no such
+  database at CIC.
 - **DATABRIDGE is not in the probe.** It is read-only, worker-side, and reached through the
   `irp-integration` wheel rather than the `db/` package (Article 11), so it has no
   `test_connection` name. Its availability surfaces per-job instead, as

@@ -158,7 +158,7 @@ make dev-up          # start full Docker stack (partner / Windows)
 make sqlserver-up    # start SQL Server only (WSL2 native mode)
 make native-dev      # uvicorn --reload natively in WSL2
 make shell           # bash inside linux-box
-make db-rebuild      # DESTRUCTIVE: drop/recreate 3 app DBs + migrate + seed
+make db-rebuild      # DESTRUCTIVE: rebuild the rwb_workbench schema + seed
 make test            # unit tests
 make test-sql        # SQL Server integration tests (--run-sqlserver)
 make debug-up        # start with debugpy on :5678 for VS Code attach
@@ -166,6 +166,11 @@ make debug-up        # start with debugpy on :5678 for VS Code attach
 
 The unit tier is the exception: `uv run pytest tests/unit` runs from any host shell
 with no container and no database. Prefer it over `make test`.
+
+**Where a script may run** — `infra/scripts/` is split by environment, and the
+directory is the contract: `dev/` never runs on the production server, `rhel9/` only
+runs there, and anything at the top level runs in both. See
+[infra/scripts/README.md](infra/scripts/README.md).
 
 See [docs/SCAFFOLDING.md](docs/SCAFFOLDING.md) for full setup and debugging tutorial.
 
@@ -182,19 +187,31 @@ Full rules in the constitution. Key points for implementation:
 7. **Auth**: `AUTH_MODE=password` is a gated v1 fallback; never reachable in production. Session cookie contains session ID only.
 8. **Approved plans are immutable**: when an async operation follows a user preview or confirmation, the worker executes the plan the user approved. Persist it and run it — never silently recompute inputs at execution time.
 
-## Three Databases
+## Two Databases
 
 | Name | Env prefix | Purpose | Managed by |
 |---|---|---|---|
 | `rwb_workbench` | `MSSQL_WORKBENCH_*` | App state, workflow, audit | Alembic (`make db-migrate`) |
-| `rwb_exposure` | `MSSQL_EXPOSURE_*` | Exposure data (EDM/RDM) | Bootstrap SQL script |
 | `rwb_loss` | `MSSQL_LOSS_*` | Loss results | Bootstrap SQL script |
 | DATABRIDGE | `MSSQL_DATABRIDGE_*` | Moody's — read-only | **Read-only, only via irp-integration methods, worker-side** — except a bounded single-row point-of-action check, which may run on the request path and must fail open (constitution Art. 11 v3.2.0); never migrated/bootstrapped; never raw SQL from app code |
 
 ## Dev DB Strategy
 
-Drop-create-seed. Single revision `alembic/versions/0001_initial.py` until production cutover.
+Rebuild, don't upgrade — **through spec 017 only.** Single revision
+`alembic/versions/0001_initial.py`, edited in place, so a schema change needs the
+database emptied and `alembic upgrade head` rerun. In WSL2 and Docker that is
+`alembic downgrade base` (`make wsl-db-rebuild`, `make db-rebuild`). On RHEL9 it is
+`rhel9/drop_workbench_tables.py` (`rhel9/rhel9-db-rebuild.sh`), because the server's
+database was built from an older edit of the file and `downgrade()` describes the
+current one — see `infra/scripts/README.md`.
 Before each schema-affecting iteration, choose: **Rebuild** / **Refresh** / **Skip**.
+
+**After specs 016 and 017 merge, this stops.** 017 holds the last in-place edit of
+`0001_initial.py` (016 does not touch it). Rebuild the RHEL9 database once more at
+that point, which makes the server's schema exactly what `0001` builds, then freeze
+`0001` and add a new revision file per change from then on. `alembic upgrade head`
+becomes the deploy mechanism, the rebuild stops being part of a deploy, and
+`rhel9/rhel9-db-rebuild.sh` and `rhel9/drop_workbench_tables.py` are deleted.
 DATABRIDGE is never in schema scope (no DDL/migrations/bootstrap; reads only via irp-integration, worker-side).
 
 ## irp-integration (source-switchable: PyPI / TestPyPI / local)
@@ -230,7 +247,7 @@ are the tier to run after every change. SQL Server tests use the real driver.
 `uv run pytest tests/sqlserver --run-sqlserver` typed into Git Bash or PowerShell
 fails every test with "Could not connect to WORKBENCH database" even when
 `infra-sqlserver-1` is healthy. The ODBC driver and the `MSSQL_*` env vars live in
-the `linux-box` container (Docker) or are exported by `infra/scripts/wsl-env.sh`
+the `linux-box` container (Docker) or are exported by `infra/scripts/dev/wsl-env.sh`
 (WSL2); the Windows host has neither. `make test-sql` and `make wsl-test-sql` exist
 because of this — use them.
 

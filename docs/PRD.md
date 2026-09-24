@@ -101,20 +101,18 @@ The workbench connects to **three logically separate SQL Server databases**. In 
 | Named connection | Database | Purpose | Owner |
 |---|---|---|---|
 | `WORKBENCH` | Workbench Metamodel DB | App state: submissions, EDMs, RDMs, jobs, workflows, audit, reference cache | App / Alembic |
-| `EXPOSURE` | Exposure Repository | Pre-aggregated exposure summaries pushed by Phase A | App writes; downstream reads |
 | `LOSS` | Loss Repository | Finalized loss sets pushed by Phase C | App writes; downstream reads |
 | `DATABRIDGE` | DataBridge (Moody's cloud) | Validation, profiling, exposure modification via ODBC | Moody's — app never runs DDL here |
 
-**Connection configuration follows the `db/` package convention** (`MSSQL_{NAME}_*` env vars). App code calls `get_connection("WORKBENCH")`, `get_connection("EXPOSURE")`, `get_connection("LOSS")`, `get_connection("DATABRIDGE")` — no URL strings in application code.
+**Connection configuration follows the `db/` package convention** (`MSSQL_{NAME}_*` env vars). App code calls `get_connection("WORKBENCH")`, `get_connection("LOSS")`, `get_connection("DATABRIDGE")` — no URL strings in application code. The Exposure Repository is out of MVP (§Phase A) and has no configured connection; adding one is an `MSSQL_EXPOSURE_*` block plus a call site.
 
 ```
 MSSQL_WORKBENCH_SERVER, MSSQL_WORKBENCH_USER, MSSQL_WORKBENCH_PASSWORD, MSSQL_WORKBENCH_DATABASE
-MSSQL_EXPOSURE_SERVER,  MSSQL_EXPOSURE_USER,  MSSQL_EXPOSURE_PASSWORD,  MSSQL_EXPOSURE_DATABASE
 MSSQL_LOSS_SERVER,      MSSQL_LOSS_USER,      MSSQL_LOSS_PASSWORD,      MSSQL_LOSS_DATABASE
 MSSQL_DATABRIDGE_SERVER, MSSQL_DATABRIDGE_USER, MSSQL_DATABRIDGE_PASSWORD, MSSQL_DATABRIDGE_DATABASE
 ```
 
-Pool sizing is **per-connection**, not global. Each named connection has its own pool. Per-connection overrides: `MSSQL_{NAME}_POOL_SIZE`, `MSSQL_{NAME}_POOL_MAX_OVERFLOW`. Falls back to global `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW` if not set (default 5 / 5). **Watch the total**: with four connections and defaults, you can open up to 40 physical connections to SQL Server. Tune per connection based on actual load. Recommended starting point for 30 users: `MSSQL_WORKBENCH_POOL_SIZE=10`, `MSSQL_WORKBENCH_POOL_MAX_OVERFLOW=20`; `MSSQL_EXPOSURE_POOL_SIZE=5`, `MSSQL_LOSS_POOL_SIZE=5` (Phase C Dramatiq workers). `MSSQL_DATABRIDGE_POOL_SIZE=3` (DataBridge ODBC is session-scoped; small pool is correct). **Note:** per-connection pool env vars require a one-line change to `_pool_kwargs()` in `db/connection.py` to prefer `MSSQL_{NAME}_POOL_SIZE` over the global fallback.
+Pool sizing is **per-connection**, not global. Each named connection has its own pool. Per-connection overrides: `MSSQL_{NAME}_POOL_SIZE`, `MSSQL_{NAME}_POOL_MAX_OVERFLOW`. Falls back to global `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW` if not set (default 5 / 5). **Watch the total**: with three connections and defaults, you can open up to 30 physical connections to SQL Server. Tune per connection based on actual load. Recommended starting point for 30 users: `MSSQL_WORKBENCH_POOL_SIZE=10`, `MSSQL_WORKBENCH_POOL_MAX_OVERFLOW=20`; `MSSQL_LOSS_POOL_SIZE=5` (Phase C Dramatiq workers). `MSSQL_DATABRIDGE_POOL_SIZE=3` (DataBridge ODBC is session-scoped; small pool is correct). **Note:** per-connection pool env vars require a one-line change to `_pool_kwargs()` in `db/connection.py` to prefer `MSSQL_{NAME}_POOL_SIZE` over the global fallback.
 
 ### 2.3 Stack posture
 
@@ -173,7 +171,7 @@ Auto-naming is a first-class feature, not a convenience. An analyst submitting a
 | Templating / interactivity | Jinja2 + HTMX 2.x (self-hosted) + Alpine.js (self-hosted) |
 | Styling | Custom ITCSS design system (from `docintel/ui/src/styles`) |
 | Databases | SQL Server: Workbench Metamodel DB + Exposure Repository + Loss Repository (3 separate connections) |
-| DB access | `db/` package (SQLAlchemy Core + pyodbc + ODBC Driver 18). Named connections: `WORKBENCH`, `EXPOSURE`, `LOSS`, `DATABRIDGE`. Pool sizing via `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW`. |
+| DB access | `db/` package (SQLAlchemy Core + pyodbc + ODBC Driver 18). Named connections: `WORKBENCH`, `LOSS`, `DATABRIDGE`. Pool sizing via `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW`. |
 | Migrations | Alembic (targets `WORKBENCH` connection only). **Dev strategy: drop-create-seed.** Until production (or significant data risk), the dev workflow is full drop-and-recreate — no accumulation of migration versions. A single `alembic/versions/0001_initial.py` creates all tables and seeds all kind tables. Re-running it drops and recreates. Migration version history begins at production cutover. |
 | Poller | Standalone loop process; `app/poller/run.py`. Batch-polls all non-terminal IRP jobs per interval. Not Dramatiq. |
 | Dramatiq workers | **Dramatiq** + **Redis** broker. Workers in `app/workers/`. Result workers (one class per `work_type`) + `submission_retry` actor. |
@@ -1289,7 +1287,7 @@ Centralized. First flags: `APP_ENV`, `ENFORCE_SSO`. More will accrue.
 
 ### 20.7 Health check
 
-`GET /api/health` → `{status, db_workbench, db_exposure, db_loss, redis, env}`. Checks connectivity to all three DB connections (`get_connection("WORKBENCH")`, `get_connection("EXPOSURE")`, `get_connection("LOSS")`) and Redis. Returns 200 regardless; callers check individual fields.
+`GET /api/health` → `{status, db_workbench, db_loss, redis, env}`. Checks connectivity to both app DB connections (`get_connection("WORKBENCH")`, `get_connection("LOSS")`) and Redis. Returns 200 regardless; callers check individual fields.
 
 ### 20.8 Optimistic concurrency (spec 002 FR-045/046)
 
@@ -1313,7 +1311,7 @@ Each iteration ends runnable and demonstrable. Sequencing follows the analyst's 
 
 **Before any iteration that touches schema or seed data, the builder (Claude Code) MUST ask:**
 
-> "This iteration will change the schema for [list of affected DBs: WORKBENCH / EXPOSURE / LOSS].
+> "This iteration will change the schema for [list of affected DBs: WORKBENCH / LOSS].
 > Choose an action for each:
 > - **Rebuild** — drop all tables, recreate schema, re-seed kind tables. All existing data is lost.
 > - **Refresh** — apply only the new additions (new tables, new columns, new seeds). Existing data is preserved where possible.
@@ -1321,7 +1319,7 @@ Each iteration ends runnable and demonstrable. Sequencing follows the analyst's 
 >
 > DATABRIDGE is Moody's managed — never touched by this prompt."
 
-This prompt applies independently to each of the three app-managed databases (`WORKBENCH`, `EXPOSURE`, `LOSS`). A single iteration may affect only one (e.g., Iteration 1 only touches `WORKBENCH`), in which case the prompt only lists that database.
+This prompt applies independently to each of the two app-managed databases (`WORKBENCH`, `LOSS`). A single iteration may affect only one (e.g., Iteration 1 only touches `WORKBENCH`), in which case the prompt only lists that database.
 
 **Rebuild** runs the drop-create-seed path (safe in dev; destructive). **Refresh** applies additive SQL only — it is the analyst's responsibility to confirm no breaking changes exist in the diff before choosing Refresh. In early iterations with no production data risk, Rebuild is the recommended default.
 
@@ -1329,7 +1327,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Iteration 0 — Foundation & shell
 
-**Alembic `env.py` requirement.** Alembic targets `WORKBENCH` only. `alembic/env.py` must call `get_connection_config("WORKBENCH")` from the `db/` package and pass the result to `build_sqlalchemy_url()`. **Never hardcode a SQLAlchemy URL in `env.py`** — this would bypass the `db/` package convention and break Windows auth + Kerberos renewal. The `EXPOSURE` and `LOSS` schemas are bootstrapped via separate SQL scripts (not Alembic), runnable via `python -m app.cli bootstrap-exposure` and `python -m app.cli bootstrap-loss`.
+**Alembic `env.py` requirement.** Alembic targets `WORKBENCH` only. `alembic/env.py` must call `get_connection_config("WORKBENCH")` from the `db/` package and pass the result to `build_sqlalchemy_url()`. **Never hardcode a SQLAlchemy URL in `env.py`** — this would bypass the `db/` package convention and break Windows auth + Kerberos renewal. The `LOSS` stage schema is bootstrapped via a separate SQL script (not Alembic): `make bootstrap-loss` in dev, and a CIC DBA applying `db/bootstrap/loss_schema.sql` by hand in production.
 
 **`submission_outputs_dir`** is a **derived path**, not stored in the DB. Always `{OUTPUTS_BASE_DIR}/{submission.id}/` where `OUTPUTS_BASE_DIR` is an env var (default `./data/outputs`). Parquet file paths stored in `validation_result.output_file_path` and `analysis_result_meta.*_file_path` are relative to this root (i.e. they store `{submission.id}/{...}` not the absolute path). The absolute path is reconstructed at read time as `OUTPUTS_BASE_DIR / stored_path`.
 
@@ -1535,7 +1533,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **A4 — Cookie/session vs. live role changes.** Admin changes a user's role; active session doesn't reflect it. Resolution: the session holds identity only; roles are read **live from DB on every request** (§5.4). Changes are immediate. (There is no customer-access scope to change — CR-003 M2.)
 - **A5 — Dev stub can't be killed mid-session.** Resolution: explicitly accepted for local development only. `AUTH_MODE=dev` is gated on `APP_ENV != production` server-side. Audit, loud banner (§5.0).
 - **A5a — Password auth is weaker than SSO.** Accepted for v1 MVP. Mitigated by: bcrypt cost factor 12, rate limiting (5 attempts / 15 min per email; 20 / 15 min per IP), `HttpOnly Secure SameSite=Lax` cookie, server-side sessions in WORKBENCH DB, CSRF tokens on all state-changing requests, forced password change on first login, admin-only password reset. Upgrade path to Entra SSO (§5.3) requires no downstream code changes.
-- **A6 — Three-DB split makes local dev painful.** One SQL Server Docker container hosts all three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`). Three connection strings, one server, three database names. Schema isolation is enforced by database name, not separate servers. No extra infra cost locally. All application processes (app, nginx, Redis, poller, workers) run natively on Linux — no Docker overhead for anything except SQL Server.
+- **A6 — Multi-DB split makes local dev painful.** One SQL Server Docker container hosts both databases (`rwb_workbench`, `rwb_loss`). Two connection strings, one server, two database names. Schema isolation is enforced by database name, not separate servers. No extra infra cost locally. All application processes (app, nginx, Redis, poller, workers) run natively on Linux — no Docker overhead for anything except SQL Server.
 - **A7 — Dramatiq worker failure leaves RWB job stuck.** Resolution: layered per §2.3a. Worker death → Dramatiq redelivery. Task failure → Dramatiq Retries middleware. Job stops progressing (wedged worker or message lost) → per-job heartbeat + single-instance reconciler resets `running → pending` and re-enqueues. Idempotent workers ensure double-delivery is harmless. No duration-based sweep — stale threshold is a constant multiple of the heartbeat interval.
 - **A8 — IRP outage blocks everything.** Resolution: ops that need IRP are simply not enabled by the prerequisite gate while IRP is down (§13.1, §15.6); already-imported entities remain viewable. Submissions in `SUBMISSION FAILED` are retried by the single-threaded submission-retry batch job, and the poller catches up when IRP comes back.
 - **A9 — Search leaks across customers (dissolved by CR-003).** There are no customers and no row-level security (M1/M2/O1), so there is no cross-customer boundary to leak across — every analyst is meant to see every deal (§6, §19).
@@ -1581,9 +1579,9 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **CR-003 — Submission + Package; no Customer/Program; no RLS; simplified file handling.** `submission` is the top-level deal (M1); `customer`/`program` and all `customer_id` denormalization are dropped, retiring row-level security entirely — every authenticated analyst sees every deal (M2/O1, §6). CRM IDs are a `submission_crm_id` tag set, not a single field (M3/O6). `package` is many-to-many with `submission`, and EDM-only **and** RDM-only are both valid (`edm_id` nullable, ≥1-of-edm/rdm CHECK) (M4/O2). The file-inventory subsystem is replaced by a single `source_file_path` per EDM/RDM chosen at package creation (M5/O9). `submission.name` is globally unique (O5); `irp_job` lives at the package grain (O7); cedant is a plain string (O3); the renewal link is a manual nullable self-ref (O4). Applied to DATA_MODEL.md (2026-07-07) and the constitution → v3.0.0 (2026-07-08). Full detail: `docs/CR/CR_03__SUBMISSION_PACKAGE_MODEL.md`. *(Superseded in part by 2026-07-10, above: `package` is now a bundle — no `edm_id`/`rdm_id`, members carry `package_id`, ≥1 app-enforced; `submission.name` is no longer unique.)*
 - **CR-002 — Not a workflow engine.** Workflow / Stage / Task / typed-handle / type-port-registry / manifest-projection are all removed (§12). Sequencing is the prerequisite gate computed in code (§13.1); coupling is name-based via IRP `search_*` (§13.2); the executable unit is `irp_job` (§14). One declarative source of truth remains: the **navigation manifest** (§2.1, §4.2).
 - **CR-002 entities & schema** — `edm`/`rdm` → `irp_edm`/`irp_rdm`; new `irp_treaty`, `irp_analysis` (a group is an analysis with `is_group=true`; `rdm_id` set → broker-from-RDM, null → own). *(Superseded 2026-07-10: `irp_rdm` has **no** `edm_id` — an RDM applies to every EDM in its bundle. `irp_analysis.edm_id` is now **nullable** with a ≥1-of-(edm_id, rdm_id) CHECK — RDM-only imports create analyses with no EDM.)* `irp_job` redesigned (typed lineage FKs; `irp_job_type` kind table, `status` plain string; three `last_*` columns; `irp_job_resource`; single-threaded retry). `rwb_job` decoupled from `irp_job` (`requestor_type`/`requestor_id` + composite dedup key). Full detail: DATA_MODEL.md §CR-002 change-log.
-- **Three separate database connections** — named `WORKBENCH`, `EXPOSURE`, `LOSS` — resolved via the `db/` package (`MSSQL_{NAME}_*` env vars). One SQL Server Docker container in dev with three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`); separate servers in prod (§2.2).
+- **Two app database connections** — named `WORKBENCH` and `LOSS` — resolved via the `db/` package (`MSSQL_{NAME}_*` env vars). One SQL Server Docker container in dev with two databases (`rwb_workbench`, `rwb_loss`); separate servers in prod (§2.2).
 - **Dev environment is Linux-native.** Only SQL Server runs in Docker. App (uvicorn), nginx, Redis, poller, and Dramatiq workers all run as native Linux processes. No Docker Compose wrapping the application stack.
-- **Dev DB strategy: drop-create-seed.** Until production cutover, the WORKBENCH schema is managed via a single Alembic revision that drops all tables, recreates them, and seeds kind tables. No migration version accumulation in dev. EXPOSURE and LOSS bootstrapped via idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`).
+- **Dev DB strategy: rebuild, not upgrade.** Until production cutover, the WORKBENCH schema is one Alembic revision edited in place, so a schema change is `alembic downgrade base && alembic upgrade head` — the same two commands in dev and production. The revision also seeds the kind tables. No migration version accumulation. The LOSS stage schema is bootstrapped by an idempotent SQL script (`make bootstrap-loss`).
 - **Connection pooling handled by `db/` package** — `get_engine()` / `get_connection()` cache one pooled engine per named connection. Pool sizing via `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW` (set to 10/20 for 30 concurrent users).
 - **Sync-by-default:** plain `def` handlers, FastAPI threadpool; `async def` only for SSE (§2.3).
 - **CR-001 — `rwb_job` general queue (replaces `result_work_item`).** `result_work_item` renamed `rwb_job`. *(Superseded in part by CR-002: `irp_job_id` and the `request_key`/`origin` scheme are replaced by `requestor_type`/`requestor_id` + composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)`; the heartbeat/reconciler mechanism below is unchanged.)*
@@ -1656,7 +1654,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **Redis** — Dramatiq broker. Required for result workers and notifications.
 - **Shared-drive mount** — read-only CIFS/SMB, least-privilege service account (§8.1).
 - **Loss Repository** — on-prem SQL Server; app writes via `get_connection("LOSS")`; schema defined in this project (separate from Alembic, coordinated with downstream consumers).
-- **Exposure Repository** — on-prem SQL Server; app writes via `get_connection("EXPOSURE")`; schema defined in this project (coordinated with reporting team).
+- **Exposure Repository** — on-prem SQL Server; out of MVP and not configured today. When Phase A lands it needs an `MSSQL_EXPOSURE_*` block and a schema defined in this project (coordinated with reporting team).
 - **Teams webhook URL** — for notifications.
 - **Icon SVG source set** committed to `static/icons/`.
 - **SQL Server Express** on WSL2 / Docker Desktop for local dev.

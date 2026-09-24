@@ -6,17 +6,16 @@ Companion to `PRD.md`. This is the schema reference Claude Code turns into migra
 
 ## 1. Database connections
 
-All database access goes through the `db/` package. App code calls `get_connection("WORKBENCH" | "EXPOSURE" | "LOSS" | "DATABRIDGE")` — no URL strings in application code. Each named connection is configured via `MSSQL_{NAME}_*` env vars (`SERVER`, `USER`, `PASSWORD`, `DATABASE`; optional `PORT` default 1433, `AUTH_TYPE` default `SQL`).
+All database access goes through the `db/` package. App code calls `get_connection("WORKBENCH" | "LOSS" | "DATABRIDGE")` — no URL strings in application code. Each named connection is configured via `MSSQL_{NAME}_*` env vars (`SERVER`, `USER`, `PASSWORD`, `DATABASE`; optional `PORT` default 1433, `AUTH_TYPE` default `SQL`).
 
 | Named connection | Database | Managed by |
 |---|---|---|
 | `WORKBENCH` | Workbench metamodel (this schema) | Alembic + app |
-| `EXPOSURE` | Exposure repository | App — `db/bootstrap/exposure_schema.sql` |
 | `LOSS` | CIC's loss repository `CRE_Trial_ELT_Repository` (dev mirror `rwb_loss`) | CIC owns the database and its five `dbo` tables. The Workbench's `stage` schema (`db/bootstrap/loss_schema.sql`) is installed by a CIC DBA by hand; the app never runs DDL against it. Schema: `specs/014-results-export/data-model.md` §4 |
 | `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — read-only; app code never sends SQL (reads go through irp-integration methods, worker-side, plus the one bounded single-row point-of-action check permitted on the request path; constitution Art. 11 v3.2.0); never DDL |
 
 - **Pooling:** `MSSQL_POOL_SIZE` (default 5), `MSSQL_POOL_MAX_OVERFLOW` (default 5), `MSSQL_POOL_RECYCLE` (default 1800s). For 30 concurrent users: `POOL_SIZE=10`, `MAX_OVERFLOW=20`.
-- **Dev DB strategy:** drop-create-seed via a single Alembic revision (`0001_initial.py`) until production cutover. `EXPOSURE` is bootstrapped by an idempotent SQL script. `LOSS` in dev is `make bootstrap-loss` (`infra/scripts/bootstrap_loss.py`): `loss_dev_mirror.sql` recreates CIC's five tables, `loss_schema.sql` installs the `stage` schema, then `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` are seeded. Neither is under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
+- **Dev DB strategy:** one Alembic revision (`0001_initial.py`) edited in place until production cutover, so a schema change is `alembic downgrade base && alembic upgrade head`, not a new revision. `LOSS` in dev is `make bootstrap-loss` (`infra/scripts/dev/bootstrap_loss.py`): `loss_dev_mirror.sql` recreates CIC's five tables, `loss_schema.sql` installs the `stage` schema, then `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` are seeded. Neither is under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
 - **Redis:** `REDIS_URL` (default `redis://localhost:6379/0`). Dramatiq broker; stateless.
 
 ---
@@ -774,7 +773,7 @@ erDiagram
 ## 14. Open decisions
 
 - Confirm `role_kind` codes and the `treaty_type_kind` seed list with the team.
-- Exposure repository schema — defined in this project (`db/bootstrap/exposure_schema.sql`); columns coordinated with the reporting/downstream teams. (The loss repository is CIC's; only the `stage` schema is ours, §1.)
+- Exposure repository — out of MVP (`docs/PRD.md`), absent at CIC, and no longer a configured connection. Reinstating it means a schema, an `MSSQL_EXPOSURE_*` block, and columns coordinated with the reporting/downstream teams. (The loss repository is CIC's; only the `stage` schema is ours, §1.)
 - `irp_job_resource` multiplicity — one-per-job (`portfolio` only today) or genuinely multi-resource?
 - **`irp_analysis.edm_id` is nullable.** Standalone RDM import creates broker
   analyses with `rdm_id` set and `edm_id` null. Enumeration filters
