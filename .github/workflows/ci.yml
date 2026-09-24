@@ -75,16 +75,16 @@ jobs:
         run: uv sync --frozen
 
       - name: Materialize infra/.env
-        run: cp infra/.env.example infra/.env   # SA + all 3 MSSQL passwords already = Clarity0821!
+        run: cp infra/.env.example infra/.env   # SA + both MSSQL passwords already = Clarity0821!
 
       - name: Create databases
-        run: make wsl-db-bootstrap              # create rwb_workbench / rwb_exposure / rwb_loss
+        run: make wsl-db-bootstrap              # create rwb_workbench / rwb_loss
 
       - name: Run migrations
         run: make wsl-db-migrate                # alembic upgrade head on WORKBENCH
 
-      - name: Seed kind tables
-        run: make wsl-db-seed                   # idempotent MERGE seed (analysts, kind tables)
+      - name: Seed the dev fixture admin
+        run: make wsl-db-seed                   # insert the dev fixture admin
 
       - name: SQL Server integration tests
         run: make wsl-test-sql                  # = uv run pytest tests/sqlserver -v --run-sqlserver

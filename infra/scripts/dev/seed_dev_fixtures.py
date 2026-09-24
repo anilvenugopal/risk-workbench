@@ -1,13 +1,14 @@
-"""Seed the WORKBENCH database after Alembic migrations.
+"""Insert the development fixture admin into the WORKBENCH database.
 
-Idempotent: safe to run multiple times. Uses MERGE / IF NOT EXISTS patterns.
+Creates admin@example.com / Admin1234567! (bcrypt cost 12, must_change_password
+off, role=admin) if it is not already there. Idempotent.
 
-Inserts:
-  - role_kind rows (analyst, admin) — these are also seeded in the migration,
-    but this script handles the case where the migration already ran them.
-  - One dev fixture admin user: admin@example.com / password: Admin1234567!
-    (bcrypt cost 12, must_change_password=False, role=admin)
-    Only inserted in development (APP_ENV=development).
+The kind tables are not seeded here. `alembic/versions/0001_initial.py` seeds all
+thirteen of them as part of `upgrade()`, so a migrated database already has every
+row this script used to MERGE.
+
+Refuses to run unless APP_ENV is development — the fixture's password is in this
+file and in the repository.
 
 Run via Makefile (preferred):
     make wsl-db-rebuild     # WSL2 native
@@ -32,6 +33,9 @@ sys.path.insert(0, str(next(
 
 from db.config import build_sqlalchemy_url, get_connection_config  # noqa: E402
 
+EMAIL = "admin@example.com"
+PASSWORD = "Admin1234567!"
+
 
 def _workbench_engine() -> Engine:
     return create_engine(build_sqlalchemy_url(get_connection_config("WORKBENCH")))
@@ -42,244 +46,37 @@ def _hash(plain: str) -> str:
 
 
 def main() -> int:
-    print("Seed: connecting to rwb_workbench...")
+    app_env = os.environ.get("APP_ENV")
+    if app_env != "development":
+        print(f"ERROR: APP_ENV is {app_env!r}, not 'development'. This script only "
+              f"creates the {EMAIL} development fixture.", file=sys.stderr)
+        return 1
+
+    print(f"Seed: connecting to {os.environ.get('MSSQL_WORKBENCH_DATABASE')}...")
     engine = _workbench_engine()
     try:
         with engine.begin() as conn:
-            # role_kind seeds (idempotent via MERGE)
-            conn.execute(text("""
-                MERGE role_kind AS target
-                USING (VALUES
-                    ('analyst', 'Analyst', 10, 0),
-                    ('admin',   'Administrator', 20, 1)
-                ) AS src (code, label, sort_order, is_admin)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order, is_admin)
-                    VALUES (src.code, src.label, src.sort_order, src.is_admin);
-            """))
-            print("  [role_kind] seeds OK")
+            existing = conn.execute(
+                text("SELECT id FROM app_user WHERE email = :email"), {"email": EMAIL}
+            ).fetchone()
+            if existing is not None:
+                print(f"  [app_user] {EMAIL} already exists — skipped")
+                return 0
 
-            # submission_status_kind seeds (idempotent via MERGE) — FR-010
             conn.execute(text("""
-                MERGE submission_status_kind AS target
-                USING (VALUES
-                    ('ACTIVE',    'Active',    10),
-                    ('COMPLETED', 'Completed', 20),
-                    ('CANCELLED', 'Cancelled', 30)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            print("  [submission_status_kind] seeds OK")
-
-            # treaty_type_kind seeds (idempotent via MERGE) — FR-030 (provisional)
+                INSERT INTO app_user
+                    (email, display_name, password_hash, must_change_password, is_active)
+                VALUES
+                    (:email, 'Dev Admin', :pw, 0, 1)
+            """), {"email": EMAIL, "pw": _hash(PASSWORD)})
+            user_id = conn.execute(
+                text("SELECT id FROM app_user WHERE email = :email"), {"email": EMAIL}
+            ).scalar()
             conn.execute(text("""
-                MERGE treaty_type_kind AS target
-                USING (VALUES
-                    ('cat_xol',       'Cat XoL',      10),
-                    ('quota_share',   'Quota Share',  20),
-                    ('surplus',       'Surplus',      30),
-                    ('per_risk_xol',  'Per-Risk XoL', 40),
-                    ('aggregate_xol', 'Aggregate XoL', 50),
-                    ('stop_loss',     'Stop Loss',    60)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            print("  [treaty_type_kind] seeds OK")
-
-            # ── Iteration-2 kind seeds (idempotent MERGE) — data-model §13 ──────
-            # irp_job_type_kind
-            conn.execute(text("""
-                MERGE irp_job_type_kind AS target
-                USING (VALUES
-                    ('import_edm', 'Import EDM', 10),
-                    ('import_rdm', 'Import RDM', 20),
-                    ('geohaz',     'Geohazard', 40),
-                    ('analysis',   'Analysis',  50),
-                    ('grouping',   'Grouping',  60),
-                    ('export',     'Export',    70)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            conn.execute(text("""
-                MERGE irp_job_resource_type_kind AS target
-                USING (VALUES
-                    ('portfolio', 'Portfolio', 10)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            conn.execute(text("""
-                MERGE rwb_job_type_kind AS target
-                USING (VALUES
-                    ('upload_edm',                'Upload EDM',                10),
-                    ('upload_rdm',                'Upload RDM',                20),
-                    ('backfill_rdm_analyses',     'Backfill RDM Analyses',     25),
-                    ('backfill_edm_detail',       'Backfill EDM Detail',       27),
-                    ('run_geohaz',                'Run GeoHaz',                28),
-                    ('execute_analysis_batch',    'Execute Analysis Batch',    29),
-                    ('retrieve_analysis_results', 'Retrieve Analysis Results', 30),
-                    ('finalize_analysis',         'Finalize Analysis',         31),
-                    ('submit_grouping',           'Submit grouping',           33),
-                    ('submit_results_export',     'Submit Results Export',     40),
-                    ('stage_results_export',      'Stage Results Export',      41),
-                    ('load_results_export',       'Load Results Export',       42),
-                    ('notify_analyst',            'Notify Analyst',            60),
-                    ('run_breakout_lob',   'Portfolio breakout by line of business', 90),
-                    ('run_breakout_state', 'Portfolio breakout by geography (state)', 100),
-                    ('run_breakout_country', 'Portfolio breakout by country', 105),
-                    ('run_breakout_peril', 'Portfolio breakout by peril', 107),
-                    ('run_breakout_custom', 'Portfolio breakout by custom group', 110),
-                    ('sync_irp_metadata',  'Sync IRP metadata',            120),
-                    ('dummy_wait', 'Dummy: wait (dev/test only)', 900),
-                    ('dummy_fail', 'Dummy: fail (dev/test only)', 910)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            conn.execute(text("""
-                MERGE rwb_job_requestor_type_kind AS target
-                USING (VALUES
-                    ('irp_job',         'IRP Job',          10),
-                    ('analyst_request', 'Analyst Request',  20),
-                    ('rwb_job',         'RWB Job',          30),
-                    ('breakout_group',  'Breakout Group',   40),
-                    ('irp_analysis',    'IRP Analysis',     50)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            conn.execute(text("""
-                MERGE rwb_job_link_type_kind AS target
-                USING (VALUES
-                    ('edm',            'EDM',            10),
-                    ('rdm',            'RDM',            20),
-                    ('submission',     'Submission',     30),
-                    ('not_applicable', 'Not applicable', 900)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            conn.execute(text("""
-                MERGE rwb_job_context_type_kind AS target
-                USING (VALUES
-                    ('edm',            'EDM',            10),
-                    ('rdm',            'RDM',            20),
-                    ('irp_analysis',   'IRP Analysis',   30),
-                    ('portfolio',      'Portfolio',      40),
-                    ('breakout_group', 'Breakout Group', 50),
-                    ('execution',      'Execution',      60),
-                    ('result_export',  'Result Export',  70)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            conn.execute(text("""
-                MERGE rwb_job_status_kind AS target
-                USING (VALUES
-                    ('pending',   'Pending',   10),
-                    ('running',   'Running',   20),
-                    ('succeeded', 'Succeeded', 30),
-                    ('failed',    'Failed',    40),
-                    ('cancelled', 'Cancelled', 50)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            # irp_analysis_status_kind — captured-analysis lifecycle (D2).
-            conn.execute(text("""
-                MERGE irp_analysis_status_kind AS target
-                USING (VALUES
-                    ('pending', 'Pending', 10),
-                    ('ready',   'Ready',   30),
-                    ('error',   'Error',   40)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            # breakout_dimension_kind — the four quick-mode breakout
-            # dimensions (spec 005 data-model §2, P-19 rev. 2026-08-12)
-            # plus custom — the grouping lineage code (T-12).
-            conn.execute(text("""
-                MERGE breakout_dimension_kind AS target
-                USING (VALUES
-                    ('lob',     'Line of business',  10),
-                    ('state',   'Geography - State', 20),
-                    ('country', 'Geography - Country', 25),
-                    ('peril',   'Peril',             30),
-                    ('custom',  'Custom group',      40)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            # analysis_perspective_kind — the five financial perspectives the
-            # retrieval worker requests (spec 011 O-07); sort_order is dropdown
-            # order, not the default (analysis_service.DEFAULT_PERSPECTIVE).
-            conn.execute(text("""
-                MERGE analysis_perspective_kind AS target
-                USING (VALUES
-                    ('GR', 'Gross',              10),
-                    ('RL', 'Pre-Cat Net',        20),
-                    ('WX', 'Working Excess',     30),
-                    ('QS', 'Quota Share',        40),
-                    ('GU', 'Ground Up',          50)
-                ) AS src (code, label, sort_order)
-                ON target.code = src.code
-                WHEN NOT MATCHED THEN
-                    INSERT (code, label, sort_order)
-                    VALUES (src.code, src.label, src.sort_order);
-            """))
-            print("  [irp_job/rwb_job/breakout/perspective kind tables] seeds OK")
-
-            app_env = os.environ.get("APP_ENV", "development")
-            if app_env == "development":
-                # Dev fixture: admin@example.com — admin role, no forced change
-                existing = conn.execute(
-                    text("SELECT id FROM app_user WHERE email = 'admin@example.com'")
-                ).fetchone()
-                if existing is None:
-                    pw_hash = _hash("Admin1234567!")
-                    conn.execute(text("""
-                        INSERT INTO app_user
-                            (email, display_name, password_hash, must_change_password, is_active)
-                        VALUES
-                            ('admin@example.com', 'Dev Admin', :pw, 0, 1)
-                    """), {"pw": pw_hash})
-                    user_id = conn.execute(
-                        text("SELECT id FROM app_user WHERE email = 'admin@example.com'")
-                    ).scalar()
-                    conn.execute(text("""
-                        INSERT INTO user_role (user_id, role_code)
-                        VALUES (:uid, 'admin')
-                    """), {"uid": user_id})
-                    print("  [app_user] dev fixture admin@example.com created")
-                else:
-                    print("  [app_user] dev fixture already exists — skipped")
+                INSERT INTO user_role (user_id, role_code)
+                VALUES (:uid, 'admin')
+            """), {"uid": user_id})
+            print(f"  [app_user] {EMAIL} created")
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

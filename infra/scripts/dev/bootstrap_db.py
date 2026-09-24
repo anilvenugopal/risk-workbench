@@ -1,14 +1,16 @@
-"""Bootstrap the three application-managed databases.
+"""Create the local development databases named by MSSQL_WORKBENCH_DATABASE and
+MSSQL_LOSS_DATABASE.
 
-Creates rwb_workbench, rwb_exposure, rwb_loss if they do not exist.
-Connects to master as the SA login (dev only) using AUTOCOMMIT — CREATE DATABASE
-cannot run inside a transaction.
+Connects to master as the SA login using AUTOCOMMIT — CREATE DATABASE cannot run
+inside a transaction.
 
-NEVER run this against the production SQL Server. Production databases are
-provisioned once by the DBA with least-privilege app logins.
+Refuses to run unless APP_ENV is development. Production's Workbench database is
+created once by the DBA with a least-privilege app login, and the loss repository
+is CIC's own; neither is this script's to create. --recreate additionally drops
+each database first, which is why the refusal comes before any work.
 
-Run:  python -m infra.scripts.bootstrap_db
-  or: python scripts/bootstrap_db.py   (from inside linux-box)
+Run:  python infra/scripts/dev/bootstrap_db.py
+  or: python scripts/dev/bootstrap_db.py   (from inside linux-box)
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ sys.path.insert(0, str(next(
 
 from db.config import build_sqlalchemy_url, get_connection_config  # noqa: E402
 
-DATABASES = ["rwb_workbench", "rwb_exposure", "rwb_loss"]
+CONNECTIONS = ["WORKBENCH", "LOSS"]
 
 
 def _master_engine() -> Engine:
@@ -41,19 +43,46 @@ def _master_engine() -> Engine:
     )
 
 
-def main() -> int:
+def _database_names() -> list[str]:
+    names = []
+    for connection in CONNECTIONS:
+        name = os.environ.get(f"MSSQL_{connection}_DATABASE")
+        if not name:
+            raise SystemExit(f"ERROR: MSSQL_{connection}_DATABASE is not set.")
+        names.append(name)
+    return names
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    recreate = "--recreate" in argv
+
+    app_env = os.environ.get("APP_ENV")
+    if app_env != "development":
+        print(f"ERROR: APP_ENV is {app_env!r}, not 'development'. This script only "
+              "creates the local development databases.", file=sys.stderr)
+        return 1
+
+    names = _database_names()
+
     print("Bootstrap: connecting to master...")
     engine = _master_engine()
     try:
         with engine.connect() as conn:
-            for db_name in DATABASES:
+            for db_name in names:
+                safe = db_name.replace("]", "]]")
                 exists = conn.execute(
                     text("SELECT DB_ID(:name)"), {"name": db_name}
                 ).scalar()
+                if exists is not None and recreate:
+                    conn.execute(text(
+                        f"ALTER DATABASE [{safe}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE"))
+                    conn.execute(text(f"DROP DATABASE [{safe}]"))
+                    print(f"  [{db_name}] dropped")
+                    exists = None
                 if exists is not None:
                     print(f"  [{db_name}] already exists — skipped")
                 else:
-                    safe = db_name.replace("]", "]]")
                     conn.execute(text(f"CREATE DATABASE [{safe}]"))
                     print(f"  [{db_name}] created")
     finally:
