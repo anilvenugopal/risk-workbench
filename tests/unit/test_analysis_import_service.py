@@ -8,7 +8,7 @@ import json
 import pytest
 
 from app.services import analysis_import_service as svc
-from app.services import analysis_service
+from app.services import analysis_service, irp_gateway
 from app.workers import analysis_jobs
 from db import execute, execute_command, execute_one
 from tests.unit.analysis_rows import seed_edm
@@ -20,7 +20,7 @@ from tests.unit.grouping_rows import (
     seed_submission,
 )
 from tests.unit.rm_analyses import APP_ID, NAME, PLATFORM_ID, seed_rm_analysis
-from tests.unit.run_details_fixtures import captured_run
+from tests.unit.run_details_fixtures import captured_run, detail
 
 
 def _rows(submission_id: str) -> list[dict]:
@@ -202,6 +202,30 @@ def test_import_inserts_the_row_and_enqueues_its_finalize(
     assert job["status_code"] == "pending"
     assert json.loads(job["input_data"]) == {"analysis_id": row["id"],
                                              "rm_analysis_id": PLATFORM_ID}
+
+
+def test_an_imported_group_lists_the_members_risk_modeler_names(
+        iteration2_db, fake_irp):
+    fake_irp.add_analysis(
+        source_rdm_name="RDM", exposure_name="EDM", analysis_id=PLATFORM_ID,
+        app_analysis_id=APP_ID, is_group=True,
+        metadata=detail("group_mixed_rm_made"))
+    submission = seed_submission()
+
+    svc.import_analyses(submission_id=submission, entries=[_candidate()],
+                        actor_id=iteration2_db.user_a)
+
+    [group] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+    assert group.submitted.member_names == [
+        "CRE_EQ_HI_RES_US EQ wFFSL wDS - PERS Stochastic",
+        "CRE_HU_US_DLM USFL 85pct SS v23 Stochastic",
+        "CRE_HU_US_DLM USFL 85pct SS v23 Historical",
+        "CRE_WS_JP_COM_HD_JPWS_Stochastic_Typhoon-Only"]
+
+
+def test_a_broker_group_from_an_rdm_names_no_members():
+    assert irp_gateway.grouped_analysis_names(detail("broker_group_ingp")) == []
 
 
 def test_finalize_writes_the_settings_and_the_run_details_it_resolved_on(

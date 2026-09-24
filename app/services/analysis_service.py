@@ -92,12 +92,14 @@ class PerspectiveResults:
 class SubmittedSettings:
     """The expanded row's Analysis settings group, read from the submit-time
     snapshot ``irp_analysis.submitted_settings``. An imported row's snapshot
-    holds only the currency code Risk Modeler reports for the analysis. Broker
-    rows have no snapshot at all, which the row renders as *not returned*."""
+    holds only the currency code Risk Modeler reports for the analysis and, for
+    a group, the member names its detail lists. Broker rows have no snapshot at
+    all, which the row renders as *not returned*."""
     construction_occupancy: str | None = None
     # submitted_settings.currency.code — the own row's pairing-guard value.
     currency: str | None = None
-    # spec 012 — the group row's member analyses, in approved-plan order.
+    # spec 012 — the group row's member analyses, in approved-plan order; an
+    # imported group's in the order Risk Modeler lists them.
     member_names: list[str] = field(default_factory=list)
 
 

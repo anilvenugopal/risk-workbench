@@ -175,6 +175,13 @@ def _import_one(submission_id: str, app_id: str, analysis_id: str,
     rm_name = candidate.name or f"Analysis {app_id}"
     pointer = (meta.exposure_resource_id
                if meta.exposure_resource_type == "PORTFOLIO" else None)
+    # Risk Modeler reports only the currency code for an existing analysis, so
+    # the block carries the code alone. A payload with no currency writes null,
+    # which _submitted_view reads back as None and leaves the row unpairable.
+    submitted = {"currency": {"code": candidate.currency}}
+    members = irp_gateway.grouped_analysis_names(meta.payload)
+    if members:
+        submitted["members"] = [{"name": n} for n in members]
     row_id = str(uuid.uuid4())
     by = str(actor_id) if actor_id is not None else None
     # ``name`` takes the local ``_n`` suffix and the 64-char clip; ``full_name``
@@ -197,11 +204,7 @@ def _import_one(submission_id: str, app_id: str, analysis_id: str,
                     """
                 ), {"id": row_id, "sid": submission_id, "irp": str(analysis_id),
                     "app": app_id, "name": name, "full": rm_name,
-                    # Risk Modeler reports only the currency code for an
-                    # existing analysis, so the block carries the code alone. A
-                    # payload with no currency writes null, which _submitted_view
-                    # reads back as None and leaves the row unpairable.
-                    "submitted": json.dumps({"currency": {"code": candidate.currency}}),
+                    "submitted": json.dumps(submitted),
                     "grp": (1 if meta.is_group else 0), "pointer": pointer,
                     "now": now, "by": by})
         except Exception as exc:  # noqa: BLE001 — a UNIQUE race means the next suffix
