@@ -80,8 +80,8 @@
 7. Origin, engine, order (FR-017, FR-025, P-27): on the export form the picker
    shows an Engine column after Origin; an own analysis reads `RMS`, an
    RDM-imported one reads `RDM` under an `RDM · <name>` header; an HD analysis
-   is greyed with "Cannot be exported: HD (PLT) results are not exportable
-   yet." and cannot be ticked. Export an RDM-imported group and an own single
+   or a PLT group is greyed with "Cannot be exported: PLT results are not
+   exportable yet." and cannot be ticked. Export an RDM-imported group and an own single
    analysis: the table rows read Origin `RDM`, Engine `Group` and Origin `RMS`,
    Engine `DLM · 23.0`. The columns run Analysis, Treaty, Origin, Engine,
    Peril, Region, Currency, AAL, Status, then the export detail, with Requested

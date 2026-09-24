@@ -305,8 +305,11 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         # every RDM-backfilled broker row carries the id in its snapshot alone.
         app_id, reason = _app_analysis_id(
             d.get("irp_app_analysis_id") or (parsed or {}).get("appAnalysisId"))
-        if display.engine_type == "HD":
-            reason = "HD (PLT) results are not exportable yet"
+        # An HD analysis and a PLT group (engineType "Group", analysisFramework
+        # "PLT") both export a period loss table, which the loss repository has
+        # no destination for (O-08).
+        if display.engine_type == "HD" or display.framework == "PLT":
+            reason = "PLT results are not exportable yet"
         elif r.results_state == "failed":
             reason = "results retrieval failed"
         elif r.results_state != "ready" or not perspectives:

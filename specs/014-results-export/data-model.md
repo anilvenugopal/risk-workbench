@@ -260,7 +260,7 @@ script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 |---|---|---|
 | `id`, `name` | `list_comparable_analyses(submission_id=…)` | Only rows whose results state is ready |
 | `origin` | `irp_analysis.rdm_id` | `RDM` when set, else `RMS` (spec P-27) |
-| `engine` | `irp_analysis.is_group`, `settings_metadata` | `Group` for a group, else `AnalysisSettings.engine` (`DLM · 23.0`); `engineType` `HD` lists the row disabled (FR-025) |
+| `engine` | `irp_analysis.is_group`, `settings_metadata` | `Group` for a group, else `AnalysisSettings.engine` (`DLM · 23.0`); `engineType` `HD` or `analysisFramework` `PLT` lists the row disabled (FR-025) |
 | `irp_id`, `irp_app_analysis_id` | `irp_analysis` | `irp_app_analysis_id` must parse as `int`, else the row is listed disabled with the reason (FR-005) |
 | `perspectives` | `loss_results.perspectives` keys | Intersection input |
 | `peril_code`, `region_code`, `currency` | `_parse_settings(settings_metadata)` | Recorded on the manifest; `currency` is checked against the archive at stage |

@@ -132,7 +132,7 @@ One analysis in an export failed: Risk Modeler rejected the request, the shared 
 - **FR-022**: The client team can run the load step for a staged analysis themselves, from the repository, without the Workbench; a load run that way is visible to the Workbench as loaded.
 - **FR-023**: Each export's analyses, Risk Modeler jobs, and Workbench jobs are traceable in the database from one export identifier (the exports table shows the analyses, not the job ids), and the request records carry requester email and time so a repository DBA can trace a data set without a Workbench login.
 - **FR-024**: The Workbench never deletes a downloaded archive, a row of a staged or loaded analysis, or a loaded repository row; the file and loss rows of an interrupted stage are replaced when that stage re-runs. Retention of staged rows is decided separately (plan O-03).
-- **FR-025**: An analysis whose settings name the HD engine is listed on the export form disabled with the reason "HD (PLT) results are not exportable yet" and cannot be submitted, whatever its results state; consequently no export mixes HD and DLM analyses (note 31 D16–D17). HD's future is O-08.
+- **FR-025**: An analysis whose settings name the HD engine or the PLT framework (an HD analysis, or a group whose members ran on HD) is listed on the export form disabled with the reason "PLT results are not exportable yet" and cannot be submitted, whatever its results state; consequently no export mixes PLT and ELT analyses (note 31 D16–D17). PLT's future is O-08.
 
 ## Key Entities
 

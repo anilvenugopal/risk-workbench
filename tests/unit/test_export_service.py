@@ -112,10 +112,24 @@ def test_an_hd_analysis_is_disabled_and_refused(deal):
     rows = {r.id: r for r in svc.list_exportable_analyses(deal["submission_id"])}
 
     # HD wins over every other reason, so the row never reads "not retrieved yet"
-    assert rows[hd].disabled_reason == "HD (PLT) results are not exportable yet"
+    assert rows[hd].disabled_reason == "PLT results are not exportable yet"
     with pytest.raises(svc.ExportValidationError, match=re.escape(
-            "HD cannot be exported: HD (PLT) results are not exportable yet.")):
+            "HD cannot be exported: PLT results are not exportable yet.")):
         _create(deal, [hd])
+
+
+def test_a_plt_group_is_disabled_and_refused(deal):
+    # Risk Modeler reports a group as engineType "Group"; only analysisFramework
+    # says whether its members' losses are a PLT.
+    group = seed_analysis(edm_id=deal["edm_id"], name="PLT group", full_name=None,
+                          is_group=1, engine_type="Group", framework="PLT")
+
+    rows = {r.id: r for r in svc.list_exportable_analyses(deal["submission_id"])}
+
+    assert rows[group].disabled_reason == "PLT results are not exportable yet"
+    with pytest.raises(svc.ExportValidationError, match=re.escape(
+            "PLT group cannot be exported: PLT results are not exportable yet.")):
+        _create(deal, [group])
 
 
 def test_unknown_submission_is_none(deal):
