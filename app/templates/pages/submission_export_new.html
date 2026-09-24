@@ -50,11 +50,11 @@
              hx-include="[name='analysis_ids'], [name='perspective'], [name^='data_name'], [name^='treaty['], [name^='treaty_data_name[']"
              hx-target="#export-fields" hx-swap="outerHTML">
           <div class="dtable dtable--selectable dtable--wraphead"
-               style="--cols: var(--pick-w) minmax(360px,2fr) 60px 110px 90px 80px 130px minmax(200px,1.5fr); min-width: 1110px">
+               style="--cols: var(--pick-w) minmax(360px,2fr) 130px 60px 70px 70px 110px 80px 90px minmax(200px,1.5fr); min-width: 1250px">
             <div class="dtable__head">
-              <span class="l"></span><span class="l">Analysis</span><span class="l">Origin</span>
-              <span class="l">Engine</span><span class="l">RM id</span><span class="l">Currency</span>
-              <span class="l">Perspectives</span>
+              <span class="l"></span><span class="l">Analysis</span><span class="l">Perspectives</span>
+              <span class="l">Origin</span><span class="l">Peril</span><span class="l">Region</span>
+              <span class="l">Engine</span><span class="l">Currency</span><span class="l">RM id</span>
               <span class="l"></span>
             </div>
             {% set ns = namespace(group=none) %}
