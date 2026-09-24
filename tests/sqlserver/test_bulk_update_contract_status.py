@@ -28,6 +28,14 @@ pytestmark = pytest.mark.sqlserver
 
 SCRIPT = Path(__file__).resolve().parents[2] / "infra" / "scripts" / "bulk_update_contract_status.sql"
 SOURCE_TABLE = "rwb_loss.dbo.CRMContractStatus"
+BOOTSTRAP_DIR = Path(__file__).resolve().parents[2] / "db" / "bootstrap"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def crm_status_table():
+    """CI creates rwb_loss empty; the mirror script is idempotent."""
+    from db.scripts import execute_script_file  # noqa: PLC0415 — trusted DDL, test only
+    execute_script_file(BOOTSTRAP_DIR / "loss_dev_mirror.sql", connection="LOSS")
 
 
 def _run(rows: list[tuple[str, str]], *, dry_run: bool) -> list[list[dict]]:

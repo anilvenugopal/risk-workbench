@@ -339,9 +339,10 @@ def _taken_elsewhere(
     if not keys:
         return
     clause, params = _in_clause("LOWER(TRIM(crm_id))", keys, "crm")
+    excluded = exclude_contract_id.lower() if exclude_contract_id else None
     owners = {
         row["crm_id"].strip().lower():
-            ContractOwner(str(row["submission_id"]), row["submission_name"])
+            ContractOwner(str(row["submission_id"]).lower(), row["submission_name"])
         for row in execute(
             f"""
             SELECT crm_id, submission_id, submission_name, contract_id
@@ -349,7 +350,7 @@ def _taken_elsewhere(
             """,
             params, connection="WORKBENCH",
         )
-        if exclude_contract_id is None or str(row["contract_id"]) != exclude_contract_id
+        if str(row["contract_id"]).lower() != excluded
     }
     for index, row in enumerate(prepared):
         owner = owners.get(row["crm_id"].lower())
