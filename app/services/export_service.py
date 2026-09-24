@@ -112,6 +112,7 @@ class ExportableAnalysis:
     name: str                      # display name (full name when known)
     origin: str                    # RMS | RDM
     engine: str | None
+    framework: str | None          # ELT | PLT
     rdm_name: str | None
     irp_id: str | None
     irp_app_analysis_id: int | None
@@ -320,7 +321,7 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
             id=_uid(r.id), name=r.name or d.get("name") or _uid(r.id),
             origin=("RDM" if d.get("rdm_id") else "RMS"),
             engine=("Group" if d.get("is_group") else display.engine),
-            rdm_name=r.rdm_name,
+            framework=display.framework, rdm_name=r.rdm_name,
             irp_id=(str(d["irp_id"]) if d.get("irp_id") is not None else None),
             irp_app_analysis_id=app_id,
             analysis_name=d.get("name"), analysis_description=d.get("full_name"),
