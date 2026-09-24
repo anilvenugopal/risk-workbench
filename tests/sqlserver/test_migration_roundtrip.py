@@ -123,7 +123,7 @@ def test_drop_workbench_tables_then_upgrade_survives_drift(scratch_database):
             conn.execute(text(
                 "CREATE TABLE drifted_table ("
                 "  id INT IDENTITY PRIMARY KEY,"
-                "  rwb_job_id BIGINT NULL)"))
+                "  rwb_job_id UNIQUEIDENTIFIER NULL)"))
             conn.execute(text(
                 "ALTER TABLE drifted_table ADD CONSTRAINT fk_drifted_rwb_job "
                 "FOREIGN KEY (rwb_job_id) REFERENCES rwb_job (id)"))
@@ -148,4 +148,3 @@ def test_drop_workbench_tables_then_upgrade_survives_drift(scratch_database):
                 "SELECT COUNT(*) FROM rwb_job_type_kind")).scalar() > 0
     finally:
         engine.dispose()
-
