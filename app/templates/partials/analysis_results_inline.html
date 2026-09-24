@@ -5,8 +5,9 @@
 {# The id keeps +N more open across the grid's 3s poll: app.js restores every
    details[id] after a swap. #}
 {%- macro capped_list(entries, id) -%}
-{%- set rest = entries[5:] -%}
-<ul>{% for e in entries[:5] %}<li>{{ e }}</li>{% endfor %}</ul>
+{%- set cap = 5 -%}
+{%- set rest = entries[cap:] -%}
+<ul>{% for e in entries[:cap] %}<li>{{ e }}</li>{% endfor %}</ul>
 {%- if rest %}
 <details id="{{ id }}"><summary>+{{ rest|length }} more</summary>
   <ul>{% for e in rest %}<li>{{ e }}</li>{% endfor %}</ul></details>
@@ -47,11 +48,11 @@
     {% endif %}
     {% if s and s.member_names %}
     <div class="settings-grid__wide"><dt>Members</dt>
-      <dd>{{ capped_list(s.member_names, a.id ~ '-members') }}</dd></div>
+      <dd>{{ capped_list(s.member_names, 'analysis-' ~ a.id ~ '-members') }}</dd></div>
     {% endif %}
     {% if r.partitions and r.partitions|length >= 2 %}
     <div class="settings-grid__wide"><dt>Run details</dt>
-      <dd>{{ capped_list(r.partitions, a.id ~ '-run-details') }}</dd></div>
+      <dd>{{ capped_list(r.partitions, 'analysis-' ~ a.id ~ '-run-details') }}</dd></div>
     {% endif %}
     {# No entry at all when the run applied none; not returned when the read
        failed (P-04). #}
@@ -59,7 +60,7 @@
     <div><dt>Treaties</dt><dd class="blank">not returned</dd></div>
     {% elif r.treaties %}
     <div class="settings-grid__wide"><dt>Treaties</dt>
-      <dd>{{ capped_list(r.treaties, a.id ~ '-treaties') }}</dd></div>
+      <dd>{{ capped_list(r.treaties, 'analysis-' ~ a.id ~ '-treaties') }}</dd></div>
     {% endif %}
   </dl>
 </div>
