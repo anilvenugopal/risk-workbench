@@ -1180,6 +1180,7 @@ def downgrade() -> None:
     op.drop_index("uq_irp_analysis_rdm_irp", table_name="irp_analysis")
     op.drop_index("ix_irp_analysis_edm_id", table_name="irp_analysis")
     op.drop_index("ix_irp_analysis_rdm_id", table_name="irp_analysis")
+    op.drop_index("ix_irp_analysis_irp_id", table_name="irp_analysis")
     op.drop_table("irp_analysis")
     op.drop_table("rwb_job_heartbeat")
     op.drop_index("ix_rwb_job_requestor", table_name="rwb_job")
@@ -1195,6 +1196,8 @@ def downgrade() -> None:
     op.drop_index("ix_irp_job_type_status", table_name="irp_job")
     op.drop_table("irp_job")
     for kind in (
+        "rwb_job_context_type_kind",
+        "rwb_job_link_type_kind",
         "irp_analysis_status_kind",
         "rwb_job_status_kind",
         "rwb_job_requestor_type_kind",

@@ -19,6 +19,7 @@ tier rather than production:
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -210,7 +211,6 @@ def test_poller_never_calls_a_poll_method_on_the_gateway_or_client():
 
 
 def test_export_modules_reach_sql_only_through_the_db_package():
-    import ast
 
     offenders = []
     for path in _EXPORT_MODULES:
@@ -233,3 +233,43 @@ def test_export_modules_reach_sql_only_through_the_db_package():
                     if alias.name in ("pyodbc", "sqlalchemy") or alias.name.startswith("db."):
                         offenders.append(f"{path.name}: import {alias.name}")
     assert offenders == [], f"SQL reaches the databases through db/ only: {offenders}"
+
+
+def _migration_tables(func_name: str, op_name: str) -> set[str]:
+    """Table names passed to ``op.<op_name>`` inside the migration's ``func_name``.
+
+    Reads both the direct ``op.create_table("x", ...)`` form and the kind-table
+    ``for kind in (...): op.create_table(kind, ...)`` loops, which is where the
+    two functions drifted apart.
+    """
+    tree = ast.parse(_MIGRATION.read_text(encoding="utf-8"))
+    func = next(node for node in tree.body
+                if isinstance(node, ast.FunctionDef) and node.name == func_name)
+
+    def calls(scope):
+        for node in ast.walk(scope):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == op_name and node.args):
+                yield node.args[0]
+
+    names = {arg.value for arg in calls(func) if isinstance(arg, ast.Constant)}
+    for loop in (n for n in ast.walk(func) if isinstance(n, ast.For)):
+        if not isinstance(loop.target, ast.Name):
+            continue
+        if any(isinstance(arg, ast.Name) and arg.id == loop.target.id
+               for stmt in loop.body for arg in calls(stmt)):
+            names |= {elt.value for elt in ast.walk(loop.iter)
+                      if isinstance(elt, ast.Constant) and isinstance(elt.value, str)}
+    return names
+
+
+def test_migration_downgrade_drops_every_table_upgrade_creates():
+    """Rebuilding the Workbench schema is ``downgrade base`` then ``upgrade head``
+    (issue #121), so a table left behind by ``downgrade()`` breaks the next
+    ``upgrade()`` with "There is already an object named"."""
+    created = _migration_tables("upgrade", "create_table")
+    dropped = _migration_tables("downgrade", "drop_table")
+    assert created - dropped == set(), (
+        f"downgrade() never drops: {sorted(created - dropped)}")
+    assert dropped - created == set(), (
+        f"downgrade() drops tables upgrade() never creates: {sorted(dropped - created)}")
