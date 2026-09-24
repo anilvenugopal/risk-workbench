@@ -2,6 +2,16 @@
    table's Engine column carries it, and a collapsed value is never restated
    here. #}
 {%- import 'partials/analysis_row_macros.html' as row -%}
+{# The id keeps +N more open across the grid's 3s poll: app.js restores every
+   details[id] after a swap. #}
+{%- macro capped_list(entries, id) -%}
+{%- set rest = entries[5:] -%}
+<ul>{% for e in entries[:5] %}<li>{{ e }}</li>{% endfor %}</ul>
+{%- if rest %}
+<details id="{{ id }}"><summary>+{{ rest|length }} more</summary>
+  <ul>{% for e in rest %}<li>{{ e }}</li>{% endfor %}</ul></details>
+{%- endif %}
+{%- endmacro -%}
 {%- set d = a.display -%}
 {%- set s = a.submitted if a.submitted is defined else None -%}
 {%- set r = a.resolved -%}
@@ -37,11 +47,11 @@
     {% endif %}
     {% if s and s.member_names %}
     <div class="settings-grid__wide"><dt>Members</dt>
-      <dd><ul>{% for n in s.member_names %}<li>{{ n }}</li>{% endfor %}</ul></dd></div>
+      <dd>{{ capped_list(s.member_names, a.id ~ '-members') }}</dd></div>
     {% endif %}
     {% if r.partitions and r.partitions|length >= 2 %}
     <div class="settings-grid__wide"><dt>Run details</dt>
-      <dd><ul>{% for e in r.partitions %}<li>{{ e }}</li>{% endfor %}</ul></dd></div>
+      <dd>{{ capped_list(r.partitions, a.id ~ '-run-details') }}</dd></div>
     {% endif %}
     {# No entry at all when the run applied none; not returned when the read
        failed (P-04). #}
@@ -49,7 +59,7 @@
     <div><dt>Treaties</dt><dd class="blank">not returned</dd></div>
     {% elif r.treaties %}
     <div class="settings-grid__wide"><dt>Treaties</dt>
-      <dd><ul>{% for t in r.treaties %}<li>{{ t }}</li>{% endfor %}</ul></dd></div>
+      <dd>{{ capped_list(r.treaties, a.id ~ '-treaties') }}</dd></div>
     {% endif %}
   </dl>
 </div>

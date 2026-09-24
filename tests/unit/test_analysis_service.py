@@ -953,6 +953,22 @@ def test_group_row_with_no_plan_has_no_member_names(iteration2_db):
     assert "<dt>Members</dt>" not in _inline_panel(group)
 
 
+def test_a_list_longer_than_five_puts_the_rest_behind_more(iteration2_db):
+    submission = seed_submission("Sub One")
+    names = [f"CRE_Member_{n}" for n in range(1, 8)]
+    seed_group(submission, "CRE_Sub One_Group", members=[
+        {"analysis_id": str(uuid.uuid4()), "name": n} for n in names])
+    [group] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+
+    shown, more, rest = _inline_panel(group).partition(
+        "<summary>+2 more</summary>")
+
+    assert more
+    assert [n for n in names if f"<li>{n}</li>" in shown] == names[:5]
+    assert [n for n in names if f"<li>{n}</li>" in rest] == names[5:]
+
+
 # ── spec 013: ResultsColumn engine and run currency (T-03/T-04) ───────────────
 
 
