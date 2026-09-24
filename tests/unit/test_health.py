@@ -43,7 +43,7 @@ class TestHealthEndpoint:
 
         client = TestClient(_make_app(), raise_server_exceptions=False)
         data = client.get("/api/health").json()
-        for key in ("status", "db_workbench", "db_exposure", "db_loss", "redis", "env"):
+        for key in ("status", "db_workbench", "db_loss", "redis", "env"):
             assert key in data, f"missing key: {key}"
 
     def test_db_ok_when_connection_succeeds(self, monkeypatch):
@@ -55,7 +55,6 @@ class TestHealthEndpoint:
 
         data = TestClient(_make_app()).get("/api/health").json()
         assert data["db_workbench"] == "ok"
-        assert data["db_exposure"] == "ok"
         assert data["db_loss"] == "ok"
 
     def test_db_error_when_connection_fails(self, monkeypatch):

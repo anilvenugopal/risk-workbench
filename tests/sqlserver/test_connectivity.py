@@ -2,7 +2,7 @@
 
 Runs only with: pytest tests/sqlserver --run-sqlserver
 
-Verifies the WORKBENCH, EXPOSURE, and LOSS connections can all reach SQL Server.
+Verifies the WORKBENCH and LOSS connections can both reach SQL Server.
 """
 
 from __future__ import annotations
@@ -16,9 +16,6 @@ from db.connection import test_connection
 class TestConnectivity:
     def test_workbench_connection(self):
         assert test_connection("WORKBENCH"), "Could not connect to WORKBENCH database"
-
-    def test_exposure_connection(self):
-        assert test_connection("EXPOSURE"), "Could not connect to EXPOSURE database"
 
     def test_loss_connection(self):
         assert test_connection("LOSS"), "Could not connect to LOSS database"

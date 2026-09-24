@@ -35,7 +35,6 @@ def health(request: Request):
     return JSONResponse({
         "status": "ok",
         "db_workbench": _check_db("WORKBENCH"),
-        "db_exposure": _check_db("EXPOSURE"),
         "db_loss": _check_db("LOSS"),
         "redis": _check_redis(),
         "env": settings.app_env,
