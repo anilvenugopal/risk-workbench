@@ -16,8 +16,9 @@
       <span class="na">—</span>
     {% endif %}
   </td>
-  {# FR-007: the distinct treaty types across the deal's contracts, shown like
-     the CRM IDs above, and the latest inception; no contract shows dashes. #}
+  {# FR-007: the three contract columns read the same contract — the first
+     that matched a contract-level filter, else the first entered — with the
+     other matches behind "+N more"; no contract shows dashes. #}
   <td>
     {% if row.treaty_type_labels %}
       {{ row.treaty_type_labels[0] }}
@@ -29,7 +30,7 @@
       <span class="na">—</span>
     {% endif %}
   </td>
-  <td>{% if row.latest_inception_date %}{{ row.latest_inception_date }}{% else %}<span class="na">—</span>{% endif %}</td>
+  <td>{% if row.inception_date %}{{ row.inception_date }}{% else %}<span class="na">—</span>{% endif %}</td>
   <td>{{ row.treaty_year or '—' }}</td>
   <td><span class="status-chip status-chip--{{ row.status_code|lower }}">{{ row.status_label or row.status_code }}</span></td>
   <td class="muted">{{ row.assigned_analyst_name or '—' }}</td>

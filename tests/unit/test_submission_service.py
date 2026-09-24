@@ -573,8 +573,10 @@ def test_list_filter_by_crm_ids_matches_whole_ids(iteration1_db):
 
 
 def test_list_rows_summarise_their_contracts(iteration1_db):
-    """FR-007: CRM IDs in insertion order, distinct treaty types in kind order,
-    the latest inception; a deal with no contract keeps the defaults."""
+    """FR-007: the first-entered contract gives the row its CRM ID, treaty type
+    and inception; the other CRM IDs follow in entry order and the other
+    distinct treaty types in kind order; a deal with no contract keeps the
+    defaults."""
     a = iteration1_db.user_a
     tagged = _mk(iteration1_db, owner=a, name="Has contracts", contracts=[]).submission_id
     bare = _mk(iteration1_db, owner=a, name="No contracts", contracts=[]).submission_id
@@ -587,10 +589,43 @@ def test_list_rows_summarise_their_contracts(iteration1_db):
          status="WON")
     rows = {r.id: r for r in list_submissions(owner_ids=[a]).rows}
     assert rows[tagged].crm_ids == ["CRM-1", "CRM-2", "CRM-3"]
-    assert rows[tagged].treaty_type_labels == ["Aggregate XOL", "Stop Loss"]
-    assert _day(rows[tagged].latest_inception_date) == "2027-01-01"
+    assert rows[tagged].treaty_type_labels == ["Stop Loss", "Aggregate XOL"]
+    assert _day(rows[tagged].inception_date) == "2026-01-01"
     assert rows[bare].crm_ids == [] and rows[bare].treaty_type_labels == []
-    assert rows[bare].latest_inception_date is None
+    assert rows[bare].inception_date is None
+
+
+def test_list_rows_show_the_contract_that_matched_the_search(iteration1_db):
+    """FR-007, note 34 D5: with a contract-level filter, the row's three contract
+    columns come from the contracts that satisfy every contract clause together
+    (P-18), first-entered first, so a search for one CRM ID reads that CRM ID
+    with no "+N more"."""
+    a = iteration1_db.user_a
+    deal = _mk(iteration1_db, owner=a, name="Layered", contracts=[]).submission_id
+    _add(iteration1_db, deal, "CRM-A", tt="per_risk_xol", inc=date(2026, 1, 1),
+         status="WON")
+    _bump()
+    _add(iteration1_db, deal, "CRM-B", tt="aggregate_xol", inc=date(2027, 1, 1))
+    _bump()
+    _add(iteration1_db, deal, "CRM-C", tt="aggregate_xol", inc=date(2027, 6, 1),
+         status="WON")
+
+    def row(**kw):
+        (found,) = list_submissions(owner_ids=[a], **kw).rows
+        return found.crm_ids, found.treaty_type_labels, _day(found.inception_date)
+
+    assert row(crm_ids=["crm-c"]) == (["CRM-C"], ["Aggregate XOL"], "2027-06-01")
+    assert row(contract_status_codes=["WON"]) == (
+        ["CRM-A", "CRM-C"], ["Per Risk XOL", "Aggregate XOL"], "2026-01-01")
+    assert row(treaty_type_codes=["aggregate_xol"], contract_status_codes=["WON"]) == (
+        ["CRM-C"], ["Aggregate XOL"], "2027-06-01")
+    assert row(in_force_as_of=date(2027, 7, 1)) == (
+        ["CRM-C"], ["Aggregate XOL"], "2027-06-01")
+    assert row(inception_date=date(2027, 1, 1)) == (
+        ["CRM-B"], ["Aggregate XOL"], "2027-01-01")
+    # A submission-level filter alone leaves every contract in the summary.
+    assert row(name="Layered") == (
+        ["CRM-A", "CRM-B", "CRM-C"], ["Per Risk XOL", "Aggregate XOL"], "2026-01-01")
 
 
 def test_list_filter_by_status(iteration1_db):
@@ -760,10 +795,10 @@ def test_list_defaults_to_newest_inception_first(iteration1_db):
         "Bravo", "Charlie", "Alpha"]
 
 
-def test_list_orders_on_the_latest_contract_inception(iteration1_db):
-    """P-17: the sort key is an aggregate over the deal's contracts, and a deal
-    with no contract is placed by its creation date — today, so ahead of last
-    year's renewals and behind next year's."""
+def test_list_orders_on_the_first_entered_contract_inception(iteration1_db):
+    """P-17: the sort key is the first-entered contract's inception, the date
+    the row shows, and a deal with no contract is placed by its creation date —
+    today, so ahead of last year's renewals and behind next year's."""
     a = iteration1_db.user_a
     layered = _mk(iteration1_db, owner=a, name="Layered", cedant="L Re",
                   inc=date(2025, 1, 1)).submission_id
@@ -772,10 +807,10 @@ def test_list_orders_on_the_latest_contract_inception(iteration1_db):
     _mk(iteration1_db, owner=a, name="Last year", cedant="P Re", inc=date(2025, 6, 1))
     _mk(iteration1_db, owner=a, name="No contract", cedant="Z Re", contracts=[])
     assert [r.name for r in list_submissions(owner_ids=[a]).rows] == [
-        "Layered", "Next year", "No contract", "Last year"]
+        "Next year", "No contract", "Last year", "Layered"]
     assert [r.name for r in list_submissions(
         owner_ids=[a], sort="inception", descending=False).rows] == [
-        "Last year", "No contract", "Next year", "Layered"]
+        "Layered", "Last year", "No contract", "Next year"]
 
 
 def test_list_breaks_a_sort_tie_the_same_way_on_every_page(iteration1_db):

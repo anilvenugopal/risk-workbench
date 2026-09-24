@@ -82,9 +82,8 @@ ENTITY_TABLE_SORT_STARTS_DESCENDING = {
 @dataclass
 class SubmissionRow:
     """One master-list / look-alike row. The contract summary (``crm_ids``,
-    ``treaty_type_labels``, ``latest_inception_date``)
-    is filled for the master list only (see ``_attach_contracts``); every other
-    reader leaves it empty."""
+    ``treaty_type_labels``, ``inception_date``) is filled for the master list
+    only (see ``_attach_contracts``); every other reader leaves it empty."""
     id: str
     name: str
     cedant_name: str
@@ -99,7 +98,7 @@ class SubmissionRow:
     client_name: str | None = None
     crm_ids: list[str] = field(default_factory=list)
     treaty_type_labels: list[str] = field(default_factory=list)
-    latest_inception_date: Any = None
+    inception_date: Any = None
 
     @property
     def client_display(self) -> str | None:
@@ -430,11 +429,15 @@ _ROW_SELECT = """
     LEFT JOIN app_user u ON u.id = s.assigned_analyst_id
 """
 
-# The list's inception: the latest contract inception, or the deal's creation
-# date for a deal with no contract yet (P-17). SQL Server resolves the COALESCE
-# to DATETIME2 and SQLite compares the ISO text; both order the same.
-_LATEST_INCEPTION = ("COALESCE((SELECT MAX(c.inception_date) FROM contract c "
-                     "WHERE c.submission_id = s.id), s.inserted_at)")
+# The list's inception: the first-entered contract's, or the deal's creation
+# date for a deal with no contract yet (P-17). It is the date the row shows, so
+# the list is ordered by what the analyst reads. ``{cap}`` takes ``row_limit(1)``
+# at query time: the dialects disagree on how to cap a subquery. SQL Server
+# resolves the COALESCE to DATETIME2 and SQLite compares the ISO text; both
+# order the same.
+_FIRST_INCEPTION = ("COALESCE((SELECT c.inception_date FROM contract c "
+                    "WHERE c.submission_id = s.id ORDER BY c.inserted_at, c.id {cap}), "
+                    "s.inserted_at)")
 
 
 def _to_row(row: dict) -> SubmissionRow:
@@ -456,7 +459,7 @@ def _to_row(row: dict) -> SubmissionRow:
 def _submission_rows(
     clauses: list[str], params: dict[str, Any], *, exclude_id: Any = None,
     limit: int | None = None, offset: int = 0,
-    order_by: str = f"{_LATEST_INCEPTION} DESC, s.name",
+    order_by: str | None = None,
 ) -> list[SubmissionRow]:
     """Run the shared row query: the master list, the look-alike check and the "links
     to" typeahead all select the same columns, and differ only in their predicates.
@@ -468,6 +471,8 @@ def _submission_rows(
     the one being edited so it cannot be offered as its own link. A value that is not
     a UUID excludes nothing rather than reaching the ``uniqueidentifier`` comparison
     (see ``_as_uuid``)."""
+    if order_by is None:
+        order_by = _order_by(DEFAULT_SORT, descending=True)
     excluded = _as_uuid(exclude_id) if exclude_id is not None else None
     if excluded is not None:
         clauses = [*clauses, "s.id <> :exclude"]
@@ -479,11 +484,15 @@ def _submission_rows(
     return [_to_row(row) for row in execute(sql, params, connection="WORKBENCH")]
 
 
-def _attach_contracts(rows: list[SubmissionRow]) -> None:
-    """Set each row's contract summary for the master list (FR-007): CRM IDs in
-    insertion order, the distinct treaty type and contract status labels in
-    their kind tables' order, and the latest inception. One query covers the
-    page; a deal with no contract keeps the defaults.
+def _attach_contracts(rows: list[SubmissionRow], filters: dict[str, Any]) -> None:
+    """Set each row's contract summary for the master list (FR-007). With a
+    contract-level filter set, only the contracts that satisfy every contract
+    clause together count (P-18): a search for one CRM ID shows that CRM ID,
+    not the first-entered one with the rest behind "+N more". The first
+    contract (by ``inserted_at``) gives the row its CRM ID, treaty type and
+    inception; ``crm_ids`` lists the rest in entry order and
+    ``treaty_type_labels`` the other distinct types in kind-table order. A deal
+    with no contract keeps the defaults.
 
     One bound parameter per row, so the caller has to hand this a page rather than a
     whole table — SQL Server rejects a statement carrying more than 2,100."""
@@ -492,12 +501,16 @@ def _attach_contracts(rows: list[SubmissionRow]) -> None:
         return
     params = {f"s{i}": sid for i, sid in enumerate(ids)}
     placeholders = ", ".join(f":{key}" for key in params)
+    contract_clauses, more = _contract_clauses(filters)
+    params |= more
     contracts = execute(
         "SELECT c.submission_id, c.crm_id, c.inception_date, "
         "tk.label AS treaty_type_label, tk.sort_order AS treaty_type_order "
         "FROM contract c "
         "LEFT JOIN treaty_type_kind tk ON tk.code = c.treaty_type_code "
-        f"WHERE c.submission_id IN ({placeholders}) ORDER BY c.inserted_at, c.id",
+        f"WHERE c.submission_id IN ({placeholders})"
+        + "".join(f" AND {clause}" for clause in contract_clauses)
+        + " ORDER BY c.inserted_at, c.id",
         params, connection="WORKBENCH",
     )
     by_submission: dict[str, list[dict]] = {}
@@ -506,12 +519,17 @@ def _attach_contracts(rows: list[SubmissionRow]) -> None:
 
     for row in rows:
         items = by_submission.get(str(row.id).lower(), [])
+        if not items:
+            continue
+        first = items[0]
         row.crm_ids = [item["crm_id"] for item in items]
-        labels = {item["treaty_type_label"]: item["treaty_type_order"]
-                  for item in items if item["treaty_type_label"] is not None}
-        row.treaty_type_labels = sorted(labels, key=lambda v: (labels[v] or 0, v))
-        inceptions = [_as_date(item["inception_date"]) for item in items]
-        row.latest_inception_date = max(inceptions) if inceptions else None
+        row.inception_date = _as_date(first["inception_date"])
+        others = {item["treaty_type_label"]: item["treaty_type_order"]
+                  for item in items[1:]
+                  if item["treaty_type_label"] not in (None, first["treaty_type_label"])}
+        row.treaty_type_labels = (
+            [first["treaty_type_label"]] if first["treaty_type_label"] is not None else []
+        ) + sorted(others, key=lambda v: (others[v] or 0, v))
 
 
 def _attach_client_names(rows: list[SubmissionRow]) -> None:
@@ -905,7 +923,7 @@ def detach_rdm(*, submission_id: Any, rdm_id: Any) -> bool:
 SORT_COLUMNS = {
     "name": "s.name",
     "cedant": "s.cedant_name",
-    "inception": _LATEST_INCEPTION,
+    "inception": _FIRST_INCEPTION,
     "year": "s.treaty_year",
 }
 DEFAULT_SORT = "inception"
@@ -917,7 +935,7 @@ SORT_STARTS_DESCENDING = {"name": False, "cedant": False,
 def _order_by(sort: str, descending: bool) -> str:
     """Name and id follow the sorted column so a page boundary falls in the same
     place every request when the sorted column ties."""
-    column = SORT_COLUMNS[sort]
+    column = SORT_COLUMNS[sort].format(cap=row_limit(1))
     tiebreakers = [c for c in ("s.name", "s.id") if c != column]
     return ", ".join([f"{column} {'DESC' if descending else 'ASC'}", *tiebreakers])
 
@@ -950,13 +968,14 @@ def list_submissions(
 
     No minimum term length: every read is capped at ``PAGE_SIZE``, so a
     one-character search costs no more than the page it narrows."""
-    clauses, params = submission_filter_clauses({
+    filters = {
         "owner_ids": owner_ids, "name": name, "cedant_name": cedant_name,
         "crm_ids": crm_ids, "treaty_type_codes": treaty_type_codes,
         "inception_date": inception_date, "treaty_years": treaty_years,
         "status_codes": status_codes, "contract_status_codes": contract_status_codes,
         "client_ids": client_ids, "in_force_as_of": in_force_as_of,
-    })
+    }
+    clauses, params = submission_filter_clauses(filters)
     page = max(1, int(page or 1))
     # One row past the page: its presence is what "there is a next page" means,
     # without a COUNT(*) over the same predicates.
@@ -965,7 +984,7 @@ def list_submissions(
                             order_by=_order_by(sort, descending))
     has_next = len(rows) > PAGE_SIZE
     rows = rows[:PAGE_SIZE]
-    _attach_contracts(rows)
+    _attach_contracts(rows, filters)
     _attach_client_names(rows)
     return SubmissionPage(rows=rows, page=page, has_next=has_next)
 
@@ -992,7 +1011,6 @@ def submission_filter_clauses(
     s = alias
     clauses: list[str] = []
     params: dict[str, Any] = {}
-    contract_clauses: list[str] = []
     if filters.get("owner_ids"):
         # An owner id that is not a UUID binds NULL, which matches no row — the
         # hand-typed-URL case ``_as_uuid`` exists for.
@@ -1026,36 +1044,46 @@ def submission_filter_clauses(
             f"{s}.client_id", [_as_int(c) for c in filters["client_ids"]], "cl")
         clauses.append(clause)
         params |= more
-    if filters.get("crm_ids"):
-        clause, more = _in_clause(
-            "LOWER(TRIM(c.crm_id))",
-            [str(value).strip().lower() for value in filters["crm_ids"]], "crm")
-        contract_clauses.append(clause)
-        params |= more
-    if filters.get("treaty_type_codes"):
-        clause, more = _in_clause("c.treaty_type_code", filters["treaty_type_codes"], "tt")
-        contract_clauses.append(clause)
-        params |= more
-    if filters.get("inception_date") is not None:
-        contract_clauses.append("c.inception_date = :inc")
-        params["inc"] = _as_date(filters["inception_date"])
-    if filters.get("contract_status_codes"):
-        clause, more = _in_clause(
-            "c.contract_status_code", filters["contract_status_codes"], "cs")
-        contract_clauses.append(clause)
-        params |= more
-    if filters.get("in_force_as_of") is not None:
-        contract_clauses.append(
-            "c.contract_status_code = :won AND c.inception_date <= :asof "
-            "AND c.expiration_date >= :asof")
-        params["won"] = WON
-        params["asof"] = _as_date(filters["in_force_as_of"])
+    contract_clauses, more = _contract_clauses(filters)
+    params |= more
     if contract_clauses:
         # One EXISTS, not a join: a deal with three matching contracts is still
         # one row, and every contract-level filter is met by the same contract.
         clauses.append(
             f"EXISTS (SELECT 1 FROM contract c WHERE c.submission_id = {s}.id AND "
             + " AND ".join(contract_clauses) + ")")
+    return clauses, params
+
+
+def _contract_clauses(filters: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    """The contract-level predicates on alias ``c``, shared by the list's
+    EXISTS and by the row summary so both name the same contracts (P-18)."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if filters.get("crm_ids"):
+        clause, more = _in_clause(
+            "LOWER(TRIM(c.crm_id))",
+            [str(value).strip().lower() for value in filters["crm_ids"]], "crm")
+        clauses.append(clause)
+        params |= more
+    if filters.get("treaty_type_codes"):
+        clause, more = _in_clause("c.treaty_type_code", filters["treaty_type_codes"], "tt")
+        clauses.append(clause)
+        params |= more
+    if filters.get("inception_date") is not None:
+        clauses.append("c.inception_date = :inc")
+        params["inc"] = _as_date(filters["inception_date"])
+    if filters.get("contract_status_codes"):
+        clause, more = _in_clause(
+            "c.contract_status_code", filters["contract_status_codes"], "cs")
+        clauses.append(clause)
+        params |= more
+    if filters.get("in_force_as_of") is not None:
+        clauses.append(
+            "c.contract_status_code = :won AND c.inception_date <= :asof "
+            "AND c.expiration_date >= :asof")
+        params["won"] = WON
+        params["asof"] = _as_date(filters["in_force_as_of"])
     return clauses, params
 
 
