@@ -66,8 +66,9 @@ CREATE TABLE stage.rwb_loss_result_manifest (
     data_model_version           NVARCHAR(10)     NULL,
     peril_code                   NVARCHAR(10)     NULL,
     region_code                  NVARCHAR(10)     NULL,
-    -- Treaty data set (spec 016): NULL on a portfolio-level row and on a TY
-    -- row until its loss table has been read; then one row per treaty.
+    -- Treaty data set (spec 016): NULL on a portfolio-level row. At TY the
+    -- export form's create_export fills treaty_number and treaty_name at
+    -- insert; the stage worker fills treaty_ids and aal from the loss table.
     treaty_number                NVARCHAR(64)     NULL,
     treaty_name                  NVARCHAR(256)    NULL,
     treaty_ids                   NVARCHAR(400)    NULL,
@@ -173,8 +174,11 @@ GO
 -- Errors: 50000 called inside a transaction; 50004 the load lock was not
 -- granted within 15 minutes; 50001 the manifest row cannot be claimed (the
 -- message says why); 50003 an event matches more than one lookup row. Every
--- error leaves zero target rows and load_status = 'failed' with the message. A model version the lookup does not carry is not an error: every
--- event classifies as stochastic and historical_row_count is 0 (9/11 D8).
+-- error leaves zero target rows. An error raised after the row is claimed
+-- (50003 and later failures) also stamps load_status = 'failed' with the
+-- message; 50000, 50004, and 50001 are raised before the claim and leave the
+-- row as it was. A model version the lookup does not carry is not an error:
+-- every event classifies as stochastic and historical_row_count is 0 (9/11 D8).
 CREATE OR ALTER PROCEDURE stage.usp_load_elt_result
     @manifest_id INT
 AS

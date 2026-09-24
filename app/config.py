@@ -12,8 +12,8 @@ from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # The treaty-level export (spec 016). It rides in EXPORT_PERSPECTIVE_CODES and in
-# perspective_code, but it is an output level, not a financial perspective: a TY
-# request sends outputLevels ["Treaty"] with a fixed GR code (P-08).
+# perspective_code, but it is an output level, not a financial perspective; the
+# request is built in app/workers/export_jobs.py.
 TY = "TY"
 
 

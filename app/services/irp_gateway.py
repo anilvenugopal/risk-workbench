@@ -29,7 +29,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, Sequence, runtime_checkable
+from typing import Any, Literal, Protocol, Sequence, runtime_checkable
 
 # Re-exported so callers (workers, FakeIRP) never import irp-integration directly
 # — this module stays the sole importer (T007). ``submit_portfolio_analysis``
@@ -604,7 +604,8 @@ class IRPGateway(Protocol):
 
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
                            exposure_resource_id: int,
-                           exposure_resource_type: str = "PORTFOLIO") -> list[dict]: ...
+                           exposure_resource_type: Literal["PORTFOLIO", "TREATY"] = "PORTFOLIO",
+                           ) -> list[dict]: ...
 
     def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
                         exposure_resource_id: int) -> list[dict]: ...
@@ -1333,7 +1334,8 @@ class _RealGateway:
 
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
                            exposure_resource_id: int,
-                           exposure_resource_type: str = "PORTFOLIO") -> list[dict]:
+                           exposure_resource_type: Literal["PORTFOLIO", "TREATY"] = "PORTFOLIO",
+                           ) -> list[dict]:
         # GET /platform/riskdata/v1/analyses/{analysisId}/stats — RM's row list
         # verbatim. The wheel validates perspective_code against its own
         # PERSPECTIVE_CODES (T-02); the gateway never bypasses that check.
@@ -1708,7 +1710,8 @@ def resolve_app_analysis_id(*, app_analysis_id: int) -> str:
 
 def get_analysis_stats(*, analysis_id: int, perspective_code: str,
                        exposure_resource_id: int,
-                       exposure_resource_type: str = "PORTFOLIO") -> list[dict]:
+                       exposure_resource_type: Literal["PORTFOLIO", "TREATY"] = "PORTFOLIO",
+                       ) -> list[dict]:
     return _active().get_analysis_stats(
         analysis_id=analysis_id, perspective_code=perspective_code,
         exposure_resource_id=exposure_resource_id,
