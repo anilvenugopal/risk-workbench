@@ -67,6 +67,7 @@ def _run(rows: list[tuple[str, str]], *, dry_run: bool) -> list[list[dict]]:
         raw.commit()
         return result_sets
     finally:
+        raw.detach()  # the script's SET NOCOUNT ON must not reach the pool
         raw.close()
 
 
