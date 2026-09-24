@@ -176,7 +176,7 @@ def _contract_input(row: dict[str, str]) -> ContractInput:
         crm_id=row["crm_id"], treaty_type_code=row["treaty_type_code"],
         inception_date=row["inception_date"] or None,
         expiration_date=row["expiration_date"] or None,
-        contract_status_code=row["contract_status_code"] or submission_service.IN_PROCESS,
+        contract_status_code=row["contract_status_code"] or submission_service.OPEN,
     )
 
 
@@ -1735,7 +1735,7 @@ def change_contract_status(
     except ValueError:
         return _contracts_partial(
             request, submission_id, status_code=422,
-            contract_error="Contract status is Won, Lost or In Process.")
+            contract_error="Contract status is Won, Lost or Open.")
     except ConcurrencyConflict as exc:
         return _contracts_partial(request, submission_id, status_code=409,
                                   contract_error=str(exc))

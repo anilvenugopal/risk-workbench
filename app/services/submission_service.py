@@ -61,7 +61,7 @@ from db import (
 ACTIVE = "ACTIVE"
 # The one contract status a contract can be in force under (FR-018, P-09).
 WON = "WON"
-IN_PROCESS = "IN_PROCESS"
+OPEN = "OPEN"
 
 # Rows per master-list request. The list is read newest-inception-first, so a
 # page is what an analyst scans before narrowing; it also caps how many ids
@@ -140,7 +140,7 @@ class ContractInput:
     treaty_type_code: str
     inception_date: Any
     expiration_date: Any = None
-    contract_status_code: str = IN_PROCESS
+    contract_status_code: str = OPEN
 
 
 @dataclass(frozen=True)
@@ -385,7 +385,7 @@ def _prepare_contracts(
         taken[crm_id.lower()] = crm_id
         if row.treaty_type_code not in treaty_types:
             raise ContractInvalid("Choose a treaty type from the list.", index=index)
-        status = row.contract_status_code or IN_PROCESS
+        status = row.contract_status_code or OPEN
         if status not in statuses:
             raise ContractInvalid("Choose a contract status from the list.", index=index)
         try:
@@ -1088,7 +1088,7 @@ def treaty_type_kinds() -> list[tuple[str, str]]:
 
 
 def contract_status_kinds() -> list[tuple[str, str]]:
-    """Contract statuses — Won, Lost, In Process (T-01)."""
+    """Contract statuses — Won, Lost, Open (T-01)."""
     return _kinds("contract_status_kind")
 
 
@@ -1456,7 +1456,7 @@ def update_contract(
 def set_contract_status(
     *, contract_id: Any, to_status: str, expected_updated_at: Any, actor_id: Any,
 ) -> None:
-    """Won / Lost / In Process on one contract, set in place in every Modeling
+    """Won / Lost / Open on one contract, set in place in every Modeling
     status with no event and no reason (P-02, P-12; Article 4 "other status").
     ``ValueError`` on a code that is not in the kind table."""
     if to_status not in {code for code, _ in contract_status_kinds()}:

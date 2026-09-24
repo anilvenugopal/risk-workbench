@@ -28,7 +28,7 @@ def seed_submission(user_id: str, *, name: str = "TY2604_Deal", inception: str =
         execute_command(
             "INSERT INTO contract (id, submission_id, crm_id, treaty_type_code, inception_date, "
             "expiration_date, contract_status_code, inserted_at, updated_at, inserted_by, "
-            "updated_by) VALUES (:id, :s, :c, 'per_risk_xol', :inc, :exp, 'IN_PROCESS', :at, "
+            "updated_by) VALUES (:id, :s, :c, 'per_risk_xol', :inc, :exp, 'OPEN', :at, "
             ":at, :u, :u)",
             {"id": str(uuid.uuid4()), "s": submission_id, "c": crm_id, "inc": inception,
              "exp": expiration, "at": f"2026-01-01 00:00:0{index}", "u": user_id},

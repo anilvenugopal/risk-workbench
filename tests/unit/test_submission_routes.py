@@ -84,7 +84,7 @@ def _csrf() -> str:
 
 def _payload(*, crm_ids: str | None = None, treaty_type_code: str = "per_risk_xol",
              inception_date: str = "2026-04-01", expiration_date: str = "",
-             contract_status: str = "IN_PROCESS", **overrides) -> dict:
+             contract_status: str = "OPEN", **overrides) -> dict:
     """The create form's post: the submission fields plus one contract row per
     CRM ID in ``crm_ids`` (comma-separated; blank posts no row; ``None`` posts
     one row with a CRM ID no other deal holds), every row on the same treaty
@@ -1954,7 +1954,7 @@ def test_detail_page_shows_modeling_status_and_the_contract_table(client):
     editor = body.split('name="modeling_status"')[1].split("</form>")[0]
     assert "contract_status" not in editor
     select = body.split('aria-label="Contract status of T-100"')[1].split("</select>")[0]
-    assert re.findall(r'<option value="(\w+)"', select) == ["IN_PROCESS", "WON", "LOST"]
+    assert re.findall(r'<option value="(\w+)"', select) == ["OPEN", "WON", "LOST"]
     assert "Per Risk XOL" in body and "2027-04-01" in body
 
 
@@ -1973,15 +1973,15 @@ def test_create_posts_three_rows_and_fills_blank_expiration_and_status(client):
         "contract_treaty_type": ["per_occurrence_cat_xol", "aggregate_xol", "top_and_drop"],
         "contract_inception": ["2027-01-01", "2027-01-01", "2027-01-01"],
         "contract_expiration": ["", "2027-12-31", "2029-12-31"],
-        "contract_status": ["IN_PROCESS", "WON", ""],
+        "contract_status": ["OPEN", "WON", ""],
     })
     assert res.status_code == 303, res.text
     sid = res.headers["location"].rsplit("/", 1)[-1]
     assert [(c.crm_id, c.treaty_type_code, str(c.expiration_date), c.contract_status_code)
             for c in submission_service.list_contracts(sid)] == [
-        ("A-1", "per_occurrence_cat_xol", "2027-12-31", "IN_PROCESS"),
+        ("A-1", "per_occurrence_cat_xol", "2027-12-31", "OPEN"),
         ("A-2", "aggregate_xol", "2027-12-31", "WON"),
-        ("A-3", "top_and_drop", "2029-12-31", "IN_PROCESS")]
+        ("A-3", "top_and_drop", "2029-12-31", "OPEN")]
     assert submission_service.get_submission(sid).treaty_year == 2027
 
 
@@ -1990,7 +1990,7 @@ def test_create_ignores_the_blank_row_the_form_always_shows(client):
         **_payload(name="Blank row", crm_ids=""),
         "contract_crm_id": [""], "contract_treaty_type": [""],
         "contract_inception": [""], "contract_expiration": [""],
-        "contract_status": ["IN_PROCESS"]})
+        "contract_status": ["OPEN"]})
     assert res.status_code == 303
     sid = res.headers["location"].rsplit("/", 1)[-1]
     assert submission_service.list_contracts(sid) == []
@@ -2142,7 +2142,7 @@ def test_contract_status_post_saves_in_place_on_a_completed_deal(client):
     assert response.status_code == 200
     assert response.text.lstrip().startswith('<div id="contracts"')
     assert _contract(sid, "T-100").contract_status_code == "WON"
-    assert _contract(sid, "T-200").contract_status_code == "IN_PROCESS"
+    assert _contract(sid, "T-200").contract_status_code == "OPEN"
     assert submission_service.get_submission(sid).status_code == "COMPLETED"
     assert len(submission_service.get_status_history(sid)) == 2
     # On a closed deal the status select is live; the pencil, × and Add are not.
@@ -2159,8 +2159,8 @@ def test_contract_status_post_conflicts_on_a_stale_marker_and_rejects_an_unknown
     assert stale.status_code == 409 and "changed since you opened it" in stale.text
     bad = _status_post(client, sid, "T-100", "HOLD")
     assert bad.status_code == 422
-    assert "Contract status is Won, Lost or In Process." in bad.text
-    assert _contract(sid, "T-100").contract_status_code == "IN_PROCESS"
+    assert "Contract status is Won, Lost or Open." in bad.text
+    assert _contract(sid, "T-100").contract_status_code == "OPEN"
 
 
 def test_contract_status_post_redirects_without_htmx(client):
@@ -2276,7 +2276,7 @@ def test_contract_posts_without_a_csrf_token_write_nothing(client):
         data={"contract_status_code": "WON", "updated_at": str(c.updated_at),
               "csrf_token": "nope"})
     assert response.status_code == 303
-    assert _contract(sid, "T-100").contract_status_code == "IN_PROCESS"
+    assert _contract(sid, "T-100").contract_status_code == "OPEN"
     deleted = client.post(f"/submissions/{sid}/contracts/{c.id}/delete",
                           data={"csrf_token": "nope"})
     assert deleted.status_code == 303

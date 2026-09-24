@@ -209,7 +209,7 @@
              value="{{ row.expiration_date or '' }}">
       <select name="contract_status" aria-label="Contract status">
         {% for code, label in contract_statuses %}
-        <option value="{{ code }}"{% if (row.contract_status_code or 'IN_PROCESS') == code %} selected{% endif %}>{{ label }}</option>
+        <option value="{{ code }}"{% if (row.contract_status_code or 'OPEN') == code %} selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
       <span class="contract-row__actions" style="opacity: 1">

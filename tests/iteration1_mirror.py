@@ -41,7 +41,7 @@ ITERATION1_SCHEMA = [
         id TEXT PRIMARY KEY, submission_id TEXT, crm_id TEXT NOT NULL,
         treaty_type_code TEXT NOT NULL, inception_date TEXT NOT NULL,
         expiration_date TEXT NOT NULL,
-        contract_status_code TEXT NOT NULL DEFAULT 'IN_PROCESS',
+        contract_status_code TEXT NOT NULL DEFAULT 'OPEN',
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     "CREATE UNIQUE INDEX uq_contract_crm_id ON contract (crm_id COLLATE NOCASE)",
@@ -93,7 +93,7 @@ JOIN submission s ON s.id = c.submission_id""",
 
 STATUS_SEED = [("ACTIVE", "Active", 10), ("COMPLETED", "Completed", 20),
                ("CANCELLED", "Cancelled", 30)]
-CONTRACT_STATUS_SEED = [("IN_PROCESS", "In Process", 10), ("WON", "Won", 20),
+CONTRACT_STATUS_SEED = [("OPEN", "Open", 10), ("WON", "Won", 20),
                     ("LOST", "Lost", 30)]
 TREATY_SEED = [
     ('aggregate_xol', 'Aggregate XOL', 10),

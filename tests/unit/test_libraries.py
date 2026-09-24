@@ -228,7 +228,7 @@ def test_table_route_renders_the_swap_unit_alone(iteration2_db, mod, list_fn, pr
 
 # ── spec 017 US3: submission-attribute filters (FR-015, FR-016) ──────────────
 
-def _deal(*, name, owner, contract_status="IN_PROCESS", crm_ids=("C-1",),
+def _deal(*, name, owner, contract_status="OPEN", crm_ids=("C-1",),
           expiration=None):
     """A deal whose contracts (one per CRM ID) all incept 2026-01-01 and carry
     ``contract_status``; ``expiration`` defaults to 2026-12-31."""

@@ -40,11 +40,10 @@
 .status-chip.status-chip--active         { background: var(--color-info-bg);      color: var(--color-info);      border-color: var(--color-info-border); }
 .status-chip.status-chip--completed      { background: var(--color-positive-bg);  color: var(--color-positive);  border-color: var(--color-positive-border); }
 .status-chip.status-chip--cancelled      { background: var(--surface-recessed);   color: var(--text-tertiary);   border-color: var(--border-default); }
-/* Submission status (spec 017): Won and Completed are both green because both
+/* Contract status (spec 017): Won and Completed are both green because both
    are a good outcome; the group label beside the pill says which vocabulary. */
 .status-chip.status-chip--won            { background: var(--color-positive-bg);  color: var(--color-positive);  border-color: var(--color-positive-border); }
 .status-chip.status-chip--lost           { background: var(--color-negative-bg);  color: var(--color-negative);  border-color: var(--color-negative-border); }
-.status-chip.status-chip--in_process     { background: var(--color-warning-bg);   color: var(--color-warning);   border-color: var(--color-warning-border); }
 .status-chip.status-chip--pending_import,
 .status-chip.status-chip--importing      { background: var(--c-navy-050);         color: var(--c-navy-600);      border-color: var(--c-navy-200); }
 .status-chip.status-chip--ready          { background: var(--c-green-050);        color: var(--c-green-700);     border-color: var(--c-green-200); }

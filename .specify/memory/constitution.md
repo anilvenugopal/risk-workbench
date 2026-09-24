@@ -2,6 +2,16 @@
   Sync Impact Report
   ==================
 
+  --- 2026-09-23 (spec 017 Contract status Open, note 34 D9) ---
+  Version change: 4.2.2 → 4.2.3  (PATCH — Article 4's in-place list reads
+  Won / Lost / Open for `contract.contract_status_code`; no rule changes;
+  13-article numbering stable)
+
+  Renamed: the Contract status In Process is Open, code `OPEN` and label
+  "Open", so the Workbench uses the words CIC's CRM uses (note 34 D9).
+
+  Templates: none. AGENTS.md version reference updated to v4.2.3.
+
   --- 2026-09-22 (spec 017 contract grain, note 32) ---
   Version change: 4.2.1 → 4.2.2  (PATCH — Article 4's in-place list names
   `contract.contract_status_code` in place of `submission.deal_status_code`;
@@ -300,7 +310,7 @@ NOT be `UPDATE`-d in place — it MUST:
 
 **Other status is updated in place.** `irp_job.status`, `rwb_job.status_code`,
 `irp_edm.status`, `irp_rdm.status`, `irp_analysis.status_code`, and
-`contract.contract_status_code` (Contract status: Won / Lost / In Process,
+`contract.contract_status_code` (Contract status: Won / Lost / Open,
 spec 017) are plain updates — a per-transition audit log for them is part of the deferred general
 auditing capability (CR-002), not built now. `irp_job.last_tracked_at` (not an
 event log) records that a job is still being actively tracked. There is no
@@ -508,4 +518,4 @@ research begins.
 
 ---
 
-**Version**: 4.2.2 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-22
+**Version**: 4.2.3 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-23

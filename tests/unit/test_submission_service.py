@@ -79,7 +79,7 @@ def _mk(db, *, owner=None, name="TY2604_AmericanFamily", cedant="American Family
 
 
 def _add(db, sid, crm, *, tt="per_risk_xol", inc=date(2026, 4, 1), exp=None,
-         status="IN_PROCESS"):
+         status="OPEN"):
     return add_contract(
         submission_id=sid, actor_id=db.user_a,
         contract=ContractInput(crm_id=crm, treaty_type_code=tt, inception_date=inc,
@@ -121,7 +121,7 @@ def test_create_writes_submission_and_initial_active_event(iteration1_db):
     assert sub.assigned_analyst_id == iteration1_db.user_a
     [contract] = sub.contracts
     assert contract.treaty_type_label == "Per Risk XOL"  # kind join populated
-    assert contract.contract_status_label == "In Process"
+    assert contract.contract_status_label == "Open"
     history = get_status_history(res.submission_id)
     assert len(history) == 1 and history[0].status_code == "ACTIVE"
 
@@ -868,7 +868,7 @@ def test_no_delete_function_exists(iteration1_db):
 
 # ── Contracts (spec 017 as amended 2026-09-21: FR-003, FR-004, FR-005) ────────
 
-def _row(crm, tt="per_risk_xol", inc=date(2027, 1, 1), exp=None, status="IN_PROCESS"):
+def _row(crm, tt="per_risk_xol", inc=date(2027, 1, 1), exp=None, status="OPEN"):
     return ContractInput(crm_id=crm, treaty_type_code=tt, inception_date=inc,
                          expiration_date=exp, contract_status_code=status)
 
@@ -892,7 +892,7 @@ def test_create_writes_every_contract_row_in_one_transaction(iteration1_db):
     assert [_day(c.expiration_date) for c in sub.contracts] == [
         "2027-12-31", "2027-12-31", "2029-12-31"]          # blank → inception + 1y − 1d
     assert [c.contract_status_code for c in sub.contracts] == [
-        "IN_PROCESS", "IN_PROCESS", "WON"]
+        "OPEN", "OPEN", "WON"]
     assert sub.treaty_year == 2027 and _day(sub.data_vintage) == "2026-06-30"
 
 
@@ -977,7 +977,7 @@ def test_the_crm_id_index_refuses_a_case_variant_written_around_the_service(
         execute_command(
             svc._CONTRACT_INSERT,
             {"id": str(uuid.uuid4()), "sid": sid, "crm_id": "ABC", "tt": "per_risk_xol",
-             "inc": date(2026, 4, 1), "exp": date(2027, 3, 31), "status": "IN_PROCESS",
+             "inc": date(2026, 4, 1), "exp": date(2027, 3, 31), "status": "OPEN",
              "now": svc._utcnow(), "actor": iteration1_db.user_a},
             connection="WORKBENCH")
     assert is_unique_violation(raised.value)
@@ -1004,7 +1004,7 @@ def test_add_update_and_remove_a_contract(iteration1_db):
     assert edited.treaty_type_code == "aggregate_xol"
     assert _day(edited.inception_date) == "2027-07-01"
     assert _day(edited.expiration_date) == "2028-06-30"
-    assert edited.contract_status_code == "IN_PROCESS"   # status is not the editor's
+    assert edited.contract_status_code == "OPEN"   # status is not the editor's
     remove_contract(contract_id=cid, actor_id=a)
     assert [c.crm_id for c in list_contracts(sid)] == ["T-200"]
     remove_contract(contract_id=cid, actor_id=a)          # already gone: no-op
@@ -1064,7 +1064,7 @@ def test_contract_status_stale_marker_conflicts_and_unknown_code_is_refused(
     with pytest.raises(ConcurrencyConflict):
         update_contract(contract_id=cid, actor_id=a, expected_updated_at=STALE,
                         contract=_row("CRM-1"))
-    assert _contract(sid, "CRM-1").contract_status_code == "IN_PROCESS"
+    assert _contract(sid, "CRM-1").contract_status_code == "OPEN"
 
 
 def test_one_deal_holds_contracts_in_different_statuses(iteration1_db):
@@ -1078,7 +1078,7 @@ def test_one_deal_holds_contracts_in_different_statuses(iteration1_db):
         set_contract_status(contract_id=_contract(sid, crm).id, to_status=status,
                             expected_updated_at=_contract(sid, crm).updated_at, actor_id=a)
     assert [c.contract_status_code for c in list_contracts(sid)] == [
-        "WON", "LOST", "IN_PROCESS"]
+        "WON", "LOST", "OPEN"]
 
 
 # ── US5: non-unique identity / duplicate warning / edit guards ────────────────
@@ -1309,7 +1309,7 @@ def test_treaty_type_kinds_reads_the_eleven_codes_in_sort_order(iteration1_db):
 
 def test_contract_status_kinds_reads_the_three_codes(iteration1_db):
     assert svc.contract_status_kinds() == [
-        ("IN_PROCESS", "In Process"), ("WON", "Won"), ("LOST", "Lost")]
+        ("OPEN", "Open"), ("WON", "Won"), ("LOST", "Lost")]
 
 
 def test_view_emits_one_row_per_contract_and_none_for_a_deal_without(iteration1_db):
@@ -1337,7 +1337,7 @@ def test_view_emits_one_row_per_contract_and_none_for_a_deal_without(iteration1_
     assert first["contract_status_code"] == "WON"
     assert first["modeling_status_code"] == "ACTIVE"
     assert first["treaty_year"] == 2026 and first["cedant_name"] == "American Family"
-    assert rows[1]["contract_status_code"] == "IN_PROCESS"
+    assert rows[1]["contract_status_code"] == "OPEN"
 
 
 def test_filter_clauses_prefix_every_parameter_and_group_the_contract_ones(
@@ -1370,11 +1370,11 @@ def test_list_filters_on_contract_status(iteration1_db):
     assert [r.id for r in list_submissions(
         owner_ids=[a], contract_status_codes=["WON"]).rows] == [won]
     assert len(list_submissions(
-        owner_ids=[a], contract_status_codes=["WON", "IN_PROCESS"]).rows) == 2
+        owner_ids=[a], contract_status_codes=["WON", "OPEN"]).rows) == 2
 
 
 def test_contract_level_filters_are_met_by_one_contract_together(iteration1_db):
-    """P-18: a Won Aggregate XOL beside an In Process Per Risk XOL does not
+    """P-18: a Won Aggregate XOL beside an Open Per Risk XOL does not
     satisfy "Per Risk XOL + Won"."""
     a = iteration1_db.user_a
     sid = _mk(iteration1_db, owner=a, name="Mixed", contracts=[]).submission_id
@@ -1448,7 +1448,7 @@ def test_in_force_is_decided_per_contract(iteration1_db):
 
 def test_in_force_needs_won(iteration1_db):
     a = iteration1_db.user_a
-    for name, status in (("Lost", "LOST"), ("In process", "IN_PROCESS"), ("Won", "WON")):
+    for name, status in (("Lost", "LOST"), ("Open", "OPEN"), ("Won", "WON")):
         sid = _mk(iteration1_db, owner=a, name=name, cedant=name, contracts=[]).submission_id
         _add(iteration1_db, sid, f"T-{status}", inc=date(2026, 1, 1),
              exp=date(2026, 12, 31), status=status)

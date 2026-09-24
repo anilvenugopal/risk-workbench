@@ -130,7 +130,7 @@ def upgrade() -> None:
                   server_default=sa.text("GETUTCDATE()")),
     )
 
-    # ── contract_status_kind (kind) — Contract status: Won / Lost / In Process ──
+    # ── contract_status_kind (kind) — Contract status: Won / Lost / Open ──
     op.create_table(
         "contract_status_kind",
         sa.Column("code", sa.NVARCHAR(50), primary_key=True),
@@ -181,7 +181,7 @@ def upgrade() -> None:
 
     # ── contract (0..N per submission; one per CRM ID) ──────────────────────────
     # The CRM ID is the contract (FR doc line 57). Treaty type, the term and the
-    # Won / Lost / In Process status live here, not on the submission (spec 017
+    # Won / Lost / Open status live here, not on the submission (spec 017
     # P-02, P-03, P-15). A CRM ID is unique across the Workbench (note 33
     # D12-D13): the service lookup names the owner, the index catches the race.
     op.create_table(
@@ -193,7 +193,7 @@ def upgrade() -> None:
         sa.Column("inception_date", sa.Date, nullable=False),
         sa.Column("expiration_date", sa.Date, nullable=False),
         sa.Column("contract_status_code", sa.NVARCHAR(50), nullable=False,
-                  server_default=sa.text("'IN_PROCESS'")),  # updated in place (Article 4)
+                  server_default=sa.text("'OPEN'")),  # updated in place (Article 4)
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("updated_at", DATETIME2, nullable=False,
@@ -1138,7 +1138,7 @@ JOIN submission s ON s.id = c.submission_id"""))
     # contract_status_kind — Contract status (spec 017 data-model §1).
     op.execute(sa.text(
         "INSERT INTO contract_status_kind (code, label, sort_order) VALUES "
-        "('IN_PROCESS', 'In Process', 10), "
+        "('OPEN', 'Open', 10), "
         "('WON', 'Won', 20), "
         "('LOST', 'Lost', 30)"
     ))

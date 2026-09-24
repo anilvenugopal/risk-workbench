@@ -76,7 +76,7 @@ class TestSubmissionMigration:
     def test_contract_status_kind_seeds(self):
         codes = {r["code"] for r in execute(
             "SELECT code FROM contract_status_kind", {}, connection="WORKBENCH")}
-        assert codes == {"IN_PROCESS", "WON", "LOST"}
+        assert codes == {"OPEN", "WON", "LOST"}
 
     def test_contract_grain_columns(self):
         """Spec 017 as amended 2026-09-21: treaty type, the term and the deal

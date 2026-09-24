@@ -319,7 +319,7 @@ def test_the_crm_id_index_is_case_insensitive_on_sql_server(iteration1_db):
             svc._CONTRACT_INSERT,
             {"id": str(uuid.uuid4()), "sid": sid, "crm_id": crm_id.upper(),
              "tt": "per_risk_xol", "inc": date(2026, 4, 1), "exp": date(2027, 3, 31),
-             "status": "IN_PROCESS", "now": svc._utcnow(), "actor": a},
+             "status": "OPEN", "now": svc._utcnow(), "actor": a},
             connection="WORKBENCH")
     assert is_unique_violation(raised.value)
     assert "uq_contract_crm_id" in str(raised.value)

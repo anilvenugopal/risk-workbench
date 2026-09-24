@@ -69,7 +69,7 @@
       <span class="contract-row__type" x-show="!editing">{{ c.treaty_type_label or c.treaty_type_code }}</span>
       <span class="contract-date" x-show="!editing">{{ c.inception_date }}</span>
       <span class="contract-date" x-show="!editing">{{ c.expiration_date }}</span>
-      {# Won / Lost / In Process, set in place in every Modeling status (P-02, P-12). #}
+      {# Won / Lost / Open, set in place in every Modeling status (P-02, P-12). #}
       <form method="post" action="/submissions/{{ submission.id }}/contracts/{{ c.id }}/status"
             hx-post="/submissions/{{ submission.id }}/contracts/{{ c.id }}/status"
             hx-trigger="change" hx-target="#contracts" hx-swap="outerHTML" x-show="!editing">
