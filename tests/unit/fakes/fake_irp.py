@@ -50,6 +50,7 @@ from app.services.irp_gateway import (
     SubmitResult,
     SubPortfolioResult,
     TreatyDetail,
+    analysis_treaty,
     collapse_run_description,
 )
 
@@ -264,6 +265,11 @@ class FakeIRP:
         self._analysis_treaties: dict[str, list[dict]] = {}
         self.raise_on_analysis_treaties = False
         self.treaty_calls: list[str] = []
+        # (analysis_id, treaty_id) → the rows the treaty-scoped TY stats read
+        # answers; an unseeded treaty answers [] (took no loss)
+        self._treaty_stats: dict[tuple[str, str], list[dict]] = {}
+        # treaty ids whose treaty-scoped stats read raises
+        self.raise_on_treaty_stats_for: set[str] = set()
         # ── spec-014 loss results export ─────────────────────────────────────
         # recorded export submits: {"analysis_id", "loss_details", "job_id"}
         self.export_submits: list[dict] = []
@@ -427,6 +433,13 @@ class FakeIRP:
         term keys ``treatyType``, ``attachmentPoint``, ``occurrenceLimit``,
         ``riskLimit``)."""
         self._analysis_treaties[str(analysis_id)] = list(treaties)
+
+    def set_treaty_stats(self, analysis_id: str | int, treaty_id: str | int,
+                         rows: list[dict]) -> None:
+        """Seed what the TY stats read scoped to one treaty answers. Any
+        non-empty list means the treaty took loss; ``[{"pure_premium": 1.0}]``
+        is enough."""
+        self._treaty_stats[(str(analysis_id), str(treaty_id))] = list(rows)
 
     def run(self, irp_id: str) -> None:
         self.jobs[irp_id] = "RUNNING"
@@ -893,7 +906,19 @@ class FakeIRP:
     # ── spec-011 result reads (worker-only) ──────────────────────────────────
 
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
-                           exposure_resource_id: int) -> list[dict]:
+                           exposure_resource_id: int,
+                           exposure_resource_type: str = "PORTFOLIO") -> list[dict]:
+        if exposure_resource_type == "TREATY":
+            self.result_calls.append({
+                "call": "stats", "analysis_id": str(analysis_id),
+                "perspective_code": perspective_code,
+                "exposure_resource_id": str(exposure_resource_id),
+                "exposure_resource_type": "TREATY"})
+            if str(exposure_resource_id) in self.raise_on_treaty_stats_for:
+                raise IRPIntegrationError(
+                    f"fake IRP: forced stats failure for treaty {exposure_resource_id}")
+            return list(self._treaty_stats.get(
+                (str(analysis_id), str(exposure_resource_id)), []))
         return self._results("stats", analysis_id, perspective_code,
                              exposure_resource_id)
 
@@ -906,13 +931,7 @@ class FakeIRP:
         self.treaty_calls.append(str(analysis_id))
         if self.raise_on_analysis_treaties:
             raise RuntimeError("fake IRP: forced treaties failure")
-        return [{"treaty_id": str(t.get("treatyId")),
-                 "treaty_number": t.get("treatyNumber"),
-                 "treaty_name": t.get("treatyName"),
-                 "treaty_type": t.get("treatyType"),
-                 "attachment_point": t.get("attachmentPoint"),
-                 "occurrence_limit": t.get("occurrenceLimit"),
-                 "risk_limit": t.get("riskLimit")}
+        return [analysis_treaty(t)
                 for t in self._analysis_treaties.get(str(analysis_id), [])]
 
     def _results(self, call: str, analysis_id, perspective_code,
@@ -920,7 +939,8 @@ class FakeIRP:
         self.result_calls.append({
             "call": call, "analysis_id": str(analysis_id),
             "perspective_code": perspective_code,
-            "exposure_resource_id": str(exposure_resource_id)})
+            "exposure_resource_id": str(exposure_resource_id),
+            "exposure_resource_type": "PORTFOLIO"})
         if perspective_code in self.raise_on_analysis_results_for:
             raise IRPIntegrationError(
                 f"fake IRP: forced {call} failure for perspective "

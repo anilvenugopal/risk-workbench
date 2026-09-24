@@ -6,9 +6,10 @@ Everything not named here is unchanged.
 ## 1. Export form page and selection fragment (014 §2, §3)
 
 - The perspective `<select>` offers `TY` when it is in
-  `EXPORT_PERSPECTIVE_CODES` and every selected analysis has a non-empty
-  `loss_results.treaties` (FR-001). The analysis row's Perspectives column
-  lists `TY` beside the codes it has results for.
+  `EXPORT_PERSPECTIVE_CODES` and every selected analysis has a
+  `loss_results.treaties` entry with `has_loss` true (FR-001, P-13). The
+  analysis row's Perspectives column lists `TY` beside the codes it has
+  results for.
 - When `TY` is chosen the fragment renders, under the select:
   "TY writes one loss set per ticked treaty, per analysis." (FR-002). No cart
   row shows an AAL line at TY (FR-016).
@@ -24,15 +25,15 @@ Everything not named here is unchanged.
   Each row shows the number, the name, the type label
   (`treaty_service.display_value(code, key="treatyType")`), and
   `risk {risk_limit} · att {attachment_point} · occ {occurrence_limit}`
-  through `analysis_service.fmt_loss` (P-12). The head reads
-  "Treaties · {n} of {m} ticked" with `all` and `none` links that tick or clear
-  that analysis's boxes. The data name field is shown only for a ticked treaty,
-  by CSS, and Export is disabled while any cart row has no tick.
+  through `analysis_service.fmt_loss` (P-12). The head reads "Treaties" with
+  `all` and `none` links that tick or clear that analysis's boxes. The data name
+  field is shown only for a ticked treaty, by CSS, and Export is disabled while
+  any cart row has no tick.
 - Both `hx-include` lists (the analyses table and the perspective select) add
   `[name^='treaty['], [name^='treaty_data_name[']`, so ticks and typed names
   survive every fragment re-render and come back re-checked and re-filled.
 - Submit validation messages at TY, in this order:
-  "{name} was not run with treaties." ·
+  "{name} has no treaty with TY loss." ·
   "Tick at least one treaty for {name}." ·
   "Treaty {number} is not one of {name}'s treaties." ·
   "Data name for {name} treaty {number} is longer than 150 characters."

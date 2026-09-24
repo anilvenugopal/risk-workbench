@@ -22,7 +22,7 @@ from typing import Any, Literal
 
 from sqlalchemy import text
 
-from app.config import settings
+from app.config import TY, settings
 from app.services import (
     analysis_service,
     rwb_job_service,
@@ -53,10 +53,6 @@ TERMINAL_STATUSES = frozenset({LOADED, FAILED, CLOSED})
 DATA_NAME_MAX_LEN = 150
 CRM_ID_MAX_LEN = 30
 RETRY_EXPORT_JOB_MAX_AGE = timedelta(days=7)
-# The treaty-level export (spec 016). Offered when every selected analysis was
-# run with treaties; the analyst ticks the treaties to write and names each one
-# on the form, and every ticked treaty gets its own manifest row at submit.
-TY = "TY"
 
 
 class ExportError(Exception):
@@ -114,7 +110,9 @@ class TreatyChoice:
 class ExportableAnalysis:
     id: str
     name: str                      # display name (full name when known)
-    origin: str                    # own | group | broker
+    origin: str                    # RMS | RDM
+    engine: str | None
+    framework: str | None          # ELT | PLT
     rdm_name: str | None
     irp_id: str | None
     irp_app_analysis_id: int | None
@@ -163,6 +161,7 @@ class ExportAnalysisDetail:
     irp_analysis_id: str
     analysis_name: str | None
     origin: str
+    engine: str | None
     treaty_number: str | None
     treaty_name: str | None
     treaty_ids: list[str]
@@ -174,7 +173,7 @@ class ExportAnalysisDetail:
     irp_app_analysis_id: int | None
     data_currency: str | None
     data_model_version: str | None
-    engine_type: str | None
+    engine_type: str | None        # the manifest's stage-time engine (Archive engine)
     peril_code: str | None
     region_code: str | None
     data_id: int | None
@@ -263,9 +262,9 @@ def _app_analysis_id(raw: Any) -> tuple[int | None, str | None]:
 
 def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | None:
     """The submission's analyses in the analyses section's order — own and
-    group rows first, then broker rows grouped by RDM — each marked exportable
-    or disabled with the reason (FR-001, FR-005). ``None`` when the submission
-    does not resolve."""
+    group rows first, then RDM rows grouped by RDM — each marked exportable
+    or disabled with the reason (FR-001, FR-005, FR-025). ``None`` when the
+    submission does not resolve."""
     rows = analysis_service.list_comparable_analyses(submission_id=submission_id)
     if rows is None:
         return None
@@ -273,7 +272,7 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         return []
     params = {f"i{n}": r.id for n, r in enumerate(rows)}
     detail = {_uid(d["id"]): d for d in execute(
-        "SELECT id, irp_id, irp_app_analysis_id, name, full_name, is_group, "
+        "SELECT id, irp_id, irp_app_analysis_id, name, full_name, is_group, rdm_id, "
         "settings_metadata, loss_results FROM irp_analysis "
         f"WHERE id IN ({', '.join(':' + k for k in params)})",
         params, connection="WORKBENCH")}
@@ -286,12 +285,14 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         produced = {code: data for code, data
                     in (loss_results.get("perspectives") or {}).items() if data}
         perspectives = list(produced)
-        # Run with treaties (spec 016 FR-001): the treaties Risk Modeler reported
-        # at results retrieval, one entry per (number, name) — a group repeats a
-        # treaty once per member. The list gates the offer and is what the cart
-        # lists to tick at TY.
+        # The treaties that took TY loss, per Risk Modeler's treaty-scoped stats
+        # read at results retrieval (spec 016 FR-002, P-13), one entry per
+        # (number, name) — a group repeats a treaty once per member and keeps it
+        # when any copy has loss. The list gates the TY offer and is what the
+        # cart lists to tick.
         treaties = list({(t.get("treaty_number"), t.get("treaty_name")): t
-                         for t in loss_results.get("treaties") or []}.values())
+                         for t in loss_results.get("treaties") or []
+                         if t.get("has_loss")}.values())
         if treaties:
             perspectives.append(TY)
         # The column, else the metadata snapshot's appAnalysisId (spec 012
@@ -299,7 +300,12 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
         # every RDM-backfilled broker row carries the id in its snapshot alone.
         app_id, reason = _app_analysis_id(
             d.get("irp_app_analysis_id") or (parsed or {}).get("appAnalysisId"))
-        if r.results_state == "failed":
+        # An HD analysis and a PLT group (engineType "Group", analysisFramework
+        # "PLT") both export a period loss table, which the loss repository has
+        # no destination for (O-08).
+        if display.engine_type == "HD" or display.framework == "PLT":
+            reason = "PLT results are not exportable yet"
+        elif r.results_state == "failed":
             reason = "results retrieval failed"
         elif r.results_state != "ready" or not perspectives:
             reason = "results not retrieved yet"
@@ -307,8 +313,9 @@ def list_exportable_analyses(submission_id: Any) -> list[ExportableAnalysis] | N
             reason = "the analysis currency is not recorded"
         out.append(ExportableAnalysis(
             id=_uid(r.id), name=r.name or d.get("name") or _uid(r.id),
-            origin=("broker" if r.rdm_name else "group" if d.get("is_group") else "own"),
-            rdm_name=r.rdm_name,
+            origin=("RDM" if d.get("rdm_id") else "RMS"),
+            engine=("Group" if d.get("is_group") else display.engine),
+            framework=display.framework, rdm_name=r.rdm_name,
             irp_id=(str(d["irp_id"]) if d.get("irp_id") is not None else None),
             irp_app_analysis_id=app_id,
             analysis_name=d.get("name"), analysis_description=d.get("full_name"),
@@ -447,7 +454,7 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
     for analysis in selected:
         if perspective_code not in analysis.perspectives:
             raise ExportValidationError(
-                f"{analysis.name} was not run with treaties." if perspective_code == TY
+                f"{analysis.name} has no treaty with TY loss." if perspective_code == TY
                 else f"{analysis.name} has no {perspective_code} results.")
     picks = {_uid(k): v for k, v in (treaty_picks or {}).items()}
     if perspective_code == TY:
@@ -571,12 +578,14 @@ def list_export_rows(submission_id: Any) -> list[ExportAnalysisDetail]:
         analysis = analyses.get(_uid(row["irp_analysis_id"])) or {}
         perspectives = (_parse_json_dict(analysis.get("loss_results"), "loss_results")
                         or {}).get("perspectives") or {}
+        display = analysis_service._to_display(
+            _parse_json_dict(analysis.get("settings_metadata"), "settings_metadata"))
         result.append(ExportAnalysisDetail(
             manifest_id=row["manifest_id"], export_id=export_id, export_ordinal=ordinal,
             irp_analysis_id=_uid(row["irp_analysis_id"]),
             analysis_name=row["analysis_description"] or row["analysis_name"],
-            origin=("broker" if analysis.get("rdm_id") else
-                    "group" if analysis.get("is_group") else "own"),
+            origin=("RDM" if analysis.get("rdm_id") else "RMS"),
+            engine=("Group" if analysis.get("is_group") else display.engine),
             treaty_number=row.get("treaty_number"), treaty_name=row.get("treaty_name"),
             treaty_ids=[v for v in (row.get("treaty_ids") or "").split(",") if v],
             status=derive_status(row), updated_at=row["updated_at"],
@@ -586,7 +595,7 @@ def list_export_rows(submission_id: Any) -> list[ExportAnalysisDetail]:
             engine_type=row["engine_type"], peril_code=row["peril_code"],
             region_code=row["region_code"],
             data_id=row["data_id"],
-            # A treaty row's AAL is its own combined rows' sum of rate × loss,
+            # A treaty row's AAL is its own rows' sum of rate × loss,
             # written by the stage worker (P-10); a portfolio row reads the
             # analysis's stored AAL at that perspective.
             aal=(row.get("aal") if row["perspective_code"] == TY
@@ -606,14 +615,14 @@ def list_export_rows(submission_id: Any) -> list[ExportAnalysisDetail]:
 
 
 def _analysis_rows(irp_analysis_ids: list[str]) -> dict[str, dict]:
-    """The ``irp_analysis`` row behind each manifest row: the origin label and
-    the AAL the table shows (P-20) are read from it at render time, never
-    copied onto the manifest."""
+    """The ``irp_analysis`` row behind each manifest row: the origin, the
+    engine, and the AAL the table shows (P-20) are read from it at render time,
+    never copied onto the manifest."""
     if not irp_analysis_ids:
         return {}
     params = {f"i{n}": v for n, v in enumerate(irp_analysis_ids)}
     return {_uid(r["id"]): dict(r) for r in execute(
-        "SELECT id, is_group, rdm_id, loss_results FROM irp_analysis "
+        "SELECT id, is_group, rdm_id, settings_metadata, loss_results FROM irp_analysis "
         f"WHERE id IN ({', '.join(':' + k for k in params)})",
         params, connection="WORKBENCH")}
 
@@ -757,7 +766,7 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBr
 
 __all__ = [
     "QUEUED", "IN_PROGRESS", "LOADED", "FAILED", "CLOSED",
-    "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN", "TY",
+    "TERMINAL_STATUSES", "DATA_NAME_MAX_LEN",
     "ExportError", "ExportValidationError", "ExportNotFound", "ExportActionRefused",
     "ExportedMark", "ExportableAnalysis", "TreatyChoice",
     "ExportAnalysisDetail",

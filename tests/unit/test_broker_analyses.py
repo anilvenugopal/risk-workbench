@@ -282,7 +282,7 @@ def test_broker_row_renders_its_scheme_and_applied_treaties(monkeypatch):
         settings=settings,
         resolved=analysis_service._resolved_view(settings))])
 
-    assert "<dt>Event rate scheme</dt>" in html
+    assert "<dt>Regions &amp; rates</dt>" in html
     assert "RMS 2023 Historical Event Rates" in html
     assert "<dt>Treaties</dt>" in html
     assert "<li>XPR_1_100_Fld · XPR_1_100_Fld · USD</li>" in html
@@ -303,7 +303,7 @@ def test_broker_row_renders_link_date_and_not_returned_fields(monkeypatch):
     assert "<dt>Run by</dt>" in html
     # a row captured before spec 015 knows neither what it resolved on nor
     # which treaties it applied (FR-015)
-    assert '<dt>Run details</dt><dd class="blank">not returned</dd>' in html
+    assert '<dt>Regions &amp; rates</dt><dd class="blank">not returned</dd>' in html
     assert '<dt>Treaties</dt><dd class="blank">not returned</dd>' in html
     assert html.count("not returned") >= 4
     # no broker row names a portfolio (FR-020) — its one name takes both the

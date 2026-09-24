@@ -1,7 +1,7 @@
 """Unit tests for the treaty-level (TY) export (spec 016): the treaties the
 results retrieval records, TY in the perspective intersection, the treaty
 selection the form writes as one manifest row per ticked treaty, the treaty
-request, the staging of each ticked treaty with the P-11 combination, the
+request, the staging of each ticked treaty from the one loss table, the
 per-row load, Retry by manifest row, and both screens.
 
 Harness: the SQLite WORKBENCH and LOSS mirrors, ``fake_irp``, the fixture
@@ -46,10 +46,10 @@ from tests.unit.test_analysis_jobs_worker import (
 TREATIES = (
     {"treaty_id": "33833", "treaty_number": "PR1", "treaty_name": "PR1",
      "treaty_type": "WORK", "risk_limit": 3_000_000.0, "attachment_point": 2_000_000.0,
-     "occurrence_limit": 9_000_000.0},
+     "occurrence_limit": 9_000_000.0, "has_loss": True},
     {"treaty_id": "33832", "treaty_number": "PR2", "treaty_name": "Layer two",
      "treaty_type": "CATA", "risk_limit": 5_000_000.0, "attachment_point": 250_000.0,
-     "occurrence_limit": None},
+     "occurrence_limit": None, "has_loss": True},
 )
 BOTH_TREATIES = {"PR1": "", "PR2": ""}
 
@@ -64,6 +64,7 @@ def test_retrieval_stores_the_applied_treaties(iteration2_db, fake_irp):
          "treatyType": "WORK", "attachmentPoint": 2_000_000.0,
          "occurrenceLimit": 9_000_000.0, "riskLimit": 3_000_000.0},
         {"treatyId": 33832, "treatyNumber": "PR2", "treatyName": "Layer two"}])
+    fake_irp.set_treaty_stats("9001", "33833", [{"pure_premium": 1.0}])
 
     job = _run_retrieval(analysis_id)
 
@@ -71,11 +72,14 @@ def test_retrieval_stores_the_applied_treaties(iteration2_db, fake_irp):
     assert _stored_extract(analysis_id)["treaties"] == [
         {"treaty_id": "33833", "treaty_number": "PR1", "treaty_name": "PR1",
          "treaty_type": "WORK", "attachment_point": 2_000_000.0,
-         "occurrence_limit": 9_000_000.0, "risk_limit": 3_000_000.0},
+         "occurrence_limit": 9_000_000.0, "risk_limit": 3_000_000.0, "has_loss": True},
         {"treaty_id": "33832", "treaty_number": "PR2", "treaty_name": "Layer two",
          "treaty_type": None, "attachment_point": None, "occurrence_limit": None,
-         "risk_limit": None}]
+         "risk_limit": None, "has_loss": False}]
     assert fake_irp.treaty_calls == ["9001"]
+    assert [(c["perspective_code"], c["exposure_resource_id"])
+            for c in fake_irp.result_calls
+            if c["exposure_resource_type"] == "TREATY"] == [("TY", "33833"), ("TY", "33832")]
 
 
 def test_retrieval_without_treaties_stores_an_empty_list(iteration2_db, fake_irp):
@@ -92,6 +96,20 @@ def test_retrieval_fails_when_the_treaties_read_raises(iteration2_db, fake_irp):
 
     assert job["status_code"] == "failed"
     assert job["error_detail"].startswith("treaties read failed:")
+    assert _stored_extract(analysis_id) is None  # no partial write
+
+
+def test_retrieval_fails_when_a_treaty_loss_read_raises(iteration2_db, fake_irp):
+    analysis_id = _seed_finished_analysis()
+    fake_irp.set_analysis_treaties("9001", [
+        {"treatyId": 33833, "treatyNumber": "PR1", "treatyName": "PR1"},
+        {"treatyId": 33832, "treatyNumber": "PR2", "treatyName": "Layer two"}])
+    fake_irp.raise_on_treaty_stats_for = {"33832"}
+
+    job = _run_retrieval(analysis_id)
+
+    assert job["status_code"] == "failed"
+    assert job["error_detail"].startswith("treaty loss read failed for PR2:")
     assert _stored_extract(analysis_id) is None  # no partial write
 
 
@@ -156,10 +174,41 @@ def test_the_cart_lists_each_treaty_once_with_its_terms(deal):
         "Catastrophe", "250,000", "—")
 
 
+def test_the_cart_hides_a_treaty_that_took_no_loss(deal):
+    """Filtered out, not shown as zero (P-13); a group keeps a treaty when any
+    of its copies took loss."""
+    partial = seed_analysis(
+        edm_id=deal["edm_id"], name="P", irp_id="41962", irp_app_analysis_id="41962",
+        perspectives=("GR",), treaties=(TREATIES[0], {**TREATIES[1], "has_loss": False}))
+    group = seed_analysis(
+        edm_id=deal["edm_id"], name="G", irp_id="41963", irp_app_analysis_id="41963",
+        perspectives=("GR",), is_group=1,
+        treaties=(TREATIES[0], {**TREATIES[0], "treaty_id": "44833", "has_loss": False}))
+    rows = {r.id: r for r in svc.list_exportable_analyses(deal["submission_id"])}
+
+    assert [t.number for t in rows[partial].treaty_choices] == ["PR1"]
+    assert "TY" in rows[partial].perspectives
+    assert [t.number for t in rows[group].treaty_choices] == ["PR1"]
+
+
+def test_ty_is_not_offered_when_no_treaty_took_loss(deal):
+    none = seed_analysis(
+        edm_id=deal["edm_id"], name="N", full_name="N long", irp_id="41964",
+        irp_app_analysis_id="41964", perspectives=("GR",),
+        treaties=tuple({**t, "has_loss": False} for t in TREATIES))
+    rows = {r.id: r for r in svc.list_exportable_analyses(deal["submission_id"])}
+
+    assert "TY" not in rows[none].perspectives
+    assert rows[none].treaty_choices == []
+    with pytest.raises(svc.ExportValidationError) as exc:
+        _create(deal, [none], treaty_picks={none: BOTH_TREATIES})
+    assert str(exc.value) == "N long has no treaty with TY loss."
+
+
 def test_create_export_refuses_ty_for_an_analysis_without_treaties(deal):
     with pytest.raises(svc.ExportValidationError) as exc:
         _create(deal, [deal["a"], deal["c"]], treaty_picks={deal["c"]: BOTH_TREATIES})
-    assert str(exc.value) == "A long was not run with treaties."
+    assert str(exc.value) == "A long has no treaty with TY loss."
 
 
 def test_create_export_refuses_an_analysis_with_no_treaty_ticked(deal):
@@ -249,8 +298,7 @@ def test_a_ty_row_requests_the_treaty_output_level_with_the_fixed_perspective(de
 
     assert fake_irp.export_submits[0]["loss_details"] == [{
         "metricType": "LOSS_TABLES", "outputLevels": ["Treaty"],
-        "perspectiveCodes": [export_jobs.TY_REQUEST_PERSPECTIVE_CODE]}]
-    assert export_jobs.TY_REQUEST_PERSPECTIVE_CODE == "GR"
+        "perspectiveCodes": ["GR"]}]
 
 
 def test_the_ticked_treaty_rows_share_one_export_request(deal, fake_irp):
@@ -293,7 +341,7 @@ def test_a_job_recorded_by_a_crashed_run_is_stamped_on_every_treaty_row(deal, fa
     assert [r["irp_export_job_id"] for r in _manifest_rows(export_id)] == ["77", "77"]
 
 
-# ── the stage worker: match and combine (T-02, T-03, T-05, T-08) ─────────────
+# ── the stage worker: split and match (T-02, T-03, T-05, T-08) ───────────────
 
 
 @pytest.fixture()
@@ -399,35 +447,34 @@ def test_each_ticked_treaty_row_is_staged_from_the_one_loss_table(ty_staging):
     assert _stage_job()["status_code"] == "succeeded"
 
 
-def test_ty_rows_of_one_treaty_under_two_treaty_ids_are_combined_per_event(ty_env, fake_irp):
-    ty_staging = _arm(ty_env, {"PR1": "AmFam HU 3x2"})
+def test_rows_with_a_null_treaty_name_or_treaty_id_still_stage(ty_env, fake_irp):
+    """A row Risk Modeler wrote without a treaty name or treaty id stays with
+    its treaty; ``treaty_ids`` lists only the ids the table holds."""
+    unnamed = seed_analysis(
+        edm_id=ty_env["edm_id"], name="U", full_name="U long", irp_id="41965",
+        irp_app_analysis_id="41965", perspectives=("GR",),
+        treaties=(TREATIES[0], {"treaty_id": "33834", "treaty_number": "PR3",
+                                "treaty_name": None, "has_loss": True}))
     fake_irp.export_archive_path = build_archive(
-        ty_staging["tmp"] / "group", anls_id=41960, output_level="Treaty", treaty_rows=[
+        ty_env["tmp"] / "nulls", anls_id=41965, output_level="Treaty", treaty_rows=[
             {"TreatyId": 33833, "TreatyNum": "PR1", "TreatyName": "PR1", "EventId": 1001,
              "Rate": 0.002, "Loss": 100.0, "StdDevI": 3.0, "StdDevC": 4.0, "ExpValue": 50.0},
-            {"TreatyId": 44833, "TreatyNum": "PR1", "TreatyName": "PR1", "EventId": 1001,
-             "Rate": 0.002, "Loss": 50.0, "StdDevI": 1.0, "StdDevC": 3.0, "ExpValue": 80.0},
-            {"TreatyId": 33833, "TreatyNum": "PR1", "TreatyName": "PR1", "EventId": 1002,
+            {"TreatyId": None, "TreatyNum": "PR1", "TreatyName": "PR1", "EventId": 1002,
              "Rate": 0.001, "Loss": 10.0, "StdDevI": 1.0, "StdDevC": 1.0, "ExpValue": 20.0},
+            {"TreatyId": 33834, "TreatyNum": "PR3", "TreatyName": None, "EventId": 1001,
+             "Rate": 0.002, "Loss": 7.0, "StdDevI": 1.0, "StdDevC": 1.0, "ExpValue": 9.0},
         ])
+    ty_staging = _arm({**ty_env, "c": unnamed}, {"PR1": "", "PR3": ""})
 
     export_jobs.run_pending(worker_id="w1")
 
-    rows = _rows(ty_staging)
-    assert len(rows) == 1
-    row = rows[0]
-    assert (row["treaty_number"], row["treaty_ids"], row["staged_row_count"]) == (
-        "PR1", "33833,44833", 2)
-    assert row["aal"] == pytest.approx(0.002 * 150 + 0.001 * 10)
-    staged = _elt_rows(row["manifest_id"])
-    combined = staged[0]
-    assert (combined["event_id"], combined["loss"], combined["std_dev_i"]) == (1001, 150.0, 4.0)
-    assert combined["std_dev_c"] == pytest.approx(5.0)   # √(4² + 3²)
-    assert combined["exp_value"] == 80.0                 # the largest (spec O-04)
-    assert combined["rate"] == 0.002
-    single = staged[1]
-    assert (single["event_id"], single["loss"], single["std_dev_c"], single["exp_value"]) == (
-        1002, 10.0, 1.0, 20.0)
+    first, second = _rows(ty_staging)
+    assert (first["treaty_number"], first["stage_status"], first["treaty_ids"],
+            first["staged_row_count"]) == ("PR1", "staged", "33833", 2)
+    assert [r["loss"] for r in _elt_rows(first["manifest_id"])] == [100.0, 10.0]
+    assert (second["treaty_number"], second["treaty_name"], second["stage_status"],
+            second["treaty_ids"], second["staged_row_count"]) == ("PR3", None, "staged",
+                                                                  "33834", 1)
 
 
 def test_a_treaty_the_analyst_left_unticked_is_skipped_and_logged(ty_env, caplog):
@@ -475,6 +522,24 @@ def test_ty_archive_with_no_treaty_rows_fails_every_row_naming_ty(ty_staging, fa
     assert all(r["error_message"] == (
         "Risk Modeler returned no treaty (TY) loss rows for this analysis") for r in rows)
     assert all(svc.derive_status(r) == svc.FAILED for r in rows)
+    assert _load_jobs() == []
+
+
+def test_a_table_matching_no_ticked_treaty_fails_the_analysis_naming_what_it_held(
+        ty_staging, fake_irp):
+    fake_irp.export_archive_path = build_archive(
+        ty_staging["tmp"] / "other", anls_id=41960, output_level="Treaty",
+        treaty_rows=[{"TreatyId": 33831, "TreatyNum": "PR1.0", "TreatyName": "PR1",
+                      "EventId": 1001, "Rate": 0.001, "Loss": 100.0, "StdDevI": 1.0,
+                      "StdDevC": 2.0, "ExpValue": 50.0}])
+
+    export_jobs.run_pending(worker_id="w1")
+
+    rows = _rows(ty_staging)
+    assert all(r["stage_status"] == "failed" for r in rows)
+    assert all(r["error_message"] == (
+        "no ticked treaty matches the loss table Risk Modeler returned, which holds "
+        "PR1.0 PR1") for r in rows)
     assert _load_jobs() == []
 
 
@@ -531,6 +596,31 @@ def test_a_closed_treaty_row_is_never_re_staged(ty_staging):
 
     assert manifest_row(second["manifest_id"])["stage_status"] == "failed"
     assert len(_load_jobs()) == 1  # the one from the first run, none re-armed
+
+
+def test_retry_after_a_rejection_stamps_the_new_job_on_the_row_that_rides_along(ty_env,
+                                                                                 fake_irp):
+    """Retry re-arms the analysis's request from one row; the sibling that
+    failed with it is staged by the same job and must trace to it (FR-015)."""
+    fake_irp.raise_on_export_submit_for = {41960}
+    export_id = _create(ty_env, [ty_env["c"]], treaty_picks={ty_env["c"]: BOTH_TREATIES})
+    export_jobs.run_pending(worker_id="w1")
+    first, second = _manifest_rows(export_id)
+    assert (first["stage_status"], second["stage_status"]) == ("failed", "failed")
+    fake_irp.raise_on_export_submit_for = set()
+
+    assert svc.apply_retry(ty_env["submission_id"], export_id, first["manifest_id"]) == "submit"
+    export_jobs.run_pending(worker_id="w1")
+    irp_id = execute_one("SELECT irp_id FROM irp_job", {}, connection="WORKBENCH")["irp_id"]
+    assert [r["irp_export_job_id"] for r in _manifest_rows(export_id)] == [irp_id, None]
+    fake_irp.finish(irp_id)
+    poller.poll_once()
+    export_jobs.run_pending(worker_id="w1")
+
+    rows = _manifest_rows(export_id)
+    assert [(r["stage_status"], r["irp_export_job_id"]) for r in rows] == [
+        ("staged", irp_id), ("staged", irp_id)]
+    assert len(_load_jobs()) == 1
 
 
 # ── the load worker: every eligible row (T-05) ───────────────────────────────

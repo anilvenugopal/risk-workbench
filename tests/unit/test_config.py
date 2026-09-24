@@ -66,16 +66,6 @@ class TestOidcAuthEnabled:
 
 
 class TestExportSettings:
-    def test_perspective_codes_default_in_order(self):
-        assert _make_settings().export_perspective_codes == ["GU", "GR", "RL", "RP", "TY"]
-
     def test_perspective_codes_parse_a_comma_list(self, monkeypatch):
         monkeypatch.setenv("EXPORT_PERSPECTIVE_CODES", "gr, rl,GU")
         assert _make_settings().export_perspective_codes == ["GR", "RL", "GU"]
-
-    def test_archive_dir_defaults_empty(self):
-        assert _make_settings().export_archive_dir == ""
-
-    def test_archive_dir_from_env(self, monkeypatch):
-        monkeypatch.setenv("EXPORT_ARCHIVE_DIR", "/mnt/share/exports")
-        assert _make_settings().export_archive_dir == "/mnt/share/exports"

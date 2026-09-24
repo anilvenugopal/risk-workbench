@@ -12,6 +12,7 @@ while running this tier.
 
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import date
 from pathlib import Path
@@ -338,6 +339,49 @@ def test_call_inside_a_transaction_is_refused_and_keeps_the_callers_work(tmp_pat
     row = _manifest_row(manifest_id)
     assert row["load_status"] == "pending"
     assert _count("dbo.Data") == 0
+
+
+def test_a_second_load_waits_for_the_first(tmp_path):
+    # Two loads of one export deadlocked on adjacent pages of the staged loss
+    # table (issue #124). The procedure takes an application lock before the
+    # claim, so a load that arrives while another holds the lock waits, holding
+    # no row lock, and runs once the holder is done.
+    _seed_lookup((3001, "WS", "Storm", MODEL_VERSION))
+    manifest_id = _manifest()
+    _stage(tmp_path, manifest_id, [(1001, 1.0, 0.0, 0.0, 1.0)])
+    outcome: list = []
+
+    def load():
+        try:
+            _load(manifest_id)
+            outcome.append(None)
+        except Exception as exc:  # noqa: BLE001 — reported through the assertion below
+            outcome.append(exc)
+
+    with get_connection("LOSS") as holder:
+        holder = holder.execution_options(isolation_level="AUTOCOMMIT")
+        granted = holder.execute(text(
+            "DECLARE @r INT; "
+            "EXEC @r = sp_getapplock @Resource = 'stage.usp_load_elt_result', "
+            "@LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; "
+            "SELECT @r")).scalar()
+        assert granted >= 0
+        try:
+            thread = threading.Thread(target=load)
+            thread.start()
+            thread.join(timeout=2)
+            assert thread.is_alive()
+            assert _manifest_row(manifest_id)["load_status"] == "pending"
+        finally:
+            holder.execute(text(
+                "EXEC sp_releaseapplock @Resource = 'stage.usp_load_elt_result', "
+                "@LockOwner = 'Session'"))
+
+    thread.join(timeout=30)
+    assert not thread.is_alive()
+    assert outcome == [None]
+    assert _manifest_row(manifest_id)["load_status"] == "loaded"
+    assert _count("dbo.Data") == 1
 
 
 def test_target_write_failure_rolls_back_every_target_row(tmp_path):

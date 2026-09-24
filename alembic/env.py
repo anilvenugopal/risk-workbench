@@ -2,8 +2,8 @@
 
 The DB URL is resolved via the db/ package (get_connection_config +
 build_sqlalchemy_url) so it uses the same env-var resolution as the app.
-The URL is set programmatically — NOT via alembic.ini — to avoid ConfigParser
-treating percent-encoded ODBC strings as interpolation syntax.
+The URL is set programmatically — NOT via alembic.ini — so the credentials never
+reach ConfigParser, which reads a percent sign in a password as interpolation.
 
 Dev strategy: single revision (0001_initial.py), drop-create-seed per iteration.
 No revision accumulation until production cutover.
@@ -15,6 +15,7 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import create_engine, pool
+from sqlalchemy.engine import URL
 
 from db.config import get_connection_config, build_sqlalchemy_url
 
@@ -30,7 +31,7 @@ if config.config_file_name is not None:
 target_metadata = None
 
 
-def _workbench_url() -> str:
+def _workbench_url() -> URL:
     cfg = get_connection_config("WORKBENCH")
     return build_sqlalchemy_url(cfg)
 

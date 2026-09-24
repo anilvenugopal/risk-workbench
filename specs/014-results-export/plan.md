@@ -257,7 +257,7 @@ partials, one SQLite mirror module for tests.
 
 - **Unit** (`uv run pytest tests/unit`, SQLite for `WORKBENCH` and a second
   SQLite engine registered as `LOSS` with an attached `stage` database, T-27):
-  the exportable-analysis list (own, group, broker; results-ready only;
+  the exportable-analysis list (RMS or RDM; results-ready only; HD disabled;
   non-integer `irp_app_analysis_id` refused);
   perspective intersection against `EXPORT_PERSPECTIVE_CODES`; the duplicate
   check at render and on submit, including the unique-index rollback path

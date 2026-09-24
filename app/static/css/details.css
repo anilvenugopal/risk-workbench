@@ -128,16 +128,19 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 
 /* attribute / settings grids inside an expanded row */
 .attr-grid, .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--space-3) var(--space-4); margin: 0; }
+/* the expanded analysis row keeps its four fields on one line for every analysis type */
+.settings-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .attr-grid dt, .settings-grid dt { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
 /* long values wrap rather than truncate — event rate scheme names run past any column width */
 .attr-grid dd, .settings-grid dd { margin: 2px 0 0; font-size: var(--fs-label); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-/* a group's scheme list (one per member region/peril) stops at five lines; the title carries the rest */
+/* a long field value in the four-column line stops at five lines; the title carries the rest */
 .settings-grid > div:not(.settings-grid__wide) > dd { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
 .attr-grid dd.blank, .settings-grid dd.blank { color: var(--text-disabled); font-weight: var(--fw-regular); }
-/* the group row's Members list spans the grid — a 64-char analysis name does not
-   fit one 170px column */
+/* Members, Regions & rates and Treaties span the grid — a 64-char analysis name
+   does not fit one column */
 .settings-grid__wide { grid-column: 1 / -1; }
 .settings-grid__wide ul { list-style: none; margin: 0; padding: 0; }
+.settings-grid__wide summary { cursor: pointer; color: var(--text-tertiary); font-weight: var(--fw-regular); }
 
 /* The expanded analysis row splits in two: the source line and the metadata
    fields on the left, condensed results on the right; the flex wrap stacks them
@@ -375,6 +378,8 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 /* the form's picker: analyses table on the left, the cart on the right */
 .export-pick { display: flex; gap: var(--space-4); align-items: flex-start; margin-bottom: var(--space-4); }
 .export-pick__list { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+/* a long analysis list scrolls under its sticky header, keeping the cart and the form fields on screen */
+.export-pick__list .dtable-shell { max-height: min(60vh, 600px); }
 .export-pick__search { display: flex; align-items: center; gap: var(--space-3); }
 .export-pick__search input { flex: 1 1 auto; max-width: 340px; }
 .export-pick__count { font-size: var(--fs-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }

@@ -49,6 +49,7 @@ Global / pool / Kerberos:
 ```
 MSSQL_DRIVER="ODBC Driver 18 for SQL Server"
 MSSQL_TRUST_CERT=yes
+MSSQL_ENCRYPT=no
 MSSQL_TIMEOUT=30
 MSSQL_POOL_SIZE=5
 MSSQL_POOL_MAX_OVERFLOW=5
@@ -94,7 +95,7 @@ display_result_sets(dfs)
 db/
 ├── __init__.py     public API (safe path + connection/auth; NOT the script path)
 ├── errors.py       exception hierarchy
-├── config.py       named-connection env resolution + ODBC/SQLAlchemy URLs (no deps)
+├── config.py       named-connection env resolution + SQLAlchemy URLs
 ├── kerberos.py     Windows-auth ticket check/renew (logging, not prints)
 ├── connection.py   pooled SQLAlchemy engines (per target) + Kerberos hook
 ├── execute.py      SAFE bound-parameter path -> list[dict]/scalar/rowcount

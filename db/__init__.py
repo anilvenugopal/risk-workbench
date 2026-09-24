@@ -32,8 +32,7 @@ Examples:
 from .errors import (SQLServerError, SQLServerConnectionError,
                      SQLServerConfigurationError, SQLServerQueryError,
                      is_unique_violation)
-from .config import (get_connection_config, build_odbc_connection_string,
-                     build_sqlalchemy_url)
+from .config import get_connection_config, build_sqlalchemy_url
 from .connection import (get_engine, get_connection, test_connection,
                          register_engine, dispose_all)
 from .kerberos import (check_kerberos_status, init_kerberos, is_ticket_valid,
@@ -47,7 +46,7 @@ __all__ = [
     "SQLServerError", "SQLServerConnectionError", "SQLServerConfigurationError",
     "SQLServerQueryError", "is_unique_violation",
     # config
-    "get_connection_config", "build_odbc_connection_string", "build_sqlalchemy_url",
+    "get_connection_config", "build_sqlalchemy_url",
     # connection / pool
     "get_engine", "get_connection", "test_connection", "register_engine", "dispose_all",
     # kerberos

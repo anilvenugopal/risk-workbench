@@ -115,8 +115,10 @@ def find_export_job(export_id: Any, irp_analysis_id: Any) -> dict | None:
     """The ``export`` irp_job recorded for one analysis of an export and still
     running. The submit worker checks it before asking Risk Modeler again, so a
     crash between recording the job and stamping the manifest never submits
-    twice. A job that has completed is never reused: Retry reaches the submit
-    branch exactly when the manifest row needs a fresh Risk Modeler request."""
+    twice while the job runs. Once the job completes, the poller's stage job
+    stages the analysis's rows and stamps the job id on them itself; a completed
+    job is never reused, so Retry on the submit branch asks Risk Modeler for a
+    fresh export."""
     rows = execute(
         "SELECT id, irp_id FROM irp_job WHERE irp_job_type = 'export' "
         "AND export_id = :e AND irp_analysis_id = :a AND completed_at IS NULL",

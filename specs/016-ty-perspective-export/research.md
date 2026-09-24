@@ -41,7 +41,7 @@ alone and Cheryl's with `WX` both produced a populated TY file.
   quickstart.md.
 - The archive is chunked like a portfolio export can be (`_1`, `_2`, …). One
   treaty's events may span chunks, so every chunk is read before the
-  per-treaty combination.
+  per-treaty split.
 
 ## R2 — Treaty grain widens the manifest instead of adding a child table (T-02)
 
@@ -58,22 +58,22 @@ Close. Two shapes were weighed.
 irp_analysis_id, treaty_number, treaty_name)`. SQL Server treats `NULL` as a
 value in a unique constraint, so an export still holds at most one
 portfolio-level row per analysis; SQLite treats `NULL`s as distinct, which the
-unit tier accepts. `treaty_ids` is a comma-separated list because a group's
-table can carry one treaty under several analysis-time IDs (spec key entities)
-and the value is traceability only, never a join key (non-negotiable 2).
+unit tier accepts. `treaty_ids` is a comma-separated list of every
+analysis-time ID found on the treaty's rows; the value is traceability only,
+never a join key (non-negotiable 2).
 
 Superseded 2026-09-17 (R7): the rows are written by `create_export`, one per
 ticked treaty, so there is no pre-split row to claim and no sibling to insert.
 
-## R3 — Combine in the stage worker, not in the procedure (T-03)
+## R3 — Split in the stage worker, not in the procedure (T-03)
 
-Spec P-11 combines one treaty's rows per event before classification. Two
-places could do it.
+One treaty-level table holds every treaty; each ticked treaty's rows must
+reach the procedure under their own manifest row. Two places could split it.
 
 | Place | Why not |
 |---|---|
-| The procedure: stage every raw treaty row with its `TreatyId`, then aggregate in T-SQL before classification | `stage.rwb_loss_result_elt_data` would need treaty columns, the procedure would need an aggregation step with the P-11 arithmetic and O-04's exposure rule, and a later change to O-04 would be a procedure release for CIC's DBA (014 O-12) |
-| **The stage worker, with pandas, before `upload_parquet`** | **Chosen.** The worker already reads every Parquet file; a `groupby` on (`TreatyNum`, `TreatyName`, `EventId`) with `Loss` summed, `StdDevI` summed, `StdDevC` the root of the summed squares, `Rate` first, `ExpValue` max is a dozen lines. Each treaty's combined rows are written to one derived Parquet file with the nine ELT columns (`PortInfoId` empty, `PortInfoName` the treaty name, `PortInfoNum` the treaty number) and uploaded through the same `upload_parquet` call and column map as a portfolio file. The procedure does not know TY exists |
+| The procedure: stage every raw treaty row with its `TreatyNum` and `TreatyName`, then select the manifest row's treaty in T-SQL | `stage.rwb_loss_result_elt_data` would need treaty columns and the procedure a treaty filter, and every later change to the treaty match would be a procedure release for CIC's DBA (014 O-12) |
+| **The stage worker, with pandas, before `upload_parquet`** | **Chosen.** The worker already reads every Parquet file; a `groupby` on (`TreatyNum`, `TreatyName`) is the split. Each treaty's rows are written unchanged to one derived Parquet file with the nine ELT columns (`PortInfoId` empty, `PortInfoName` the treaty name, `PortInfoNum` the treaty number) and uploaded through the same `upload_parquet` call and column map as a portfolio file. The procedure does not know TY exists |
 
 The sample's 50,529 rows sit in memory without effort; a treaty ELT is
 bounded by the event set, not by exposure size, so this stays true for real
@@ -81,8 +81,15 @@ runs. The derived file is what `rwb_loss_result_file.result_file` names, with
 `output_level = 'Treaty'`, so a DBA tracing a staged row reaches the file that
 was uploaded; the archive on the share still holds the raw table.
 
-O-04 (exposure value) is one line in `_combine_treaty_rows`. Cheryl says the
-treaty's exposure is a maximum, not additive; Cheng's query is owed.
+**Per-event combination, removed 2026-09-23.** Note 29 D22 (Cheryl) had the
+worker combine one treaty's rows per event (loss summed, independent standard
+deviation summed, correlated the root of the sum of squares, rate kept), with
+the exposure value open as O-04 (Cheryl: a maximum, not additive; Cheng's
+query owed). Risk Modeler aggregates a group's members itself, so a
+treaty-level table has one row per treaty and event (user, 2026-09-23; the
+sample in R1 shows the same), and the combination never had a row to act on.
+The former P-11, FR-017, and O-04 were removed with it; P-11 now says the rows
+are written as returned.
 
 **Cross-analysis aggregation, rejected (P-01).** Note 28 D6–D7 and D10
 recorded the workflow tool's behaviour: one treaty selected across several
@@ -120,8 +127,8 @@ export never uses it to name or match a treaty (non-negotiable 2).
 
 **Assumed**: that the endpoint answers for a group analysis with the members'
 treaties. Risk Modeler groups are analyses with an `engineType` of `GROUP`
-(014 R6), so the same resource should exist; the sandbox test in quickstart.md
-is the check. **Assumed**: that an analysis with no treaties answers with an
+(014 R6), so the same resource should exist. Validated by hand 2026-09-21
+(R8): it does, one entry per member copy of a treaty. **Assumed**: that an analysis with no treaties answers with an
 empty list rather than an error; an error fails the retrieval job like a
 failed perspective read, which would surface at once in the analyses grid.
 
@@ -216,3 +223,78 @@ was written for only ever concerns a job that has not completed.
   is not in the codebase or 014's documents. This plan changes nothing in
   those areas; a treaty row runs the same stage and load code as a portfolio
   row, so 014's later change applies to TY without a change here.
+
+## Status history
+
+- 2026-09-16: built (plan.md, tasks.md T001–T017).
+- 2026-09-17: amended for the treaty selector (note 31 D23–D26, tasks.md
+  T018–T026); T-07 deleted with the name composition it described (R7).
+- 2026-09-21: amended for the zero-loss treaty filter (note 32 D8–D11,
+  tasks.md T027–T033), which needs irp-integration 0.10.0rc1. Ben clicked
+  through the filter on the running stack (quickstart.md Story 1 step 8,
+  Story 3 step 1). Plan O-01 and spec O-05 closed (R8).
+- 2026-09-23: the per-event combination (former P-11/FR-017, O-04) removed
+  (R3); the stage worker stamps the Risk Modeler job id on every row it
+  stages, so a row staged alongside a Retry traces to its job (FR-015).
+
+## R8 — Which treaties took loss (T-18)
+
+**The requirement.** Design note 32 §5 (2026-09-18). Ben exported a
+seven-treaty group and most of the treaties returned nothing; each such row
+failed at stage under FR-007 ("treaty … is not in the loss table"). Cheryl drew
+the line: *"it's not the job of the workbench to display why a treaty didn't
+take loss… What would be helpful is to know in that list to only display
+options that have loss in the output"* (D8, D11). Filtered, not zeroed (D10):
+Ben, *"probably automatically filtered because you could pick the zero and you
+just get that error anyways"*; Cheryl, *"If I don't see it in the list, that's
+already a flag for me."* Her two ordinary zero-loss cases are the evidence the
+requirement rests on: an auto portfolio under a per-risk attachment too high
+for auto to reach, and a Caribbean treaty in the group that applied to another
+member's portfolio. Ben's demo group is not: *"this is definitely like not a
+real scenario"* (note 32 §5.4). Reaching FR-007 for a treaty the analyst could
+see and tick is the defect this closes.
+
+**The source, validated 2026-09-21 (Ben).**
+`GET /platform/riskdata/v1/analyses/{id}/stats?perspectiveCode=TY&exposureResourceType=TREATY&exposureResourceId={treatyId}`
+on analysis 5806348, treaty 33865, answers a populated array; the same call for
+a treaty with no TY loss answers an empty array. It behaves the same for a
+single analysis and for a group, and the treaty ids to pass are the ones
+`GET /analyses/{id}/treaties` returns. That also closes plan O-01 and spec O-05:
+both endpoints answer for a group.
+
+**The built filter, observed 2026-09-21 (Ben).** On the running stack with
+0.10.0rc1 installed, quickstart.md Story 1 step 8 and Story 3 step 1 passed:
+the treaty that took no loss was absent from the cart, a listed treaty
+exported and loaded, and the group's cart row listed each treaty once.
+
+| Source of the flag | Why not |
+|---|---|
+| Risk Modeler's treaty-losses view | Ben tested it live on 2026-09-18: *"it's skipping two that actually produced TY losses, which are included in the actual exported data"* |
+| The loss table at stage (FR-007) | Too late: the cart has already offered the treaty and the analyst has ticked it; the failure it produces is the one Cheryl called unacceptable |
+| A stats call from the export form | Constitution Article 11 bars result-retrieval `get_*` from the web layer (`tests/unit/test_architecture_guards.py::test_result_reads_are_worker_side_only`), and it would be one call per treaty per render against a carve-out whose first word is *bounded* (note 32 §5.3) |
+| **One stats call per applied treaty in `retrieve_analysis_results`, stored as `loss_results.treaties[].has_loss`** | **Chosen.** The worker already holds the treaty list it just read; the cart reads stored data as it does for the terms |
+
+**Failure and unknown flags.** Note 32 §5.3 asked whether an unknown flag
+fails open or closed. Decided 2026-09-21: no unknown flag is stored. A failing
+stats call fails the retrieval job (`treaty loss read failed for {number}`),
+`loss_results` is left untouched, and Retry from the analyses grid revives it,
+as a failed perspective read already does. The only entries without `has_loss`
+are in documents retrieved before 2026-09-21; they read as no loss and offer no
+TY until the results are retrieved again (T-13, no backfill). The fail-open
+marker note 32 suggested was not built: the one way to hold an unknown flag is
+a pre-flag document, and re-retrieving is one click.
+
+**Groups.** The stored list repeats a treaty once per member copy. The cart
+filters on `has_loss` before it dedupes by (number, name), so a treaty is
+offered when any copy took loss, and an analysis whose treaties all took none
+is offered no TY (Ben, 2026-09-21).
+
+**The wheel change.** irp-integration 0.9.0 hard-codes
+`exposureResourceType: 'PORTFOLIO'` in `get_elt`, `get_ep`, `get_stats`, and
+`get_plt`. 0.10.0rc1 (`feature/exposure-resource-type`) adds a keyword-only
+`exposure_resource_type='PORTFOLIO'` to all four, validated against
+`EXPOSURE_RESOURCE_TYPES = ['PORTFOLIO', 'TREATY']` before the request. The
+Workbench pins the rc in the `irp-testpypi` group; with the 0.9.0 wheel still
+installed, the gateway's keyword raises `TypeError` and every retrieval of an
+analysis with treaties fails with "treaty loss read failed", which is why
+`make irp-testpypi` precedes the click-through.

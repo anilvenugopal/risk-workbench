@@ -754,7 +754,82 @@ value is not recorded anywhere.
   (T-33) — the seed would stop being CIC's table, and CIC's own column holds
   `25.0`.
 
+## R20 — Loads of one repository run one at a time (issue #124)
+
+**Evidence** (2026-09-22, export `7AC58BAA-933B-4FBD-BCCD-5B4C38149DD7`): a
+`load_results_export` job failed with "Transaction (Process ID 67) was
+deadlocked on lock resources with another process and has been chosen as the
+deadlock victim." Manifest 1 ended `failed` carrying that text; manifest 2
+loaded as data ID 1. The deadlock graph in the `system_health` ring buffer
+(14:38:33.248) names both sides as `stage.usp_load_elt_result`, spids 67 and
+76, the two threads of the `load_results_export` worker (`RWB_WORKER_THREADS`
+default 2, `infra/scripts/start-all.sh`). Both analyses were portfolio-level
+`GU` with 14,063 rows each; nothing about TY is involved. spid 67 was on the
+classify `UPDATE`, holding page 787 and waiting for 990; spid 76 was on the
+`exp_value` `UPDATE`, holding 990 and waiting for 787. Both pages belong to
+`stage.rwb_loss_result_elt_data` and are adjacent in the clustered index
+chain: 787 holds manifest 1's last rows, 990 holds manifest 2's first rows,
+and no page mixes the two.
+
+The two manifests of one export occupy adjacent ranges of the clustered
+index `(manifest_id, event_id)`. `SHOWPLAN_TEXT` shows every `UPDATE` as a
+clustered index seek, but at 14k rows SQL Server takes page locks, and an
+`ORDERED FORWARD` range seek reads one page past its own range to find the
+range's end. The procedure is one transaction, so those page locks are held
+to commit. Two loads reaching across the same boundary in opposite directions
+close the cycle. Running the procedure's three `UPDATE` statements
+concurrently for manifests 1 and 2 against the dev mirror, rolled back,
+deadlocked 4 times in 5.
+
+**Decision**: `sp_getapplock @Resource = 'stage.usp_load_elt_result',
+@LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 900000`
+immediately after `BEGIN TRANSACTION` and before the claim `UPDATE`. A waiter
+holds no page or row lock while it queues, so no cycle can form; owned by the
+transaction, the lock is released on every `COMMIT` and `ROLLBACK`. A timeout
+raises 50004 with `@claimed` still 0, so the `CATCH` leaves the manifest row
+alone and the worker's `_load_one` stamps `load_status = 'failed'` with the
+message, retryable from the exports table. Measured on the dev mirror:
+
+| Check | Result |
+|---|---|
+| The same concurrent test, with the lock | 8 of 8 clean |
+| Release on `ROLLBACK`, not only `COMMIT` | holder rolled back 16:43:24.506, waiter granted 16:43:24.506 |
+| Timeout path | returns -1 with `XACT_STATE() = 1`, so `THROW` and the `CATCH` run normally |
+| Permission | `EXECUTE ON sys.sp_getapplock` is granted to `public`; the `LOSS` login needs no grant |
+
+The schema version stays at 1: `CREATE OR ALTER PROCEDURE` replaces the body
+when `loss_schema.sql` is re-run, and the version gate tracks table shape.
+
+**Cost**: the loads of one export serialize. On export `7AC58BAA` the two
+loads took 1.25 s and 1.20 s, so the load phase of a 44.5 s export goes from
+about 1.25 s to about 2.45 s. Staging is unaffected.
+
+**Alternatives rejected**:
+
+- *Retry the load on deadlock in the actor* — R12 already rejects actor
+  retries because they hammer deterministic failures. A second reason applies
+  here: a retry's backoff would have to outlast the winner's remaining
+  transaction, which the worker cannot know, so a retry can lose the race
+  again. `max_retries=0` stays.
+- *One thread for the `load_results_export` queue* — `start-all.sh` applies
+  one `RWB_WORKER_THREADS` to every queue, and the stage queue uses its
+  parallelism: this export's two stage jobs ran concurrently in 6.56 s and
+  6.23 s with no contention (constitution Article 10).
+
+Not covered: `elt.upload_parquet` (the stage worker) writes the same clustered
+index without taking the lock, so a stage-versus-load deadlock stays possible
+in principle. None has been observed.
+
 ## Clarifications
+
+### Session 2026-09-21
+
+Design session 2026-09-16 (note 31 D2–D4, D10–D11, D16–D17) left four asks on the exports table and the export form's picker that never became tasks. Decided with the user 2026-09-21.
+
+- Q: The origin label reads `own | group | broker` on both export screens, and the picker derives it from `rdm_name` while the table derives it from `rdm_id`. What does origin mean? → A: The source system only: `RMS` or `RDM`, derived from `irp_analysis.rdm_id` on both screens (P-27). Wendy: an RDM can be her own, so "broker" is wrong; Ben: "RMS or RDM. Not group." Group-ness is the Engine column's job, as on the results grid. Rejected: spelling out "Risk Modeler" (the grid and the analysts say RMS); keeping "group" as an origin value (it names an engine fact, not a source).
+- Q: Where does the Engine column's value come from on the exports table? → A: Read at render time from `irp_analysis.settings_metadata`, `DLM · 23.0` (`AnalysisSettings.engine`) or `Group` for `is_group`, on the picker and the table alike. The manifest's stage-time `engine_type` stays in the table relabelled **Archive engine**: it is what the archive's `metadata.csv` said and is the record of what was loaded. Rejected: moving the manifest's `engine_type` into the Engine slot (it is empty until stage, and `GROUP` there carries no version).
+- Q: Column order and the timestamps? → A: The results grid's order first (Analysis, Treaty, Origin, Engine, Peril, Region, Currency, AAL, Status), then the export detail, with Requested at and Last updated last on wider tracks so the full local stamp shows. Labels keep their names. Portfolio and Template are not filled for imported analyses and stay off the table.
+- Q: HD results are unsupported at CIC (D16); today an HD analysis passes the form and fails at stage with "loss table type PLT not supported", and D17 asks that HD and DLM never mix in one export. Refuse HD outright, or check only for mixing? → A: Refuse outright (FR-025): an HD row is greyed on the picker with "HD (PLT) results are not exportable yet", ahead of every other disabled reason, and `create_export` refuses it through the disabled-row check it already has. The source is the row's own `settings_metadata` `engineType`, group or not; a row with no `engineType` stays exportable. No separate mixing check is needed once HD cannot be ticked. Rejected: a mixing-only check (still lets a pure-HD export fail at stage).
 
 ### Session 2026-09-16
 

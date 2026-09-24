@@ -12,8 +12,8 @@ into CIC's three tables in one transaction.
 The stage and load workers act on every eligible manifest row of one analysis
 in one export. A portfolio-level perspective has one such row; at TY there is
 one per treaty the analyst ticked on the export form. The stage worker matches
-each row to its treaty in the treaty-level loss table by number and name,
-combining that treaty's rows per event before upload; the load worker then
+each row to its treaty in the treaty-level loss table by number and name and
+uploads that treaty's rows as Risk Modeler wrote them; the load worker then
 loads each treaty row through the same procedure. Every actor resumes from the
 rows' ``stage_status`` / ``load_status``; nothing here recomputes what the
 analyst approved on the form.
@@ -36,10 +36,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from dramatiq.middleware import TimeLimitExceeded
 
-from app.config import settings
+from app.config import TY, settings
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import _uid, _utcnow
-from app.services.export_service import TY
 from app.services.irp_gateway import IRPAPIError, IRPIntegrationError
 from app.workers import broker, dispatch, runtime
 from app.workers.queues import rwb_actor
@@ -108,10 +107,6 @@ def _load_eligible(row: dict) -> bool:
     a row the analyst closed."""
     return (row["stage_status"] == "staged" and row["load_status"] in ("pending", "failed")
             and row["closed_at"] is None)
-
-
-def _row_label(row: dict) -> str | None:
-    return row.get("treaty_number") or row.get("treaty_name")
 
 
 # ── submit_results_export ────────────────────────────────────────────────────
@@ -282,7 +277,7 @@ def _chunk_index(path: Path) -> int:
 
 
 def _stage_file(manifest_id: int, work_dir: Path, path: Path, perspective_code: str,
-                output_level: str = "Portfolio") -> int:
+                output_level: str) -> int:
     # upload_parquet checks the same thing, but its message names the mapping,
     # not the file the analyst has to look at.
     missing = [c for c in ELT_COLUMN_MAP if c not in pq.ParquetFile(path).schema.names]
@@ -313,7 +308,7 @@ def _stage_file(manifest_id: int, work_dir: Path, path: Path, perspective_code: 
 
 @dataclass
 class TreatyLosses:
-    """One treaty's combined loss rows out of a treaty-level table."""
+    """One treaty's loss rows out of a treaty-level table."""
     number: str
     name: str
     ids: list[str]
@@ -338,23 +333,14 @@ def _text_value(value: Any) -> str:
     return "" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value)
 
 
-def _combine_treaty_rows(table: pd.DataFrame) -> list[TreatyLosses]:
-    """Spec P-11: within one analysis, one treaty's rows (whatever their treaty
-    IDs) become one row per event — loss summed, independent standard deviation
-    summed, correlated standard deviation the root of the sum of squares, the
-    event's rate kept. The exposure value is the largest of the combined rows
-    until spec O-04 is closed. Treaties come back in (number, name) order."""
-    keys = ["TreatyNum", "TreatyName"]
-    table = table.assign(_sq=table["StdDevC"] ** 2)
-    combined = (table.groupby([*keys, "EventId"], sort=True, dropna=False)
-                .agg(Rate=("Rate", "first"), Loss=("Loss", "sum"), StdDevI=("StdDevI", "sum"),
-                     _sq=("_sq", "sum"), ExpValue=("ExpValue", "max"))
-                .reset_index())
-    combined["StdDevC"] = combined["_sq"] ** 0.5
+def _split_treaty_rows(table: pd.DataFrame) -> list[TreatyLosses]:
+    """One entry per treaty, in (number, name) order, holding the treaty's rows
+    as Risk Modeler wrote them: the table already has one row per treaty and
+    event (spec 016 P-11)."""
     out: list[TreatyLosses] = []
-    for (number, name), frame in combined.groupby(keys, sort=True, dropna=False):
-        source = table[(table["TreatyNum"] == number) & (table["TreatyName"] == name)]
-        ids = sorted({int(v) for v in source["TreatyId"].tolist()})
+    for (number, name), frame in table.groupby(["TreatyNum", "TreatyName"], sort=True,
+                                               dropna=False):
+        ids = sorted({int(v) for v in frame["TreatyId"].dropna().tolist()})
         out.append(TreatyLosses(
             number=_text_value(number), name=_text_value(name), ids=[str(i) for i in ids],
             rows=frame[["EventId", "Rate", "Loss", "StdDevI", "StdDevC", "ExpValue"]],
@@ -386,19 +372,21 @@ def _write_treaty_file(source: Path, index: int, treaty: TreatyLosses) -> Path:
 
 def _stage_treaties(targets: list[dict], table_dir: Path, work_dir: Path) -> list[str]:
     """Stage each of the analysis's eligible treaty rows from the treaty-level
-    table (spec 016 contracts/jobs.md §4 step 6): a row is matched to the
-    combined table rows of its treaty number and name. Returns the per-row
-    failure messages for rows whose treaty the table does not hold."""
+    table (spec 016 contracts/jobs.md §4 step 6): a row is matched to the table
+    rows of its treaty number and name. Returns the per-row failure messages
+    for rows whose treaty the table does not hold, and fails the whole analysis
+    when the table matches none of them."""
     files = _perspective_files(table_dir, "Treaty", TY)
     table = _read_treaty_table(files)
     if table.empty:
         raise StageFailure("Risk Modeler returned no treaty (TY) loss rows for this analysis")
     by_treaty = {(r["treaty_number"], r["treaty_name"] or ""): r for r in targets}
+    treaties = _split_treaty_rows(table)
     staged: set[int] = set()
     skipped = 0
     # The index is the treaty's position in the table, so a derived file keeps
     # its name whether or not the analyst ticked the treaties before it.
-    for index, treaty in enumerate(_combine_treaty_rows(table), start=1):
+    for index, treaty in enumerate(treaties, start=1):
         row = by_treaty.get((treaty.number, treaty.name))
         if row is None:
             skipped += 1
@@ -409,6 +397,13 @@ def _stage_treaties(targets: list[dict], table_dir: Path, work_dir: Path) -> lis
                         staged_row_count=count, treaty_ids=",".join(treaty.ids),
                         aal=treaty.aal, error_message=None)
         staged.add(row["manifest_id"])
+    if not staged:
+        # The match is exact (FR-005): a numeric TreatyNum read as "1.0" misses
+        # a ticked "1", so the message names what the table held.
+        held = "; ".join(f"{t.number} {t.name}" for t in treaties)
+        raise StageFailure(
+            "no ticked treaty matches the loss table Risk Modeler returned, which holds "
+            f"{held}")
     if skipped:
         logger.info("export %s analysis %s: %d treaties in the loss table have no row to "
                     "stage", targets[0]["export_id"], targets[0]["irp_analysis_id"], skipped)
@@ -475,7 +470,8 @@ def _stage(targets: list[dict], irp_job_id: str, work_dir: Path) -> list[str]:
                            f"match analysis currency {anchor['data_currency']!r}")
     facts = dict(loss_table_type=table_dir.name,
                  engine_type=metadata.get("Engine Type") or None,
-                 zip_file=archive.relative_to(root).as_posix())
+                 zip_file=archive.relative_to(root).as_posix(),
+                 irp_export_job_id=job["irp_id"])
     for row in targets:
         _stamp_manifest(row["manifest_id"], **facts)
 
@@ -486,7 +482,8 @@ def _stage(targets: list[dict], irp_job_id: str, work_dir: Path) -> list[str]:
         manifest = targets[0]
         total = 0
         for path in _perspective_files(table_dir, "Portfolio", perspective_code):
-            total += _stage_file(manifest["manifest_id"], work_dir, path, perspective_code)
+            total += _stage_file(manifest["manifest_id"], work_dir, path, perspective_code,
+                                 output_level="Portfolio")
         if total == 0:
             raise StageFailure(
                 f"Risk Modeler returned no {perspective_code} loss rows for this analysis")
@@ -627,7 +624,7 @@ def _load_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
     for row in eligible:
         data_id, reason = _load_one(row["manifest_id"])
         if reason is not None:
-            label = _row_label(row)
+            label = row.get("treaty_number") or row.get("treaty_name")
             reasons.append(f"{label}: {reason}" if label else reason)
         else:
             data_ids.append(data_id)
@@ -661,8 +658,7 @@ def run_pending(*, worker_id: str = "worker") -> int:
 
 
 __all__ = [
-    "ELT_COLUMN_MAP", "TY_COLUMNS", "TY_REQUEST_PERSPECTIVE_CODE",
-    "REQUIRED_LOSS_SCHEMA_VERSION", "StageFailure",
+    "ELT_COLUMN_MAP", "REQUIRED_LOSS_SCHEMA_VERSION", "StageFailure",
     "submit_results_export", "stage_results_export", "load_results_export",
     "run_one", "run_pending",
 ]

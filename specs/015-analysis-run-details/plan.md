@@ -50,11 +50,11 @@ the gateway contract.
   metadata line (FR-016). `_event_rate_scheme` is deleted; `AnalysisSettings`
   loses its six unrendered fields and `_to_display` its dead key alternates
   (T-08, research audit).
-- The expanded row's settings grid shows Event rate scheme for an ELT row,
-  Simulation set `name (N periods)` for a PLT row (`PET <id>` when the name
-  did not resolve), a wide Run details list when a run has two or more
-  partitions or a Run details entry reading *not returned* when partitions
-  were not captured (P-08), and a wide Treaties list `number · name ·
+- The expanded row's settings grid shows a wide Regions & rates list, one
+  entry per region and peril — the event rate scheme for an ELT partition,
+  the simulation set `name (N periods)` for a PLT partition (`PET <id>` when
+  the name did not resolve) — or Regions & rates reading *not returned* when
+  partitions were not captured (P-08), and a wide Treaties list `number · name ·
   currency` — omitted when the read returned none, *not returned* when the
   read failed (P-04). Partitions sort by region then peril, treaties by
   number with one entry per treaty id (P-06, P-07). The Compare modal's
@@ -169,7 +169,7 @@ Not needed — no violation to justify.
   that leaves the metadata write intact and the job successful; the plan item
   carrying `treaty_names`; the reader over every capture (ELT row shows
   scheme and no simulation set, PLT row the reverse, group lists both, no
-  treaties → no Treaties entry, absent `resolved` → a Run details entry
+  treaties → no Treaties entry, absent `resolved` → Regions & rates
   reading *not returned*, unnamed PET → `PET <id>`); the Compare modal
   line reading the same value as the expanded row; zero gateway calls on
   render.

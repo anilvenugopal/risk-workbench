@@ -223,6 +223,8 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
     assert "4.1M" in html          # AAL formatted in millions
     # the full analysis name moved out of the condensed grid into the source line
     assert '<b class="row-src__name">CRE_HO_FL_v25 DLM HU</b>' in html
+    # the source line carries the Submitted date on an own row, as on a broker row
+    assert "Submitted: <b><time" in html
     # a field the origin does not supply is listed, never hidden (FR-022):
     # subperil is absent from the settings payload above
     assert "Subperil" in html
@@ -242,8 +244,8 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
     for label in ("Gross", "Pre-Cat Net", "Working Excess",
                   "Quota Share", "Ground Up"):
         assert label in html
-    # a long value wraps in CSS; the cell carries the full text as its tooltip
-    assert f'title="{_LONG_SCHEME}"' in html
+    # a long scheme name wraps in the full-width list, never clipped
+    assert f"<li>NA · WS — {_LONG_SCHEME}</li>" in html
 
 
 def test_expanded_row_shows_results_pending_while_retrieval_runs(client):
