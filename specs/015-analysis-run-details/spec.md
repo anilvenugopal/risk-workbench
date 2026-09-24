@@ -26,7 +26,7 @@ An analyst expanding a finished analysis reads what the run resolved on — its 
 
 1. Expanding a row **calls nothing**. Every value is captured when the analysis is imported or finishes, so an expanded row renders in full while Risk Modeler is unreachable.
 2. A failed read **blanks the field and continues** — the rule the existing per-analysis metadata read already follows. It never aborts an RDM capture and never fails a finished run.
-3. A row shows only fields its run can resolve: **Event rate scheme** for a DLM analysis, **Simulation set** for an HD analysis, **both** for a mixed group; a run with one region and peril shows a single field and a run with several shows one entry per region and peril, whatever its origin (P-08); a run whose partitions were not captured shows a **Run details** label reading *not returned* (P-08); and **no treaty entry at all** — not an empty label — for an analysis that applied none. A treaty read that failed is a different fact and shows a Treaties label reading *not returned* (P-04).
+3. A row shows only values its run can resolve: the **event rate scheme** for a DLM partition, the **simulation set** for an HD partition, **both** for a mixed group. Every row lists them under **Regions & rates**, one entry per region and peril, whatever its origin or partition count; a run whose partitions were not captured shows **Regions & rates** reading *not returned* (P-08); and **no treaty entry at all** — not an empty label — for an analysis that applied none. A treaty read that failed is a different fact and shows a Treaties label reading *not returned* (P-04).
 4. A simulation set is named through **PET metadata**. A PET identifier and a simulation-set identifier are different identifiers, so the label an analyst reads describes the PET the run used.
 5. A field shown for an analysis **reads the same everywhere**. Currency once rendered in the analyses grid while the Compare guard read it as missing for the same broker analysis (#86); no field in this feature may do that. The Compare modal's metadata line shows the same resolved value the expanded row shows (P-05).
 
@@ -34,14 +34,14 @@ An analyst expanding a finished analysis reads what the run resolved on — its 
 
 | ID | Decision | Status | Where |
 |---|---|---|---|
-| P-01 | The label is **Simulation set** with its simulation periods, and a group lists one **per region and peril** — matching the grouping compose screen's column in both respects | Approved | issues #107, #108 |
+| P-01 | A simulation set is shown with its simulation periods, and a group lists one **per region and peril** — matching the grouping compose screen's column in both respects | Approved | issues #107, #108 |
 | P-02 | A treaty is listed as its **treaty number, treaty name and the currency the run applied it in**; occurrence limit, risk limit, attachment point and retention are captured with it and not shown in this iteration | Approved | issue #109, [research.md § T-05](research.md#t-05--treaties-applied-treaties-from-the-analysis-treaty-search-the-plan-item-records-the-requested-names) |
 | P-03 | A value reports what the run resolved on **when it was captured**; a later rename in Risk Modeler does not change a captured row | Approved | — |
 | P-04 | A **failed treaty read** shows a Treaties label reading *not returned*; an analysis that **applied none** shows no Treaties entry at all — the two are told apart | Approved | [research.md § Clarifications](research.md#clarifications) |
 | P-05 | The **Compare modal's metadata line** shows what the run resolved on — the event rate scheme for a DLM analysis, the simulation set for an HD analysis, one entry per partition for a group — the same value the expanded row shows | Approved | [research.md § Clarifications](research.md#clarifications) |
 | P-06 | Lists are **sorted**: treaties by treaty number, a group's partitions by region code then peril code — never in the order Risk Modeler returned them | Approved | [research.md § Clarifications](research.md#clarifications) |
 | P-07 | A group's row lists each treaty **once per distinct treaty id**; a treaty that several members applied appears one time, with no count | Approved | [research.md § Clarifications](research.md#clarifications) |
-| P-08 | The row's shape follows the **partition count**, not the origin: one partition renders as a single Event rate scheme or Simulation set field; two or more render as the per-region-and-peril list, group or not. The list, and the state where the partitions were not captured, carry the label **Run details** | Approved | [research.md § Clarifications](research.md#clarifications) |
+| P-08 | Every row renders its partitions as one full-width **Regions & rates** list, one entry per region and peril, whatever the origin or partition count. The state where the partitions were not captured carries the same label reading *not returned* | Approved | [research.md § Clarifications](research.md#clarifications) |
 
 ---
 
@@ -66,7 +66,7 @@ An HD run resolves on a simulation set, not an event rate scheme, so its expande
 1. **Given** a finished HD analysis, **When** the analyst expands its row, **Then** Simulation set names the PET the run used, with its simulation periods.
 2. **Given** a grid holding HD and DLM analyses, **When** the analyst expands each, **Then** the HD row shows Simulation set, the DLM row still shows Event rate scheme, and neither shows the other's field.
 3. **Given** an HD analysis whose PET name did not resolve, **Then** Simulation set names the PET by its id with its simulation periods.
-4. **Given** an HD analysis whose partitions were not captured, **Then** a Run details label reads *not returned* and the rest of the expanded row — settings, members, condensed results — renders unchanged.
+4. **Given** an HD analysis whose partitions were not captured, **Then** Regions & rates reads *not returned* and the rest of the expanded row — settings, members, condensed results — renders unchanged.
 5. **Given** a finished HD analysis listed in the Compare modal, **Then** its metadata line names the same simulation set the expanded row shows, and a DLM analysis's line names its event rate scheme.
 
 ### 3. The mixed group names both (P2)
@@ -78,7 +78,7 @@ The analyst groups an HD analysis with a DLM analysis, chooses a simulation set 
 1. **Given** a finished group of one HD and one DLM analysis, **When** the analyst expands its row, **Then** the event rate schemes and the simulation sets are both listed, one entry per region and peril in region-code then peril-code order.
 2. **Given** that group, **Then** each simulation set listed matches the choice the analyst made for that region and peril on the compose screen.
 3. **Given** a group whose members are all DLM, **Then** the row lists its event rate schemes and no simulation set.
-4. **Given** a group whose members all resolved on the same single region and peril, **When** the analyst expands its row, **Then** it shows one Event rate scheme or Simulation set field, the same shape a single analysis shows.
+4. **Given** a group whose members all resolved on the same single region and peril, **When** the analyst expands its row, **Then** Regions & rates lists that one entry, the same shape a single analysis shows.
 5. **Given** an own analysis that resolved on two regions or perils, **When** the analyst expands its row, **Then** it shows one entry per region and peril, the same shape a group shows.
 
 ### 4. The row names the treaties the run applied (P2)
@@ -97,11 +97,11 @@ An analyst reviewing a finished run wants to know which treaties it applied, and
 
 - **FR-001**: The expanded row of a broker-imported analysis names its event rate scheme.
 - **FR-002**: The scheme named for a broker-imported analysis matches the scheme shown for the same analysis on the grouping compose screen.
-- **FR-003**: The expanded row of an HD analysis names the simulation set the run resolved on, labelled **Simulation set** (P-01).
+- **FR-003**: The expanded row of an HD analysis names the simulation set the run resolved on (P-01).
 - **FR-004**: A simulation set is shown with its simulation periods (P-01).
 - **FR-005**: A simulation set label describes the PET the run used; a simulation-set identifier is never substituted for a PET identifier.
 - **FR-006**: A DLM analysis shows Event rate scheme and no Simulation set; an HD analysis shows Simulation set and no Event rate scheme.
-- **FR-006a**: A run with one partition renders it as a single Event rate scheme or Simulation set field; a run with two or more partitions renders one entry per region and peril, whether the analysis is a group or not (P-08).
+- **FR-006a**: Every run renders its partitions as one Regions & rates list, one entry per region and peril, whatever its partition count and whether the analysis is a group or not (P-08).
 - **FR-007**: A group's expanded row lists the event rate schemes it grouped on and the simulation sets resolved for it, per region and peril (P-01), ordered by region code then peril code (P-06).
 - **FR-008**: Each simulation set listed for a group matches the choice recorded for that region and peril when the group was composed.
 - **FR-009**: A group with no HD member lists event rate schemes only; a group with no DLM member lists simulation sets only.

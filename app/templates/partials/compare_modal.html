@@ -12,7 +12,7 @@
   {% if a.rdm_name %}<span class="cmp-meta__part" title="Broker analysis — source RDM">{{ a.rdm_name }}</span>{% endif %}
   {% if a.peril %}<span class="cmp-meta__part" title="Peril">{{ a.peril }}</span>{% endif %}
   {% if a.engine %}<span class="cmp-meta__part" title="Engine">{{ a.engine }}</span>{% endif %}
-  <span class="cmp-meta__part" title="Run details">{{ a.run_details or 'run details not returned' }}</span>
+  <span class="cmp-meta__part" title="Regions &amp; rates">{{ a.run_details or 'regions & rates not returned' }}</span>
   {% if a.submitted_at %}<span class="cmp-meta__part"><time data-utc="{{ a.submitted_at }}" title="{{ a.submitted_at }}">{{ a.submitted_at }}</time></span>{% endif %}
 </span>
 {%- endmacro -%}

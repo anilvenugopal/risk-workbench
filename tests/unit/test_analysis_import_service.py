@@ -247,7 +247,6 @@ def test_finalize_writes_the_settings_and_the_run_details_it_resolved_on(
     assert settings["resolved"]["partitions"]
     [displayed] = analysis_service.list_submission_executed_analyses(
         submission_id=submission)
-    assert displayed.resolved.single_label == "Simulation set"
     assert displayed.resolved.single_value
 
 

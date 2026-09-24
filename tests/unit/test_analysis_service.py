@@ -942,7 +942,7 @@ def test_group_row_exposes_member_names_from_the_approved_plan(iteration2_db):
     assert "<dt>Members</dt>" not in _inline_panel(rows["CRE_P1_T1"])
 
 
-def test_group_row_with_no_plan_has_no_member_names(iteration2_db):
+def test_group_row_with_no_plan_reads_members_not_returned(iteration2_db):
     submission = seed_submission("Sub One")
     seed_group(submission, "CRE_Sub One_Group")
 
@@ -950,7 +950,8 @@ def test_group_row_with_no_plan_has_no_member_names(iteration2_db):
         submission_id=submission)
 
     assert group.submitted.member_names == []
-    assert "<dt>Members</dt>" not in _inline_panel(group)
+    assert ('<dt>Members</dt><dd class="blank">not returned</dd>'
+            in _inline_panel(group))
 
 
 def test_a_list_longer_than_five_puts_the_rest_behind_more(iteration2_db):
@@ -1318,13 +1319,11 @@ def test_broker_row_names_its_event_rate_scheme_and_no_simulation_set(
     row = _broker_row(submission, "USFL_Commercial_LT",
                       settings_metadata("broker_dlm", fan_out=23))
 
-    assert row.resolved.single_label == "Event rate scheme"
     assert row.resolved.single_value == "RMS 2023 Historical Event Rates"
     panel = _inline_panel(row)
-    assert "<dt>Event rate scheme</dt>" in panel
+    assert "<dt>Regions &amp; rates</dt>" in panel
     assert "RMS 2023 Historical Event Rates" in panel
-    assert "<dt>Simulation set</dt>" not in panel
-    assert "<dt>Run details</dt>" not in panel
+    assert "periods" not in panel
 
 
 def test_a_row_captured_before_the_change_reads_run_details_not_returned(
@@ -1335,9 +1334,7 @@ def test_a_row_captured_before_the_change_reads_run_details_not_returned(
     assert row.resolved.partitions is None
     assert row.resolved.summary is None
     panel = _inline_panel(row)
-    assert '<dt>Run details</dt><dd class="blank">not returned</dd>' in panel
-    assert "<dt>Event rate scheme</dt>" not in panel
-    assert "<dt>Simulation set</dt>" not in panel
+    assert '<dt>Regions &amp; rates</dt><dd class="blank">not returned</dd>' in panel
     # the rest of the grid renders (FR-015)
     assert "<dt>Framework</dt>" in panel
     assert "<dt>Subperil</dt>" in panel
@@ -1352,10 +1349,7 @@ def test_a_row_with_an_empty_partition_capture_reads_run_details_not_returned(
 
     assert row.resolved.partitions == []
     assert row.resolved.summary is None
-    panel = _inline_panel(row)
-    assert '<dt>Run details</dt><dd class="blank">not returned</dd>' in panel
-    assert "<dt>Event rate scheme</dt>" not in panel
-    assert "<dt>Simulation set</dt>" not in panel
+    assert '<dt>Regions &amp; rates</dt><dd class="blank">not returned</dd>' in _inline_panel(row)
 
 
 def test_a_row_whose_partitions_half_failed_reads_the_same(iteration2_db):
@@ -1365,8 +1359,7 @@ def test_a_row_whose_partitions_half_failed_reads_the_same(iteration2_db):
     row = _broker_row(submission, "USFL_Commercial_LT", captured)
 
     panel = _inline_panel(row)
-    assert '<dt>Run details</dt><dd class="blank">not returned</dd>' in panel
-    assert "<dt>Event rate scheme</dt>" not in panel
+    assert '<dt>Regions &amp; rates</dt><dd class="blank">not returned</dd>' in panel
     # the treaty half of the same read stands
     assert "<li>XPR_1_100_Fld · XPR_1_100_Fld · USD</li>" in panel
 
@@ -1423,22 +1416,18 @@ def _own_row(edm: str, name: str, settings: dict | None):
 def test_hd_row_names_its_simulation_set_and_no_event_rate_scheme(iteration2_db):
     row = _own_row(_edm(), "HD Run", settings_metadata("own_hd"))
 
-    assert row.resolved.single_label == "Simulation set"
     assert row.resolved.single_value == (
         "RMS 2020 Time-Dependent Rates (1,978,459 periods)")
-    panel = _inline_panel(row)
-    assert ("<dt>Simulation set</dt><dd title=\"RMS 2020 Time-Dependent Rates "
-            "(1,978,459 periods)\">") in panel
-    assert "<dt>Event rate scheme</dt>" not in panel
+    assert ("<li>NZ · EQ — RMS 2020 Time-Dependent Rates (1,978,459 periods)</li>"
+            in _inline_panel(row))
 
 
 def test_dlm_row_names_its_scheme_and_no_simulation_set(iteration2_db):
     row = _own_row(_edm(), "DLM Run", settings_metadata("own_dlm", fan_out=23))
 
     panel = _inline_panel(row)
-    assert "<dt>Event rate scheme</dt>" in panel
-    assert "RMS 2025 Stochastic Event Rates" in panel
-    assert "<dt>Simulation set</dt>" not in panel
+    assert "<li>NA · WS — RMS 2025 Stochastic Event Rates</li>" in panel
+    assert "periods" not in panel
 
 
 def test_a_pet_the_capture_could_not_name_reads_by_its_id(iteration2_db):
@@ -1446,21 +1435,16 @@ def test_a_pet_the_capture_could_not_name_reads_by_its_id(iteration2_db):
                    settings_metadata("own_hd", pet_names={}))
 
     assert row.resolved.single_value == "PET 12 (1,978,459 periods)"
-    assert "<dt>Simulation set</dt>" in _inline_panel(row)
+    assert "PET 12 (1,978,459 periods)" in _inline_panel(row)
 
 
-def test_a_plt_partition_with_no_set_still_reads_simulation_set(iteration2_db):
-    # FR-006: the label follows the partition's framework. A PLT partition
-    # whose set did not resolve reads Simulation set — never the ELT label.
+def test_a_plt_partition_with_no_set_lists_its_region_and_peril(iteration2_db):
     captured = settings_metadata("own_hd")
     captured["resolved"]["partitions"][0]["simulation_set"] = None
     row = _own_row(_edm(), "HD Run", captured)
 
-    assert row.resolved.single_label == "Simulation set"
     assert row.resolved.single_value is None
-    panel = _inline_panel(row)
-    assert '<dt>Simulation set</dt><dd class="blank">not returned</dd>' in panel
-    assert "<dt>Event rate scheme</dt>" not in panel
+    assert "<li>NZ · EQ</li>" in _inline_panel(row)
 
 
 def test_an_hd_row_with_no_captured_partitions_reads_not_returned(iteration2_db):
@@ -1469,8 +1453,7 @@ def test_an_hd_row_with_no_captured_partitions_reads_not_returned(iteration2_db)
     row = _own_row(_edm(), "HD Run", captured)
 
     panel = _inline_panel(row)
-    assert '<dt>Run details</dt><dd class="blank">not returned</dd>' in panel
-    assert "<dt>Simulation set</dt>" not in panel
+    assert '<dt>Regions &amp; rates</dt><dd class="blank">not returned</dd>' in panel
     # settings and the condensed-results block render unchanged
     assert "<dt>Framework</dt>" in panel
     assert "Condensed results" in panel
@@ -1509,10 +1492,7 @@ def test_a_mixed_group_lists_both_halves_per_region_and_peril(iteration2_db):
         "Earthquake, RMS 17.0 NA Stochastic Event Rates (50,000 periods)",
         "NA · WS — RMS 2025 Historical Event Rates — North Atlantic Hurricane, "
         "2025 Historical Event Rates-v2 (50,000 periods)"]
-    panel = _inline_panel(row)
-    assert "<dt>Run details</dt>" in panel
-    assert "<dt>Event rate scheme</dt>" not in panel
-    assert "<dt>Simulation set</dt>" not in panel
+    assert "<dt>Regions &amp; rates</dt>" in _inline_panel(row)
     # the Compare line reports the same entries (FR-017)
     assert row.resolved.summary == "; ".join(row.resolved.partitions)
 
@@ -1528,8 +1508,7 @@ def test_an_elt_only_group_lists_schemes_with_no_periods_text(iteration2_db):
     assert "periods" not in _inline_panel(row)
 
 
-def test_a_one_partition_group_renders_the_single_field(iteration2_db):
-    # P-08: the shape follows the partition count, not the origin.
+def test_a_one_partition_group_renders_the_same_list(iteration2_db):
     submission = seed_submission("Sub One")
     row = _group_row(submission, "CRE_Sub One_Group",
                      _group_settings("group_plt_workbench_made"))
@@ -1538,12 +1517,11 @@ def test_a_one_partition_group_renders_the_single_field(iteration2_db):
         "RMS V2.0 Stochastic Event Rates - Typhoon and Non-Typhoon Flood "
         "Events (50,000 periods)")
     panel = _inline_panel(row)
-    assert "<dt>Simulation set</dt>" in panel
-    assert "<dt>Run details</dt>" not in panel
+    assert "<dt>Regions &amp; rates</dt>" in panel
+    assert row.resolved.single_value in panel
 
 
 def test_an_own_analysis_on_two_partitions_renders_the_list(iteration2_db):
-    # FR-006a: two partitions read as the list whether the row is a group.
     captured = settings_metadata("own_dlm", fan_out=23)
     captured["resolved"]["partitions"].append({
         "region_code": "NA", "peril_code": "EQ", "framework": "ELT",
@@ -1554,7 +1532,7 @@ def test_an_own_analysis_on_two_partitions_renders_the_list(iteration2_db):
     assert row.resolved.partitions == [
         "NA · WS — RMS 2025 Stochastic Event Rates",
         "NA · EQ — RMS 17.0 NA   Stochastic Event Rates"]
-    assert "<dt>Run details</dt>" in _inline_panel(row)
+    assert "<dt>Regions &amp; rates</dt>" in _inline_panel(row)
 
 
 def test_the_group_row_names_the_set_chosen_on_the_compose_screen(iteration2_db):
@@ -1623,7 +1601,7 @@ def test_a_failed_treaty_read_reads_not_returned(iteration2_db):
     panel = _inline_panel(row)
     assert '<dt>Treaties</dt><dd class="blank">not returned</dd>' in panel
     # the partition half of the same read stands (FR-012)
-    assert "<dt>Event rate scheme</dt>" in panel
+    assert "RMS 2023 Historical Event Rates" in panel
 
 
 def test_a_group_lists_a_treaty_its_members_share_once(iteration2_db):

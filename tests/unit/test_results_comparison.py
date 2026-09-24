@@ -494,7 +494,7 @@ class TestCompareModalRoutes:
         resp = client.get(f"/submissions/{SUB_ID}/analyses/compare")
 
         assert "RMS 2023 Historical Event Rates" in resp.text
-        assert "run details not returned" in resp.text
+        assert "regions &amp; rates not returned" in resp.text
         assert "scheme not returned" not in resp.text
 
     def test_gone_scope_renders_the_notice(self, monkeypatch):
