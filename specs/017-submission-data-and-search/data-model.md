@@ -105,10 +105,14 @@ Modeling status, name) stay on `s`.
 
 ```sql
 ORDER BY COALESCE((SELECT c.inception_date FROM contract c
-                   WHERE c.submission_id = s.id
+                   WHERE c.submission_id = s.id AND <contract clauses>
                    ORDER BY c.inserted_at, c.id <row_limit(1)>),
                   s.inserted_at) DESC, s.name
 ```
+
+`<contract clauses>` are the list's contract-level predicates, the same ones
+the EXISTS and the row summary carry; with no contract filter the subquery
+reads the first-entered contract (note 35 D2).
 
 `row_limit(1)` is `LIMIT 1` on SQLite and `OFFSET 0 ROWS FETCH NEXT 1 ROWS
 ONLY` on SQL Server. SQL Server resolves `COALESCE(DATE, DATETIME2)` to

@@ -430,14 +430,15 @@ _ROW_SELECT = """
 """
 
 # The list's inception: the first-entered contract's, or the deal's creation
-# date for a deal with no contract yet (P-17). It is the date the row shows, so
-# the list is ordered by what the analyst reads. ``{cap}`` takes ``row_limit(1)``
-# at query time: the dialects disagree on how to cap a subquery. SQL Server
-# resolves the COALESCE to DATETIME2 and SQLite compares the ISO text; both
-# order the same.
+# date for a deal with no contract yet (P-17). ``{clauses}`` takes the list's
+# contract-level clauses, so under a contract filter the subquery reads the
+# first contract that matched: the date the row shows, so the list is ordered
+# by what the analyst reads. ``{cap}`` takes ``row_limit(1)`` at query time: the
+# dialects disagree on how to cap a subquery. SQL Server resolves the COALESCE
+# to DATETIME2 and SQLite compares the ISO text; both order the same.
 _FIRST_INCEPTION = ("COALESCE((SELECT c.inception_date FROM contract c "
-                    "WHERE c.submission_id = s.id ORDER BY c.inserted_at, c.id {cap}), "
-                    "s.inserted_at)")
+                    "WHERE c.submission_id = s.id{clauses} "
+                    "ORDER BY c.inserted_at, c.id {cap}), s.inserted_at)")
 
 
 def _to_row(row: dict) -> SubmissionRow:
@@ -932,10 +933,13 @@ SORT_STARTS_DESCENDING = {"name": False, "cedant": False,
                           "inception": True, "year": True}
 
 
-def _order_by(sort: str, descending: bool) -> str:
+def _order_by(sort: str, descending: bool, contract_clauses: Sequence[str] = ()) -> str:
     """Name and id follow the sorted column so a page boundary falls in the same
-    place every request when the sorted column ties."""
-    column = SORT_COLUMNS[sort].format(cap=row_limit(1))
+    place every request when the sorted column ties. ``contract_clauses`` are
+    the list's contract-level predicates on alias ``c``, already bound by
+    ``submission_filter_clauses`` in the same statement."""
+    column = SORT_COLUMNS[sort].format(
+        cap=row_limit(1), clauses="".join(f" AND {c}" for c in contract_clauses))
     tiebreakers = [c for c in ("s.name", "s.id") if c != column]
     return ", ".join([f"{column} {'DESC' if descending else 'ASC'}", *tiebreakers])
 
@@ -981,7 +985,8 @@ def list_submissions(
     # without a COUNT(*) over the same predicates.
     rows = _submission_rows(clauses, params, limit=PAGE_SIZE + 1,
                             offset=(page - 1) * PAGE_SIZE,
-                            order_by=_order_by(sort, descending))
+                            order_by=_order_by(sort, descending,
+                                               _contract_clauses(filters)[0]))
     has_next = len(rows) > PAGE_SIZE
     rows = rows[:PAGE_SIZE]
     _attach_contracts(rows, filters)

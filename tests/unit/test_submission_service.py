@@ -813,6 +813,28 @@ def test_list_orders_on_the_first_entered_contract_inception(iteration1_db):
         "Layered", "Last year", "No contract", "Next year"]
 
 
+def test_list_orders_on_the_matched_contract_inception_under_a_filter(iteration1_db):
+    """Note 35 D2: with a contract-level filter the sort key is the inception
+    the row shows, the first contract that matched, not the deal's first-entered
+    contract. First-entered puts Early ahead of Late; the Won contracts put Late
+    ahead of Early."""
+    a = iteration1_db.user_a
+    early = _mk(iteration1_db, owner=a, name="Early", cedant="E Re",
+                inc=date(2026, 1, 1)).submission_id
+    _add(iteration1_db, early, "CRM-E2", inc=date(2027, 6, 1), status="WON")
+    late = _mk(iteration1_db, owner=a, name="Late", cedant="L Re",
+               inc=date(2026, 6, 1)).submission_id
+    _add(iteration1_db, late, "CRM-L2", inc=date(2027, 1, 1), status="WON")
+
+    page = list_submissions(owner_ids=[a], sort="inception", descending=False)
+    assert [(r.name, _day(r.inception_date)) for r in page.rows] == [
+        ("Early", "2026-01-01"), ("Late", "2026-06-01")]
+    page = list_submissions(owner_ids=[a], contract_status_codes=["WON"],
+                            sort="inception", descending=False)
+    assert [(r.name, _day(r.inception_date)) for r in page.rows] == [
+        ("Late", "2027-01-01"), ("Early", "2027-06-01")]
+
+
 def test_list_breaks_a_sort_tie_the_same_way_on_every_page(iteration1_db):
     """Every deal here shares a treaty year, so the sorted column decides nothing and
     the tiebreaker decides the whole order. Without it the two pages could repeat a

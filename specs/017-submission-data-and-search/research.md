@@ -252,9 +252,12 @@ this time.
 ### R11 — The list sorts and shows the first-entered or first-matched contract (T-11)
 
 **Decision.** `ORDER BY COALESCE((SELECT c.inception_date FROM contract c
-WHERE c.submission_id = s.id ORDER BY c.inserted_at, c.id <row_limit(1)>),
-s.inserted_at) DESC, s.name`, where `row_limit(1)` is the dialect's one-row
-cap. The sortable Inception column uses the same expression.
+WHERE c.submission_id = s.id AND <contract clauses> ORDER BY c.inserted_at,
+c.id <row_limit(1)>), s.inserted_at) DESC, s.name`, where `row_limit(1)` is
+the dialect's one-row cap and `<contract clauses>` are the list's
+contract-level predicates (`_contract_clauses`), already bound for the EXISTS
+in the same statement. The sortable Inception column uses the same
+expression.
 `ix_submission_list_order` is dropped. No denormalised inception on
 `submission`. The row summary (`_attach_contracts`) appends the same
 contract-level clauses the list's EXISTS uses (`_contract_clauses`) to its
@@ -269,7 +272,11 @@ them is the defect"). The client's answer on 9/23 was first-entered (Wendy:
 "go back to showing the first one"; Ben: "I'm entering the main contract
 first"), and the user set it for all three columns on 2026-09-24. The sort
 key follows the displayed date, or the list would be ordered by a date the
-row does not show. `create_submission` staggers `inserted_at` by one
+row does not show. Until 2026-09-25 the subquery took no contract clauses, so
+under a Contract status or treaty type filter the row showed the matched
+contract's inception while the page was ordered by the first-entered one
+(note 35 D2, O35-2); the clauses now go into the subquery too.
+`create_submission` staggers `inserted_at` by one
 microsecond per row, so "first entered" is deterministic for contracts saved
 together; `c.id` breaks any remaining tie. A contract-less submission is a
 deal being opened, and its creation date puts it among the current renewals.
