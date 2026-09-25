@@ -753,19 +753,9 @@ document.addEventListener('alpine:init', () => {
     expiration.value = new Date(Date.UTC(y + 1, m - 1, d - 1)).toISOString().slice(0, 10);
   });
 
-  // Submission create form: the contract rows and the treaty year. A new row is
-  // the blank template with the previous row's dates copied in (FR-005); the
-  // year follows the data vintage until the analyst types a year (P-20).
+  // Submission create form: the contract rows. A new row is the blank template
+  // with the previous row's dates copied in (FR-005).
   Alpine.data('contractRows', () => ({
-    edited: false,
-    onYearInput() {
-      this.edited = !!this.$refs.year.value.trim();
-    },
-    onVintage(e) {
-      if (this.edited || this.$refs.year.value.trim()) return;
-      const year = (e.target.value || '').slice(0, 4);
-      if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
-    },
     add() {
       const rows = this.$refs.rows;
       const last = rows.lastElementChild;

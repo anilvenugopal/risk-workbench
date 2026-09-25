@@ -153,8 +153,8 @@ def upgrade() -> None:
         # rwb_loss dbo.Client.ClientID — another database, so no FK.
         sa.Column("client_id", sa.Integer, nullable=True),
         # The in-force as-of date of the data CIC received in the EDM; one per
-        # deal, the export's default (spec 017 P-19).
-        sa.Column("data_vintage", sa.Date, nullable=True),
+        # deal, entered by hand (spec 017 P-19).
+        sa.Column("data_vintage", sa.Date, nullable=False),
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False,
                   server_default=sa.text("'ACTIVE'")),  # cached current (Article 4)
         sa.Column("inserted_at", DATETIME2, nullable=False,

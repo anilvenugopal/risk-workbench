@@ -133,11 +133,11 @@ def test_contextual_detail_validates_association_and_lists_submission_rdms(
         iteration2_db):
     first = submission_service.create_submission(
         name="First submission", cedant_name="First",
-        treaty_year=2026, actor_id=iteration2_db.user_a,
+        treaty_year=2026, data_vintage="2026-06-30", actor_id=iteration2_db.user_a,
         confirmed=True).submission_id
     second = submission_service.create_submission(
         name="Second submission", cedant_name="Second",
-        treaty_year=2026, actor_id=iteration2_db.user_a,
+        treaty_year=2026, data_vintage="2026-06-30", actor_id=iteration2_db.user_a,
         confirmed=True).submission_id
     shared = str(uuid.uuid4())
     other = str(uuid.uuid4())

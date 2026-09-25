@@ -307,16 +307,6 @@ def _resolve_link_target(links_to: Any) -> str | None:
     return target
 
 
-def _default_treaty_year(treaty_year: int | None, inceptions: Sequence[Any]) -> int | None:
-    """Fall back to the earliest contract inception's year when the analyst left
-    treaty year blank (P-20); ``None`` when the deal has no contract. An entered
-    year always wins (design note 08, D4)."""
-    if treaty_year is not None:
-        return treaty_year
-    parsed = [_as_date(value) for value in inceptions if value is not None]
-    return min(parsed).year if parsed else None
-
-
 def _default_expiration(inception: date) -> date:
     """Inception plus one year minus one day (P-03): 1/1 to 12/31. A February 29
     inception lands on February 28 of the next year before the day is taken."""
@@ -555,9 +545,10 @@ _CONTRACT_INSERT = """
 
 
 def create_submission(
-    *, name: str, cedant_name: str, treaty_year: int | None = None,
+    *, name: str, cedant_name: str, data_vintage: Any,
+    treaty_year: int | None = None,
     links_to_submission_id: Any = None, directory_path: str | None = None,
-    client_id: int | None = None, data_vintage: Any = None,
+    client_id: int | None = None,
     contracts: Sequence[ContractInput] = (),
     actor_id: Any, confirmed: bool = False,
 ) -> CreateResult:
@@ -570,10 +561,13 @@ def create_submission(
     nothing (FR-004). On the write path the submission row, its initial ACTIVE
     status event and its contracts commit in one transaction (R2).
 
-    ``treaty_year`` left as ``None`` is filled from the earliest contract
-    inception (P-20). ``links_to_submission_id`` is checked before the duplicate
-    check, so an id naming no deal is refused without first showing a look-alike
-    warning."""
+    ``data_vintage`` is required (P-19); ``treaty_year`` is stored as entered,
+    blank included (P-20). ``links_to_submission_id`` is checked before the
+    duplicate check, so an id naming no deal is refused without first showing a
+    look-alike warning."""
+    vintage = _as_date(data_vintage)
+    if vintage is None:
+        raise ValueError("data_vintage is required")
     link_target = _resolve_link_target(links_to_submission_id)
     prepared = _prepare_contracts(contracts)
     matches = find_similar(
@@ -592,8 +586,8 @@ def create_submission(
         "name": name,
         "cedant": cedant_name,
         "client": client_id,
-        "vintage": _as_date(data_vintage),
-        "ty": _default_treaty_year(treaty_year, [row["inc"] for row in prepared]),
+        "vintage": vintage,
+        "ty": treaty_year,
         "lt": link_target,
         "dir": directory_path,
         "now": now,
@@ -1225,8 +1219,7 @@ def update_submission(
     (non-blocking duplicate warning on rename). Contracts are edited through
     ``add_contract`` / ``update_contract`` / ``remove_contract``.
 
-    ``treaty_year`` is refilled from the earliest contract inception whenever
-    the merged value is None (P-20)."""
+    A ``data_vintage`` of ``None`` is refused (P-19)."""
     sid = str(submission_id)
     current = execute_one(
         "SELECT status_code, name, cedant_name, client_id, data_vintage, "
@@ -1243,9 +1236,9 @@ def update_submission(
         if f in fields:
             merged[f] = fields[f]
     merged["data_vintage"] = _as_date(merged["data_vintage"])
+    if merged["data_vintage"] is None:
+        raise ValueError("data_vintage is required")
     contracts = list_contracts(sid)
-    merged["treaty_year"] = _default_treaty_year(
-        merged["treaty_year"], [c.inception_date for c in contracts])
 
     # Resolve first, self-link second: a submission's own id always exists, so
     # linking to itself must report SelfLinkError, not "not found".

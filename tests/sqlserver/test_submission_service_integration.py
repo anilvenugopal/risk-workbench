@@ -204,7 +204,7 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     sid = svc.create_submission(
         name=f"MarkerDeal_{uuid.uuid4().hex[:8]}", cedant_name="Marker Cedant",
         contracts=[_contract_input()],
-        actor_id=a, confirmed=True,
+        data_vintage="2026-06-30", actor_id=a, confirmed=True,
     ).submission_id
 
     def marker() -> str:
@@ -248,7 +248,7 @@ def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
         svc.create_submission(
             name=f"CapDeal{tag}_{index}", cedant_name=f"CapCedant{tag} {index}",
             contracts=[_contract_input()],
-            actor_id=a, confirmed=True)
+            data_vintage="2026-06-30", actor_id=a, confirmed=True)
 
     assert len(svc.cedant_suggestions(f"CapCedant{tag}", limit=2)) == 2
     assert len(svc.cedant_suggestions(f"CapCedant{tag}")) == 4
@@ -279,14 +279,14 @@ def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db)
     sid = svc.create_submission(
         name=f"LinkDeal{tag}", cedant_name=f"LinkCedant{tag}",
         contracts=[_contract_input()],
-        actor_id=a, confirmed=True).submission_id
+        data_vintage="2026-06-30", actor_id=a, confirmed=True).submission_id
 
     for bad in (str(uuid.uuid4()), "not-a-uuid"):
         with pytest.raises(UnknownLinkError):
             svc.create_submission(
                 name=f"LinkDeal{tag}_stale", cedant_name=f"LinkCedant{tag}",
                 contracts=[_contract_input()],
-                links_to_submission_id=bad, actor_id=a, confirmed=True)
+                links_to_submission_id=bad, data_vintage="2026-06-30", actor_id=a, confirmed=True)
         with pytest.raises(UnknownLinkError):
             svc.update_submission(
                 submission_id=sid, expected_updated_at=svc.get_submission(sid).updated_at,
@@ -297,7 +297,7 @@ def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db)
     target = svc.create_submission(
         name=f"LinkDeal{tag}_target", cedant_name=f"LinkCedant{tag}",
         contracts=[_contract_input(date(2025, 4, 1))],
-        actor_id=a, confirmed=True).submission_id
+        data_vintage="2026-06-30", actor_id=a, confirmed=True).submission_id
     svc.update_submission(
         submission_id=sid, expected_updated_at=svc.get_submission(sid).updated_at,
         actor_id=a, confirmed=True, links_to_submission_id=target.upper())
@@ -313,7 +313,7 @@ def test_the_crm_id_index_is_case_insensitive_on_sql_server(iteration1_db):
     sid = svc.create_submission(
         name=f"CaseDeal{uuid.uuid4().hex[:8]}", cedant_name="Case Cedant",
         contracts=[svc.ContractInput(crm_id, "per_risk_xol", date(2026, 4, 1))],
-        actor_id=a, confirmed=True).submission_id
+        data_vintage="2026-06-30", actor_id=a, confirmed=True).submission_id
     with pytest.raises(SQLServerQueryError) as raised:
         execute_command(
             svc._CONTRACT_INSERT,

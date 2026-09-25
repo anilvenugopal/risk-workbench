@@ -82,11 +82,14 @@ update script's four cases (`test_bulk_update_contract_status.py`).
 
 1. **New submission**: type `27` under **Client ID** — the menu offers
    `27 - Travelers Corporate Cat`; type `Trav` — same row. Enter data vintage
-   2026-06-30 and one contract `T-100` incepting 2027-01-01. Save. The card
-   shows Client ID 27 - Travelers Corporate Cat and Data vintage 2026-06-30;
-   the free-text field is labelled Cedant.
-2. Create another submission leaving Client ID and data vintage blank. It
-   saves.
+   2026-06-30 and one contract `T-100` incepting 2027-01-01; leave treaty
+   year blank. Save. The card shows Client ID 27 - Travelers Corporate Cat,
+   Data vintage 2026-06-30 and a blank treaty year; the free-text field is
+   labelled Cedant. Neither picking the data vintage nor saving filled the
+   year.
+2. Create another submission leaving Client ID blank. It saves. Leave data
+   vintage blank: the form is refused with "Enter a data vintage." (the
+   field carries the required marker).
 3. Stop `rwb_loss` (or point `MSSQL_LOSS_DATABASE` at a missing database) and
    reload the form: the Client ID field says the list is unavailable; saving
    without one still works.
@@ -94,8 +97,8 @@ update script's four cases (`test_bulk_update_contract_status.py`).
    offer the eleven FR-012 values. Insert a twelfth row into
    `treaty_type_kind` and reload: both offer twelve.
 5. From the step-1 submission open **Export** on a finished analysis: Client
-   reads 27, Data vintage 2026-06-30, the Contract select reads `T-100`, CRM
-   ID `T-100`, treaty inception 2027-01-01. Change the inception and export:
+   reads 27, Data vintage is empty (and required), the Contract select reads
+   `T-100`, CRM ID `T-100`, treaty inception 2027-01-01. Change the inception and export:
    the export row records the changed date; the submission is unchanged. On
    a two-contract submission the Contract select opens blank; choosing one
    fills the two fields.

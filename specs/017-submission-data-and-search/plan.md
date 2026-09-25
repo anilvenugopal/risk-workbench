@@ -25,8 +25,8 @@ service and the templates that read deal status and deal dates change.
   `contract_status_code` (FK `contract_status_kind`, the renamed
   `deal_status_kind`), plus `updated_at` / `updated_by` as the in-place
   concurrency marker. `submission` loses `treaty_type_code`, `inception_date`,
-  `expiration_date` and `deal_status_code` and gains `data_vintage DATE NULL`
-  (T-02, T-03).
+  `expiration_date` and `deal_status_code` and gains `data_vintage DATE NOT
+  NULL` (T-02, T-03).
 - **The create form writes the submission and its contracts in one
   transaction.** Contract rows post as parallel repeated fields
   (`contract_crm_id`, `contract_treaty_type`, `contract_inception`,
@@ -64,14 +64,13 @@ service and the templates that read deal status and deal dates change.
   the list's EXISTS (`_contract_clauses`) feeds the row: the first matched
   contract's CRM ID, treaty type and inception, the other matches as
   "+N more"; contract status is a filter, not a list column.
-- **Treaty year** stays on the submission; `_default_treaty_year` takes the
-  earliest contract inception when the field is blank, `None` with no
-  contract (P-20).
+- **Treaty year** stays on the submission, stored as entered; nothing fills
+  a blank one (P-20).
 - **Client and treaty types are unchanged** from 9/18 (T-06, T-07); the
   client label becomes "Client ID" (P-05).
 - **Export pre-fill (FR-011).** The export form's `client_id` typeahead
-  pre-selects the submission's client, `data_vintage` pre-fills from the
-  submission, and a Contract select (one option per contract, pre-selected
+  pre-selects the submission's client, `data_vintage` starts empty, and a
+  Contract select (one option per contract, pre-selected
   when there is one) fills `crm_id` and `treaty_incept` from data attributes
   in an Alpine sliver; both inputs stay editable. `export_service.list_clients`
   is replaced by `client_service.list_clients` (T-09).
@@ -222,8 +221,9 @@ None.
   qualifies; the default order with a contract-less submission placed by
   creation date; the library `EXISTS` cases from 9/18 unchanged;
   `v_contract` emits one row per contract and none for a contract-less
-  submission; the export form pre-fills client, data vintage and the single
-  contract; route tests for the four contract POSTs and every renamed param.
+  submission; the export form pre-fills the client and the single contract
+  and leaves data vintage empty; a blank submission data vintage is refused
+  and a blank treaty year stays blank; route tests for the four contract POSTs and every renamed param.
 - **SQL Server integration**: the migration creates `contract` with its FKs,
   `contract_status_kind` holds three rows, `submission` has no
   `inception_date` / `treaty_type_code` / `deal_status_code`,

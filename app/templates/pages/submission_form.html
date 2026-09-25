@@ -28,8 +28,7 @@
     {% include "partials/dup_warning.html" %}
   {% endif %}
 
-  {# `contractRows` owns the contract editor below and the treaty year: the
-     year follows the data vintage until the analyst types a year. #}
+  {# `contractRows` owns the contract editor below. #}
   <form method="post" action="{{ action }}" x-data="contractRows">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     {% if mode == 'edit' %}
@@ -99,10 +98,10 @@
       </div>
 
       <div class="wf-field">
-        <label>DATA VINTAGE</label>
+        <label>DATA VINTAGE <span class="wf-field__req" title="Required">*</span></label>
         <input class="wf-field__input{% if field_errors.data_vintage %} wf-field__input--error{% endif %}"
-               type="date" name="data_vintage" value="{{ form.data_vintage or '' }}"
-               @change="onVintage($event)">
+               type="date" name="data_vintage" required
+               value="{{ form.data_vintage or '' }}">
         {% if field_errors.data_vintage %}
         <div class="wf-field__msg wf-field__error">{{ field_errors.data_vintage }}</div>
         {% endif %}
@@ -113,13 +112,9 @@
         <input class="wf-field__input{% if field_errors.treaty_year %} wf-field__input--error{% endif %}"
                type="number" name="treaty_year"
                min="{{ min_treaty_year }}" max="{{ max_treaty_year }}"
-               value="{{ form.treaty_year or '' }}" x-ref="year" @input="onYearInput()">
+               value="{{ form.treaty_year or '' }}">
         {% if field_errors.treaty_year %}
         <div class="wf-field__msg wf-field__error">{{ field_errors.treaty_year }}</div>
-        {% else %}
-        <div class="wf-field__msg wf-field__hint">
-          Defaults to the data vintage year. Change it if the treaty year differs.
-        </div>
         {% endif %}
       </div>
 

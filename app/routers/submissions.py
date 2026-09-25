@@ -139,7 +139,9 @@ def _validate_submission_form(
             f"Enter a year between {MIN_TREATY_YEAR} and {MAX_TREATY_YEAR}.")
 
     parsed_data_vintage = _parse_date(data_vintage)
-    if data_vintage.strip() and parsed_data_vintage is None:
+    if not data_vintage.strip():
+        errors["data_vintage"] = "Enter a data vintage."
+    elif parsed_data_vintage is None:
         errors["data_vintage"] = "Enter a valid date."
 
     # The form picks the directory from the drive browser, so a path that no longer
@@ -1832,14 +1834,15 @@ def _export_form_response(request: Request, submission_id: str, *, selected_ids=
              "submission": None, "gone": True}, status_code=404)
     analyses = export_service.list_exportable_analyses(submission_id) or []
     model_versions = export_service.model_version_choices()
-    # FR-011: client and data vintage come from the submission; CRM ID and
-    # treaty inception come from the contract the analyst picks, picked for
-    # them only when the deal has exactly one (P-06).
+    # FR-011: the client comes from the submission; CRM ID and treaty
+    # inception come from the contract the analyst picks, picked for them only
+    # when the deal has exactly one (P-06). Data vintage starts empty (note 35
+    # D13).
     only = submission.contracts[0] if len(submission.contracts) == 1 else None
     form_values = {"client_id": submission.client_id or "",
                    "treaty_incept": str(only.inception_date) if only else "",
                    "crm_id": only.crm_id if only else "",
-                   "data_vintage": str(submission.data_vintage or ""),
+                   "data_vintage": "",
                    "model_version": (model_versions[0] if model_versions else "")}
     form_values.update(values or {})
     return _templates(request).TemplateResponse(

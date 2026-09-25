@@ -32,7 +32,7 @@
 - Q: Does the owner's Modeling status or the contract's Contract status free the CRM ID? → No. A CRM ID on a Completed or Cancelled deal, or a Lost contract, blocks like any other (decision 3, 2026-09-22).
 - Q: Anil's `/crm/{crm_id}` redirect (note 33 O33-7)? → Declined on timing; out of scope for 017.
 - Q: Default sort? → Latest contract inception descending, then name; a submission with no contract placed by its creation date in the same key (P-17). "Last updated" was offered as the alternative meaning of "most relevant right now" and not taken, since the client accepted inception descending in FR doc line 116.
-- Q: Data vintage required or optional on the submission? → Optional; the EDM often does not exist at creation. The export keeps it required and pre-fills from it (P-19).
+- Q: Data vintage required or optional on the submission? → Optional; the EDM often does not exist at creation. The export keeps it required and pre-fills from it (P-19). **Superseded 2026-09-24/25**: note 33 D7 made it required on the call the same day, and the 2026-09-25 session below removes the pre-fill.
 - Q: "Client" or "Client ID"? → Client ID (P-05).
 
 ### Session 2026-09-23 (the bulk update, before the 23 Sep call)
@@ -53,6 +53,13 @@
 
 - Q: Which contract does a list row show after a search? → The first entered among the contracts that satisfied every contract-level filter together (D5). A search for one CRM ID reads that CRM ID with no "+N more".
 - Q: Which contract does an unfiltered row show, and what does the list sort on? → The first entered, for the CRM ID, treaty type and inception columns alike, and the sort key is that inception (D6; user 2026-09-24: "make them consistent. Inception should be first-entered"). P-17's confirmation column is filled; R11 records the change. O34-4's remaining item is telling the client the rule.
+
+### Session 2026-09-24 (note 35 D13, D2; note 33 D7, D8; user 2026-09-25)
+
+- Q: Does the export's data vintage pre-fill from the submission? → No. Ben on the call: "I think we said we actually want to default to empty"; Wendy: "But it's required"; Cheryl: "Yes" (note 35 D13). The export form's data vintage starts empty and stays required. No record in notes 33 or 34 carries "default to empty"; the likeliest source is the unrecorded 9/21 session (note 33 O33-8). Spec 014 FR-002 scenario 2 already said blank.
+- Q: With the pre-fill gone, what is the submission's data vintage for? → It stays, required, as the in-force as-of date shown on the deal card (user 2026-09-25, choosing (a) of note 35 O35-3's three end states). Note 33 D7 made it required on 2026-09-22; the `NOT NULL` lands in `0001_initial.py` before the last rebuild (note 34 O34-5). The SQLite test mirror stays nullable so the tests that write the submission row directly keep working.
+- Q: Does anything fill a blank treaty year? → No. Note 33 D8 (Cheryl: "Maybe we just leave it blank and force people to fill it in"; Ben: "can do that") reversed the data-vintage fill on the form the day it shipped; the 2026-09-25 session removes the server-side fill from the earliest contract inception as well, since it is the same rule by another route (note 35 O35-3 names the hint). `_default_treaty_year` is deleted; the year is stored as entered.
+- Q: Does the list sort on the matched contract under a contract filter? → Yes; see the session above and R11 (note 35 D2, O35-2).
 
 ## Evidence for the plan's technical decisions
 

@@ -73,7 +73,7 @@ def _mk(db, *, owner=None, name="TY2604_AmericanFamily", cedant="American Family
         contracts = [ContractInput(crm_id=crm, treaty_type_code=tt, inception_date=inc)]
     res = create_submission(
         name=name, cedant_name=cedant, treaty_year=ty, contracts=contracts,
-        actor_id=owner or db.user_a, confirmed=confirmed,
+        data_vintage="2026-06-30", actor_id=owner or db.user_a, confirmed=confirmed,
     )
     return res
 
@@ -934,7 +934,21 @@ def test_create_with_no_contract_leaves_treaty_year_blank(iteration1_db):
     sid = _mk(iteration1_db, contracts=[], ty=None).submission_id
     sub = get_submission(sid)
     assert sub.contracts == [] and sub.treaty_year is None
-    assert sub.client_id is None and sub.data_vintage is None
+    assert sub.client_id is None and _day(sub.data_vintage) == "2026-06-30"
+
+
+def test_create_and_update_refuse_a_blank_data_vintage(iteration1_db):
+    """P-19: the data vintage is required on the submission (note 35 D13)."""
+    a = iteration1_db.user_a
+    with pytest.raises(ValueError, match="data_vintage"):
+        create_submission(name="No vintage", cedant_name="V Re", data_vintage=None,
+                          actor_id=a, confirmed=True)
+    assert list_submissions(owner_ids=[a], name="No vintage").rows == []
+    sid = _mk(iteration1_db, owner=a, name="Has vintage").submission_id
+    with pytest.raises(ValueError, match="data_vintage"):
+        update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                          actor_id=a, confirmed=True, data_vintage=None)
+    assert _day(get_submission(sid).data_vintage) == "2026-06-30"
 
 
 def test_create_writes_every_contract_row_in_one_transaction(iteration1_db):
@@ -950,7 +964,7 @@ def test_create_writes_every_contract_row_in_one_transaction(iteration1_db):
         "2027-12-31", "2027-12-31", "2029-12-31"]          # blank → inception + 1y − 1d
     assert [c.contract_status_code for c in sub.contracts] == [
         "OPEN", "OPEN", "WON"]
-    assert sub.treaty_year == 2027 and _day(sub.data_vintage) == "2026-06-30"
+    assert sub.treaty_year is None and _day(sub.data_vintage) == "2026-06-30"
 
 
 @pytest.mark.parametrize(("rows", "index", "message"), [
@@ -965,7 +979,7 @@ def test_create_refuses_a_bad_contract_row_and_writes_nothing(
         iteration1_db, rows, index, message):
     with pytest.raises(ContractInvalid) as raised:
         create_submission(name="Refused", cedant_name="R Re", contracts=rows,
-                          actor_id=iteration1_db.user_a, confirmed=True)
+                          data_vintage="2026-06-30", actor_id=iteration1_db.user_a, confirmed=True)
     assert raised.value.index == index and str(raised.value) == message
     assert raised.value.owner is None
     assert list_submissions(owner_ids=[iteration1_db.user_a], name="Refused").rows == []
@@ -978,7 +992,7 @@ def test_create_refuses_a_crm_id_that_is_a_contract_on_another_deal(iteration1_d
     with pytest.raises(ContractInvalid) as raised:
         create_submission(name="Second", cedant_name="S Re",
                           contracts=[_row("X-9"), _row(" x-1 ")],
-                          actor_id=iteration1_db.user_a, confirmed=True)
+                          data_vintage="2026-06-30", actor_id=iteration1_db.user_a, confirmed=True)
     assert raised.value.index == 1
     assert str(raised.value) == "x-1 is already a contract on"
     assert raised.value.owner == ContractOwner(owner, "Owner deal")
@@ -1211,7 +1225,7 @@ def test_create_with_an_unknown_link_target_is_rejected(iteration1_db, link_valu
     with pytest.raises(UnknownLinkError):
         create_submission(
             name="Stale link", cedant_name="American Family",
-            links_to_submission_id=link_value, actor_id=iteration1_db.user_a,
+            links_to_submission_id=link_value, data_vintage="2026-06-30", actor_id=iteration1_db.user_a,
             confirmed=True)
     # Scoped to this test's throwaway owner, so the assertion is "the deal was not
     # written" rather than "a page of the list is the same length".
@@ -1242,13 +1256,14 @@ def test_link_target_is_kept_across_an_edit_that_never_mentions_it(iteration1_db
     assert get_submission(sid).links_to_submission_id == target
 
 
-def test_treaty_year_defaults_to_the_earliest_contract_inception_year(iteration1_db):
-    """P-20: the earliest contract's inception, not a designated one."""
+def test_blank_treaty_year_stays_blank(iteration1_db):
+    """P-20 (note 33 D8): the treaty year is entered by hand; nothing fills a
+    blank one from the contracts or the data vintage."""
     sid = create_submission(
         name="No year given", cedant_name="Y Re", treaty_year=None,
         contracts=[_row("A-1", inc=date(2027, 1, 1)), _row("A-2", inc=date(2026, 7, 1))],
-        actor_id=iteration1_db.user_a, confirmed=True).submission_id
-    assert get_submission(sid).treaty_year == 2026
+        data_vintage="2026-06-30", actor_id=iteration1_db.user_a, confirmed=True).submission_id
+    assert get_submission(sid).treaty_year is None
 
 
 def test_entered_treaty_year_survives_create_and_update(iteration1_db):
@@ -1263,18 +1278,13 @@ def test_entered_treaty_year_survives_create_and_update(iteration1_db):
     assert get_submission(sid).treaty_year == 2027
 
 
-def test_clearing_treaty_year_on_update_refills_it_from_the_contracts(
-        iteration1_db):
+def test_clearing_treaty_year_on_update_leaves_it_blank(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db, name="Cleared year", inc=date(2026, 4, 1),
               ty=2030).submission_id
     update_submission(submission_id=sid, expected_updated_at=_marker(sid),
                       actor_id=a, confirmed=True, treaty_year=None)
-    assert get_submission(sid).treaty_year == 2026
-    bare = _mk(iteration1_db, name="No contracts", contracts=[], ty=2030).submission_id
-    update_submission(submission_id=bare, expected_updated_at=_marker(bare),
-                      actor_id=a, confirmed=True, treaty_year=None)
-    assert get_submission(bare).treaty_year is None
+    assert get_submission(sid).treaty_year is None
 
 
 # ── "Links to" picker search (CR8) ───────────────────────────────────────────
@@ -1451,7 +1461,7 @@ def test_contract_level_filters_are_met_by_one_contract_together(iteration1_db):
 def test_client_id_is_stored_updated_and_filtered(iteration1_db, loss_clients):
     a = iteration1_db.user_a
     res = create_submission(
-        name="With client", cedant_name="C", client_id=27, actor_id=a, confirmed=True)
+        name="With client", cedant_name="C", client_id=27, data_vintage="2026-06-30", actor_id=a, confirmed=True)
     bare = _mk(iteration1_db, owner=a, name="Bare", inc=date(2026, 7, 1)).submission_id
     sub = get_submission(res.submission_id)
     assert sub.client_id == 27 and sub.client_name == "Travelers Corporate Cat"

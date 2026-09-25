@@ -16,7 +16,7 @@ references: [plan.md](plan.md) T-01 … T-14.
 | Contract, CRM ID | `contract` (one row per CRM ID) | |
 | Cedant | `submission.cedant_name` | free text (unchanged) |
 | Client ID | `submission.client_id` | `dbo.Client.ClientID` in `rwb_loss`; no FK |
-| Data vintage | `submission.data_vintage` | date, optional |
+| Data vintage | `submission.data_vintage` | date, required |
 | Cedant (treaty grid column) | `irp_treaty.attributes` → `cedant` | Risk Modeler's treaty attribute (unchanged) |
 
 ## 1. `contract_status_kind` — kind table (T-01)
@@ -33,7 +33,7 @@ references: [plan.md](plan.md) T-01 … T-14.
 | `inception_date` | **removed** | a contract attribute (P-03) |
 | `expiration_date` | **removed** | a contract attribute (P-03) |
 | `deal_status_code` | **removed**, with its FK | a contract attribute (P-02) |
-| `data_vintage` | **added** `DATE NULL` | one per submission (P-19) |
+| `data_vintage` | **added** `DATE NOT NULL` | one per submission (P-19); the SQLite test mirror stays nullable |
 | `client_id` | unchanged `INT NULL`, no FK | (P-04) |
 | `treaty_year` | unchanged `INT NULL` | stays on the submission (P-20) |
 

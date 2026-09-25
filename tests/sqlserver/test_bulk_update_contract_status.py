@@ -96,7 +96,7 @@ def deal() -> SimpleNamespace:
         name=f"Bulk update {tag}", cedant_name="Bulk Test Cedant", treaty_year=2027,
         contracts=[svc.ContractInput(crm_a, "per_risk_xol", date(2027, 1, 1)),
                    svc.ContractInput(crm_b, "aggregate_xol", date(2027, 1, 1))],
-        actor_id=actor, confirmed=True)
+        data_vintage="2026-06-30", actor_id=actor, confirmed=True)
     submission_id = str(created.submission_id)
     yield SimpleNamespace(submission_id=submission_id, crm_a=crm_a, crm_b=crm_b, tag=tag)
     with get_connection("LOSS") as conn, conn.begin():

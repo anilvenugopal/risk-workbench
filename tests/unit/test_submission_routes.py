@@ -96,7 +96,7 @@ def _payload(*, crm_ids: str | None = None, treaty_type_code: str = "per_risk_xo
         "name": "TY2604_AmericanFamily",
         "cedant_name": "American Family Mutual",
         "client_id": "",
-        "data_vintage": "",
+        "data_vintage": "2026-06-30",
         "treaty_year": "",
         "directory_path": "",
         "links_to_submission_id": "",
@@ -669,8 +669,9 @@ def test_submission_entity_routes_validate_csrf(client, kind, action):
 def test_new_form_marks_the_required_fields(client):
     body = client.get("/submissions/new").text
     assert "wf-fields__legend" in body
-    # Name and cedant are the required fields; contract rows carry their own rules.
-    assert body.count('class="wf-field__req" title="Required"') == 2
+    # Name, cedant and data vintage are the required fields; contract rows carry
+    # their own rules.
+    assert body.count('class="wf-field__req" title="Required"') == 3
     assert 'name="contract_crm_id"' in body and 'name="data_vintage"' in body
     assert 'name="inception_date"' not in body and 'name="treaty_type_code"' not in body
 
@@ -697,6 +698,17 @@ def test_several_bad_fields_are_all_reported(client):
     assert "Enter a name for this submission." in res.text
     assert "Enter a cedant." in res.text
     assert "Enter a valid date." in res.text
+
+
+def test_a_blank_data_vintage_is_refused(client):
+    """P-19 (note 35 D13): the data vintage is required on the submission."""
+    body = client.get("/submissions/new").text
+    assert 'name="data_vintage" required' in body
+    res = client.post("/submissions", data=_payload(name="No vintage", data_vintage=""))
+    assert res.status_code == 422
+    assert "Enter a data vintage." in res.text
+    assert submission_service.list_submissions(
+        owner_ids=[client.db.user_a], name="No vintage").rows == []
 
 
 def test_unparseable_contract_date_is_reported_under_its_row(client):
@@ -741,12 +753,15 @@ def test_the_form_opens_the_browser_in_directory_mode(client):
 
 # ── CR5: treaty year ─────────────────────────────────────────────────────────
 
-def test_blank_treaty_year_is_filled_from_the_inception_date(client):
+def test_blank_treaty_year_stays_blank(client):
     res = client.post("/submissions", data=_payload(
-        inception_date="2026-04-01", treaty_year=""))
+        inception_date="2026-04-01", data_vintage="2025-12-31", treaty_year=""))
     assert res.status_code == 303
     sid = res.headers["location"].rsplit("/", 1)[-1]
-    assert submission_service.get_submission(sid).treaty_year == 2026
+    assert submission_service.get_submission(sid).treaty_year is None
+    body = client.get("/submissions/new").text
+    assert "Defaults to the data vintage year" not in body
+    assert "onVintage" not in body
 
 
 def test_an_entered_treaty_year_is_kept(client):
@@ -961,7 +976,7 @@ def _mk_owned_by_b(client, name: str) -> None:
     submission_service.create_submission(
         name=name, cedant_name="Beta Re", treaty_year=2026,
         contracts=[ContractInput("B-1", "aggregate_xol", date(2026, 3, 1))],
-        actor_id=client.db.user_b, confirmed=True)
+        data_vintage="2026-06-30", actor_id=client.db.user_b, confirmed=True)
 
 
 def _two_american_deals(client) -> None:
@@ -1213,10 +1228,9 @@ def test_repeated_filter_parameters_or_within_the_filter(client):
 
 
 def test_repeated_treaty_years_or_within_the_filter(client):
-    for name, inception in (("Y2025", "2025-04-01"), ("Y2026", "2026-04-01"),
-                            ("Y2027", "2027-04-01")):
+    for name, year in (("Y2025", "2025"), ("Y2026", "2026"), ("Y2027", "2027")):
         client.post("/submissions", data=_payload(name=name, cedant_name=f"{name} Re",
-                                                  inception_date=inception))
+                                                  treaty_year=year))
     body = client.get("/submissions?treaty_year=2025&treaty_year=2027").text
     assert "Y2025" in body and "Y2027" in body and "Y2026" not in body
 
@@ -1982,7 +1996,7 @@ def test_create_posts_three_rows_and_fills_blank_expiration_and_status(client):
         ("A-1", "per_occurrence_cat_xol", "2027-12-31", "OPEN"),
         ("A-2", "aggregate_xol", "2027-12-31", "WON"),
         ("A-3", "top_and_drop", "2029-12-31", "OPEN")]
-    assert submission_service.get_submission(sid).treaty_year == 2027
+    assert submission_service.get_submission(sid).treaty_year is None
 
 
 def test_create_ignores_the_blank_row_the_form_always_shows(client):
@@ -2292,11 +2306,17 @@ def test_data_vintage_saves_and_the_edit_form_carries_no_contract_fields(client)
     assert 'name="data_vintage"' in edit and 'value="2026-06-30"' in edit
     assert 'name="contract_crm_id"' not in edit
     saved = client.post(f"/submissions/{sid}", data={
-        **_payload(name="Vintage deal", data_vintage=""),
+        **_payload(name="Vintage deal", data_vintage="2026-09-30"),
         "updated_at": str(submission_service.get_submission(sid).updated_at)})
     assert saved.status_code == 303
     sub = submission_service.get_submission(sid)
-    assert sub.data_vintage is None and [c.crm_id for c in sub.contracts] == ["T-1"]
+    assert str(sub.data_vintage) == "2026-09-30"
+    assert [c.crm_id for c in sub.contracts] == ["T-1"]
+    cleared = client.post(f"/submissions/{sid}", data={
+        **_payload(name="Vintage deal", data_vintage=""),
+        "updated_at": str(sub.updated_at)})
+    assert cleared.status_code == 422 and "Enter a data vintage." in cleared.text
+    assert str(submission_service.get_submission(sid).data_vintage) == "2026-09-30"
 
 
 def test_list_offers_both_status_pickers_and_filters_on_a_contract(client):

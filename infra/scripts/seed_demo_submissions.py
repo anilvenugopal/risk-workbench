@@ -87,8 +87,8 @@ class Plan:
     cedant_name: str
     owner_index: int
     client_id: int | None
-    treaty_year: int | None
-    data_vintage: date | None
+    treaty_year: int
+    data_vintage: date
     modeling_status: str
     contracts: list[submission_service.ContractInput] = field(default_factory=list)
 
@@ -120,9 +120,8 @@ def _plans(count: int) -> list[Plan]:
             cedant_name=cedant,
             owner_index=index % len(ANALYSTS),
             client_id=rng.choice(CLIENT_IDS),
-            # With no contract there is no inception to fill the treaty year from.
-            treaty_year=year if not contracts else None,
-            data_vintage=date(year - 1, 12, 31) if rng.random() < 0.6 else None,
+            treaty_year=year,
+            data_vintage=date(year - 1, 12, 31),
             modeling_status=rng.choice(MODELING_STATUSES),
             contracts=contracts,
         ))
