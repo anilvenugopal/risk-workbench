@@ -45,7 +45,7 @@
 ### Session 2026-09-23 (afternoon, note 34 D9–D13)
 
 - Q: What words does CIC's CRM use for status? → "Literally open, won, or lost" (Wendy). The Workbench Contract status In Process is renamed Open, code and label, so the words match and the script maps nothing (D9; O-01 closed). The rename is a code change (`OPEN`) inside `0001_initial.py` before the last rebuild (D14): the script's join reads `contract_status_kind.code`, never the label.
-- Q: Where does the script read the statuses from? → A two-column relation, CRM ID and status, in CIC's loss repository: a table Cheryl builds now with about five real CRM IDs, Ross's view over the linked CRM copy in production (D11, D12). Not a pasted list. The Workbench mirrors it as `dbo.CRMContractStatus (CRMID NVARCHAR(50) PK, Status NVARCHAR(50))` in `rwb_loss`; the names are proposed to Cheryl and follow hers if they differ.
+- Q: Where does the script read the statuses from? → A two-column relation, CRM ID and status, in CIC's loss repository: a table Cheryl builds now with about five real CRM IDs, Ross's view over the linked CRM copy in production (D11, D12). Not a pasted list. The Workbench mirrors it as `dbo.CRMContractStatus (CRMID NVARCHAR(50) PK, STATUS NVARCHAR(50))` in `rwb_loss`; Cheryl matches the names the Workbench gives (note 35 D1: "We can match whatever name you give it").
 - Q: Update every contract, or the ones named? → Every Workbench contract whose CRM ID appears in the source (D10). A contract with no source row is left alone.
 - Q: How is it run? → From SSMS by hand first, nightly later (D13). The nightly phase and its unattended error handling are open (note 34 O34-3), not built here.
 
@@ -383,9 +383,12 @@ cannot see.
 ### R15 — The bulk update is a script (T-16)
 
 **Decision.** `infra/scripts/bulk_update_contract_status.sql`: `#crm_status`
-is loaded by `INSERT … SELECT CRMID, Status FROM rwb_loss.dbo.CRMContractStatus`,
+is loaded by `INSERT … SELECT CRMID, STATUS FROM rwb_loss.dbo.CRMContractStatus`,
 the one line that changes per environment (CIC's loss repository name in
-production); `@dry_run` defaults to 1; each row resolves to a
+production); `@dry_run` defaults to 1; the script stops before reading anything when
+`OBJECT_ID('dbo.contract_status_kind')` is NULL, so run from the loss database
+or `master` it fails with "Run this script in the Workbench database" instead
+of on the first Workbench table (note 35 D1); each row resolves to a
 `contract_status_kind` code (`UPPER(TRIM(status))`, so Open / Won / Lost in
 any case) and to a contract by `LOWER(TRIM(crm_id))`, the P-10 and R14
 normalisation; three result sets (summary with counts, problems, the change

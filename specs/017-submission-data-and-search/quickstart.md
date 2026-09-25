@@ -133,7 +133,9 @@ row per seeded contract, about a third carrying a status the contract does not,
 plus ten CRM IDs the Workbench lacks; its last print line reports the counts.
 
 1. Open `infra/scripts/bulk_update_contract_status.sql` against
-   `rwb_workbench` in SSMS or Azure Data Studio and run it as is. The summary
+   `rwb_workbench` in SSMS or Azure Data Studio and run it as is. Run with
+   `rwb_loss` or `master` selected instead, it stops with "Run this script in
+   the Workbench database" and reads nothing. Against `rwb_workbench` the summary
    reads `to_update` about a third of the contracts, `not_in_workbench 10`,
    `dry_run 1`; the change list shows each row with its old and new status;
    nothing is written.
@@ -145,9 +147,9 @@ plus ten CRM IDs the Workbench lacks; its last print line reports the counts.
    run: the problem list names the row, `Nothing written`, no contract
    changed. Delete the row afterwards.
 
-In production the one SOURCE line names CIC's loss repository instead of
-`rwb_loss`; the login running the script needs SELECT on
-`dbo.CRMContractStatus` there.
+In production the one SOURCE line names `CRE_Trial_ELT_Repository`, CIC's
+loss repository, instead of `rwb_loss`; the login running the script needs
+SELECT on `dbo.CRMContractStatus` there.
 
 From the host without SSMS (a dry run unless `@dry_run` is edited):
 

@@ -80,9 +80,10 @@ JOIN submission s ON s.id = c.submission_id
 
 The Workbench's own queries read `contract` directly; the view exists for
 CIC's linking SQL, which keys on `crm_id`. The January bulk update script
-reads `dbo.CRMContractStatus` in the loss repository (CIC-owned; mirrored in
-`db/bootstrap/loss_dev_mirror.sql`) and writes `contract` directly (FR-023,
-note 32 D25, note 34 D11).
+reads `dbo.CRMContractStatus (CRMID, STATUS)` in the loss repository
+(CIC-owned; mirrored in `db/bootstrap/loss_dev_mirror.sql`) and writes
+`contract` directly (FR-023, note 32 D25, note 34 D11). It refuses to run in a
+database with no `contract_status_kind` table (note 35 D1).
 
 ## 5. Predicates the lists run (T-05, T-11)
 

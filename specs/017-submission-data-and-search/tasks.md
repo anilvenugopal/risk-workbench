@@ -356,7 +356,7 @@ Wed 23 Sep. Baseline: unit tier 2,027 passed.
 - [x] T080 [FR-023] [P-21] `db/bootstrap/loss_dev_mirror.sql` adds `dbo.CRMContractStatus (CRMID NVARCHAR(50) PK, Status NVARCHAR(50))`; `seed_demo_submissions.py` writes one row per seeded contract (about a third with a different status) plus ten `CRM-CRMONLY-nnnn` rows and clears the table on `--clear`; `test_loss_export_procedure.py` clears it too
 - [x] T081 [FR-023] [P-21] [T-16] `bulk_update_contract_status.sql` loads `#crm_status` by `INSERT … SELECT CRMID, Status FROM rwb_loss.dbo.CRMContractStatus` (the one per-environment line), resolves a status as `UPPER(TRIM(status))`, drops the skipped-CRM-ID result set (the count stays in the summary); `test_bulk_update_contract_status.py` writes its rows to the table over `LOSS`, points the SOURCE line at `MSSQL_LOSS_DATABASE`, reads three result sets and tests the duplicate with a leading-space spelling (the primary key refuses an exact duplicate under the CI collation)
 - [x] T082 [FR-023] [P-21] [O-01] spec.md (scope, P-21, O-01 closed, FR-023, Key Entities); plan.md (T-16, project structure, testing); research.md (session 2026-09-23 afternoon, R15); quickstart.md §3 Bulk update; data-model.md §4; `docs/FUNCTIONAL_REQUIREMENTS.md` line 72, `docs/DATA_MODEL.md` §1, §4, §9 and the change log, `docs/PRD.md` §7.2 name `dbo.CRMContractStatus`
-- [ ] T083 [FR-023] Send Cheryl the `dbo.CRMContractStatus` DDL; if her column names differ, change the mirror DDL, the script's SELECT line and the seeder's INSERT. Demo Thu 24 Sep against her table
+- [ ] T083 [FR-023] Send Cheryl the `dbo.CRMContractStatus (CRMID, STATUS)` DDL; she matches the Workbench's names (note 35 D1). Demoed Thu 24 Sep against `rwb_loss`
 
 ## Phase 11: The row shows the contract that matched (note 34 D5, D6, 2026-09-24)
 
@@ -371,3 +371,15 @@ its inception. Baseline: unit tier 2,027 passed.
 - [x] T085 [FR-007] `tests/unit/test_submission_service.py`: the summary test reads the first-entered contract; a new test filters the same deal by CRM ID, Contract status, treaty type + status, in force and inception and checks the three columns each time, then a name filter alone leaves every contract; the sort test orders on the first-entered inception
 - [x] T086 [FR-007] [P-17] spec.md (P-17, FR-007, Story 1 scenario 8); plan.md (design summary, T-11); research.md (R11, session 2026-09-24); data-model.md §5 and §8; quickstart.md §3 step 6; `docs/DATA_MODEL.md` §4 and change log; `docs/FUNCTIONAL_REQUIREMENTS.md` line 116
 - [ ] T087 [P-17] Tell Wendy and Cheryl the rule on Thu 24 Sep (note 34 O34-4): the row shows the first-entered contract, or the first that matched the search, and the list sorts on that inception
+
+## Phase 12: Note 35 follow-ups (2026-09-24 call, 2026-09-25)
+
+**Purpose**: the two defects found on the 24 Sep demo, the export data
+vintage reversal, and the accepted library asks (note 35 O35-1 to O35-4,
+O35-6). Baseline: unit tier 2,027 passed.
+
+**Independent test**: quickstart.md §3 Bulk update step 1, Story 1 step 6,
+Story 2, Export, Libraries.
+
+- [x] T088 [FR-023] [P-21] `bulk_update_contract_status.sql` stops with `RAISERROR` when `OBJECT_ID('dbo.contract_status_kind')` is NULL (note 35 D1); its header names `CRE_Trial_ELT_Repository` as the production SOURCE database and the future view of the same name and columns (D3); the source column is spelled `STATUS` in the mirror DDL, the SELECT line, the seeder's INSERT and the tier test; `test_bulk_update_contract_status.py` gains `test_refuses_to_run_outside_the_workbench_database`, running the script over the `LOSS` connection. spec.md (P-21, FR-023), data-model.md §4, research.md (R15, session 2026-09-23 afternoon), quickstart.md §3 Bulk update, `docs/DATA_MODEL.md` §9
+  - Proof: unit tier 2,040 passed 2026-09-25. The SQL Server tier (the new guard test and the renamed column) is not yet run

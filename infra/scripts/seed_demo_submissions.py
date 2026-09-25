@@ -238,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         crm_rows, differing = _crm_rows(plans)
         with get_connection("LOSS") as conn, conn.begin():
             conn.execute(
-                text("INSERT INTO dbo.CRMContractStatus (CRMID, Status) VALUES (:crm, :status)"),
+                text("INSERT INTO dbo.CRMContractStatus (CRMID, STATUS) VALUES (:crm, :status)"),
                 [{"crm": crm, "status": status} for crm, status in crm_rows])
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

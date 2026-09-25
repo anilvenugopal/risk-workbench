@@ -11,12 +11,16 @@
 -- stale page is refused.
 --
 -- 1. The SOURCE line below names rwb_loss, the development database. In
---    production replace it with the name of CIC's loss repository; nothing
---    else differs between environments. The login running the script needs
---    SELECT on that table.
--- 2. Leave @dry_run = 1 for the first run: it reports what would change and
+--    production replace it with CRE_Trial_ELT_Repository, CIC's loss
+--    repository; nothing else differs between environments. The login running
+--    the script needs SELECT on that table. Once CIC's linked server to the
+--    CRM copy exists, dbo.CRMContractStatus there becomes a view with the same
+--    name and columns, so the script does not change.
+-- 2. Run it in the Workbench database. The script stops with a message when
+--    the database it runs in has no contract_status_kind table.
+-- 3. Leave @dry_run = 1 for the first run: it reports what would change and
 --    writes nothing. Set it to 0 to apply.
--- 3. Run the whole script as one batch. It writes nothing when the source
+-- 4. Run the whole script as one batch. It writes nothing when the source
 --    carries a status the Workbench does not have or lists a CRM ID twice
 --    (two spellings of the same CRM ID). A CRM ID with no contract in the
 --    Workbench is counted and skipped: CRM holds deals the Workbench never
@@ -25,6 +29,12 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
+IF OBJECT_ID('dbo.contract_status_kind') IS NULL
+BEGIN
+    RAISERROR ('Run this script in the Workbench database (the one holding contract_status_kind).', 16, 1);
+    RETURN;
+END;
+
 DECLARE @dry_run BIT = 1;
 
 DROP TABLE IF EXISTS #crm_status;
@@ -32,7 +42,7 @@ CREATE TABLE #crm_status (crm_id NVARCHAR(255) NOT NULL, status NVARCHAR(50) NOT
 
 -- ==== SOURCE: the CRM status relation; change the database name per environment ====
 INSERT INTO #crm_status (crm_id, status)
-SELECT CRMID, Status FROM rwb_loss.dbo.CRMContractStatus;
+SELECT CRMID, STATUS FROM rwb_loss.dbo.CRMContractStatus;
 -- ==== END SOURCE ====
 
 DROP TABLE IF EXISTS #resolved;

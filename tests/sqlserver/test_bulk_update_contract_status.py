@@ -38,10 +38,12 @@ def crm_status_table():
     execute_script_file(BOOTSTRAP_DIR / "loss_dev_mirror.sql", connection="LOSS")
 
 
-def _run(rows: list[tuple[str, str]], *, dry_run: bool) -> list[list[dict]]:
-    """Make ``rows`` the source table's content and run the script against the
-    LOSS database the tier points at; one list of dicts per result set. The
-    script's RAISERROR surfaces as the driver's exception."""
+def _run(rows: list[tuple[str, str]], *, dry_run: bool,
+         connection: str = "WORKBENCH") -> list[list[dict]]:
+    """Make ``rows`` the source table's content and run the script, its SOURCE
+    line pointed at the LOSS database the tier uses, over ``connection``; one
+    list of dicts per result set. The script's RAISERROR surfaces as the
+    driver's exception."""
     script = SCRIPT.read_text(encoding="utf-8")
     assert SOURCE_TABLE in script
     script = script.replace(
@@ -50,10 +52,10 @@ def _run(rows: list[tuple[str, str]], *, dry_run: bool) -> list[list[dict]]:
                             f"DECLARE @dry_run BIT = {int(dry_run)};")
     with get_connection("LOSS") as conn, conn.begin():
         conn.execute(text("DELETE FROM dbo.CRMContractStatus"))
-        conn.execute(text("INSERT INTO dbo.CRMContractStatus (CRMID, Status) "
+        conn.execute(text("INSERT INTO dbo.CRMContractStatus (CRMID, STATUS) "
                           "VALUES (:crm, :status)"),
                      [{"crm": crm, "status": status} for crm, status in rows])
-    raw = get_engine("WORKBENCH").raw_connection()
+    raw = get_engine(connection).raw_connection()
     try:
         cursor = raw.cursor()
         cursor.execute(script)
@@ -153,6 +155,13 @@ def test_unknown_status_writes_nothing(deal):
     after = _contracts(deal.submission_id)
     assert after[deal.crm_a]["contract_status_code"] == "OPEN"
     assert after[deal.crm_b]["contract_status_code"] == "OPEN"
+
+
+def test_refuses_to_run_outside_the_workbench_database(deal):
+    with pytest.raises(Exception, match="Run this script in the Workbench database"):
+        _run([(deal.crm_a, "Won")], dry_run=False, connection="LOSS")
+
+    assert _contracts(deal.submission_id)[deal.crm_a]["contract_status_code"] == "OPEN"
 
 
 def test_crm_id_listed_twice_writes_nothing(deal):
