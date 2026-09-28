@@ -49,7 +49,7 @@
     {{ forms.multi_picker("contract_status", "Contract status", contract_statuses,
                           filter_values.contract_status) }}
     {{ forms.in_force_control(filter_values) }}
-    <label>Not in a submission
+    <label class="filters__tick">Not in a submission
       <input type="checkbox" name="unattached" value="1"{% if filter_values.unattached %} checked{% endif %}>
     </label>
     <a class="btn-sm" href="{{ list_route }}">Clear filters</a>

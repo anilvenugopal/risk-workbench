@@ -105,6 +105,10 @@
 .filters__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 18px; width: 100%; }
 .filters label { font-size: var(--fs-caption); color: var(--text-tertiary); display: flex; flex-direction: column; gap: 4px; }
 .filters select { min-width: 150px; }
+/* A lone tick sits beside its text instead of dropping under it like a
+   field's input does. */
+.filters label.filters__tick { flex-direction: row; align-items: center; gap: var(--space-2); }
+.filters__tick input[type="checkbox"] { margin: 0; }
 /* A picker cannot wrap its control in a <label>: a click on a menu row inside a
    label is forwarded to the control, which reopens the menu it just closed. Label
    and combobox are siblings, stacked like the other filters. */
