@@ -1,6 +1,6 @@
-{# The EDM detail header's meta line — source path, identifiers, portfolio
-   count, sync stamp, and the manual Sync control (spec 004 FR-011: no cedant,
-   no LOB). Context: `edm` (edm_service.EdmDetail).
+{# The EDM detail header's meta line — source path, linked submissions,
+   creating job, portfolio count, sync stamp, and the manual Sync control
+   (spec 004 FR-011: no cedant, no LOB). Context: `edm` (edm_service.EdmDetail).
    Its own element (2026-08-05, T-11): the Portfolios section's breakout poll
    OOB-swaps this line, because the portfolio count and the Sync button state
    both move while a breakout runs and the whole-body poll is quiet meanwhile.
@@ -15,10 +15,10 @@
           x-bind:aria-expanded="notesOpen"
           x-on:click="notesOpen = !notesOpen"
           x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
-  {% if edm.irp_id %}
+  {% for s in edm.submissions %}
   <span class="crumb__sep">·</span>
-  <span>RM EDM #{{ edm.irp_id }}</span>
-  {% endif %}
+  <span>in <a class="crumb" href="/submissions/{{ s.id }}">{{ s.name }}</a></span>
+  {% endfor %}
   {% if edm.created_by_irp_job_irp_id %}
   <span class="crumb__sep">·</span>
   <span class="mono" title="creating import job">job #{{ edm.created_by_irp_job_irp_id }}</span>

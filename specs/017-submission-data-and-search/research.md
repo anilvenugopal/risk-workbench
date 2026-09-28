@@ -61,6 +61,13 @@
 - Q: Does anything fill a blank treaty year? → No. Note 33 D8 (Cheryl: "Maybe we just leave it blank and force people to fill it in"; Ben: "can do that") reversed the data-vintage fill on the form the day it shipped; the 2026-09-25 session removes the server-side fill from the earliest contract inception as well, since it is the same rule by another route (note 35 O35-3 names the hint). `_default_treaty_year` is deleted; the year is stored as entered.
 - Q: Does the list sort on the matched contract under a contract filter? → Yes; see the session above and R11 (note 35 D2, O35-2).
 
+### Session 2026-09-28 (note 35 D14–D17, O35-6; user 2026-09-25)
+
+- Q: Why did "TY 2607 USFL" not find the EDM "TY USFL 2607" on the call? → `list_edms` and `list_rdms` matched the whole term with one `LIKE`, while the submissions list matches per word through `_word_and_clauses` (D14; Cheryl: two behaviours would be "frustrating"). The library pages now pass `match_words=True`; the global search box keeps the whole-term match (user 2026-09-25).
+- Q: Does the Risk Modeler ID stay anywhere in the libraries? → No. It leaves the library table and both detail headers; analysis rows keep theirs, which is where it is used (D15; Ben: "It's useless for you… The only thing that it's useful for is… analyses").
+- Q: Where does an EDM or RDM opened from the library show its submissions? → In the header's meta line, one link per owning submission, oldest first, on the library route and the submission route alike (D16; Cheryl: "It'd be nice to have the links to those submissions up at the top"). `get_edm_detail` and `get_rdm_detail` call the `_attach_submissions` helper the list functions already use.
+- Q: How does an analyst list the EDMs attached to no submission? → A "Not in a submission" checkbox on both library filter bars, a `NOT EXISTS` over the association table. It is an entity-level filter; beside any submission-attribute filter the list is empty by construction, which FR-016 already implied (D16; Wendy: RDMs identically). No cross-Workbench results search (D17).
+
 ## Evidence for the plan's technical decisions
 
 Each section closes one `T-nn` row in [plan.md](plan.md). Codebase facts were

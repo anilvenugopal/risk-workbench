@@ -135,6 +135,16 @@ class TestEdmRdmProvider:
         rdms = next(g for g in groups if g.type == "rdms")
         assert rdms.items[0].label == "Broker RDM Alpha"
 
+    def test_edm_and_rdm_match_the_whole_term_not_its_words(self, iteration2_db):
+        """The library pages match per word (spec 017 FR-015); the global search
+        box keeps the substring match (user 2026-09-25)."""
+        _insert_edm(iteration2_db.engine, name="Coastal HO 2026")
+        _insert_rdm(iteration2_db.engine, name="Broker RDM Alpha")
+        groups = search_service.global_search("coastal 2026", user_roles=["analyst"])
+        assert not any(g.type == "edms" for g in groups)
+        groups = search_service.global_search("broker alpha", user_roles=["analyst"])
+        assert not any(g.type == "rdms" for g in groups)
+
 
 class TestTemplatesProvider:
     def test_matches_by_name(self, iteration2_db):

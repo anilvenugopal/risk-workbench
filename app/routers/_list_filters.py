@@ -140,6 +140,7 @@ def library_filters(request) -> tuple[ListFilters, dict[str, Any]]:
     filter_values = {
         "q": request.query_params.get("q", ""),
         "status": request.query_params.get("status", ""),
+        "unattached": request.query_params.get("unattached") == "1",
         **parsed.text, **parsed.multi,
         "in_force": parsed.in_force, "as_of": parsed.as_of or date.today().isoformat(),
     }
@@ -147,6 +148,7 @@ def library_filters(request) -> tuple[ListFilters, dict[str, Any]]:
         "filter_values": filter_values,
         "validation_error": parsed.error,
         "is_filtered": bool(filter_values["q"] or filter_values["status"]
+                            or filter_values["unattached"]
                             or submission_service.has_submission_filters(parsed.filters)),
         "query_string": request.url.query,
         **picker_options(),

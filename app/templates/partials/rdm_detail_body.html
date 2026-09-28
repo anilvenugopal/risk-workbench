@@ -48,10 +48,10 @@
               x-bind:aria-expanded="notesOpen"
               x-on:click="notesOpen = !notesOpen"
               x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
-      {% if rdm.irp_id %}
+      {% for s in rdm.submissions %}
       <span class="crumb__sep">·</span>
-      <span>RM RDM #{{ rdm.irp_id }}</span>
-      {% endif %}
+      <span>in <a class="crumb" href="/submissions/{{ s.id }}">{{ s.name }}</a></span>
+      {% endfor %}
       {% if analysis_total %}
       <span class="crumb__sep">·</span>
       <span>{{ analysis_total }} broker analys{{ 'is' if analysis_total == 1 else 'es' }}</span>

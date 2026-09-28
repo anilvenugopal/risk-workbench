@@ -128,6 +128,14 @@ no contract.
 7. Enter twenty-one CRM IDs on any list: `CRM ID accepts 20 values or fewer.`
    and no rows.
 8. `/edms/sync`: name search and paging only, unchanged.
+9. EDM library, search `TY USFL 2607`: an EDM named `TY 2607 USFL` is listed;
+   `TY USFL 2608` lists nothing. The global search box with `TY USFL 2607`
+   finds no EDM (whole-term match).
+10. Tick **Not in a submission**: Y listed, X not. Add any submission filter:
+    nothing listed, with the clear-filters message.
+11. Open X from the library: the meta line reads `in A · in B` as links and
+    shows no Risk Modeler ID; the same from submission A's EDM page. The
+    library table has no Risk Modeler ID column. RDM library and detail alike.
 
 ### Bulk update — Contract status from CIC's CRM table (FR-023)
 

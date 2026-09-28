@@ -55,14 +55,17 @@ def _partial(request: Request, template: str, ctx: dict, status_code: int = 200)
 
 def _library_context(request: Request) -> dict:
     """Shared context for the full library page and its polled table fragment.
-    Name search and import status narrow the entity row; the submission
-    filters (spec 017 FR-015) narrow to entities with one linked submission
-    that satisfies them all (FR-016). An unusable filter lists no rows."""
+    Name search (every word, any order), import status and "Not in a
+    submission" narrow the entity row; the submission filters (spec 017
+    FR-015) narrow to entities with one linked submission that satisfies them
+    all (FR-016). An unusable filter lists no rows."""
     q = (request.query_params.get("q") or "").strip() or None
     status = (request.query_params.get("status") or "").strip() or None
     parsed, filter_ctx = library_filters(request)
     rows = ([] if parsed.error else
-            rdm_service.list_rdms(name=q, status=status, submission_filters=parsed.filters))
+            rdm_service.list_rdms(name=q, status=status, submission_filters=parsed.filters,
+                                  match_words=True,
+                                  unattached=filter_ctx["filter_values"]["unattached"]))
     return {
         "rows": rows,
         **filter_ctx,

@@ -31,7 +31,7 @@
     <thead>
       <tr>
         <th>Name</th><th>Status</th><th>Submission</th>
-        <th>Risk Modeler ID</th><th>Source file</th><th>Created</th>
+        <th>Source file</th><th>Created</th>
       </tr>
     </thead>
     <tbody>
@@ -53,7 +53,6 @@
             <span class="na" title="Standalone import — not attached to a submission">—</span>
           {% endif %}
         </td>
-        <td>{% if row.irp_id %}<span class="mono">{{ row.irp_id }}</span>{% else %}<span class="na">—</span>{% endif %}</td>
         {# An EDM synced from Risk Modeler has no source file — the import happened
            there, before the workbench saw it. #}
         <td class="lib-src">{% if row.source_file_path %}<span class="mono" title="{{ row.source_file_path }}">{{ row.source_file_path }}</span>{% else %}<span class="na">—</span>{% endif %}</td>
@@ -61,10 +60,10 @@
       </tr>
       {% else %}
         {% if is_filtered %}
-        <tr><td colspan="6" class="empty">No {{ entity_label }}s match —
+        <tr><td colspan="5" class="empty">No {{ entity_label }}s match —
           <a class="clear-filters" href="{{ list_route }}">clear filters</a>.</td></tr>
         {% else %}
-        <tr><td colspan="6" class="empty">No {{ entity_label }}s imported yet. Import one to get started.</td></tr>
+        <tr><td colspan="5" class="empty">No {{ entity_label }}s imported yet. Import one to get started.</td></tr>
         {% endif %}
       {% endfor %}
     </tbody>

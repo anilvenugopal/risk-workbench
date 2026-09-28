@@ -104,6 +104,31 @@ def test_name_filter_case_insensitive_substring(iteration2_db, mod, table):
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
+def test_match_words_finds_every_word_in_any_order(iteration2_db, mod, table):
+    """FR-015 (note 35 D14): the library pages match per word like the
+    submissions list; the default stays the global search's substring."""
+    _entity(table, name="TY 2607 USFL")
+    _entity(table, name="TY 2607 FL")
+    words = {r.name for r in _list(mod, name="ty usfl 2607", match_words=True)}
+    assert words == {"TY 2607 USFL"}
+    assert _list(mod, name="ty usfl 2608", match_words=True) == []
+    assert _list(mod, name="ty usfl 2607") == []
+
+
+@pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
+def test_unattached_lists_only_entities_in_no_submission(iteration2_db, mod, table):
+    """FR-015 / FR-016 (note 35 D16): "Not in a submission" is an entity-level
+    filter; with a submission-attribute filter beside it nothing matches."""
+    _attach(_deal(name="Linked", owner=iteration2_db.user_a), table,
+            _entity(table, name="Attached"))
+    _entity(table, name="Loose")
+    assert [r.name for r in _list(mod, unattached=True)] == ["Loose"]
+    assert _list(mod, unattached=True,
+                 submission_filters={"owner_ids": [iteration2_db.user_a]}) == []
+    assert {r.name for r in _list(mod)} == {"Attached", "Loose"}
+
+
+@pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
 def test_status_filter_exact(iteration2_db, mod, table):
     _entity(table, name="ReadyOne", status="ready")
     _entity(table, name="ErrOne", status="error")
@@ -162,6 +187,17 @@ def test_multi_submission_attach_oldest_first(iteration2_db, mod, table):
 
 # ── Live list: self-terminating poll trigger ─────────────────────────────────────
 
+@pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
+def test_detail_carries_the_linked_submissions_oldest_first(iteration2_db, mod, table):
+    """FR-015 (note 35 D16): the detail header links every owning submission."""
+    eid = _entity(table, name="Detailed")
+    _attach(_submission(name="Newer", inserted_at="2026-03-01 00:00:00"), table, eid)
+    _attach(_submission(name="Older", inserted_at="2026-02-01 00:00:00"), table, eid)
+    detail = (mod.get_edm_detail(eid) if mod is edm_service
+              else mod.get_rdm_detail(eid)["rdm"])
+    assert [s.name for s in detail.submissions] == ["Older", "Newer"]
+
+
 def _render_table(*, statuses, filters=None):
     """Render library_table.html in isolation and report (polls?, html). Guards the
     self-terminating condition — the list must poll while any row is still moving
@@ -173,7 +209,7 @@ def _render_table(*, statuses, filters=None):
     live = any(s in edm_service.TRANSIENT_STATUSES for s in statuses)
     html = env.get_template("partials/library_table.html").render(
         rows=[NS(id=f"e{i}", name=f"E{i}", status=s, source_file_path="/x/E.bak",
-                 irp_id=None, inserted_at="2026-01-01", submissions=[])
+                 inserted_at="2026-01-01", submissions=[])
               for i, s in enumerate(statuses)],
         filter_values=filter_values, live=live, validation_error=None,
         is_filtered=any(filter_values.values()),
@@ -302,3 +338,20 @@ def test_edm_library_lists_the_edm_the_filters_keep(iteration2_db):
     in_force = _client().get("/edms?in_force=1&as_of=2027-01-01").text
     assert "Kept EDM" in in_force and "Dropped EDM" not in in_force
     assert "Kept EDM" in _client().get("/edms").text and "Dropped EDM" in _client().get("/edms").text
+
+
+@pytest.mark.parametrize("prefix, table, label",
+                         [("/edms", "irp_edm", "EDM"), ("/rdms", "irp_rdm", "RDM")])
+def test_library_page_searches_by_word_and_filters_the_unattached(
+        iteration2_db, prefix, table, label):
+    cheryl = iteration2_db.user_a
+    _attach(_deal(name="Cheryl's deal", owner=cheryl), table,
+            _entity(table, name="TY 2607 USFL"))
+    _entity(table, name="TY USFL 2607 spare", status="importing")
+    body = _client().get(f"{prefix}?q=usfl+2607+ty&unattached=1").text
+    assert "TY USFL 2607 spare" in body and "TY 2607 USFL<" not in body
+    assert f'hx-get="{prefix}/table?q=usfl+2607+ty&amp;unattached=1"' in body
+    assert 'name="unattached" value="1" checked' in body
+    assert "Risk Modeler ID" not in body
+    empty = _client().get(f"{prefix}?unattached=1&owner={cheryl}").text
+    assert f"No {label}s match" in empty and "TY" not in empty.split('id="lib-live"')[1]

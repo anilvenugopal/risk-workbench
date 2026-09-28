@@ -209,7 +209,7 @@ Rolled up so the analyst doesn't click through Risk Modeler — a fast textual s
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| The EDM header shows name, status, source path on the share, Risk Modeler ID, and job ID. | Implemented |  |
+| The EDM header shows name, status, source path on the share, the linked submissions, and job ID. | Implemented |  |
 | The number of portfolios in the EDM is shown. | Implemented | Sometimes 1 portfolio, sometimes 25. |
 | An EDM opened from a Submission shows that Submission as its only context link. | Not implemented | See §1 Navigation & drill-down. Other Submission associations do not appear in the navigation trail. |
 | The EDM header shows the as-of / last-synced timestamp. | Implemented |  |
