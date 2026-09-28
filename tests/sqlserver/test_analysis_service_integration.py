@@ -90,8 +90,8 @@ def test_delete_by_submission_frees_the_name_of_an_analysis_and_a_group(
             ), {"id": analyst_id, "email": f"del_{analyst_id[:8]}@example.com"})
             conn.execute(text(
                 "INSERT INTO submission (id, assigned_analyst_id, name, "
-                "cedant_name, status_code) "
-                "VALUES (:id, :analyst, :name, 'Cedant', 'ACTIVE')"
+                "cedant_name, data_vintage, status_code) "
+                "VALUES (:id, :analyst, :name, 'Cedant', '2026-06-30', 'ACTIVE')"
             ), {"id": submission_id, "analyst": analyst_id,
                 "name": f"Delete deal {submission_id}"})
             conn.execute(text(

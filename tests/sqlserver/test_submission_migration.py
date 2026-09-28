@@ -195,8 +195,9 @@ def temp_submission():
         with conn.begin():
             conn.execute(text(
                 "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
-                "status_code, inserted_at, updated_at, inserted_by, updated_by) "
-                "VALUES (:id, :uid, 'MigDeal', 'Mig Cedant', "
+                "data_vintage, status_code, inserted_at, updated_at, inserted_by, "
+                "updated_by) "
+                "VALUES (:id, :uid, 'MigDeal', 'Mig Cedant', '2026-06-30', "
                 "'ACTIVE', :now, :now, :uid, :uid)"
             ), {"id": sid, "uid": uid, "now": now})
             conn.execute(text(
