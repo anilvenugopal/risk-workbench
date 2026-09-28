@@ -41,7 +41,7 @@ from app.services.submission_service import (
     search_submissions_for_link,
     search_submissions_global,
     set_contract_status,
-    set_statuses,
+    set_status,
     update_contract,
     update_submission,
 )
@@ -388,7 +388,7 @@ def test_closed_submission_rejects_association_writes(iteration2_db, drive):
     execute_command(
         "INSERT INTO irp_edm (id, name, status) VALUES (:id, 'ClosedEDM', 'ready')",
         {"id": edm_id}, connection="WORKBENCH")
-    set_statuses(
+    set_status(
         submission_id=submission_id, modeling_status="COMPLETED", reason=None,
         expected_updated_at=_marker(submission_id), actor_id=iteration2_db.user_a)
 
@@ -633,7 +633,7 @@ def test_list_filter_by_status(iteration1_db):
     active = _mk(iteration1_db, owner=a, name="Still active").submission_id
     done = _mk(iteration1_db, owner=a, name="Wrapped up",
                inc=date(2026, 7, 1)).submission_id
-    set_statuses(submission_id=done, modeling_status="COMPLETED", reason="delivered",
+    set_status(submission_id=done, modeling_status="COMPLETED", reason="delivered",
                  expected_updated_at=_marker(done), actor_id=a)
     assert [r.id for r in list_submissions(
         owner_ids=[a], status_codes=["COMPLETED"]).rows] == [done]
@@ -727,9 +727,9 @@ def test_list_treats_an_empty_list_as_no_filter(iteration1_db):
 def test_list_filters_on_several_statuses(iteration1_db):
     a, made = _four_mixed_deals(iteration1_db)
     for name in ("Cat 2025", "Agg 2025"):
-        set_statuses(submission_id=made[name], modeling_status="COMPLETED", reason=None,
+        set_status(submission_id=made[name], modeling_status="COMPLETED", reason=None,
                      expected_updated_at=_marker(made[name]), actor_id=a)
-    set_statuses(submission_id=made["Cat 2026"], modeling_status="CANCELLED", reason=None,
+    set_status(submission_id=made["Cat 2026"], modeling_status="CANCELLED", reason=None,
                  expected_updated_at=_marker(made["Cat 2026"]), actor_id=a)
     assert {r.name for r in list_submissions(
         owner_ids=[a], status_codes=["COMPLETED", "CANCELLED"]).rows} == {
@@ -883,14 +883,14 @@ def test_reassign_owner_stale_marker_conflicts(iteration1_db):
 def test_status_transitions_reopen_and_history(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db).submission_id  # event 1: ACTIVE
-    _bump(); set_statuses(submission_id=sid, modeling_status="COMPLETED", reason="done",
+    _bump(); set_status(submission_id=sid, modeling_status="COMPLETED", reason="done",
                           expected_updated_at=_marker(sid), actor_id=a)
     assert get_submission(sid).status_code == "COMPLETED"
-    _bump(); set_statuses(submission_id=sid, modeling_status="ACTIVE", reason=None,
+    _bump(); set_status(submission_id=sid, modeling_status="ACTIVE", reason=None,
                           expected_updated_at=_marker(sid), actor_id=a)  # reopen COMPLETED→ACTIVE
-    _bump(); set_statuses(submission_id=sid, modeling_status="CANCELLED", reason="pulled",
+    _bump(); set_status(submission_id=sid, modeling_status="CANCELLED", reason="pulled",
                           expected_updated_at=_marker(sid), actor_id=a)
-    _bump(); set_statuses(submission_id=sid, modeling_status="ACTIVE", reason=None,
+    _bump(); set_status(submission_id=sid, modeling_status="ACTIVE", reason=None,
                           expected_updated_at=_marker(sid), actor_id=a)  # reopen CANCELLED→ACTIVE
     assert get_submission(sid).status_code == "ACTIVE"
 
@@ -902,7 +902,7 @@ def test_status_transitions_reopen_and_history(iteration1_db):
 
 def test_same_status_is_a_recorded_no_op(iteration1_db):
     sid = _mk(iteration1_db).submission_id
-    _bump(); set_statuses(submission_id=sid, modeling_status="ACTIVE", reason=None,
+    _bump(); set_status(submission_id=sid, modeling_status="ACTIVE", reason=None,
                           expected_updated_at=_marker(sid), actor_id=iteration1_db.user_a)
     assert get_submission(sid).status_code == "ACTIVE"
     assert len(get_status_history(sid)) == 2  # ACTIVE (create) + ACTIVE (no-op)
@@ -911,7 +911,7 @@ def test_same_status_is_a_recorded_no_op(iteration1_db):
 def test_read_only_gate_blocks_mutations_when_closed(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db).submission_id
-    set_statuses(submission_id=sid, modeling_status="COMPLETED", reason=None,
+    set_status(submission_id=sid, modeling_status="COMPLETED", reason=None,
                  expected_updated_at=_marker(sid), actor_id=a)
     with pytest.raises(SubmissionClosed):
         reassign_owner(submission_id=sid, new_owner_id=iteration1_db.user_b,
@@ -1035,7 +1035,7 @@ def test_a_crm_id_on_a_closed_deal_still_blocks(iteration1_db, modeling_status):
     """Note 33 decision 3: the owner's Modeling status never frees its CRM IDs."""
     a = iteration1_db.user_a
     owner = _mk(iteration1_db, name="Closed deal", crm="Z-1").submission_id
-    set_statuses(submission_id=owner, modeling_status=modeling_status, reason="done",
+    set_status(submission_id=owner, modeling_status=modeling_status, reason="done",
                  expected_updated_at=_marker(owner), actor_id=a)
     with pytest.raises(ContractInvalid) as raised:
         _mk(iteration1_db, name="Second", crm="Z-1")
@@ -1108,7 +1108,7 @@ def test_contract_attribute_writes_are_gated_on_active_but_status_is_not(
     a = iteration1_db.user_a
     sid = _mk(iteration1_db, contracts=[]).submission_id
     cid = _add(iteration1_db, sid, "T-100")
-    set_statuses(submission_id=sid, modeling_status="COMPLETED", reason=None,
+    set_status(submission_id=sid, modeling_status="COMPLETED", reason=None,
                  expected_updated_at=_marker(sid), actor_id=a)
     with pytest.raises(SubmissionClosed):
         _add(iteration1_db, sid, "T-200")

@@ -100,8 +100,8 @@
           {% endif %}
         </div>
         <form class="deal-edit" method="post"
-              action="/submissions/{{ submission.id }}/statuses"
-              hx-post="/submissions/{{ submission.id }}/statuses"
+              action="/submissions/{{ submission.id }}/status"
+              hx-post="/submissions/{{ submission.id }}/status"
               hx-target="#deal-head" hx-swap="outerHTML" x-show="editing" x-cloak>
           <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
           <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">

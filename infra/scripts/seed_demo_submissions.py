@@ -229,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
             contracts_written += len(plan.contracts)
             if plan.modeling_status != submission_service.ACTIVE:
                 submission = submission_service.get_submission(result.submission_id)
-                submission_service.set_statuses(
+                submission_service.set_status(
                     submission_id=result.submission_id,
                     modeling_status=plan.modeling_status, reason="Demo data",
                     expected_updated_at=submission.updated_at, actor_id=actor,

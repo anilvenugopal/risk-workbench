@@ -5,7 +5,7 @@ concurrency on the request path, no external system, no background work:
 
 1. **Edit** the deal's fields (`POST /submissions/{id}`)
 2. **Reassign** its owner (`POST /submissions/{id}/reassign`)
-3. **Change the statuses** — Modeling ACTIVE / COMPLETED / CANCELLED and Contract WON / LOST / OPEN, saved together (`POST /submissions/{id}/statuses`)
+3. **Change the statuses** — Modeling ACTIVE / COMPLETED / CANCELLED and Contract WON / LOST / OPEN, saved together (`POST /submissions/{id}/status`)
 4. **Add / remove CRM-ID tags** (`POST …/crm-ids`, `POST …/crm-ids/{tag_id}/delete`)
 
 Modeling status is the one that matters architecturally: it is the **only event-sourced status
@@ -13,7 +13,7 @@ in the entire system** (Article 4), and the only place in this diagram set where
 insert-event-and-stamp-the-cache pattern. Submission status rides in the same transaction as a
 plain column write — no event, no reason.
 
-Code: `submission_service.update_submission` / `reassign_owner` / `set_statuses` /
+Code: `submission_service.update_submission` / `reassign_owner` / `set_status` /
 `add_crm_id` / `remove_crm_id`.
 
 **Classification:** all four entirely **sync**. No RM call, no `rwb_job`, no worker, no poller.
@@ -39,7 +39,7 @@ sequenceDiagram
 
     rect rgb(238,244,255)
         Note over User,DB: STATUS CHANGE — the only event-sourced status in the app
-        User->>App: POST /submissions/{id}/statuses (modeling_status, deal_status, reason, expected updated_at, CSRF)
+        User->>App: POST /submissions/{id}/status (modeling_status, deal_status, reason, expected updated_at, CSRF)
         Note over App,DB: ONE explicit transaction — get_connection("WORKBENCH") + conn.begin()
         App->>DB: UPDATE submission SET status_code, deal_status_code WHERE updated_at = :expected
         alt rowcount 0

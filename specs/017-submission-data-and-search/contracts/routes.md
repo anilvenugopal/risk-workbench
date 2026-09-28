@@ -9,7 +9,7 @@ T-12, T-14.
 
 | Route | Form fields | Gate | Success | Errors |
 |---|---|---|---|---|
-| `POST /submissions/{sid}/statuses` | `modeling_status` ∈ `submission_status_kind.code`, `reason` (optional), `updated_at` | Modeling status transition rules unchanged | event written, cached column stamped; re-render `#deal-head` | 409 on `updated_at` mismatch; 422 on an unknown code |
+| `POST /submissions/{sid}/status` | `modeling_status` ∈ `submission_status_kind.code`, `reason` (optional), `updated_at` | Modeling status transition rules unchanged | event written, cached column stamped; re-render `#deal-head` | 409 on `updated_at` mismatch; 422 on an unknown code |
 | `POST /submissions/{sid}/contracts` | `crm_id` (required), `treaty_type_code` (required, in the list), `inception_date` (ISO, required), `expiration_date` (ISO or blank → inception + 1 year − 1 day), `contract_status_code` (default `OPEN`) | Modeling status Active | row inserted; re-render `#contracts` | 409 `SubmissionClosed`; 422 with the field named: blank CRM ID, duplicate CRM ID on this submission, CRM ID already a contract on another submission (that submission named and linked), unknown code, unparseable date |
 | `POST /submissions/{sid}/contracts/{cid}` | the same fields except status, plus `updated_at` | Modeling status Active | attributes updated in place; re-render `#contracts` | 409 `SubmissionClosed` or stale `updated_at`; 422 as above |
 | `POST /submissions/{sid}/contracts/{cid}/status` | `contract_status_code`, `updated_at` | none (P-12) | status updated in place, no event; re-render `#contracts` | 409 stale `updated_at`; 422 unknown code |
@@ -32,8 +32,8 @@ Active.
 | Name | `name` | required (unchanged) |
 | Cedant | `cedant_name` | required (unchanged) |
 | Client ID | `client_id` | optional; options from `client_service.list_clients()` as `"ID - name"`; disabled with "Client list unavailable — the submission saves without one" when the list is `None` |
-| Data vintage | `data_vintage` | optional ISO date |
-| Treaty year | `treaty_year` | optional; the form fills it from the first contract inception typed; the server fills it from the earliest contract inception when blank |
+| Data vintage | `data_vintage` | required ISO date; a blank one is refused with "Enter a data vintage." |
+| Treaty year | `treaty_year` | optional; nothing fills it |
 | Links to, Directory path | unchanged | |
 | Contract rows | `contract_crm_id[]`, `contract_treaty_type[]`, `contract_inception[]`, `contract_expiration[]`, `contract_status[]` | repeated names, positionally aligned, zero or more rows; every row needs CRM ID, treaty type and inception; blank expiration filled server-side; blank status is `OPEN`; a row with every field blank is ignored |
 
@@ -85,7 +85,7 @@ in §3; the `#lib-live` poll URL carries the request's own query string.
 
 `GET /submissions/{sid}/exports/new` renders, beside the fields spec 014
 defines: `client_id` pre-selected from `submission.client_id`; `data_vintage`
-pre-filled from `submission.data_vintage`; a **Contract** select with one
+empty, entered for that export; a **Contract** select with one
 option per contract (`data-crm-id`, `data-inception`), pre-selected when the
 submission has exactly one, blank otherwise. Choosing an option copies its
 values into `crm_id` and `treaty_incept` client-side; both stay editable and
@@ -116,7 +116,7 @@ def add_contract(*, submission_id, contract: ContractInput, actor_id) -> str
 def update_contract(*, contract_id, contract: ContractInput, expected_updated_at, actor_id) -> None
 def set_contract_status(*, contract_id, to_status, expected_updated_at, actor_id) -> None
 def remove_contract(*, contract_id, actor_id) -> None
-def set_statuses(*, submission_id, modeling_status, reason=None, expected_updated_at, actor_id) -> None
+def set_status(*, submission_id, modeling_status, reason=None, expected_updated_at, actor_id) -> None
 def submission_filter_clauses(filters: dict, alias: str = "s") -> tuple[list[str], dict]
     # returns the submission-level clauses; the contract-level clauses arrive
     # already wrapped as one EXISTS string in the same list

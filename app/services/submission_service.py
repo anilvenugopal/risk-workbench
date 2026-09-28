@@ -504,15 +504,15 @@ def _attach_contracts(rows: list[SubmissionRow], filters: dict[str, Any]) -> Non
         by_submission.setdefault(str(contract["submission_id"]).lower(), []).append(contract)
 
     for row in rows:
-        items = by_submission.get(str(row.id).lower(), [])
-        if not items:
+        matched = by_submission.get(str(row.id).lower(), [])
+        if not matched:
             continue
-        first = items[0]
-        row.crm_ids = [item["crm_id"] for item in items]
+        first = matched[0]
+        row.crm_ids = [contract["crm_id"] for contract in matched]
         row.inception_date = _as_date(first["inception_date"])
-        others = {item["treaty_type_label"]: item["treaty_type_order"]
-                  for item in items[1:]
-                  if item["treaty_type_label"] not in (None, first["treaty_type_label"])}
+        others = {contract["treaty_type_label"]: contract["treaty_type_order"]
+                  for contract in matched[1:]
+                  if contract["treaty_type_label"] not in (None, first["treaty_type_label"])}
         row.treaty_type_labels = (
             [first["treaty_type_label"]] if first["treaty_type_label"] is not None else []
         ) + sorted(others, key=lambda v: (others[v] or 0, v))
@@ -616,11 +616,11 @@ def create_submission(
                     **row, "id": str(uuid.uuid4()), "sid": sid,
                     "now": now + timedelta(microseconds=index), "actor": actor})
     except Exception as exc:
-        _reraise_if_taken(exc, prepared)
+        _raise_taken_or_original(exc, prepared)
     return CreateResult(created=True, submission_id=sid)
 
 
-def _reraise_if_taken(
+def _raise_taken_or_original(
     exc: Exception, prepared: Sequence[dict[str, Any]], *,
     exclude_contract_id: str | None = None,
 ) -> None:
@@ -1311,7 +1311,7 @@ def reassign_owner(
 
 # ── Modeling status (event-sourced) ─────────────────────────────────────────
 
-def set_statuses(
+def set_status(
     *, submission_id: Any, modeling_status: str, reason: str | None = None,
     expected_updated_at: Any, actor_id: Any,
 ) -> None:
@@ -1439,7 +1439,7 @@ def add_contract(*, submission_id: Any, contract: ContractInput, actor_id: Any) 
             connection="WORKBENCH",
         )
     except Exception as exc:
-        _reraise_if_taken(exc, [row])
+        _raise_taken_or_original(exc, [row])
     return new_id
 
 
@@ -1469,7 +1469,7 @@ def update_contract(
             connection="WORKBENCH",
         )
     except Exception as exc:
-        _reraise_if_taken(exc, [row], exclude_contract_id=cid)
+        _raise_taken_or_original(exc, [row], exclude_contract_id=cid)
     if rows_affected == 0:
         raise ConcurrencyConflict(
             "This contract changed since you opened it — reload and re-apply.")

@@ -198,7 +198,7 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     Here each write reads the marker and ``str()``s it exactly as Jinja does, then
     asserts the write is applied (no conflict) — covering all three guarded paths:
     the in-place UPDATE (update_submission), the event-sourced transaction
-    (set_statuses), and reassign_owner.
+    (set_status), and reassign_owner.
     """
     a, b = iteration1_db.user_a, iteration1_db.user_b
     sid = svc.create_submission(
@@ -223,12 +223,12 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     assert svc.get_submission(sid).directory_path == "/staging/marker"
 
     # 2) Event-sourced status transaction — same marker semantics inside conn.begin().
-    svc.set_statuses(submission_id=sid, modeling_status="COMPLETED", reason=None,
+    svc.set_status(submission_id=sid, modeling_status="COMPLETED", reason=None,
                      expected_updated_at=marker(), actor_id=a)
     assert svc.get_submission(sid).status_code == "COMPLETED"
 
     # Reopen (reassign is gated to ACTIVE) — also a marker-guarded transition.
-    svc.set_statuses(submission_id=sid, modeling_status="ACTIVE", reason=None,
+    svc.set_status(submission_id=sid, modeling_status="ACTIVE", reason=None,
                      expected_updated_at=marker(), actor_id=a)
 
     # 3) Reassign path.

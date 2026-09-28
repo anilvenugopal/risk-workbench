@@ -214,7 +214,7 @@ def test_submission_entity_note_edits_in_place(
         connection="WORKBENCH",
     )
     submission = submission_service.get_submission(submission_id)
-    submission_service.set_statuses(
+    submission_service.set_status(
         submission_id=submission_id, modeling_status="COMPLETED", reason=None,
         expected_updated_at=submission.updated_at, actor_id=client.db.user_a,
     )
@@ -585,7 +585,7 @@ def test_closed_submission_rejects_attach_and_detach_routes(client, status, kind
         {"id": edm_id, "name": f"ClosedRoute{kind}"}, connection="WORKBENCH")
     marker = submission_service.get_submission(submission_id).updated_at
     client.post(
-        f"/submissions/{submission_id}/statuses",
+        f"/submissions/{submission_id}/status",
         data={"modeling_status": status, "reason": "", "updated_at": marker,
               "csrf_token": _csrf()})
 
@@ -613,7 +613,7 @@ def test_closed_submission_rejects_import_routes(
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     marker = submission_service.get_submission(submission_id).updated_at
     client.post(
-        f"/submissions/{submission_id}/statuses",
+        f"/submissions/{submission_id}/status",
         data={"modeling_status": status, "reason": "", "updated_at": marker,
               "csrf_token": _csrf()})
 
@@ -2084,7 +2084,7 @@ def test_contract_add_and_edit_refuse_a_crm_id_another_deal_holds_and_link_it(cl
 def test_statuses_post_saves_modeling_status_and_returns_the_head_fragment(client):
     sid, marker = _deal(client, name="Completed deal")
     response = client.post(
-        f"/submissions/{sid}/statuses", headers=_HX,
+        f"/submissions/{sid}/status", headers=_HX,
         data={"modeling_status": "COMPLETED", "reason": "delivered",
               "updated_at": marker, "csrf_token": _csrf()})
     assert response.status_code == 200
@@ -2101,7 +2101,7 @@ def test_statuses_post_saves_modeling_status_and_returns_the_head_fragment(clien
 def test_statuses_post_resubmitting_the_same_modeling_status_adds_no_event(client):
     sid, marker = _deal(client, name="Unchanged modeling")
     response = client.post(
-        f"/submissions/{sid}/statuses", headers=_HX,
+        f"/submissions/{sid}/status", headers=_HX,
         data={"modeling_status": "ACTIVE", "reason": "", "updated_at": marker,
               "csrf_token": _csrf()})
     assert response.status_code == 200
@@ -2112,7 +2112,7 @@ def test_statuses_post_resubmitting_the_same_modeling_status_adds_no_event(clien
 def test_statuses_post_redirects_without_htmx(client):
     sid, marker = _deal(client, name="Redirected deal")
     response = client.post(
-        f"/submissions/{sid}/statuses",
+        f"/submissions/{sid}/status",
         data={"modeling_status": "CANCELLED", "updated_at": marker, "csrf_token": _csrf()})
     assert response.status_code == 303
     assert response.headers["location"] == f"/submissions/{sid}"
@@ -2122,7 +2122,7 @@ def test_statuses_post_redirects_without_htmx(client):
 def test_statuses_post_conflicts_on_a_stale_marker(client):
     sid, _ = _deal(client, name="Stale deal")
     response = client.post(
-        f"/submissions/{sid}/statuses", headers=_HX,
+        f"/submissions/{sid}/status", headers=_HX,
         data={"modeling_status": "COMPLETED", "updated_at": "1999-01-01 00:00:00",
               "csrf_token": _csrf()})
     assert response.status_code == 409
@@ -2133,7 +2133,7 @@ def test_statuses_post_conflicts_on_a_stale_marker(client):
 def test_statuses_post_rejects_an_unknown_code(client):
     sid, marker = _deal(client, name="Bad code deal")
     response = client.post(
-        f"/submissions/{sid}/statuses", headers=_HX,
+        f"/submissions/{sid}/status", headers=_HX,
         data={"modeling_status": "HOLD", "updated_at": marker, "csrf_token": _csrf()})
     assert response.status_code == 422
     assert "Modeling status is Active, Completed or Cancelled." in response.text
@@ -2142,7 +2142,7 @@ def test_statuses_post_rejects_an_unknown_code(client):
 def test_statuses_post_without_a_csrf_token_writes_nothing(client):
     sid, marker = _deal(client, name="No csrf deal")
     response = client.post(
-        f"/submissions/{sid}/statuses",
+        f"/submissions/{sid}/status",
         data={"modeling_status": "COMPLETED", "updated_at": marker, "csrf_token": "nope"})
     assert response.status_code == 303
     assert submission_service.get_submission(sid).status_code == "ACTIVE"
@@ -2150,7 +2150,7 @@ def test_statuses_post_without_a_csrf_token_writes_nothing(client):
 
 def test_contract_status_post_saves_in_place_on_a_completed_deal(client):
     sid, marker = _deal(client, name="Won contract", crm_ids="T-100, T-200")
-    client.post(f"/submissions/{sid}/statuses", data={
+    client.post(f"/submissions/{sid}/status", data={
         "modeling_status": "COMPLETED", "updated_at": marker, "csrf_token": _csrf()})
     response = _status_post(client, sid, "T-100", "WON")
     assert response.status_code == 200
@@ -2267,7 +2267,7 @@ def test_contract_delete_post_removes_the_row_and_its_dates(client):
 def test_contract_attribute_posts_are_refused_when_the_deal_is_closed(client):
     sid, marker = _deal(client, name="Closed contracts", crm_ids="T-100")
     t100 = _contract(sid, "T-100")
-    client.post(f"/submissions/{sid}/statuses", data={
+    client.post(f"/submissions/{sid}/status", data={
         "modeling_status": "CANCELLED", "updated_at": marker, "csrf_token": _csrf()})
     fields = {"crm_id": "T-101", "treaty_type_code": "per_risk_xol",
               "inception_date": "2026-04-01", "expiration_date": "", "csrf_token": _csrf()}

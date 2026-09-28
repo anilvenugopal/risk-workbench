@@ -1561,8 +1561,8 @@ def reassign(
 
 # ── Modeling status (spec 017 P-12, P-14) ─────────────────────────────────────
 
-@router.post("/submissions/{submission_id}/statuses")
-def change_statuses(
+@router.post("/submissions/{submission_id}/status")
+def change_status(
     request: Request,
     submission_id: str,
     modeling_status: str = Form(""),
@@ -1582,7 +1582,7 @@ def change_statuses(
     changed = modeling_status != submission.status_code
     if changed:
         try:
-            submission_service.set_statuses(
+            submission_service.set_status(
                 submission_id=submission_id, modeling_status=modeling_status,
                 reason=reason.strip() or None,
                 expected_updated_at=updated_at, actor_id=request.state.user.id,
