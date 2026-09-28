@@ -309,11 +309,12 @@ def _resolve_link_target(links_to: Any) -> str | None:
 
 def _default_expiration(inception: date) -> date:
     """Inception plus one year minus one day (P-03): 1/1 to 12/31. A February 29
-    inception lands on February 28 of the next year before the day is taken."""
+    inception's anniversary is March 1, so it runs to February 28 of the next
+    year, as the browser's ``$fillExpiration`` computes it."""
     try:
         anniversary = inception.replace(year=inception.year + 1)
     except ValueError:
-        anniversary = inception.replace(year=inception.year + 1, day=28)
+        anniversary = date(inception.year + 1, 3, 1)
     return anniversary - timedelta(days=1)
 
 

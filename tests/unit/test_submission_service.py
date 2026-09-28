@@ -1060,8 +1060,8 @@ def test_the_crm_id_index_refuses_a_case_variant_written_around_the_service(
 
 
 def test_expiration_default_handles_a_leap_day(iteration1_db):
-    sid = _mk(iteration1_db, inc=date(2028, 2, 29)).submission_id
-    assert _day(get_submission(sid).contracts[0].expiration_date) == "2029-02-27"
+    sid = _mk(iteration1_db, inc=date(2024, 2, 29)).submission_id
+    assert _day(get_submission(sid).contracts[0].expiration_date) == "2025-02-28"
 
 
 def test_add_update_and_remove_a_contract(iteration1_db):
