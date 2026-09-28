@@ -1040,7 +1040,7 @@ def list_submissions_page(request: Request):
     }
     filter_values |= multi_values
     filter_values["in_force"] = parsed.in_force
-    filter_values["as_of"] = parsed.as_of or date.today().isoformat()
+    filter_values["as_of"] = parsed.as_of
     # The resolved ids, not the raw parameter: on the default landing the hidden
     # input has to hold the analyst's own id so the next request keeps it.
     filter_values["owner"] = owner_ids or ["any"]

@@ -49,6 +49,7 @@ class ListFilters:
     text: dict[str, str]
     multi: dict[str, list[str]]
     in_force: bool = False
+    # Today when the request sent none, so the date input always shows a date.
     as_of: str = ""
 
 
@@ -99,11 +100,9 @@ def parse_list_filters(query_params, *, multi_keys, text_keys) -> ListFilters:
     for key, values in multi.items():
         filters[MULTI_FILTERS[key][1]] = _coerce(key, values) if error is None else []
     in_force = query_params.get("in_force") == "1"
-    as_of = (query_params.get("as_of") or "").strip()
+    as_of = (query_params.get("as_of") or "").strip() or date.today().isoformat()
     filters["in_force_as_of"] = None
     if in_force:
-        if not as_of:
-            as_of = date.today().isoformat()
         try:
             filters["in_force_as_of"] = date.fromisoformat(as_of)
         except ValueError:
@@ -143,7 +142,7 @@ def library_filters(request) -> tuple[ListFilters, dict[str, Any]]:
         "status": request.query_params.get("status", ""),
         "unattached": request.query_params.get("unattached") == "1",
         **parsed.text, **parsed.multi,
-        "in_force": parsed.in_force, "as_of": parsed.as_of or date.today().isoformat(),
+        "in_force": parsed.in_force, "as_of": parsed.as_of,
     }
     return parsed, {
         "filter_values": filter_values,
