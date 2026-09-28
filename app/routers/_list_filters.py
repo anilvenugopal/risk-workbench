@@ -14,6 +14,7 @@ from datetime import date
 from typing import Any
 
 from app.services import auth_service, client_service, submission_service
+from app.services._common import _parse_int
 
 SEARCH_MAX_CHARACTERS = 100
 SEARCH_MAX_WORDS = 10
@@ -51,13 +52,6 @@ class ListFilters:
     in_force: bool = False
     # Today when the request sent none, so the date input always shows a date.
     as_of: str = ""
-
-
-def _parse_int(value: str) -> int | None:
-    try:
-        return int(value)
-    except ValueError:
-        return None
 
 
 def _validation_error(text: dict[str, str], multi: dict[str, list[str]]) -> str | None:

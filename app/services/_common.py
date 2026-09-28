@@ -121,6 +121,17 @@ def _json(value: Any) -> str | None:
     return None if value is None else json.dumps(value)
 
 
+def _parse_int(value: Any) -> int | None:
+    """``value`` as an int; ``None`` for ``None``, blank text or anything that
+    is not an integer (a form field, a query parameter, a filter value)."""
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _uid(value: Any) -> str | None:
     """Normalize a UUID/id to a lowercase string (``None`` passes through).
 

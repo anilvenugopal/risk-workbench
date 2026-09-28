@@ -54,7 +54,7 @@ from app.services import (
     shared_drive,
     submission_service,
 )
-from app.services._common import _uid
+from app.services._common import _parse_int, _uid
 from app.services.analysis_execution_service import ExecutionGateError
 from app.services.submission_service import ContractInput, ContractInvalid
 from app.services.errors import (
@@ -106,15 +106,6 @@ def _parse_date(value: str | None) -> date | None:
         return None
     try:
         return date.fromisoformat(value.strip())
-    except ValueError:
-        return None
-
-
-def _parse_int(value: str | None) -> int | None:
-    if value is None or str(value).strip() == "":
-        return None
-    try:
-        return int(value)
     except ValueError:
         return None
 

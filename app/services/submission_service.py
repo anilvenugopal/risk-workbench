@@ -37,6 +37,7 @@ from app.services import client_service
 from app.services._common import (
     _escape_like,
     _in_clause,
+    _parse_int,
     _rm_ui_root,
     _uid,
     _utcnow,
@@ -266,13 +267,6 @@ def _as_date(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.date()
     return date.fromisoformat(str(value))
-
-
-def _as_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _as_uuid(value: Any) -> str | None:
@@ -1041,7 +1035,7 @@ def submission_filter_clauses(
         # A NULL client never matches (P-04); a value that is not an integer
         # binds NULL and matches nothing.
         clause, more = _in_clause(
-            f"{s}.client_id", [_as_int(c) for c in filters["client_ids"]], "cl")
+            f"{s}.client_id", [_parse_int(c) for c in filters["client_ids"]], "cl")
         clauses.append(clause)
         params |= more
     contract_clauses, more = _contract_clauses(filters)
