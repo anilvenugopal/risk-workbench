@@ -261,6 +261,19 @@ def test_table_route_renders_the_swap_unit_alone(iteration2_db, mod, list_fn, pr
     assert "<html" not in r.text  # no page shell
 
 
+@pytest.mark.parametrize("prefix", ["/edms", "/rdms"])
+def test_table_route_does_not_load_the_picker_options(iteration2_db, prefix, monkeypatch):
+    """The polled fragment renders no filter bar, so it must not read the
+    repository's client list on every tick."""
+    from app.services import client_service
+
+    def _refuse():
+        raise AssertionError("list_clients called by the table fragment")
+
+    monkeypatch.setattr(client_service, "list_clients", _refuse)
+    assert _client().get(f"{prefix}/table").status_code == 200
+
+
 
 # ── spec 017 US3: submission-attribute filters (FR-015, FR-016) ──────────────
 

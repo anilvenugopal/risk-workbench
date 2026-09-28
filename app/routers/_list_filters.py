@@ -132,8 +132,9 @@ def picker_options() -> dict[str, Any]:
 def library_filters(request) -> tuple[ListFilters, dict[str, Any]]:
     """The EDM and RDM libraries' submission-attribute filters (contracts §3)
     and the template context their filter bar reads: the echoed values, the
-    picker options, the one-line message and the request's own query string
-    for the ``#lib-live`` poll URL."""
+    one-line message and the request's own query string for the ``#lib-live``
+    poll URL. The page route adds ``picker_options()`` itself; the polled
+    table fragment renders no pickers and skips the repository read."""
     parsed = parse_list_filters(
         request.query_params, multi_keys=LIBRARY_MULTI_PARAMS,
         text_keys=LIBRARY_TEXT_PARAMS)
@@ -151,5 +152,4 @@ def library_filters(request) -> tuple[ListFilters, dict[str, Any]]:
                             or filter_values["unattached"]
                             or submission_service.has_submission_filters(parsed.filters)),
         "query_string": request.url.query,
-        **picker_options(),
     }
