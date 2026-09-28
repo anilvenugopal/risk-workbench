@@ -37,13 +37,13 @@ from app.services import (
     name_check,
     portfolio_service,
     rwb_job_service,
-    submission_service,
     treaty_service,
 )
 from app.services._common import (
     SubmissionRef,
     _attach_submissions,
     _import_entity,
+    _library_where,
     _mark_error,
     _mark_importing,
     _replace_source_file,
@@ -52,7 +52,6 @@ from app.services._common import (
     _submission_entity_context,
     _uid,
     _utcnow,
-    _word_and_clauses,
 )
 from app.services.analysis_service import BrokerAnalysisGroup, ExecutedAnalysis
 from app.services.errors import EdmCatalogUnavailable
@@ -327,31 +326,9 @@ def list_edms(*, name: str | None = None, status: str | None = None,
     none set, EDMs linked to no submission stay listed (FR-016). ``unattached``
     keeps only EDMs linked to no submission.
     Each returned row's ``.submissions`` is set to its owning submissions (oldest-first)."""
-    where = "WHERE deleted_at IS NULL"
-    params: dict[str, Any] = {}
-    if name and match_words:
-        words, more = _word_and_clauses(name, ("name",), "q")
-        where += "".join(f" AND {clause}" for clause in words)
-        params |= more
-    elif name:
-        where += " AND name LIKE :q"
-        params["q"] = f"%{name}%"
-    if status:
-        where += " AND status = :status"
-        params["status"] = status
-    if unattached:
-        where += (" AND NOT EXISTS (SELECT 1 FROM submission_edm a "
-                  "WHERE a.edm_id = irp_edm.id)")
-    if submission_service.has_submission_filters(submission_filters):
-        # One EXISTS, ANDing every clause against one linked submission at a
-        # time: FR-016's "one linked submission satisfies every filter together".
-        clauses, sub_params = submission_service.submission_filter_clauses(
-            submission_filters, alias="s")
-        where += (
-            " AND EXISTS (SELECT 1 FROM submission_edm a JOIN submission s "
-            "ON s.id = a.submission_id WHERE a.edm_id = irp_edm.id AND "
-            + " AND ".join(clauses) + ")")
-        params |= sub_params
+    where, params = _library_where(
+        "edm", name=name, status=status, match_words=match_words,
+        unattached=unattached, submission_filters=submission_filters)
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]

@@ -8,11 +8,12 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.services import analysis_service, name_check, rwb_job_service, submission_service
+from app.services import analysis_service, name_check, rwb_job_service
 from app.services._common import (
     SubmissionRef,
     _attach_submissions,
     _import_entity,
+    _library_where,
     _mark_error,
     _mark_importing,
     _replace_source_file,
@@ -20,7 +21,6 @@ from app.services._common import (
     _submission_entity_context,
     _uid,
     _utcnow,
-    _word_and_clauses,
 )
 from app.services.edm_service import ImportResult  # shared DTO
 from app.services.name_check import CollisionCheck
@@ -109,31 +109,9 @@ def list_rdms(*, name: str | None = None, status: str | None = None,
     satisfies every filter together (FR-016); ``unattached`` keeps only RDMs
     linked to no submission (see ``edm_service.list_edms``).
     Each row's ``.submissions`` is set to its owning submissions (oldest-first)."""
-    where = "WHERE deleted_at IS NULL"
-    params: dict[str, Any] = {}
-    if name and match_words:
-        words, more = _word_and_clauses(name, ("name",), "q")
-        where += "".join(f" AND {clause}" for clause in words)
-        params |= more
-    elif name:
-        where += " AND name LIKE :q"
-        params["q"] = f"%{name}%"
-    if status:
-        where += " AND status = :status"
-        params["status"] = status
-    if unattached:
-        where += (" AND NOT EXISTS (SELECT 1 FROM submission_rdm a "
-                  "WHERE a.rdm_id = irp_rdm.id)")
-    if submission_service.has_submission_filters(submission_filters):
-        # One EXISTS, ANDing every clause against one linked submission at a
-        # time: FR-016's "one linked submission satisfies every filter together".
-        clauses, sub_params = submission_service.submission_filter_clauses(
-            submission_filters, alias="s")
-        where += (
-            " AND EXISTS (SELECT 1 FROM submission_rdm a JOIN submission s "
-            "ON s.id = a.submission_id WHERE a.rdm_id = irp_rdm.id AND "
-            + " AND ".join(clauses) + ")")
-        params |= sub_params
+    where, params = _library_where(
+        "rdm", name=name, status=status, match_words=match_words,
+        unattached=unattached, submission_filters=submission_filters)
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
