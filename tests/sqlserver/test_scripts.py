@@ -22,10 +22,8 @@ def counted_table():
 
 
 def test_a_scripts_session_settings_do_not_reach_the_pool(tmp_path, counted_table):
-    """The bulk update script opens with SET NOCOUNT ON. Before the runner closed
-    its connection instead of pooling it, and before pyodbc's own pooling was
-    off, the next UPDATE on that connection reported -1 and every upsert that
-    branches on rowcount stopped inserting."""
+    """A script's ``SET NOCOUNT ON`` must not reach the next connection from
+    the pool; an UPDATE there would report rowcount -1."""
     script = tmp_path / "nocount.sql"
     script.write_text("SET NOCOUNT ON;\nSELECT 1 AS probe;\n", encoding="utf-8")
     (frame,) = execute_script_file(script, connection="WORKBENCH")

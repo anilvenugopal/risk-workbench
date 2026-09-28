@@ -18,7 +18,7 @@ service and the templates that read deal status and deal dates change.
 
 - **Modeling status keeps its tables.** `submission.status_code`,
   `submission_status_kind` and `submission_status_event` stay; only labels
-  changed (T-01). `POST /submissions/{id}/statuses` goes back to Modeling
+  changed (T-01). `POST /submissions/{id}/status` goes back to Modeling
   status alone.
 - **`contract` replaces `submission_crm_id`.** One row per CRM ID with
   `treaty_type_code`, `inception_date`, `expiration_date` (all NOT NULL) and
@@ -76,9 +76,8 @@ service and the templates that read deal status and deal dates change.
   is replaced by `client_service.list_clients` (T-09).
 - **`deal_status` is renamed `contract_status`** in code, query params,
   filter labels and the kind table; nothing keeps the old name (T-14).
-- **Constitution Article 4** names `submission.deal_status_code` in its
-  in-place list; a patch version renames it to `contract.contract_status_code`
-  with no rule change (T-13).
+- **Constitution Article 4** v4.2.3 names `contract.contract_status_code`
+  in its in-place list (T-13).
 - **Preview first** for the two screens whose layout changes: the create
   form with its contract editor and the deal card with the contract table
   replacing the Treaty and Term groups and the CRM band. Five states
@@ -94,10 +93,11 @@ service and the templates that read deal status and deal dates change.
 |---|---|
 | Database | `rwb_workbench`, edited in `alembic/versions/0001_initial.py` then Rebuild: `deal_status_kind` → `contract_status_kind`; `submission` −`treaty_type_code` −`inception_date` −`expiration_date` −`deal_status_code` +`data_vintage`; `ix_submission_treaty_type_code` and `ix_submission_list_order` dropped; `submission_crm_id` → `contract` with the columns of data-model.md §3; view `v_submission_crm_id` → `v_contract`. `rwb_loss`: read-only. |
 | Worker | None. |
-| Service | `submission_service`: `Contract` replaces `CrmTag`; `create_submission(…, contracts=[…])`; `add_contract`, `update_contract`, `set_contract_status`, `remove_contract`; `submission_filter_clauses` returns the two groups; the sort expression; `_default_treaty_year` from contracts; `set_statuses` back to Modeling status; `set_crm_dates`, `reset_crm_dates`, `deal_status_kinds` → `contract_status_kinds`. `client_service`, `edm_service`, `rdm_service` unchanged. `export_service.list_clients` deleted. |
+| Service | `submission_service`: `Contract` replaces `CrmTag`; `create_submission(…, contracts=[…])`; `add_contract`, `update_contract`, `set_contract_status`, `remove_contract`; `submission_filter_clauses` returns the two groups; the sort expression; `set_status` back to Modeling status; `set_crm_dates`, `reset_crm_dates`, `deal_status_kinds` → `contract_status_kinds`. `client_service`, `edm_service`, `rdm_service` unchanged. `export_service.list_clients` deleted. |
 | UI | Create/edit form: contract editor rows, data vintage, label Client ID; deal card: contract table with in-place row editing; submissions list: columns and filter labels; libraries: filter label; export form: Contract select and the two pre-fills; four contract POST routes; `statuses` route narrowed. |
 | Library | None. No irp-integration call. |
 | Docs | FR doc, DATA_MODEL §4 + seed table, PRD §7.2a, constitution Article 4 patch. |
+| Tooling | `infra/scripts/seed_demo_submissions.py` (`make seed-demo`, `make wsl-seed-demo`) seeds submissions and contracts for the search screens; `infra/scripts/bulk_update_contract_status.sql` (T-16). |
 
 ## High-risk technical decisions
 
@@ -111,7 +111,7 @@ service and the templates that read deal status and deal dates change.
 | T-06 | `submission.client_id INT NULL`, no FK; `client_service` over `LOSS`, fails open | Approved | [research.md#R5](research.md#r5--client-a-stored-id-read-over-loss-t-06) |
 | T-07 | Eleven snake_case codes reseed `treaty_type_kind`; the FK moves to `contract` | Approved | [research.md#R6](research.md#r6--treaty-types-from-the-kind-table-t-07) |
 | T-08 | `_MAX_FILTER_VALUES` 20 in `app/routers/_list_filters.py` | Approved | [research.md#R7](research.md#r7--the-filter-cap-is-twenty-t-08) |
-| T-09 | Export pre-fill: client and data vintage from the submission; a Contract select fills CRM ID and inception client-side; `export_service.list_clients` replaced | Approved | [research.md#R8](research.md#r8--export-pre-fill-t-09) |
+| T-09 | Export pre-fill: client from the submission, data vintage entered per export; a Contract select fills CRM ID and inception client-side; `export_service.list_clients` replaced | Approved | [research.md#R8](research.md#r8--export-pre-fill-t-09) |
 | T-10 | The deal card's Treaty and Term groups and the CRM band become one contract table; the create form gains the same row editor; preview before build | Approved | [research.md#R10](research.md#r10--the-deal-card-and-the-create-form-t-10) |
 | T-11 | Default sort is `COALESCE(first-entered or first-matched contract inception, submission.inserted_at) DESC, name`, the date the row shows; the sort subquery and the row summary reuse the EXISTS's contract clauses; `ix_submission_list_order` dropped; no denormalised copy | Approved | [research.md#R11](research.md#r11--the-list-sorts-and-shows-the-first-entered-or-first-matched-contract-t-11) |
 | T-12 | Contract rows post as parallel repeated fields; `create_submission` writes submission and contracts in one transaction; blank expiration filled server-side | Approved | [research.md#R12](research.md#r12--posting-contracts-with-the-form-t-12) |
@@ -119,6 +119,7 @@ service and the templates that read deal status and deal dates change.
 | T-14 | `deal_status` → `contract_status` everywhere (kind table, column, query param, labels, service names); no alias kept | Approved | [research.md#R2](research.md#r2--the-contract-grain-t-03) |
 | T-15 | `uq_contract_crm_id` unique index on `contract.crm_id` plus one service lookup over `v_contract` that names the owner; the refusal links the owning submission; the owner's status never frees a CRM ID | Approved | [research.md#R14](research.md#r14--crm-id-unique-across-the-workbench-t-15) |
 | T-16 | The bulk update is one T-SQL script over a `#crm_status` temp table loaded by `INSERT … SELECT` from `dbo.CRMContractStatus` in the loss repository (the three-part name on one line is the per-environment edit), with a dry-run flag; it updates `contract` directly (no view, no service, no event), clears `updated_by`, and refuses the whole run on an unknown status or a duplicate CRM ID | Approved | [research.md#R15](research.md#r15--the-bulk-update-is-a-script-t-16) |
+| T-17 | `pyodbc.pooling = False` in `db/connection.py`; `db/scripts.py` detaches and closes a script's connection instead of returning it to the pool, so `SET NOCOUNT ON` cannot reach the next caller | Approved | [research.md#R16](research.md#r16--a-scripts-session-settings-stay-with-its-connection-t-17) |
 
 ---
 
@@ -140,8 +141,8 @@ SQL text on SQLite through `tests/iteration1_mirror.py`, which mirrors the
 *GATE: before Phase 0 research, re-checked after Phase 1 design.*
 
 Reviewed against all 13 articles in `.specify/memory/constitution.md`: **no
-violations**. One text patch is required (T-13): Article 4's in-place list
-names `submission.deal_status_code`, a column this amendment removes.
+violations**. Article 4's in-place list names `contract.contract_status_code`
+since v4.2.3 (T-13).
 
 Material interactions:
 
@@ -211,8 +212,8 @@ None.
   in `ContractInvalid.owner`, in any case or whitespace, on a Completed or
   Cancelled owner too, while a row keeps its own CRM ID on edit; a raw
   case-variant insert trips `uq_contract_crm_id` (T-15); blank expiration filled
-  as inception + 1 year − 1 day; treaty year from the earliest contract
-  inception and `None` with none; contract status set on a Completed
+  as inception + 1 year − 1 day; a blank treaty year stays blank; contract
+  status set on a Completed
   submission with no event, other attributes refused when not Active; the
   concurrency 409 on a stale contract `updated_at`; the two clause groups —
   a Won Aggregate XOL and an Open Per Risk XOL on one submission do

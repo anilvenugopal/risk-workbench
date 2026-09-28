@@ -2,9 +2,9 @@
 --
 -- CIC runs this in SQL against rwb_workbench after CRM closes out a renewal
 -- date. The source is dbo.CRMContractStatus in CIC's loss repository: one row
--- per CRM ID with the status CRM holds for it, in CRM's words Open / Won / Lost
--- (the Workbench uses the same words since note 34 D9). Every Workbench
--- contract whose CRM ID appears in the source is set to the source's status.
+-- per CRM ID with the status CRM holds for it, in CRM's words Open / Won / Lost.
+-- Every Workbench contract whose CRM ID appears in the source is set to the
+-- source's status.
 -- The Workbench reads `contract` directly, so the lists and "in force as of"
 -- see the change at once. Contract status has no history (spec 017 P-02): the
 -- row's updated_at moves and updated_by is cleared, so an analyst's edit from a

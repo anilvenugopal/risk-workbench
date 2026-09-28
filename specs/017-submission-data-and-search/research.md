@@ -455,3 +455,24 @@ run applied in part is harder to reason about than one refused whole; to be
 revisited before the nightly schedule (note 34 O34-3). *Mapping CRM's own
 words in the script*: unnecessary once In Process became Open (note 34 D9);
 the three words are the same on both sides.
+
+### R16 — A script's session settings stay with its connection (T-17)
+
+**Decision.** `db/connection.py` sets `pyodbc.pooling = False`, and
+`db/scripts.py` `execute_script_file` detaches and closes its raw connection
+instead of returning it to SQLAlchemy's pool.
+
+**Evidence.** Before commit `121adc1` (2026-09-24), the bulk update script's
+`SET NOCOUNT ON` survived the pool checkin: the ODBC driver manager kept the
+physical connection under SQLAlchemy's pool and handed it to the next caller
+with its session settings intact, so the next UPDATE on it reported rowcount
+-1 and every upsert that branches on rowcount stopped inserting.
+`tests/sqlserver/test_scripts.py::test_a_scripts_session_settings_do_not_reach_the_pool`
+reproduces the sequence. `test_bulk_update_contract_status.py` runs the script
+through the same runner since 2026-09-28, so the tier exercises that path.
+
+**Source notes for the comments that cite decision IDs.** The CRM ID as the
+contract: FR doc line 57 (8/4) and note 33 D12–D13 (P-02, T-15).
+`dbo.CRMContractStatus`: Cheryl's test table today, Ross's view over the
+linked CRM copy in production (note 34 D11, D12); the three status words are
+CRM's own since In Process became Open (note 34 D9).

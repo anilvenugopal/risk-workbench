@@ -109,7 +109,7 @@ erDiagram
     string name "naming-convention label e.g. TY2604_AmericanFamily; NOT unique — id is the key"
     string cedant_name "primary filter; plain string + autocomplete"
     date data_vintage "required; the in-force as-of date of the EDM data, one per submission"
-    int treaty_year "nullable; defaults to the earliest contract inception year"
+    int treaty_year "nullable; entered by hand; may be blank"
     uniqueidentifier links_to_submission_id FK "nullable; self-ref link to a related submission"
     string directory_path "nullable; per-deal shared-drive directory"
     int client_id "nullable; rwb_loss dbo.Client.ClientID — another database, no FK"

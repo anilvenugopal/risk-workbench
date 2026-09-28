@@ -180,10 +180,10 @@ def upgrade() -> None:
     op.create_index("ix_submission_cedant_name", "submission", ["cedant_name"])
 
     # ── contract (0..N per submission; one per CRM ID) ──────────────────────────
-    # The CRM ID is the contract (FR doc line 57). Treaty type, the term and the
+    # The CRM ID is the contract (spec 017 P-02). Treaty type, the term and the
     # Won / Lost / Open status live here, not on the submission (spec 017
-    # P-02, P-03, P-15). A CRM ID is unique across the Workbench (note 33
-    # D12-D13): the service lookup names the owner, the index catches the race.
+    # P-02, P-03, P-15). A CRM ID is unique across the Workbench (T-15): the
+    # service lookup names the owner, the index catches the race.
     op.create_table(
         "contract",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),

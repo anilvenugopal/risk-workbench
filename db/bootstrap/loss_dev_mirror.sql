@@ -78,10 +78,9 @@ CREATE TABLE dbo.Lookup_RMS_HistoricalRDS (
 );
 GO
 
--- CIC-owned: Cheryl's test table today, Ross's view over the linked CRM copy in
--- production (note 34 D11, D12). One row per CRM ID with the status CRM holds,
--- in CRM's words Open / Won / Lost. Column names as confirmed with CIC;
--- infra/scripts/bulk_update_contract_status.sql reads them.
+-- CIC-owned. One row per CRM ID with the status CRM holds, in CRM's words
+-- Open / Won / Lost. Column names as confirmed with CIC; read by
+-- infra/scripts/bulk_update_contract_status.sql.
 IF OBJECT_ID('dbo.CRMContractStatus') IS NULL
 CREATE TABLE dbo.CRMContractStatus (
     CRMID  NVARCHAR(50) NOT NULL,
