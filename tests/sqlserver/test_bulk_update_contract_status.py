@@ -13,6 +13,7 @@ Run with:  pytest tests/sqlserver --run-sqlserver   (requires live SQL Server)
 from __future__ import annotations
 
 import os
+import tempfile
 import uuid
 from datetime import date
 from pathlib import Path
@@ -22,7 +23,7 @@ import pytest
 from sqlalchemy import text
 
 from app.services import submission_service as svc
-from db import execute, execute_command, get_connection, get_engine
+from db import execute, execute_command, get_connection
 
 pytestmark = pytest.mark.sqlserver
 
@@ -40,10 +41,12 @@ def crm_status_table():
 
 def _run(rows: list[tuple[str, str]], *, dry_run: bool,
          connection: str = "WORKBENCH") -> list[list[dict]]:
-    """Make ``rows`` the source table's content and run the script, its SOURCE
-    line pointed at the LOSS database the tier uses, over ``connection``; one
-    list of dicts per result set. The script's RAISERROR surfaces as the
-    driver's exception."""
+    """Make ``rows`` the source table's content and run the script through
+    ``db.scripts.execute_script_file``, its SOURCE line pointed at the LOSS
+    database the tier uses, over ``connection``; one list of dicts per result
+    set. The script's RAISERROR arrives wrapped in ``SQLServerQueryError``."""
+    from db.scripts import execute_script_file  # noqa: PLC0415 — trusted script, test only
+
     script = SCRIPT.read_text(encoding="utf-8")
     assert SOURCE_TABLE in script
     script = script.replace(
@@ -55,22 +58,11 @@ def _run(rows: list[tuple[str, str]], *, dry_run: bool,
         conn.execute(text("INSERT INTO dbo.CRMContractStatus (CRMID, STATUS) "
                           "VALUES (:crm, :status)"),
                      [{"crm": crm, "status": status} for crm, status in rows])
-    raw = get_engine(connection).raw_connection()
-    try:
-        cursor = raw.cursor()
-        cursor.execute(script)
-        result_sets: list[list[dict]] = []
-        while True:
-            if cursor.description is not None:
-                columns = [c[0] for c in cursor.description]
-                result_sets.append([dict(zip(columns, r)) for r in cursor.fetchall()])
-            if not cursor.nextset():
-                break
-        raw.commit()
-        return result_sets
-    finally:
-        raw.detach()  # the script's SET NOCOUNT ON must not reach the pool
-        raw.close()
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / SCRIPT.name
+        path.write_text(script, encoding="utf-8")
+        frames = execute_script_file(path, connection=connection)
+    return [frame.to_dict("records") for frame in frames]
 
 
 def _contracts(submission_id: str) -> dict[str, dict]:
