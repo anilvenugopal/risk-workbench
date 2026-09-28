@@ -85,6 +85,17 @@ def test_form_ticks_the_analyses_carried_from_the_link(client, deal):
     assert 'value="GU"' in page.text
 
 
+def test_form_never_ticks_a_disabled_analysis(client, deal):
+    """Note 35 D3: a row the Workbench cannot export greys as a whole and stays
+    unticked even when the link named it."""
+    page = client.get(f"/submissions/{deal['submission_id']}/exports/new",
+                      params={"analysis_ids": [deal["bad"]]})
+    row = page.text.split(f'id="export-row-{deal["bad"]}"')
+    assert 'class="drow-static drow-static--na"' in row[0][-40:]
+    assert "checked" not in row[1].split("</div>")[0]
+    assert "Selected analyses (0)" in page.text
+
+
 # ── form and fragment ────────────────────────────────────────────────────────
 
 def test_form_renders_defaults_rows_and_disabled_reason(client, deal):

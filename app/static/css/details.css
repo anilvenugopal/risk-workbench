@@ -49,6 +49,7 @@ a.sec__note--link:hover { text-decoration: underline; }
 .drow > summary:hover { background: var(--surface-recessed); }
 .drow > summary > span, .drow-static > span { padding: var(--space-2) var(--space-3); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drow > summary > span.l, .drow-static > span.l { text-align: left; }
+.drow-static--na > span, .drow-static--na .dt-title { color: var(--text-disabled); }
 /* frozen first (identifying) column — the convention for ALL wide tables */
 .dtable__head > :first-child, .drow > summary > :first-child, .drow-static > :first-child { position: sticky; left: 0; z-index: 1; background: var(--surface-panel); box-shadow: 1px 0 0 var(--border-default); }
 .dtable__head > :first-child { z-index: 7; background: var(--surface-recessed); }

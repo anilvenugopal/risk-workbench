@@ -101,7 +101,8 @@ update script's four cases (`test_bulk_update_contract_status.py`).
    `T-100`, CRM ID `T-100`, treaty inception 2027-01-01. Change the inception and export:
    the export row records the changed date; the submission is unchanged. On
    a two-contract submission the Contract select opens blank; choosing one
-   fills the two fields.
+   fills the two fields. An HD analysis's row is grey across every cell and
+   unticked, even when the analyses table had it ticked.
 6. EDM detail, treaty grid: the column head reads **Cedant**.
 
 ### Story 3 — find EDMs and RDMs by deal
