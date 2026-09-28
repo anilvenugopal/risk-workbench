@@ -825,6 +825,10 @@ def test_list_orders_on_the_matched_contract_inception_under_a_filter(iteration1
     late = _mk(iteration1_db, owner=a, name="Late", cedant="L Re",
                inc=date(2026, 6, 1)).submission_id
     _add(iteration1_db, late, "CRM-L2", inc=date(2027, 1, 1), status="WON")
+    # Two inserts can share a clock tick, and the tiebreak is then the random
+    # id; stamp the second contract of each deal as the later one.
+    execute_command("UPDATE contract SET inserted_at = :later WHERE crm_id IN ('CRM-E2', 'CRM-L2')",
+                    {"later": "2099-01-01 00:00:00"}, connection="WORKBENCH")
 
     page = list_submissions(owner_ids=[a], sort="inception", descending=False)
     assert [(r.name, _day(r.inception_date)) for r in page.rows] == [
