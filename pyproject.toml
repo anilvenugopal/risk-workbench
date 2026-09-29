@@ -72,7 +72,7 @@ irp-local    = ["irp-integration[databridge]"]              # dev: your editable
 # no drift between sync and run. `make irp-*` rewrites the default-groups line + syncs.
 [tool.uv]
 # IRP source mode. Committed default = PyPI (production). `make irp-*` rewrites the next line only.
-default-groups = ["dev", "irp-pypi"]
+default-groups = ["dev", "irp-testpypi"]
 constraint-dependencies = ["cryptography>=50.0.0"]
 # Enforce "exactly one source": enabling two irp-* groups at once is a hard error.
 conflicts = [
