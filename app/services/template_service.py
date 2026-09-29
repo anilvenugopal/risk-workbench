@@ -218,8 +218,11 @@ def save_template(
     conn=None,
 ) -> str:
     params = _template_params(values)
+    tags = [tag.strip() for tag in tags]
     with _txn(conn) as working:
         rows, errors = _validate_template(working, params)
+        if any(tag and not is_valid_name(tag) for tag in tags):
+            errors.append(name_rule_message("Tag"))
         if errors:
             raise TemplateValidationError(errors)
         scheme = rows["scheme"]

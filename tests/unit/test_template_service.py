@@ -51,6 +51,16 @@ def test_template_name_outside_the_character_rule_is_rejected(iteration2_db, fak
             in exc.value.errors)
 
 
+def test_template_tag_outside_the_character_rule_is_rejected(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+
+    with pytest.raises(TemplateValidationError) as exc:
+        template_service.save_template(_values(), tags=["US", "Wind (EU)"])
+
+    assert ("Tag names may use only letters, numbers, underscores, and hyphens."
+            in exc.value.errors)
+
+
 def test_suite_name_outside_the_character_rule_is_rejected(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values())
