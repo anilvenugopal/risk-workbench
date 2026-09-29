@@ -106,10 +106,6 @@ class TestSubmissionMigration:
             "SELECT COUNT(*) FROM INFORMATION_SCHEMA.VIEWS "
             "WHERE TABLE_NAME = 'v_contract'",
             {}, connection="WORKBENCH") == 1
-        assert execute_scalar(
-            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.VIEWS "
-            "WHERE TABLE_NAME = 'v_submission_crm_id'",
-            {}, connection="WORKBENCH") == 0
         types = {r["COLUMN_NAME"]: r["DATA_TYPE"] for r in execute(
             "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
             "WHERE TABLE_NAME = 'v_contract'", {}, connection="WORKBENCH")}

@@ -802,6 +802,7 @@ def test_list_orders_on_the_first_entered_contract_inception(iteration1_db):
     a = iteration1_db.user_a
     layered = _mk(iteration1_db, owner=a, name="Layered", cedant="L Re",
                   inc=date(2025, 1, 1)).submission_id
+    _bump()  # CRM-2 has to read as the later contract, not the tiebreak's pick
     _add(iteration1_db, layered, "CRM-2", inc=date(2027, 1, 1))
     _mk(iteration1_db, owner=a, name="Next year", cedant="N Re", inc=date(2026, 12, 1))
     _mk(iteration1_db, owner=a, name="Last year", cedant="P Re", inc=date(2025, 6, 1))
@@ -1018,6 +1019,7 @@ def test_add_and_edit_refuse_a_crm_id_another_deal_holds_but_a_row_keeps_its_own
                         expected_updated_at=y1.updated_at, contract=_row("x-1"))
     assert raised.value.owner == ContractOwner(owner, "Owner deal")
     # The same-deal duplicate keeps its own wording and names no owner.
+    _bump()  # Y-2 has to list after Y-1 by inserted_at, not by the tiebreak
     _add(iteration1_db, sid, "Y-2")
     with pytest.raises(ContractInvalid) as raised:
         _add(iteration1_db, sid, " y-2 ")
