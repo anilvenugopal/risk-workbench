@@ -5,8 +5,8 @@ build_sqlalchemy_url) so it uses the same env-var resolution as the app.
 The URL is set programmatically — NOT via alembic.ini — so the credentials never
 reach ConfigParser, which reads a percent sign in a password as interpolation.
 
-Dev strategy: single revision (0001_initial.py), drop-create-seed per iteration.
-No revision accumulation until production cutover.
+0001_initial.py is the frozen base revision. Every schema change is a new
+revision under alembic/versions/, applied with `alembic upgrade head`.
 """
 
 from __future__ import annotations
@@ -24,10 +24,6 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Target metadata: import all models here so Alembic sees them.
-# Uncomment as models are created in Iteration 0+.
-# from app.models import Base  # noqa: F401
-# target_metadata = Base.metadata
 target_metadata = None
 
 

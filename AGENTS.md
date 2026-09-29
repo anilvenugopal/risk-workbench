@@ -1,8 +1,3 @@
-<!-- SPECKIT START -->
-When present, read `specs/017-submission-data-and-search/plan.md` for the current
-technology, project structure, and shell-command decisions.
-<!-- SPECKIT END -->
-
 # Risk Analysis Workbench — Agent Context
 
 This is the single source of truth for coding-agent instructions in this repo.
@@ -102,7 +97,7 @@ Read these before any implementation work:
 
 - [docs/PRD.md](docs/PRD.md) — product requirements, feature scope, iteration roadmap
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — canonical entity and relationship definitions
-- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v4.2.3); all compliance gates
+- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v4.3.0); all compliance gates
 
 ## Specification Workflow
 
@@ -158,6 +153,7 @@ make dev-up          # start full Docker stack (partner / Windows)
 make sqlserver-up    # start SQL Server only (WSL2 native mode)
 make native-dev      # uvicorn --reload natively in WSL2
 make shell           # bash inside linux-box
+make db-migrate      # alembic upgrade head on rwb_workbench
 make db-rebuild      # DESTRUCTIVE: drop/recreate 3 app DBs + migrate + seed
 make test            # unit tests
 make test-sql        # SQL Server integration tests (--run-sqlserver)
@@ -191,11 +187,36 @@ Full rules in the constitution. Key points for implementation:
 | `rwb_loss` | `MSSQL_LOSS_*` | Loss results | Bootstrap SQL script |
 | DATABRIDGE | `MSSQL_DATABRIDGE_*` | Moody's — read-only | **Read-only, only via irp-integration methods, worker-side** — except a bounded single-row point-of-action check, which may run on the request path and must fail open (constitution Art. 11 v3.2.0); never migrated/bootstrapped; never raw SQL from app code |
 
-## Dev DB Strategy
+## Schema Changes
 
-Drop-create-seed. Single revision `alembic/versions/0001_initial.py` until production cutover.
-Before each schema-affecting iteration, choose: **Rebuild** / **Refresh** / **Skip**.
-DATABRIDGE is never in schema scope (no DDL/migrations/bootstrap; reads only via irp-integration, worker-side).
+`alembic/versions/0001_initial.py` is the base revision. It was frozen when spec 017
+merged (2026-09-29). Never edit it.
+
+Every `rwb_workbench` schema change is a new Alembic revision:
+
+```bash
+uv run alembic revision -m "<what changes>" --rev-id 0002   # next four-digit id; runs from any host shell, no database needed
+make db-migrate                                              # alembic upgrade head inside linux-box (make wsl-db-migrate on WSL2)
+```
+
+- Write `upgrade()` and `downgrade()` by hand with `op.*`. `alembic/env.py` has no
+  model metadata, so `--autogenerate` is not available.
+- The id is the next unused four-digit number. Before merging, run
+  `uv run alembic heads`; if another merged branch took the same id, renumber the
+  revision and point its `down_revision` at the current head. `main` always has
+  exactly one head, or `alembic upgrade head` fails with "Multiple head revisions".
+- Kind-table rows a change needs go in the same revision as the table or column
+  that references them.
+- When a revision changes a table mirrored in `tests/iteration1_mirror.py` or adds a
+  kind-table row, update the mirror in the same commit. The mirror's `*_SEED` lists
+  hold the kind rows the unit tier seeds. `tests/sqlserver/test_schema_drift.py`
+  catches a missing column, not a missing seed row.
+- `make db-rebuild` drops the three app databases and replays every revision. Use
+  it only on a dev database whose data is disposable. It never replaces writing the
+  revision.
+- `rwb_exposure` and `rwb_loss` stay on their bootstrap SQL scripts, not Alembic.
+  DATABRIDGE is never in schema scope (no DDL/migrations/bootstrap; reads only via
+  irp-integration, worker-side).
 
 ## irp-integration (source-switchable: PyPI / TestPyPI / local)
 

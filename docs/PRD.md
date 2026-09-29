@@ -68,7 +68,7 @@ Every submission follows three sequential phases. The workbench covers all three
 - **Treaty** — a reinsurance treaty belonging to an EDM, referenced by analyses by name. Create/edit is synchronous (no job). Backed by `irp_treaty`.
 - **Analysis template** — a saved configuration for one analysis job (model profile, output profile, event-rate scheme, analysis settings, tags — currency and treaty selection happen at submit time, not stored; spec 009 P-09/P-11, §11.3a), for batch submission. **In MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral); batch submission from saved templates is the top analyst pain point. Backed by `analysis_template` + `template_suite` (shipped Iteration 6, spec 009).
 - **Prerequisite gate** — the computed "what can the analyst do right now": a lookup + entity-existence/job-terminal-status check in code (§13.1), not a stored stage machine. Replaces the removed Workflow/Stage/Task construct.
-- **Name-based coupling** — each op resolves its inputs live from Risk Modeler by name at submit time (`search_edms`/`search_portfolios`/`search_analyses`/`search_treaties`); there is no typed handle to chain (§13.2).
+- **Name-based coupling** — each op resolves its inputs live from Risk Modeler by name at submit time (`search_edms`/`search_portfolios`/`search_analyses`/`search_treaties`); there is no typed handle to chain (§13.2). Reference data is the exception: an analysis template stores the Risk Modeler id of its model profile, output profile and event rate scheme, because event rate scheme names repeat across peril/region.
 - **Job (`irp_job`)** — an IRP async operation tracked in the Workbench Metamodel DB — one row per real IRP op (the executable unit). Has an `irp_job_type` (which IRP endpoint to poll), an `irp_id` (RM's job id), and one or more `rwb_job` rows written on completion.
 - **RWB job** — a general queued-work row in the `rwb_job` SQL table, for work **this app executes** in-process. Fully decoupled from `irp_job` (no FK). `requestor_type` + `requestor_id` record what triggered it (an `irp_job` completion, an analyst request, or a parent `rwb_job` for chaining). Picked up by a Dramatiq worker.
 - **RWB job dedup key** — the composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)` on every `rwb_job` row (replaces the old `request_key` string).
@@ -174,7 +174,7 @@ Auto-naming is a first-class feature, not a convenience. An analyst submitting a
 | Styling | Custom ITCSS design system (from `docintel/ui/src/styles`) |
 | Databases | SQL Server: Workbench Metamodel DB + Exposure Repository + Loss Repository (3 separate connections) |
 | DB access | `db/` package (SQLAlchemy Core + pyodbc + ODBC Driver 18). Named connections: `WORKBENCH`, `EXPOSURE`, `LOSS`, `DATABRIDGE`. Pool sizing via `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW`. |
-| Migrations | Alembic (targets `WORKBENCH` connection only). **Dev strategy: drop-create-seed.** Until production (or significant data risk), the dev workflow is full drop-and-recreate — no accumulation of migration versions. A single `alembic/versions/0001_initial.py` creates all tables and seeds all kind tables. Re-running it drops and recreates. Migration version history begins at production cutover. |
+| Migrations | Alembic (targets `WORKBENCH` connection only). `alembic/versions/0001_initial.py` is the base revision, frozen at the spec 017 merge (2026-09-29). Every later schema change is a new revision applied with `alembic upgrade head`. Process: `AGENTS.md`, Schema Changes. |
 | Poller | Standalone loop process; `app/poller/run.py`. Batch-polls all non-terminal IRP jobs per interval. Not Dramatiq. |
 | Dramatiq workers | **Dramatiq** + **Redis** broker. Workers in `app/workers/`. Result workers (one class per `work_type`) + `submission_retry` actor. |
 | Auth | Entra ID (OIDC/BFF) via MSAL; dev header stub for local development |
@@ -912,7 +912,7 @@ judgment waits for a click.
 
 ### 13.2 Name-based coupling (replaces typed handles)
 
-There is **no typed handle to chain or invalidate.** Each op resolves its inputs **live from Risk Modeler by name at submit time** — `search_edms`, `search_portfolios`, `search_analyses`, `search_treaties`. IRP re-validates names to internal IDs on every submit anyway, so a local typed-port/handle-type registry would only track something IRP already owns. Entity tables reference each other directly (`edm_id`, `group_parent_id`, etc.); a job's produced entity records its creator via `created_by_irp_job_irp_id` (DATA_MODEL §3, §3c).
+There is **no typed handle to chain or invalidate.** Each op resolves its inputs **live from Risk Modeler by name at submit time** — `search_edms`, `search_portfolios`, `search_analyses`, `search_treaties`. IRP re-validates names to internal IDs on every submit anyway, so a local typed-port/handle-type registry would only track something IRP already owns. Entity tables reference each other directly (`edm_id`, `group_parent_id`, etc.); a job's produced entity records its creator via `created_by_irp_job_irp_id` (DATA_MODEL §3, §3c). Model profile, output profile and event rate scheme are the exception: `analysis_template` stores their Risk Modeler ids and the analysis submit passes the ids, because event rate scheme names repeat across peril/region (DATA_MODEL §7).
 
 ### 13.3 Validation — at the point of action
 
@@ -1314,21 +1314,16 @@ Each iteration ends runnable and demonstrable. Sequencing follows the analyst's 
 > `specs/006-package-retirement/`. The active design uses `submission_edm` and
 > `submission_rdm`, entity-scoped imports, and standalone RDM analysis capture.
 
-### 21.0 DB lifecycle prompt (applies to every iteration)
+### 21.0 Schema changes (applies to every iteration)
 
-**Before any iteration that touches schema or seed data, the builder (Claude Code) MUST ask:**
+An iteration that changes the `WORKBENCH` schema or its kind-table seeds ships a
+new Alembic revision and is applied with `alembic upgrade head`. The base
+revision `0001_initial.py` was frozen at the spec 017 merge (2026-09-29) and is
+never edited. Process and commands: `AGENTS.md`, Schema Changes.
 
-> "This iteration will change the schema for [list of affected DBs: WORKBENCH / EXPOSURE / LOSS].
-> Choose an action for each:
-> - **Rebuild** — drop all tables, recreate schema, re-seed kind tables. All existing data is lost.
-> - **Refresh** — apply only the new additions (new tables, new columns, new seeds). Existing data is preserved where possible.
-> - **Skip** — leave the database untouched (use only if you are certain this iteration has no schema changes for this DB).
->
-> DATABRIDGE is Moody's managed — never touched by this prompt."
-
-This prompt applies independently to each of the three app-managed databases (`WORKBENCH`, `EXPOSURE`, `LOSS`). A single iteration may affect only one (e.g., Iteration 1 only touches `WORKBENCH`), in which case the prompt only lists that database.
-
-**Rebuild** runs the drop-create-seed path (safe in dev; destructive). **Refresh** applies additive SQL only — it is the analyst's responsibility to confirm no breaking changes exist in the diff before choosing Refresh. In early iterations with no production data risk, Rebuild is the recommended default.
+`LOSS` changes edit the bootstrap SQL scripts (`db/bootstrap/loss_dev_mirror.sql`,
+`db/bootstrap/loss_schema.sql`). DATABRIDGE is Moody's managed and never
+touched.
 
 ---
 
@@ -1338,7 +1333,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **`submission_outputs_dir`** is a **derived path**, not stored in the DB. Always `{OUTPUTS_BASE_DIR}/{submission.id}/` where `OUTPUTS_BASE_DIR` is an env var (default `./data/outputs`). Parquet file paths stored in `validation_result.output_file_path` and `analysis_result_meta.*_file_path` are relative to this root (i.e. they store `{submission.id}/{...}` not the absolute path). The absolute path is reconstructed at read time as `OUTPUTS_BASE_DIR / stored_path`.
 
-**In:** §2 (architecture, three-DB config), §3 (full Linux-native stack: SQL Server in Docker only; app + uvicorn + nginx + Redis run on host), §4 (shell, nav manifest, breadcrumbs, `hx-boost`, `hx-push-url`, status-bar shell, icons), §20.3/20.4/20.5 scaffolding, CSS framework integration, health check (§20.7). Alembic drop-create-seed wired against `WORKBENCH` connection.
+**In:** §2 (architecture, three-DB config), §3 (full Linux-native stack: SQL Server in Docker only; app + uvicorn + nginx + Redis run on host), §4 (shell, nav manifest, breadcrumbs, `hx-boost`, `hx-push-url`, status-bar shell, icons), §20.3/20.4/20.5 scaffolding, CSS framework integration, health check (§20.7). Alembic drop-create-seed wired against `WORKBENCH` connection *(superseded 2026-09-29, §21.0: `0001_initial.py` is frozen and every later change is a new revision)*.
 
 **Out:** domain data, IRP integration, Dramatiq workers.
 
@@ -1563,6 +1558,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Locked decisions
 
+- **2026-09-29 — Migration files from now on.** The spec 017 merge froze `alembic/versions/0001_initial.py` as the base revision. Every later `WORKBENCH` schema change is a new Alembic revision applied with `alembic upgrade head` (§21.0). The Rebuild / Refresh / Skip prompt is retired; `make db-rebuild` remains a dev-only reset that replays every revision.
 - **2026-08-28 — Design session 22: viewing/comparison signed off; the grouping defect; the client table reverses to read-only; Parquet replaces the paginated API; event type via reference data APIs.**
   - **Viewing and comparison signed off (D1–D9)** — the first client acceptance of the results layer; one change request (right-justify return periods, D5). RL + OEP defaults, uncapped viewing, 5-pair comparison cap, selection-order base, cross-currency block, clipboard in ones at full precision — all confirmed. Closes 19 O19-8/O19-9; confirms 20 O20-6/O20-8 (§16.2, FR §7).
   - **The event rate scheme is a group INPUT, not a derivation (D13/D14)** — the demoed grouping passed both members' schemes through and came out ~$8M wrong; the fix is a selection with a default, group run parameters recorded, and validation by comparing the **EP curve** of matched manual-vs-workbench runs. Grouping is spec-first before any fix (§16.4, §21 Iteration 9, FR §6 rewritten).
@@ -1588,7 +1584,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **CR-002 entities & schema** — `edm`/`rdm` → `irp_edm`/`irp_rdm`; new `irp_treaty`, `irp_analysis` (a group is an analysis with `is_group=true`; `rdm_id` set → broker-from-RDM, null → own). *(Superseded 2026-07-10: `irp_rdm` has **no** `edm_id` — an RDM applies to every EDM in its bundle. `irp_analysis.edm_id` is now **nullable** with a ≥1-of-(edm_id, rdm_id) CHECK — RDM-only imports create analyses with no EDM.)* `irp_job` redesigned (typed lineage FKs; `irp_job_type` kind table, `status` plain string; three `last_*` columns; `irp_job_resource`; single-threaded retry). `rwb_job` decoupled from `irp_job` (`requestor_type`/`requestor_id` + composite dedup key). Full detail: DATA_MODEL.md §CR-002 change-log.
 - **Three separate database connections** — named `WORKBENCH`, `EXPOSURE`, `LOSS` — resolved via the `db/` package (`MSSQL_{NAME}_*` env vars). One SQL Server Docker container in dev with three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`); separate servers in prod (§2.2).
 - **Dev environment is Linux-native.** Only SQL Server runs in Docker. App (uvicorn), nginx, Redis, poller, and Dramatiq workers all run as native Linux processes. No Docker Compose wrapping the application stack.
-- **Dev DB strategy: drop-create-seed.** Until production cutover, the WORKBENCH schema is managed via a single Alembic revision that drops all tables, recreates them, and seeds kind tables. No migration version accumulation in dev. EXPOSURE and LOSS bootstrapped via idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`).
+- **Dev DB strategy: drop-create-seed.** *(Superseded 2026-09-29, above: `0001_initial.py` is frozen and every later change is a new revision.)* Until production cutover, the WORKBENCH schema is managed via a single Alembic revision that drops all tables, recreates them, and seeds kind tables. No migration version accumulation in dev. EXPOSURE and LOSS bootstrapped via idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`).
 - **Connection pooling handled by `db/` package** — `get_engine()` / `get_connection()` cache one pooled engine per named connection. Pool sizing via `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW` (set to 10/20 for 30 concurrent users).
 - **Sync-by-default:** plain `def` handlers, FastAPI threadpool; `async def` only for SSE (§2.3).
 - **CR-001 — `rwb_job` general queue (replaces `result_work_item`).** `result_work_item` renamed `rwb_job`. *(Superseded in part by CR-002: `irp_job_id` and the `request_key`/`origin` scheme are replaced by `requestor_type`/`requestor_id` + composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)`; the heartbeat/reconciler mechanism below is unchanged.)*

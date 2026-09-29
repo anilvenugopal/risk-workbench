@@ -115,6 +115,8 @@ def test_batch_worker_submits_and_records_job(iteration2_db, fake_irp):
         "WHERE irp_analysis_id = :a", {"a": rows[0]["id"]}, connection="WORKBENCH")
     assert irp_job["status"] == "QUEUED"
     assert json.loads(irp_job["request_params"])["job_name"] == "CRE_Portfolio_A_Template_A"
+    assert fake_irp.analysis_submits[0]["model_profile_id"] == 1
+    assert fake_irp.analysis_submits[0]["analysis_type"] == "HD"
 
 
 def test_shared_template_across_two_suites_submits_twice_with_suffix_and_own_currency(
@@ -239,8 +241,8 @@ def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(iteration2_db, fa
         "items": [{
             "item_no": 0, "suite_id": None, "suite_name": None,
             "template_id": template_id, "template_name": "Template_A",
-            "analysis_profile_name": "Profile", "output_profile_name": "Output",
-            "event_rate_scheme_name": None,
+            "model_profile_id": 1, "output_profile_id": 10,
+            "event_rate_scheme_id": None, "analysis_type": "HD",
             "currency": {"code": "USD", "scheme": "RMS", "vintage": "RL25",
                         "asOfDate": "2025-05-28"},
             "min_loss_threshold": 1.0, "num_max_loss_event": 1,
@@ -705,8 +707,8 @@ def _plan_item(**overrides) -> dict:
     item = {
         "item_no": 0, "suite_id": None, "suite_name": None,
         "template_id": None, "template_name": "Template_A",
-        "analysis_profile_name": "Profile", "output_profile_name": "Output",
-        "event_rate_scheme_name": None,
+        "model_profile_id": 1, "output_profile_id": 10,
+        "event_rate_scheme_id": None, "analysis_type": "HD",
         "currency": {"code": "USD", "scheme": "RMS", "vintage": "RL25",
                     "asOfDate": "2025-05-28"},
         "min_loss_threshold": 1.0, "num_max_loss_event": 1,

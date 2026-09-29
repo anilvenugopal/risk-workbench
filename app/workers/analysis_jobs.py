@@ -150,9 +150,10 @@ def _submit_one(*, edm_id: str, edm_name: str, execution_id: str, portfolio: dic
     submit_kwargs = {
         "edm_name": edm_name, "portfolio_name": portfolio["name"],
         "job_name": claimed["name"],
-        "analysis_profile_name": item["analysis_profile_name"],
-        "output_profile_name": item["output_profile_name"],
-        "event_rate_scheme_name": item["event_rate_scheme_name"],
+        "model_profile_id": item["model_profile_id"],
+        "output_profile_id": item["output_profile_id"],
+        "event_rate_scheme_id": item["event_rate_scheme_id"],
+        "analysis_type": item["analysis_type"],
         "treaty_names": treaty_names, "tag_names": item["tag_names"],
         "currency": item["currency"],
         "min_loss_threshold": item["min_loss_threshold"],

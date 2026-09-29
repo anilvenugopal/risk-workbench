@@ -120,6 +120,36 @@ does not create databases; it applies the Workbench Alembic migrations and
 verifies `pyodbc` can see `ODBC Driver 18 for SQL Server` and that
 `app.config` imports cleanly.
 
+### One-time rebuild of a database built before the 0001 freeze
+
+Until spec 017 merged (2026-09-29), `alembic/versions/0001_initial.py` was
+edited in place. A database that recorded `0001` as applied before the
+freeze holds an older shape, and the next revision would run on top of it.
+The RHEL9 database has not been rebuilt since the freeze. Do this once,
+before the first deploy that ships a revision after `0001`:
+
+1. Confirm the database predates the freeze. `NULL` means it does:
+
+   ```sql
+   SELECT OBJECT_ID('dbo.contract');
+   ```
+
+2. Stop the application (`rhel9-stop.sh`), then rebuild. Every table and
+   row in the Workbench database is deleted:
+
+   ```bash
+   APP_DIR=/rms bash infra/scripts/rhel9/rhel9-db-rebuild.sh
+   ```
+
+3. Provision each account again:
+
+   ```bash
+   cd /rms && .venv/bin/python infra/scripts/user_setup.py
+   ```
+
+From then on every schema change is a new revision, and the `alembic upgrade
+head` in `rhel9-app-install.sh` applies it.
+
 ## 5. Start Redis/Valkey
 
 ```bash
@@ -276,7 +306,6 @@ new code — an operator still stops the workers (`rhel9-stop.sh`) beforehand
 and starts them again (`rhel9-start.sh`) afterward; the deploy script itself
 still does not stop/start them.
 
-- **A "successful" migration doesn't always mean the schema is current.** This project keeps one migration file, edited in place, instead of a new file per change. On a database that already has that migration recorded as applied, `alembic upgrade head` does nothing — even if the file gained new tables or seed rows since. If a job or query fails with "Invalid object name" for a table that clearly exists in the code, this is why. Fix: rebuild the database — `python infra/scripts/reset_db.py`, then `python -m alembic upgrade head`, then `python infra/scripts/seed_db.py` (same three steps as `make db-rebuild`; RHEL9 has no Make target for this yet, run them directly).
 - **systemd unit files** for uvicorn, Dramatiq workers, the poller, and
   Valkey — not yet written; Steps 5-6 above run them in the
   foreground/manually as a proof of concept only. Deliberately deferred for

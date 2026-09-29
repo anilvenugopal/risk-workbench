@@ -13,8 +13,9 @@ fetch no longer returned, in one transaction. No soft delete and no per-row `as_
 successful sync every surviving row was seen by that sync, so the metadata page's last-synced time
 comes from the latest succeeded `sync_irp_metadata` rwb_job. Uniqueness is a plain unique index on
 the natural key (`irp_id`; `code` for `irp_currency`). Pick lists and the metadata tabs read the
-tables directly. Templates reference these rows by name (Article 2), never by FK, so the hard
-delete cannot orphan anything — a missing name is the read-time unresolved flag (R9).
+tables directly. Templates reference these rows by `irp_id` (Article 2 as amended for issue 68),
+never by FK, so the hard delete cannot orphan anything — a missing `irp_id` is the read-time
+unresolved flag (R9).
 
 ### `irp_model_profile`
 
@@ -117,9 +118,12 @@ template configuration (reversal history: research.md R13); (g)
 |---|---|---|
 | `id` | uuid PK | |
 | `name` | NVARCHAR(200) NOT NULL | filtered-unique on live rows |
-| `analysis_profile_name` | NVARCHAR(200) NOT NULL | RM model-profile name (name-based coupling, Art. 2) |
-| `output_profile_name` | NVARCHAR(200) NOT NULL | |
-| `event_rate_scheme_name` | NVARCHAR(200) NULL | required when the cached profile is DLM (validated at save) |
+| `model_profile_irp_id` | INT NOT NULL | `irp_model_profile.irp_id`; resolved against the cache at save (revision 0002, issue 68); no FK — the sync hard-deletes cache rows and a stale id renders as unresolved |
+| `output_profile_irp_id` | INT NOT NULL | `irp_output_profile.irp_id` |
+| `event_rate_scheme_irp_id` | INT NULL | `irp_event_rate_scheme.irp_id`; required when the cached profile is DLM, optional for HD (validated at save) |
+| `analysis_profile_name` | NVARCHAR(200) NOT NULL | display label copied from the cache at save |
+| `output_profile_name` | NVARCHAR(200) NOT NULL | display label |
+| `event_rate_scheme_name` | NVARCHAR(200) NULL | display label |
 | `min_loss_threshold` | DECIMAL(18,2) NOT NULL DEFAULT 1.00 | FR-005: numeric, 2 dp |
 | `num_max_loss_event` | INT NOT NULL DEFAULT 1 | |
 | `franchise_deductible` | BIT NOT NULL DEFAULT 0 | |

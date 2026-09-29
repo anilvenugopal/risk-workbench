@@ -16,7 +16,7 @@ All database access goes through the `db/` package. App code calls `get_connecti
 | `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — read-only; app code never sends SQL (reads go through irp-integration methods, worker-side, plus the one bounded single-row point-of-action check permitted on the request path; constitution Art. 11 v3.2.0); never DDL |
 
 - **Pooling:** `MSSQL_POOL_SIZE` (default 5), `MSSQL_POOL_MAX_OVERFLOW` (default 5), `MSSQL_POOL_RECYCLE` (default 1800s). For 30 concurrent users: `POOL_SIZE=10`, `MAX_OVERFLOW=20`.
-- **Dev DB strategy:** drop-create-seed via a single Alembic revision (`0001_initial.py`) until production cutover. `EXPOSURE` is bootstrapped by an idempotent SQL script. `LOSS` in dev is `make bootstrap-loss` (`infra/scripts/bootstrap_loss.py`): `loss_dev_mirror.sql` recreates CIC's five loss tables and `dbo.CRMContractStatus` (the CRM status table the January bulk update reads, spec 017 FR-023), `loss_schema.sql` installs the `stage` schema, then `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` are seeded. Neither is under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
+- **`WORKBENCH` migrations:** `alembic/versions/0001_initial.py` is the base revision, frozen when spec 017 merged (2026-09-29). Every later schema change is a new Alembic revision applied with `alembic upgrade head` (`make db-migrate`); the process is in `AGENTS.md`, Schema Changes. `EXPOSURE` is bootstrapped by an idempotent SQL script. `LOSS` in dev is `make bootstrap-loss` (`infra/scripts/bootstrap_loss.py`): `loss_dev_mirror.sql` recreates CIC's five loss tables and `dbo.CRMContractStatus` (the CRM status table the January bulk update reads, spec 017 FR-023), `loss_schema.sql` installs the `stage` schema, then `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` are seeded. Neither is under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
 - **Redis:** `REDIS_URL` (default `redis://localhost:6379/0`). Dramatiq broker; stateless.
 
 ---
@@ -391,9 +391,12 @@ erDiagram
   analysis_template {
     uniqueidentifier id PK
     string name "UNIQUE among live rows (uq_analysis_template_live_name)"
-    string analysis_profile_name "IRP model profile name"
-    string output_profile_name
-    string event_rate_scheme_name "nullable; required for DLM, optional for HD/Accumulation"
+    int model_profile_irp_id "irp_model_profile.irp_id; submitted as model_profile_id"
+    int output_profile_irp_id "irp_output_profile.irp_id; submitted as output_profile_id"
+    int event_rate_scheme_irp_id "nullable; irp_event_rate_scheme.irp_id; required for DLM, optional for HD"
+    string analysis_profile_name "display label copied from the cache at save"
+    string output_profile_name "display label"
+    string event_rate_scheme_name "nullable; display label"
     bool franchise_deductible "NOT NULL default 0"
     decimal min_loss_threshold "DECIMAL(18,2) NOT NULL default 1.00"
     int num_max_loss_event "NOT NULL default 1"
@@ -428,7 +431,7 @@ erDiagram
   }
 ```
 
-- Profile/scheme fields map directly to `client.analysis.submit_portfolio_analysis_job()` parameters. `event_rate_scheme_name` is required for DLM, optional for HD/Accumulation (detected from `irp_model_profile.software_version_code`: `"HD" in code` → HD, else DLM).
+- The three `*_irp_id` columns map to the `model_profile_id`, `output_profile_id` and `event_rate_scheme_id` parameters of `client.analysis.submit_portfolio_analysis_job()` (irp-integration 0.11.0, issue 68). The id path skips the wheel's reference-data reads, so the Workbench supplies the `analysis_type` parameter itself: it is not stored on the template but derived from the cached profile's `software_version_code` when the execution plan is composed (spec 010). Accumulation profiles and profiles with no software version cannot be saved in a template (spec 009 P-14). Event rate scheme names repeat across peril/region in Risk Modeler, so the three `*_name` columns are display labels copied from the cache at save, never join keys. `event_rate_scheme_irp_id` is required for DLM, optional for HD.
 - **Suites are unordered** (spec 009 P-08): `template_suite_item` is a plain membership row — no `position`, no per-item settings; `UNIQUE(suite_id, template_id)` keeps a template in a suite at most once.
 - **Templates store no currency** (spec 009 P-11 / design note 17 D4/D5, 2026-08-20 — reverses P-10): analysis currency, currency scheme, and scheme vintage are chosen in the execution modal at submit time, per chosen suite, pre-filled from pinned env-var defaults (`DEFAULT_ANALYSIS_CURRENCY_*`, §10). The submit-time block is `{code, scheme, vintage, asOfDate}` with `asOfDate` derived from the chosen vintage's effective date; the confirmed values ride the persisted execution plan (spec 010).
 - **Dropped in spec 009:** `treaty_name_pattern` (P-09 — treaties are picked explicitly at run time in the execution modal), `region_label`/`peril_code` (P-03 — region/output level conveyed by names), and `auto_name_pattern` (analysis names follow the fixed portfolio + template name rule — PRD §2.6).
@@ -810,6 +813,7 @@ erDiagram
 
 ## Change log
 
+- **2026-09-29 — Migration files from now on.** `0001_initial.py` is frozen at the spec 017 merge. Every later `WORKBENCH` schema change ships as a new Alembic revision and is applied with `alembic upgrade head`. No schema change.
 - **2026-09-25 — Spec 017 data vintage required (note 33 D7, note 35 D13).** `submission.data_vintage` becomes `DATE NOT NULL` in `0001_initial.py` before the last rebuild; the export form no longer pre-fills from it. No other schema change.
 - **2026-09-24 — Spec 017 list row and sort read the first-entered contract (note 34 D5, D6).** No schema change. The submissions list sorts on the first-entered contract's inception instead of `MAX(inception_date)`, and a row filtered on a contract attribute shows the first contract that matched.
 - **2026-09-23 — Spec 017 Contract status Open and the CRM status table (note 34).** `contract_status_kind` seeds `OPEN` (label Open) in place of `IN_PROCESS`, matching CIC's CRM words; `contract.contract_status_code` defaults to `'OPEN'`. `rwb_loss` gains the mirror of CIC's `dbo.CRMContractStatus`, the source of the January bulk update.
