@@ -102,7 +102,7 @@ def _plans(count: int) -> list[Plan]:
         cedant = rng.choice(CEDANTS)
         program, treaty_type = rng.choice(PROGRAMS)
         year = rng.choice(TREATY_YEARS)
-        short = "_".join(cedant.split()[:2])
+        short = " ".join(cedant.split()[:2])
         contracts: list[submission_service.ContractInput] = []
         for _ in range(rng.choice(CONTRACTS_PER_SUBMISSION)):
             crm_sequence += 1

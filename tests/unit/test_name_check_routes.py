@@ -129,7 +129,7 @@ def test_import_forms_carry_the_name_pattern(monkeypatch):
     for path in ("/edms/import", "/rdms/import"):
         r = client.get(path)
         assert r.status_code == 200
-        assert 'pattern="[A-Za-z0-9_\-]+"' in r.text
+        assert r'pattern="[A-Za-z0-9_\-]+"' in r.text
 
 
 def test_import_collision_maps_to_422_banner(monkeypatch):

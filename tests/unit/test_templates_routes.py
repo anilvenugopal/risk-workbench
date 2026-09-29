@@ -247,7 +247,7 @@ def test_template_detail_edit_form_for_admin_prefills_values(iteration2_db, fake
 
     assert 'value="US_Wind_DLM"' in body
     assert '<option value="RMS Default RL25" selected>' in body
-    assert 'pattern="[A-Za-z0-9_\-]+"' in body
+    assert r'pattern="[A-Za-z0-9_\-]+"' in body
 
 
 def test_update_template_round_trip(iteration2_db, fake_irp):
@@ -505,7 +505,7 @@ def test_new_suite_form_has_search_box_over_the_template_picker(
 
     assert 'id="suite-item-filter"' in body
     assert "US_Wind_DLM" in body
-    assert 'pattern="[A-Za-z0-9_\-]+"' in body
+    assert r'pattern="[A-Za-z0-9_\-]+"' in body
 
 
 def test_new_suite_form_blocked_for_non_admin(iteration2_db, fake_irp):

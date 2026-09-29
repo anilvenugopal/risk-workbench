@@ -35,7 +35,9 @@ logger = logging.getLogger(__name__)
 
 _MAX_ENTRIES = 512
 _NAME_MAX = 50
-_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
+_NAME_CHARS = "A-Za-z0-9_-"
+_NAME_RE = re.compile(f"[{_NAME_CHARS}]+")
+_OTHER_RE = re.compile(f"[^{_NAME_CHARS}]+")
 
 # (kind, exposure irp id, trimmed name) -> (monotonic expiry, colliding names)
 _cache: dict[tuple[str, str | None, str], tuple[float, tuple[str, ...]]] = {}
@@ -77,15 +79,15 @@ def to_name_token(text: str) -> str:
     """Map free text onto the name rule: each run of other characters becomes
     one ``_`` (``Puerto Rico`` → ``Puerto_Rico``), leading and trailing ``_``
     dropped."""
-    return re.sub(r"[^A-Za-z0-9_-]+", "_", text).strip("_")
+    return _OTHER_RE.sub("_", text).strip("_")
 
 
 def clean_entity_name(name: str) -> str:
     cleaned = (name or "").strip()
     if not cleaned or len(cleaned) > _NAME_MAX or not is_valid_name(cleaned):
         raise InvalidMemberName(
-            name_rule_message("EDM/RDM").rstrip(".")
-            + f", with a maximum of {_NAME_MAX} characters.")
+            "EDM/RDM names may use only letters, numbers, underscores, and "
+            f"hyphens, with a maximum of {_NAME_MAX} characters.")
     return cleaned
 
 
