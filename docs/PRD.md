@@ -1321,8 +1321,7 @@ new Alembic revision and is applied with `alembic upgrade head`. The base
 revision `0001_initial.py` was frozen at the spec 017 merge (2026-09-29) and is
 never edited. Process and commands: `AGENTS.md`, Schema Changes.
 
-`EXPOSURE` and `LOSS` changes edit the bootstrap SQL scripts
-(`db/bootstrap/exposure_schema.sql`, `db/bootstrap/loss_dev_mirror.sql`,
+`LOSS` changes edit the bootstrap SQL scripts (`db/bootstrap/loss_dev_mirror.sql`,
 `db/bootstrap/loss_schema.sql`). DATABRIDGE is Moody's managed and never
 touched.
 
@@ -1334,7 +1333,7 @@ touched.
 
 **`submission_outputs_dir`** is a **derived path**, not stored in the DB. Always `{OUTPUTS_BASE_DIR}/{submission.id}/` where `OUTPUTS_BASE_DIR` is an env var (default `./data/outputs`). Parquet file paths stored in `validation_result.output_file_path` and `analysis_result_meta.*_file_path` are relative to this root (i.e. they store `{submission.id}/{...}` not the absolute path). The absolute path is reconstructed at read time as `OUTPUTS_BASE_DIR / stored_path`.
 
-**In:** §2 (architecture, three-DB config), §3 (full Linux-native stack: SQL Server in Docker only; app + uvicorn + nginx + Redis run on host), §4 (shell, nav manifest, breadcrumbs, `hx-boost`, `hx-push-url`, status-bar shell, icons), §20.3/20.4/20.5 scaffolding, CSS framework integration, health check (§20.7). Alembic drop-create-seed wired against `WORKBENCH` connection.
+**In:** §2 (architecture, three-DB config), §3 (full Linux-native stack: SQL Server in Docker only; app + uvicorn + nginx + Redis run on host), §4 (shell, nav manifest, breadcrumbs, `hx-boost`, `hx-push-url`, status-bar shell, icons), §20.3/20.4/20.5 scaffolding, CSS framework integration, health check (§20.7). Alembic drop-create-seed wired against `WORKBENCH` connection *(superseded 2026-09-29, §21.0: `0001_initial.py` is frozen and every later change is a new revision)*.
 
 **Out:** domain data, IRP integration, Dramatiq workers.
 
