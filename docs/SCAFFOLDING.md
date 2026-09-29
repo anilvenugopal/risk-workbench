@@ -245,17 +245,24 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 Three databases are managed by the app: `rwb_workbench`, `rwb_exposure`,
 `rwb_loss`. A fourth, DATABRIDGE (Moody's), is never touched by this app.
 
-Before any iteration that changes the schema, choose one:
+`rwb_workbench` is managed by Alembic. `alembic/versions/0001_initial.py` is the
+base revision, frozen when spec 017 merged (2026-09-29). Never edit it. Every
+schema change is a new revision:
 
-| Option | When | Command |
-|---|---|---|
-| **Rebuild** | Schema changed — drop all 3 and recreate | `make wsl-db-rebuild` |
-| **Migrate** | Schema changed but data must be kept | `make wsl-db-migrate` |
-| **Skip** | No schema change | nothing |
+```bash
+uv run alembic revision -m "add contract broker column" --rev-id 0002   # next four-digit id; no database needed
+make wsl-db-migrate                                                      # alembic upgrade head (Docker: make db-migrate)
+```
 
-In dev we use Rebuild (drop-create-seed) rather than accumulating Alembic
-revisions. There is one revision (`0001_initial.py`) which is amended in place
-until production cutover.
+Write `upgrade()` and `downgrade()` by hand with `op.*`; `alembic/env.py` has no
+model metadata, so autogenerate is not available. Put the kind-table rows a
+change needs in the same revision. If the revision changes a table mirrored in
+`tests/iteration1_mirror.py`, update the mirror in the same commit, or
+`tests/sqlserver/test_schema_drift.py` fails.
+
+`make wsl-db-rebuild` (Docker: `make db-rebuild`) drops all three databases,
+replays every revision, seeds, and bootstraps `rwb_loss`. Use it when your dev
+data is disposable. It never replaces writing the revision.
 
 `rwb_loss` is not migrated by Alembic. `make db-rebuild` / `make wsl-db-rebuild`
 end by running `bootstrap-loss`, which applies `db/bootstrap/loss_dev_mirror.sql`

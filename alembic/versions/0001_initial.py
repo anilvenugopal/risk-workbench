@@ -4,9 +4,8 @@ Revision ID: 0001
 Revises: (none)
 Create Date: 2026-07-01
 
-Dev strategy: drop-create-seed. This is the ONLY revision until production
-cutover. Run `make db-rebuild` to drop and recreate from scratch rather than
-accumulating incremental migrations.
+Base revision, frozen when spec 017 merged (2026-09-29). Do not edit this
+file. Put every schema change in a new revision (see AGENTS.md, Schema Changes).
 """
 
 from __future__ import annotations
