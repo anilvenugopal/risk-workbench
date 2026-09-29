@@ -1647,8 +1647,6 @@ def add_contract(
 ):
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-    if submission_service.get_submission(submission_id) is None:
-        return _not_found(request)
     row = {"crm_id": crm_id, "treaty_type_code": treaty_type_code,
            "inception_date": inception_date, "expiration_date": expiration_date,
            "contract_status_code": contract_status_code}
@@ -1656,6 +1654,8 @@ def add_contract(
         submission_service.add_contract(
             submission_id=submission_id, contract=_contract_input(row),
             actor_id=request.state.user.id)
+    except LookupError:
+        return _not_found(request)
     except ContractInvalid as exc:
         return _contracts_partial(request, submission_id, status_code=422,
                                   contract_error=str(exc),
@@ -1680,14 +1680,13 @@ def update_contract(
 ):
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-    if submission_service.get_submission(submission_id) is None:
-        return _not_found(request)
     row = {"id": contract_id, "crm_id": crm_id, "treaty_type_code": treaty_type_code,
            "inception_date": inception_date, "expiration_date": expiration_date,
            "contract_status_code": "", "updated_at": updated_at}
     try:
         submission_service.update_contract(
-            contract_id=contract_id, contract=_contract_input(row),
+            submission_id=submission_id, contract_id=contract_id,
+            contract=_contract_input(row),
             expected_updated_at=updated_at, actor_id=request.state.user.id)
     except LookupError:
         return _not_found(request)
@@ -1715,11 +1714,10 @@ def change_contract_status(
 ):
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-    if submission_service.get_submission(submission_id) is None:
-        return _not_found(request)
     try:
         submission_service.set_contract_status(
-            contract_id=contract_id, to_status=contract_status_code,
+            submission_id=submission_id, contract_id=contract_id,
+            to_status=contract_status_code,
             expected_updated_at=updated_at, actor_id=request.state.user.id)
     except LookupError:
         return _not_found(request)
@@ -1742,11 +1740,12 @@ def delete_contract(
 ):
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-    if submission_service.get_submission(submission_id) is None:
-        return _not_found(request)
     try:
         submission_service.remove_contract(
-            contract_id=contract_id, actor_id=request.state.user.id)
+            submission_id=submission_id, contract_id=contract_id,
+            actor_id=request.state.user.id)
+    except LookupError:
+        return _not_found(request)
     except SubmissionClosed:
         return _contracts_partial(request, submission_id, status_code=409,
                                   contract_error=_CONTRACT_CLOSED_MESSAGE)

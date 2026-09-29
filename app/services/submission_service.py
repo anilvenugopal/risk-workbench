@@ -1285,22 +1285,36 @@ def list_contracts(submission_id: Any) -> list[Contract]:
     ]
 
 
-def _contract_submission(contract_id: Any) -> str:
-    sid = execute_scalar(
+def _contract_submission(contract_id: str | None) -> str | None:
+    """The canonical id of the deal ``contract_id`` belongs to; ``None`` when
+    no contract has that id."""
+    return _uid(execute_scalar(
         "SELECT submission_id FROM contract WHERE id = :id",
-        {"id": str(contract_id)}, connection="WORKBENCH",
-    )
-    if sid is None:
-        raise LookupError(f"contract {contract_id} not found")
-    return str(sid)
+        {"id": contract_id}, connection="WORKBENCH",
+    ))
+
+
+def _own_contract(submission_id: Any, contract_id: Any) -> tuple[str, str]:
+    """The canonical (submission id, contract id) pair once the contract is one
+    of the submission's. ``LookupError`` when either id is not a UUID, the
+    contract is missing, or it belongs to another deal: a contract posted under
+    the wrong deal's URL reads as not found."""
+    sid, cid = _as_uuid(submission_id), _as_uuid(contract_id)
+    if sid is None or cid is None or _contract_submission(cid) != sid:
+        raise LookupError(f"contract {contract_id} is not on submission {submission_id}")
+    return sid, cid
 
 
 def add_contract(*, submission_id: Any, contract: ContractInput, actor_id: Any) -> str:
     """One more contract on an ACTIVE deal (FR-004), validated by
     ``_prepare_contracts`` against the deal's contracts and every other
-    submission's; returns the new id."""
-    sid = str(submission_id)
-    _require_active(_load_status(sid))
+    submission's; returns the new id. ``LookupError`` when the deal does not
+    exist."""
+    sid = _as_uuid(submission_id)
+    status = _load_status(sid)
+    if status is None:
+        raise LookupError(f"submission {submission_id} not found")
+    _require_active(status)
     [row] = _prepare_contracts([contract], existing=list_contracts(sid))
     new_id = str(uuid.uuid4())
     try:
@@ -1315,14 +1329,14 @@ def add_contract(*, submission_id: Any, contract: ContractInput, actor_id: Any) 
 
 
 def update_contract(
-    *, contract_id: Any, contract: ContractInput, expected_updated_at: Any,
-    actor_id: Any,
+    *, submission_id: Any, contract_id: Any, contract: ContractInput,
+    expected_updated_at: Any, actor_id: Any,
 ) -> None:
     """A contract's CRM ID, treaty type and term, in place under its R1 marker;
     gated on the deal being Active. The status field of ``contract`` is ignored:
-    ``set_contract_status`` owns it."""
-    cid = _uid(contract_id)
-    sid = _contract_submission(cid)
+    ``set_contract_status`` owns it. ``LookupError`` unless the contract is one
+    of ``submission_id``'s (``_own_contract``)."""
+    sid, cid = _own_contract(submission_id, contract_id)
     _require_active(_load_status(sid))
     [row] = _prepare_contracts(
         [contract], existing=list_contracts(sid), editing_id=cid)
@@ -1347,15 +1361,16 @@ def update_contract(
 
 
 def set_contract_status(
-    *, contract_id: Any, to_status: str, expected_updated_at: Any, actor_id: Any,
+    *, submission_id: Any, contract_id: Any, to_status: str, expected_updated_at: Any,
+    actor_id: Any,
 ) -> None:
     """Won / Lost / Open on one contract, set in place in every Modeling
     status with no event and no reason (P-02, P-12; Article 4 "other status").
-    ``ValueError`` on a code that is not in the kind table."""
+    ``ValueError`` on a code that is not in the kind table; ``LookupError``
+    unless the contract is one of ``submission_id``'s (``_own_contract``)."""
     if to_status not in {code for code, _ in contract_status_kinds()}:
         raise ValueError(f"unknown contract status {to_status!r}")
-    cid = _uid(contract_id)
-    _contract_submission(cid)
+    _, cid = _own_contract(submission_id, contract_id)
     rows_affected = execute_command(
         """
         UPDATE contract
@@ -1371,15 +1386,17 @@ def set_contract_status(
             "This contract changed since you opened it — reload and re-apply.")
 
 
-def remove_contract(*, contract_id: Any, actor_id: Any) -> None:
+def remove_contract(*, submission_id: Any, contract_id: Any, actor_id: Any) -> None:
     """Delete one contract of an ACTIVE deal; its status and dates go with it
-    (FR-004). A contract that is already gone is a no-op."""
-    try:
-        sid = _contract_submission(contract_id)
-    except LookupError:
+    (FR-004). A contract that is already gone is a no-op; one on another deal
+    is ``LookupError``."""
+    cid = _as_uuid(contract_id)
+    owner = _contract_submission(cid)
+    if owner is None:
         return
-    _require_active(_load_status(sid))
+    if owner != _as_uuid(submission_id):
+        raise LookupError(f"contract {contract_id} is not on submission {submission_id}")
+    _require_active(_load_status(owner))
     execute_command(
-        "DELETE FROM contract WHERE id = :id",
-        {"id": str(contract_id)}, connection="WORKBENCH",
+        "DELETE FROM contract WHERE id = :id", {"id": cid}, connection="WORKBENCH",
     )

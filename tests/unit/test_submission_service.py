@@ -1014,7 +1014,7 @@ def test_add_and_edit_refuse_a_crm_id_another_deal_holds_but_a_row_keeps_its_own
     assert raised.value.index == 0
     y1 = _contract(sid, "Y-1")
     with pytest.raises(ContractInvalid) as raised:
-        update_contract(contract_id=y1.id, actor_id=a,
+        update_contract(submission_id=sid, contract_id=y1.id, actor_id=a,
                         expected_updated_at=y1.updated_at, contract=_row("x-1"))
     assert raised.value.owner == ContractOwner(owner, "Owner deal")
     # The same-deal duplicate keeps its own wording and names no owner.
@@ -1024,8 +1024,8 @@ def test_add_and_edit_refuse_a_crm_id_another_deal_holds_but_a_row_keeps_its_own
     assert str(raised.value) == "Y-2 is already a contract on this submission."
     assert raised.value.owner is None
     # A row keeps its own CRM ID on edit, in any case.
-    update_contract(contract_id=y1.id, actor_id=a, expected_updated_at=y1.updated_at,
-                    contract=_row("y-1", "stop_loss"))
+    update_contract(submission_id=sid, contract_id=y1.id, actor_id=a,
+                    expected_updated_at=y1.updated_at, contract=_row("y-1", "stop_loss"))
     assert _contract(sid, "y-1").treaty_type_code == "stop_loss"
     assert [c.crm_id for c in list_contracts(sid)] == ["y-1", "Y-2"]
 
@@ -1072,7 +1072,8 @@ def test_add_update_and_remove_a_contract(iteration1_db):
     _add(iteration1_db, sid, "T-200", tt="stop_loss")
     assert [c.crm_id for c in list_contracts(sid)] == ["T-100", "T-200"]
     update_contract(
-        contract_id=cid, actor_id=a, expected_updated_at=_contract(sid, "T-100").updated_at,
+        submission_id=sid, contract_id=cid, actor_id=a,
+        expected_updated_at=_contract(sid, "T-100").updated_at,
         contract=_row("T-100", "aggregate_xol", inc=date(2027, 7, 1),
                       exp=date(2028, 6, 30), status="WON"))
     edited = _contract(sid, "T-100")
@@ -1080,9 +1081,9 @@ def test_add_update_and_remove_a_contract(iteration1_db):
     assert _day(edited.inception_date) == "2027-07-01"
     assert _day(edited.expiration_date) == "2028-06-30"
     assert edited.contract_status_code == "OPEN"   # status is not the editor's
-    remove_contract(contract_id=cid, actor_id=a)
+    remove_contract(submission_id=sid, contract_id=cid, actor_id=a)
     assert [c.crm_id for c in list_contracts(sid)] == ["T-200"]
-    remove_contract(contract_id=cid, actor_id=a)          # already gone: no-op
+    remove_contract(submission_id=sid, contract_id=cid, actor_id=a)          # already gone: no-op
 
 
 def test_add_and_update_refuse_a_duplicate_crm_id_on_the_deal(iteration1_db):
@@ -1093,11 +1094,11 @@ def test_add_and_update_refuse_a_duplicate_crm_id_on_the_deal(iteration1_db):
     with pytest.raises(ContractInvalid):
         _add(iteration1_db, sid, " t-100 ")
     with pytest.raises(ContractInvalid):
-        update_contract(contract_id=second, actor_id=a,
+        update_contract(submission_id=sid, contract_id=second, actor_id=a,
                         expected_updated_at=_contract(sid, "T-200").updated_at,
                         contract=_row("T-100"))
     # A row may keep its own CRM ID when edited.
-    update_contract(contract_id=second, actor_id=a,
+    update_contract(submission_id=sid, contract_id=second, actor_id=a,
                     expected_updated_at=_contract(sid, "T-200").updated_at,
                     contract=_row("t-200", "stop_loss"))
     assert _contract(sid, "t-200").treaty_type_code == "stop_loss"
@@ -1113,12 +1114,12 @@ def test_contract_attribute_writes_are_gated_on_active_but_status_is_not(
     with pytest.raises(SubmissionClosed):
         _add(iteration1_db, sid, "T-200")
     with pytest.raises(SubmissionClosed):
-        update_contract(contract_id=cid, actor_id=a,
+        update_contract(submission_id=sid, contract_id=cid, actor_id=a,
                         expected_updated_at=_contract(sid, "T-100").updated_at,
                         contract=_row("T-100", "stop_loss"))
     with pytest.raises(SubmissionClosed):
-        remove_contract(contract_id=cid, actor_id=a)
-    set_contract_status(contract_id=cid, to_status="WON", actor_id=a,
+        remove_contract(submission_id=sid, contract_id=cid, actor_id=a)
+    set_contract_status(submission_id=sid, contract_id=cid, to_status="WON", actor_id=a,
                         expected_updated_at=_contract(sid, "T-100").updated_at)
     assert _contract(sid, "T-100").contract_status_code == "WON"
     assert get_submission(sid).status_code == "COMPLETED"
@@ -1131,13 +1132,13 @@ def test_contract_status_stale_marker_conflicts_and_unknown_code_is_refused(
     sid = _mk(iteration1_db, crm="CRM-1").submission_id
     cid = _contract(sid, "CRM-1").id
     with pytest.raises(ConcurrencyConflict):
-        set_contract_status(contract_id=cid, to_status="WON",
+        set_contract_status(submission_id=sid, contract_id=cid, to_status="WON",
                             expected_updated_at=STALE, actor_id=a)
     with pytest.raises(ValueError):
-        set_contract_status(contract_id=cid, to_status="HOLD", actor_id=a,
+        set_contract_status(submission_id=sid, contract_id=cid, to_status="HOLD", actor_id=a,
                             expected_updated_at=_contract(sid, "CRM-1").updated_at)
     with pytest.raises(ConcurrencyConflict):
-        update_contract(contract_id=cid, actor_id=a, expected_updated_at=STALE,
+        update_contract(submission_id=sid, contract_id=cid, actor_id=a, expected_updated_at=STALE,
                         contract=_row("CRM-1"))
     assert _contract(sid, "CRM-1").contract_status_code == "OPEN"
 
@@ -1150,10 +1151,31 @@ def test_one_deal_holds_contracts_in_different_statuses(iteration1_db):
         _add(iteration1_db, sid, crm)
         _bump()  # distinct inserted_at, so the rows read back in entry order
     for crm, status in (("A-1", "WON"), ("A-2", "LOST")):
-        set_contract_status(contract_id=_contract(sid, crm).id, to_status=status,
-                            expected_updated_at=_contract(sid, crm).updated_at, actor_id=a)
+        set_contract_status(submission_id=sid, contract_id=_contract(sid, crm).id,
+                            to_status=status, expected_updated_at=_contract(sid, crm).updated_at,
+                            actor_id=a)
     assert [c.contract_status_code for c in list_contracts(sid)] == [
         "WON", "LOST", "OPEN"]
+
+
+def test_contract_writes_under_another_deal_are_refused(iteration1_db):
+    a = iteration1_db.user_a
+    deal_a = _mk(iteration1_db, name="Deal A", crm="A-1").submission_id
+    deal_b = _mk(iteration1_db, name="Deal B", crm="B-1").submission_id
+    b1 = _contract(deal_b, "B-1")
+    with pytest.raises(LookupError):
+        update_contract(submission_id=deal_a, contract_id=b1.id, actor_id=a,
+                        expected_updated_at=b1.updated_at, contract=_row("B-2"))
+    with pytest.raises(LookupError):
+        set_contract_status(submission_id=deal_a, contract_id=b1.id, to_status="WON",
+                            expected_updated_at=b1.updated_at, actor_id=a)
+    with pytest.raises(LookupError):
+        remove_contract(submission_id=deal_a, contract_id=b1.id, actor_id=a)
+    kept = _contract(deal_b, "B-1")
+    assert (kept.contract_status_code, kept.updated_at) == ("OPEN", b1.updated_at)
+    remove_contract(submission_id=deal_a, contract_id=uuid.uuid4(), actor_id=a)  # no-op
+    with pytest.raises(LookupError):
+        _add(iteration1_db, uuid.uuid4(), "C-1")
 
 
 # ── US5: non-unique identity / duplicate warning / edit guards ────────────────
@@ -1436,8 +1458,9 @@ def test_list_filters_on_contract_status(iteration1_db):
     a = iteration1_db.user_a
     won = _mk(iteration1_db, owner=a, name="Won", crm="W-1").submission_id
     _mk(iteration1_db, owner=a, name="Open", inc=date(2026, 7, 1))
-    set_contract_status(contract_id=_contract(won, "W-1").id, to_status="WON",
-                        expected_updated_at=_contract(won, "W-1").updated_at, actor_id=a)
+    set_contract_status(submission_id=won, contract_id=_contract(won, "W-1").id,
+                        to_status="WON", expected_updated_at=_contract(won, "W-1").updated_at,
+                        actor_id=a)
     assert [r.id for r in list_submissions(
         owner_ids=[a], contract_status_codes=["WON"]).rows] == [won]
     assert len(list_submissions(
@@ -1511,7 +1534,8 @@ def test_in_force_is_decided_per_contract(iteration1_db):
     assert _in_force(iteration1_db, date(2026, 6, 1)) == {"Layered"}
     assert _in_force(iteration1_db, date(2027, 6, 1)) == {"Layered"}   # the 3-year contract
     assert _in_force(iteration1_db, date(2029, 1, 1)) == set()
-    set_contract_status(contract_id=_contract(sid, "Three-year").id, to_status="LOST",
+    set_contract_status(submission_id=sid, contract_id=_contract(sid, "Three-year").id,
+                        to_status="LOST",
                         expected_updated_at=_contract(sid, "Three-year").updated_at,
                         actor_id=a)
     assert _in_force(iteration1_db, date(2026, 6, 1)) == set()  # the Lost annual never counts

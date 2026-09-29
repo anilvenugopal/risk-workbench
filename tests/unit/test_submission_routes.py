@@ -2108,7 +2108,7 @@ def test_statuses_post_resubmitting_the_same_modeling_status_records_an_event(cl
     assert "HX-Trigger" not in response.headers
     history = submission_service.get_status_history(sid)
     assert [e.status_code for e in history] == ["ACTIVE", "ACTIVE"]
-    assert history[0].reason == "Re-confirmed"
+    assert {e.reason for e in history} == {None, "Re-confirmed"}
 
     stale = client.post(
         f"/submissions/{sid}/status", headers=_HX,
@@ -2270,6 +2270,56 @@ def test_contract_delete_post_removes_the_row_and_its_dates(client):
     assert response.status_code == 200
     assert [c.crm_id for c in submission_service.list_contracts(sid)] == ["T-200"]
     assert "T-100" not in response.text and "Contracts (1)" in response.text
+
+
+def _two_deals(client):
+    """Deal A and deal B, plus B's one contract."""
+    deal_a, _ = _deal(client, name="Deal A", crm_ids="A-1")
+    deal_b, _ = _deal(client, name="Deal B", crm_ids="B-1", confirmed="1")
+    return deal_a, deal_b, _contract(deal_b, "B-1")
+
+
+def _unchanged(deal_b, b1):
+    kept = _contract(deal_b, "B-1")
+    return kept.contract_status_code == "OPEN" and kept.updated_at == b1.updated_at
+
+
+def test_contract_edit_under_another_deals_url_is_not_found(client):
+    deal_a, deal_b, b1 = _two_deals(client)
+    response = client.post(
+        f"/submissions/{deal_a}/contracts/{b1.id}", headers=_HX,
+        data={"crm_id": "B-2", "treaty_type_code": "stop_loss",
+              "inception_date": "2026-04-01", "expiration_date": "",
+              "updated_at": str(b1.updated_at), "csrf_token": _csrf()})
+    assert response.status_code == 404
+    assert _unchanged(deal_b, b1)
+
+
+def test_contract_status_under_another_deals_url_is_not_found(client):
+    deal_a, deal_b, b1 = _two_deals(client)
+    response = client.post(
+        f"/submissions/{deal_a}/contracts/{b1.id}/status", headers=_HX,
+        data={"contract_status_code": "WON", "updated_at": str(b1.updated_at),
+              "csrf_token": _csrf()})
+    assert response.status_code == 404
+    assert _unchanged(deal_b, b1)
+
+
+def test_contract_delete_under_another_deals_url_is_not_found(client):
+    deal_a, deal_b, b1 = _two_deals(client)
+    response = client.post(f"/submissions/{deal_a}/contracts/{b1.id}/delete",
+                           headers=_HX, data={"csrf_token": _csrf()})
+    assert response.status_code == 404
+    assert _unchanged(deal_b, b1)
+
+
+def test_contract_add_on_a_missing_deal_is_not_found(client):
+    response = client.post(
+        f"/submissions/{uuid.uuid4()}/contracts", headers=_HX,
+        data={"crm_id": "C-1", "treaty_type_code": "stop_loss",
+              "inception_date": "2026-04-01", "expiration_date": "",
+              "contract_status_code": "", "csrf_token": _csrf()})
+    assert response.status_code == 404
 
 
 def test_contract_attribute_posts_are_refused_when_the_deal_is_closed(client):
