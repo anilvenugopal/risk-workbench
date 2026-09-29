@@ -43,7 +43,6 @@ from app.services._common import (
     SubmissionRef,
     _attach_submissions,
     _import_entity,
-    _library_where,
     _mark_error,
     _mark_importing,
     _replace_source_file,
@@ -57,6 +56,7 @@ from app.services.analysis_service import BrokerAnalysisGroup, ExecutedAnalysis
 from app.services.errors import EdmCatalogUnavailable
 from app.services.name_check import CollisionCheck
 from app.services.portfolio_service import PortfolioRow
+from app.services.submission_filters import _library_where
 from app.services.treaty_service import TreatyRow
 from app.workers import dispatch
 from db import execute, execute_command, execute_one, is_unique_violation

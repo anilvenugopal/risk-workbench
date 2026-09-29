@@ -265,47 +265,6 @@ def _attach_submissions(kind: str, rows: list) -> None:
         row.submissions = refs.get(row.id, [])
 
 
-def _library_where(
-    kind: str, *, name: str | None, status: str | None, match_words: bool,
-    unattached: bool, submission_filters: dict[str, Any] | None,
-) -> tuple[str, dict[str, Any]]:
-    """The WHERE clause and bound parameters of ``edm_service.list_edms`` and
-    ``rdm_service.list_rdms`` over the ``kind`` entity table. ``name`` narrows
-    by case-insensitive substring, or with ``match_words`` by every word of
-    the term in any order; ``status`` narrows to the exact import status;
-    ``unattached`` keeps entities linked to no submission; ``submission_filters``
-    keeps an entity when one linked submission satisfies every filter together
-    (spec 017 FR-016): one EXISTS ANDing every clause against one submission at
-    a time. Blank filters are no-ops."""
-    from app.services import submission_service  # noqa: PLC0415 — it imports this module
-
-    cfg = _ENTITY_ASSOC[kind]
-    where = "WHERE deleted_at IS NULL"
-    params: dict[str, Any] = {}
-    if name and match_words:
-        words, more = _word_and_clauses(name, ("name",), "q")
-        where += "".join(f" AND {clause}" for clause in words)
-        params |= more
-    elif name:
-        where += " AND name LIKE :q"
-        params["q"] = f"%{name}%"
-    if status:
-        where += " AND status = :status"
-        params["status"] = status
-    if unattached:
-        where += (f" AND NOT EXISTS (SELECT 1 FROM {cfg['assoc']} a "
-                  f"WHERE a.{cfg['id_col']} = {cfg['table']}.id)")
-    if submission_service.has_submission_filters(submission_filters):
-        clauses, sub_params = submission_service.submission_filter_clauses(
-            submission_filters, alias="s")
-        where += (
-            f" AND EXISTS (SELECT 1 FROM {cfg['assoc']} a JOIN submission s "
-            f"ON s.id = a.submission_id WHERE a.{cfg['id_col']} = {cfg['table']}.id AND "
-            + " AND ".join(clauses) + ")")
-        params |= sub_params
-    return where, params
-
-
 def _submission_entity_context(
     kind: str, *, submission_id: Any, entity_id: Any,
 ) -> tuple[SubmissionRef, list[SubmissionRef]] | None:

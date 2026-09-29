@@ -13,7 +13,6 @@ from app.services._common import (
     SubmissionRef,
     _attach_submissions,
     _import_entity,
-    _library_where,
     _mark_error,
     _mark_importing,
     _replace_source_file,
@@ -24,6 +23,7 @@ from app.services._common import (
 )
 from app.services.edm_service import ImportResult  # shared DTO
 from app.services.name_check import CollisionCheck
+from app.services.submission_filters import _library_where
 from app.workers import dispatch
 from db import execute, execute_one
 

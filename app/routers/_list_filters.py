@@ -15,6 +15,7 @@ from typing import Any
 
 from app.services import auth_service, client_service, submission_service
 from app.services._common import _parse_int
+from app.services.submission_filters import has_submission_filters
 
 SEARCH_MAX_CHARACTERS = 100
 SEARCH_MAX_WORDS = 10
@@ -143,6 +144,6 @@ def library_filters(request) -> tuple[ListFilters, dict[str, Any]]:
         "validation_error": parsed.error,
         "is_filtered": bool(filter_values["q"] or filter_values["status"]
                             or filter_values["unattached"]
-                            or submission_service.has_submission_filters(parsed.filters)),
+                            or has_submission_filters(parsed.filters)),
         "query_string": request.url.query,
     }

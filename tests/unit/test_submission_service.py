@@ -16,7 +16,7 @@ from datetime import date
 
 import pytest
 
-from app.services import edm_service, rdm_service
+from app.services import edm_service, rdm_service, submission_filters
 from app.services import submission_service as svc
 from app.services.errors import (
     ConcurrencyConflict,
@@ -1413,7 +1413,7 @@ def test_view_emits_one_row_per_contract_and_none_for_a_deal_without(iteration1_
 
 def test_filter_clauses_prefix_every_parameter_and_group_the_contract_ones(
         iteration1_db):
-    clauses, params = svc.submission_filter_clauses(
+    clauses, params = submission_filters.submission_filter_clauses(
         {"owner_ids": [iteration1_db.user_a], "name": "am fam", "cedant_name": "mutual",
          "crm_ids": ["T-1"], "treaty_type_codes": ["per_risk_xol"],
          "inception_date": "2026-04-01", "treaty_years": [2026],
@@ -1423,13 +1423,13 @@ def test_filter_clauses_prefix_every_parameter_and_group_the_contract_ones(
     assert "s." not in " ".join(clauses)
     assert set(params) == {"owner0", "n0", "n1", "c0", "crm0", "tt0", "inc", "ty0",
                            "ms0", "cs0", "cl0", "won", "asof"}
-    assert params["won"] == svc.WON == "WON"
+    assert params["won"] == submission_filters.WON == "WON"
     # P-18: every contract-level clause sits in the one EXISTS over contract.
     [exists] = [c for c in clauses if c.startswith("EXISTS (SELECT 1 FROM contract c")]
     for fragment in ("c.crm_id", "c.treaty_type_code", "c.inception_date = :inc",
                      "c.contract_status_code IN", "c.expiration_date >= :asof"):
         assert fragment in exists
-    assert svc.submission_filter_clauses({}) == ([], {})
+    assert submission_filters.submission_filter_clauses({}) == ([], {})
 
 
 def test_list_filters_on_contract_status(iteration1_db):
@@ -1530,5 +1530,5 @@ def test_won_is_the_only_literal_the_in_force_rule_carries():
     """Article 3: the in-force rule names Won through one module constant."""
     import inspect
 
-    source = inspect.getsource(svc)
+    source = inspect.getsource(submission_filters)
     assert source.count('"WON"') == 1 and "'WON'" not in source
