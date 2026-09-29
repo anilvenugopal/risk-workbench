@@ -99,22 +99,19 @@ class TestSubmissionsProvider:
     def test_matches_by_name(self, iteration2_db):
         submission_service.create_submission(
             name="Coastal Re HO 2026", cedant_name="Coastal Re",
-            treaty_type_code="cat_xol", inception_date="2026-01-01",
-            actor_id=iteration2_db.user_a, confirmed=True,
+            data_vintage="2026-06-30", actor_id=iteration2_db.user_a, confirmed=True,
         )
         groups = search_service.global_search("coastal", user_roles=["analyst"])
         submissions = next(g for g in groups if g.type == "submissions")
         assert submissions.items[0].label == "Coastal Re HO 2026"
 
     def test_matches_by_crm_id(self, iteration2_db):
-        result = submission_service.create_submission(
+        submission_service.create_submission(
             name="Zenith Mutual 2026", cedant_name="Zenith Mutual",
-            treaty_type_code="cat_xol", inception_date="2026-01-01",
-            actor_id=iteration2_db.user_a, confirmed=True,
-        )
-        submission_service.add_crm_id(
-            submission_id=result.submission_id, crm_id="CRM-9912",
-            actor_id=iteration2_db.user_a,
+            contracts=[submission_service.ContractInput(
+                crm_id="CRM-9912", treaty_type_code="per_risk_xol",
+                inception_date="2026-01-01")],
+            data_vintage="2026-06-30", actor_id=iteration2_db.user_a, confirmed=True,
         )
         groups = search_service.global_search("9912", user_roles=["analyst"])
         submissions = next(g for g in groups if g.type == "submissions")
@@ -137,6 +134,16 @@ class TestEdmRdmProvider:
         groups = search_service.global_search("broker", user_roles=["analyst"])
         rdms = next(g for g in groups if g.type == "rdms")
         assert rdms.items[0].label == "Broker RDM Alpha"
+
+    def test_edm_and_rdm_match_the_whole_term_not_its_words(self, iteration2_db):
+        """The library pages match per word (spec 017 FR-015); the global search
+        box keeps the substring match (user 2026-09-25)."""
+        _insert_edm(iteration2_db.engine, name="Coastal HO 2026")
+        _insert_rdm(iteration2_db.engine, name="Broker RDM Alpha")
+        groups = search_service.global_search("coastal 2026", user_roles=["analyst"])
+        assert not any(g.type == "edms" for g in groups)
+        groups = search_service.global_search("broker alpha", user_roles=["analyst"])
+        assert not any(g.type == "rdms" for g in groups)
 
 
 class TestTemplatesProvider:
@@ -187,8 +194,7 @@ class TestTypeFilter:
         _insert_edm(iteration2_db.engine, name="Coastal HO 2026")
         submission_service.create_submission(
             name="Coastal Re HO 2026", cedant_name="Coastal Re",
-            treaty_type_code="cat_xol", inception_date="2026-01-01",
-            actor_id=iteration2_db.user_a, confirmed=True,
+            data_vintage="2026-06-30", actor_id=iteration2_db.user_a, confirmed=True,
         )
         groups = search_service.global_search(
             "coastal", user_roles=["analyst"], type="edms")

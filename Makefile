@@ -88,6 +88,9 @@ bootstrap-loss:   ## [Docker] Apply CIC's table mirror + the stage schema to rwb
 bootstrap-loss-reset:   ## [Docker] DESTRUCTIVE — drop the stage tables in rwb_loss, then bootstrap-loss
 	$(BOX) python infra/scripts/bootstrap_loss.py --reset-stage
 
+seed-demo:   ## [Docker] Seed demo submissions + contracts for the search screens (ARGS="--count 120 --clear")
+	$(BOX) python infra/scripts/seed_demo_submissions.py $(ARGS)
+
 test:   ## [Docker] Run unit tests (no SQL Server needed)
 	$(BOX) uv run pytest tests/unit -v
 
@@ -174,6 +177,9 @@ wsl-bootstrap-loss:   ## [WSL2] Apply CIC's table mirror + the stage schema to r
 
 wsl-bootstrap-loss-reset:   ## [WSL2] DESTRUCTIVE — drop the stage tables in rwb_loss, then wsl-bootstrap-loss
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/bootstrap_loss.py --reset-stage'
+
+wsl-seed-demo:   ## [WSL2] Seed demo submissions + contracts for the search screens (ARGS="--count 120 --clear")
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/seed_demo_submissions.py $(ARGS)'
 
 wsl-test:   ## [WSL2] Run unit tests (no SQL Server needed)
 	uv run pytest tests/unit -v

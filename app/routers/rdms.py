@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._entity_notes import save_notes
+from app.routers._list_filters import library_filters, picker_options
 from app.services import edm_service, rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
@@ -52,15 +53,24 @@ def _partial(request: Request, template: str, ctx: dict, status_code: int = 200)
 
 # ── Library list (literal paths — declared before /rdms/{rdm_id}) ────────────────
 
-def _library_context(request: Request) -> dict:
-    """Shared context for the full library page and its polled table fragment."""
+def _library_context(request: Request, *, with_pickers: bool) -> dict:
+    """Shared context for the full library page and its polled table fragment.
+    Name search (every word, any order), import status and "Not in a
+    submission" narrow the entity row; the submission filters (spec 017
+    FR-015) narrow to entities with one linked submission that satisfies them
+    all (FR-016). An unusable filter lists no rows. Only the page renders the
+    filter bar, so only it loads the picker options."""
     q = (request.query_params.get("q") or "").strip() or None
     status = (request.query_params.get("status") or "").strip() or None
-    rows = rdm_service.list_rdms(name=q, status=status)
+    parsed, filter_ctx = library_filters(request)
+    rows = ([] if parsed.error else
+            rdm_service.list_rdms(name=q, status=status, submission_filters=parsed.filters,
+                                  match_words=True,
+                                  unattached=filter_ctx["filter_values"]["unattached"]))
     return {
         "rows": rows,
-        "filter_values": {"q": request.query_params.get("q", ""),
-                          "status": request.query_params.get("status", "")},
+        **filter_ctx,
+        **(picker_options() if with_pickers else {}),
         "statuses": rdm_service.STATUSES,
         # Any row a worker is still moving → the table keeps polling (see
         # partials/library_table.html); all-terminal → no trigger, polling stops.
@@ -76,7 +86,8 @@ def library(request: Request):
     """Global RDM library — every RDM across all submissions, any analyst (no row
     scoping, FR-037/SC-009), narrowable by a name search + status filter (US7). GET,
     no CSRF."""
-    return _render(request, "pages/rdm_library.html", _library_context(request))
+    return _render(request, "pages/rdm_library.html",
+                   _library_context(request, with_pickers=True))
 
 
 @router.get("/rdms/table", response_class=HTMLResponse)
@@ -86,7 +97,7 @@ def library_table(request: Request):
     The trigger is emitted only while a row is non-terminal, so the poll stops by
     itself. No writes, no Risk Modeler call (Article 11)."""
     return _partial(request, "partials/library_table.html",
-                    _library_context(request))
+                    _library_context(request, with_pickers=False))
 
 
 # ── Import form + name check ─────────────────────────────────────────────────────

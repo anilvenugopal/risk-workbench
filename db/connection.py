@@ -17,6 +17,7 @@ import time
 from contextlib import contextmanager
 from typing import Dict, Optional, Tuple
 
+import pyodbc
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 
@@ -54,6 +55,13 @@ def _attach_query_timing(eng: Engine) -> None:
 _ENGINES: Dict[Tuple[str, str], Engine] = {}
 # Test/override hook: pre-registered engines bypass real engine creation.
 _ENGINE_OVERRIDES: Dict[Tuple[str, str], Engine] = {}
+
+
+# SQLAlchemy's QueuePool is the only pool. With pyodbc's default the ODBC driver
+# manager pools underneath it: a physical connection SQLAlchemy closes is kept
+# and handed to the next connect with its session settings intact, so a
+# script's SET NOCOUNT ON would outlive the connection that ran it.
+pyodbc.pooling = False
 
 
 def _pool_kwargs() -> dict:

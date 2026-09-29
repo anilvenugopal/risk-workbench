@@ -23,6 +23,7 @@ from app.services._common import (
 )
 from app.services.edm_service import ImportResult  # shared DTO
 from app.services.name_check import CollisionCheck
+from app.services.submission_filters import _library_where
 from app.workers import dispatch
 from db import execute, execute_one
 
@@ -49,8 +50,9 @@ class RdmRow:
     inserted_at: Any
     updated_at: Any
     notes: str | None = None
-    # Owning submissions (M:N), oldest-first — populated only by ``list_rdms``;
-    # defaulted so ``get_rdm`` and every existing caller are unaffected (US7 / T058).
+    # Owning submissions (M:N), oldest-first — populated by ``list_rdms`` and
+    # ``get_rdm_detail``; defaulted so ``get_rdm`` and every other caller are
+    # unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
     # Last-synced trust signal (FR-052, spec 004 US3) — stamped by the
     # backfill_rdm_analyses worker when the analysis capture lands.
@@ -95,21 +97,21 @@ def _to_row(row: dict) -> RdmRow:
     )
 
 
-def list_rdms(*, name: str | None = None,
-              status: str | None = None) -> list[RdmRow]:
+def list_rdms(*, name: str | None = None, status: str | None = None,
+              submission_filters: dict[str, Any] | None = None,
+              match_words: bool = False, unattached: bool = False) -> list[RdmRow]:
     """Return every live RDM, optionally filtered by name and status.
 
-    ``name`` narrows by case-insensitive substring (``LIKE``); ``status`` narrows to
-    the exact import status; both combine with AND; blank/``None`` are no-ops (US7 /
-    T058). Each row's ``.submissions`` is set to its owning submissions (oldest-first)."""
-    where = "WHERE deleted_at IS NULL"
-    params: dict[str, Any] = {}
-    if name:
-        where += " AND name LIKE :q"
-        params["q"] = f"%{name}%"
-    if status:
-        where += " AND status = :status"
-        params["status"] = status
+    ``name`` narrows by case-insensitive substring (``LIKE``), or with
+    ``match_words`` by every word of the term in any order; ``status`` narrows to
+    the exact import status; all combine with AND; blank/``None`` are no-ops (US7 /
+    T058). ``submission_filters`` keeps an RDM only when one linked submission
+    satisfies every filter together (FR-016); ``unattached`` keeps only RDMs
+    linked to no submission (see ``edm_service.list_edms``).
+    Each row's ``.submissions`` is set to its owning submissions (oldest-first)."""
+    where, params = _library_where(
+        "rdm", name=name, status=status, match_words=match_words,
+        unattached=unattached, submission_filters=submission_filters)
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
@@ -247,6 +249,7 @@ def get_rdm_detail(rdm_id: Any) -> dict | None:
     rdm = get_rdm(rdm_id)
     if rdm is None:
         return None
+    _attach_submissions("rdm", [rdm])
     sync_status = latest_backfill_status(rdm_id)
     return {"rdm": rdm,
             "analyses": analysis_service.list_broker_analyses(rdm_id=rdm_id),

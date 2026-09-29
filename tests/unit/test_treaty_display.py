@@ -12,6 +12,8 @@ number/boolean formatting. The Excel export stays verbatim (full fidelity).
 
 from __future__ import annotations
 
+import re
+
 from app.services.treaty_service import TreatyRow, humanize_key
 
 # The live RM lob sub-object shape (user-reported 2026-07-24).
@@ -126,3 +128,19 @@ def test_display_presence_reports_first_value_and_count():
     empty = TreatyRow(id="t2", edm_id="e1", name="QS", irp_id=None,
                       attributes={"lobs": []}, as_of=None)
     assert empty.display_presence("lobs") == (None, 0)
+
+
+def test_treaty_grid_head_spells_cedant_and_no_template_says_cedent():
+    """FR-010 / P-05: the treaty attribute's column reads Cedant; the spelling
+    "cedent" is gone from every template."""
+    from pathlib import Path
+
+    from app.templating import TEMPLATE_DIRS
+
+    templates = [path for directory in TEMPLATE_DIRS
+                 for path in Path(directory).rglob("*.html")]
+    body = next(path for path in templates if path.name == "edm_detail_body.html")
+    assert '<span class="l">Cedant</span>' in body.read_text(encoding="utf-8")
+    # A word match: "precedent" in a template comment is not the spelling.
+    assert [path.name for path in templates
+            if re.search(r"cedent", path.read_text(encoding="utf-8"), re.I)] == []

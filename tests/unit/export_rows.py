@@ -18,18 +18,21 @@ def seed_submission(user_id: str, *, name: str = "TY2604_Deal", inception: str =
                     treaty_year: int | None = 2026, crm_ids: tuple[str, ...] = ("CRM-1",)) -> str:
     submission_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, treaty_type_code, "
-        "inception_date, treaty_year, status_code, inserted_at, updated_at, inserted_by, "
-        "updated_by) VALUES (:id, :u, :n, 'Cedant Co', 'cat_xol', :inc, :ty, 'ACTIVE', :now, "
-        ":now, :u, :u)",
-        {"id": submission_id, "u": user_id, "n": name, "inc": inception, "ty": treaty_year,
-         "now": NOW}, connection="WORKBENCH")
+        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, treaty_year, "
+        "status_code, inserted_at, updated_at, inserted_by, updated_by) "
+        "VALUES (:id, :u, :n, 'Cedant Co', :ty, 'ACTIVE', :now, :now, :u, :u)",
+        {"id": submission_id, "u": user_id, "n": name, "ty": treaty_year, "now": NOW},
+        connection="WORKBENCH")
+    expiration = f"{int(inception[:4])}-12-31"
     for index, crm_id in enumerate(crm_ids):
         execute_command(
-            "INSERT INTO submission_crm_id (id, submission_id, crm_id, inserted_at, inserted_by) "
-            "VALUES (:id, :s, :c, :at, :u)",
-            {"id": str(uuid.uuid4()), "s": submission_id, "c": crm_id,
-             "at": f"2026-01-01 00:00:0{index}", "u": user_id}, connection="WORKBENCH")
+            "INSERT INTO contract (id, submission_id, crm_id, treaty_type_code, inception_date, "
+            "expiration_date, contract_status_code, inserted_at, updated_at, inserted_by, "
+            "updated_by) VALUES (:id, :s, :c, 'per_risk_xol', :inc, :exp, 'OPEN', :at, "
+            ":at, :u, :u)",
+            {"id": str(uuid.uuid4()), "s": submission_id, "c": crm_id, "inc": inception,
+             "exp": expiration, "at": f"2026-01-01 00:00:0{index}", "u": user_id},
+            connection="WORKBENCH")
     return submission_id
 
 

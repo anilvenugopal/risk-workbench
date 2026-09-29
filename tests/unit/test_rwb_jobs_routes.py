@@ -83,9 +83,8 @@ def _submission(*, name="Sub", assigned_analyst_id) -> str:
     sid = str(uuid.uuid4())
     execute_command(
         "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
-        "treaty_type_code, inception_date, status_code, inserted_at, updated_at) "
-        "VALUES (:id, :a, :name, 'Cedant', 'cat_xol', '2026-01-01', 'ACTIVE', "
-        ":now, :now)",
+        "status_code, inserted_at, updated_at) "
+        "VALUES (:id, :a, :name, 'Cedant', 'ACTIVE', :now, :now)",
         {"id": sid, "a": assigned_analyst_id, "name": name,
          "now": "2026-01-01 00:00:00"},
         connection="WORKBENCH")

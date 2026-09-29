@@ -302,6 +302,8 @@ def _stub_reads(monkeypatch, *, rdm=..., sync_status=None, analyses=None):
     if rdm is ...:
         rdm = _rdm_obj()
     monkeypatch.setattr(rdm_service, "get_rdm", lambda rdm_id: rdm)
+    # No database behind these routes: the stub's own ``submissions`` stand.
+    monkeypatch.setattr(rdm_service, "_attach_submissions", lambda kind, rows: None)
     monkeypatch.setattr(rdm_service, "latest_backfill_status",
                         lambda rdm_id: sync_status)
     monkeypatch.setattr(analysis_service, "list_broker_analyses",
@@ -418,18 +420,23 @@ def test_body_poll_partial_polls_while_running_then_stops(monkeypatch):
     assert ">Sync</button>" in html  # the button is offered again, enabled
 
 
-def test_detail_links_to_hidden_notes_between_source_and_rm_id(monkeypatch):
-    _stub_reads(monkeypatch, rdm=_rdm_obj(notes="Check the broker results."))
+def test_detail_links_to_hidden_notes_between_source_and_submissions(monkeypatch):
+    _stub_reads(monkeypatch, rdm=_rdm_obj(
+        notes="Check the broker results.",
+        submissions=[SubmissionRef(id="submission-a", name="Submission A"),
+                     SubmissionRef(id="submission-b", name="Submission B")]))
 
     html = _client().get("/rdms/rdm-1").text
 
     source_start = html.index("/share/legacy.mdf")
     link_start = html.index(">View Notes</button>")
-    rm_id_start = html.index("RM RDM #88001")
+    first = html.index('in <a class="crumb" href="/submissions/submission-a">Submission A</a>')
+    second = html.index('in <a class="crumb" href="/submissions/submission-b">Submission B</a>')
     notes_start = html.index('<section class="entity-note"')
     analyses_start = html.index(
         '<span class="sec__title">Broker analyses</span>')
-    assert source_start < link_start < rm_id_start
+    assert source_start < link_start < first < second
+    assert "RM RDM #" not in html
     assert notes_start < analyses_start
     assert 'x-show="notesOpen" x-cloak' in html
     assert "Check the broker results." in html

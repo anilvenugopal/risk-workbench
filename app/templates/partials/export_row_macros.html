@@ -1,14 +1,15 @@
 {# One analysis row of the export form, on the shared .dtable grid. Only an
-   analysis the Workbench cannot export at all is disabled; one already exported
-   for the chosen perspective stays ticked and enabled, and the export cart
-   warns that exporting again creates a new data set (FR-004). The form's --cols
-   list must match the eleven cells. #}
+   analysis the Workbench cannot export at all is disabled: its whole row greys
+   and it never renders ticked, whatever the link carried (note 35 D7, D8). One
+   already exported for the chosen perspective stays ticked and enabled, and
+   the export cart warns that exporting again creates a new data set (FR-004).
+   The form's --cols list must match the eleven cells. #}
 {% macro analysis_row(a, checked=false) -%}
-<div class="drow-static" id="export-row-{{ a.id }}" data-name="{{ a.name|lower }}">
+<div class="drow-static{% if a.disabled_reason %} drow-static--na{% endif %}" id="export-row-{{ a.id }}" data-name="{{ a.name|lower }}">
   <span class="l"><span class="geohaz-pick">
     <input type="checkbox" name="analysis_ids" value="{{ a.id }}" @change="onChange()"
-           {% if checked %}checked{% endif %}{% if a.disabled_reason %} disabled{% endif %}></span></span>
-  <span class="l"><span class="dt-title{% if a.disabled_reason %} na{% endif %}" title="{{ a.name }}">{{ a.name }}</span></span>
+           {% if checked and not a.disabled_reason %}checked{% endif %}{% if a.disabled_reason %} disabled{% endif %}></span></span>
+  <span class="l"><span class="dt-title" title="{{ a.name }}">{{ a.name }}</span></span>
   <span class="l">{{ a.perspectives|join(', ') }}</span>
   <span class="l">{{ a.origin }}</span>
   <span class="l">{{ a.peril_code or '—' }}</span>

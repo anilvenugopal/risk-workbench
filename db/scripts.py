@@ -173,7 +173,12 @@ def execute_script_file(file_path: Union[str, Path],  # pragma: no cover
                         database: Optional[str] = None,
                         sql_dir: Optional[Union[str, Path]] = None) -> List[Any]:
     """Run a trusted multi-statement SQL script (GO batches, multiple SELECTs) and
-    return one DataFrame per result set. Connection comes from the shared pool.
+    return one DataFrame per result set.
+
+    The connection is taken from the shared pool and closed afterwards instead of
+    being returned to it: a script's session settings (``SET NOCOUNT ON``,
+    ``SET XACT_ABORT ON``) survive a pool checkin, and a later ``UPDATE`` on that
+    connection would report a rowcount of -1 to every caller that reads one.
 
     Requires a real pyodbc-backed engine; tested in tests/sqlserver/ only.
     """
@@ -209,7 +214,8 @@ def execute_script_file(file_path: Union[str, Path],  # pragma: no cover
             f"Script failed (connection: {connection}, file: {path.name}): {e}"
         ) from e
     finally:
-        raw.close()  # returns the connection to the pool
+        raw.detach()
+        raw.close()
 
 
 def sql_file_exists(file_path: Union[str, Path],

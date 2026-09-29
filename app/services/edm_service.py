@@ -56,6 +56,7 @@ from app.services.analysis_service import BrokerAnalysisGroup, ExecutedAnalysis
 from app.services.errors import EdmCatalogUnavailable
 from app.services.name_check import CollisionCheck
 from app.services.portfolio_service import PortfolioRow
+from app.services.submission_filters import _library_where
 from app.services.treaty_service import TreatyRow
 from app.workers import dispatch
 from db import execute, execute_command, execute_one, is_unique_violation
@@ -308,23 +309,26 @@ _ROW_SELECT = (
 )
 
 
-def list_edms(*, name: str | None = None,
-              status: str | None = None) -> list[EdmRow]:
+def list_edms(*, name: str | None = None, status: str | None = None,
+              submission_filters: dict[str, Any] | None = None,
+              match_words: bool = False, unattached: bool = False) -> list[EdmRow]:
     """Every EDM in the library, optionally filtered. NO row scoping
     (FR-037 / Article 6) — all analysts see all EDMs. Soft-deleted rows excluded.
 
     ``name`` narrows by case-insensitive substring (``LIKE`` — case-insensitive on
-    SQL Server's default collation and on SQLite for ASCII); ``status`` narrows to the
-    exact import status; both combine with AND; blank/``None`` are no-ops (US7 / T058).
+    SQL Server's default collation and on SQLite for ASCII); with ``match_words``
+    every whitespace-separated word of ``name`` has to appear, in any order, as
+    on the submissions list (spec 017 FR-015; the library pages — the global
+    search keeps the substring). ``status`` narrows to the exact import status;
+    all combine with AND; blank/``None`` are no-ops (US7 / T058).
+    ``submission_filters`` (contracts/routes.md §5, spec 017) keeps an EDM only
+    when one of its linked submissions satisfies every filter together; with
+    none set, EDMs linked to no submission stay listed (FR-016). ``unattached``
+    keeps only EDMs linked to no submission.
     Each returned row's ``.submissions`` is set to its owning submissions (oldest-first)."""
-    where = "WHERE deleted_at IS NULL"
-    params: dict[str, Any] = {}
-    if name:
-        where += " AND name LIKE :q"
-        params["q"] = f"%{name}%"
-    if status:
-        where += " AND status = :status"
-        params["status"] = status
+    where, params = _library_where(
+        "edm", name=name, status=status, match_words=match_words,
+        unattached=unattached, submission_filters=submission_filters)
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
@@ -404,6 +408,9 @@ class EdmDetail:
     # portfolios is pending|running — keeps the body's 3s self-poll alive so
     # generated rows appear as the worker upserts them.
     breakout_running: bool = False
+    # Owning submissions (M:N), oldest-first, linked in the header's meta line
+    # from the library and the submission routes alike (spec 017 FR-015).
+    submissions: list[SubmissionRef] = field(default_factory=list)
     # The newest terminal breakout job's completion banner
     # (breakout_service.BreakoutBanner) — None when nothing warrants one.
     breakout_banner: Any = None
@@ -514,7 +521,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         p.breakout_flight = breakout.flights.get(p.id)
         p.breakout_errors = breakout.errors.get(p.id, [])
     job_status = latest_backfill_status(eid)
-    return EdmDetail(
+    detail = EdmDetail(
         id=_uid(row["id"]),
         name=row["name"],
         status=row["status"],
@@ -539,6 +546,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         breakout_running=breakout.running,
         breakout_banner=breakout.banner,
     )
+    _attach_submissions("edm", [detail])
+    return detail
 
 
 def get_contextual_edm_detail(

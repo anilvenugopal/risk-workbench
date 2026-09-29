@@ -96,9 +96,11 @@ def test_lazy_broker_rows_land_in_an_unstyled_target(monkeypatch):
     assert '<div id="rdm-analyses-rdm-1">' in response.text
 
 
-def test_contextual_page_links_to_hidden_notes_between_source_and_rm_id(monkeypatch):
+def test_contextual_page_links_to_hidden_notes_between_source_and_submissions(
+        monkeypatch):
     context = _context()
     context.edm.notes = "Review the treaty mapping."
+    context.edm.submissions = [SubmissionRef(id="submission-a", name="Submission A")]
     monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
                         lambda **kwargs: context)
 
@@ -106,11 +108,13 @@ def test_contextual_page_links_to_hidden_notes_between_source_and_rm_id(monkeypa
 
     source_start = response.text.index("/share/shared.bak")
     link_start = response.text.index(">View Notes</button>")
-    rm_id_start = response.text.index("RM EDM #101")
+    submission_start = response.text.index(
+        'in <a class="crumb" href="/submissions/submission-a">Submission A</a>')
     notes_start = response.text.index('<section class="entity-note"')
     portfolio_start = response.text.index(
         '<span class="sec__title">Portfolios</span>')
-    assert source_start < link_start < rm_id_start
+    assert source_start < link_start < submission_start
+    assert "RM EDM #" not in response.text
     assert notes_start < portfolio_start
     assert 'x-show="notesOpen" x-cloak' in response.text
     assert "Review the treaty mapping." in response.text
@@ -134,6 +138,21 @@ def test_direct_library_page_has_no_submission_context(monkeypatch):
     assert "Submission context" not in response.text
     assert "Broker analyses" not in response.text
     assert "/submissions/submission-a/edms/" not in response.text
+
+
+def test_direct_library_page_links_every_linked_submission(monkeypatch):
+    """FR-015 (note 35 D16): the meta line links the owning submissions from
+    the library route too, oldest first."""
+    edm = _edm()
+    edm.submissions = [SubmissionRef(id="submission-a", name="Submission A"),
+                       SubmissionRef(id="submission-b", name="Submission B")]
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: edm)
+
+    html = _client().get("/edms/edm-1").text
+
+    first = html.index('in <a class="crumb" href="/submissions/submission-a">Submission A</a>')
+    second = html.index('in <a class="crumb" href="/submissions/submission-b">Submission B</a>')
+    assert first < second
 
 
 def test_detail_renders_note_and_pauses_polling_while_editor_is_open(monkeypatch):

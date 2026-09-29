@@ -51,6 +51,9 @@
 }
 .filters__msg { font-size: var(--fs-caption); color: var(--color-danger);
   margin-top: 3px; }
+/* "In force as of": the tick and its date share one row under the label. */
+.filters__inforce-row { display: flex; align-items: center; gap: var(--space-2); }
+.filters__inforce-row input[type="checkbox"] { margin: 0; }
 .filters__hint { font-size: var(--fs-caption); color: var(--text-tertiary);
   margin-top: 3px; }
 
@@ -177,57 +180,92 @@
 .dup-warn__meta { color: var(--text-tertiary); font-size: var(--fs-caption); }
 .dup-warn__note { font-size: var(--fs-caption); color: var(--text-tertiary); }
 
-/* ── Status controls + history ───────────────────────────────────────────── */
+/* The Export page's button row under the analysis picker. */
 .status-controls { display: flex; flex-wrap: wrap; gap: var(--space-2);
   margin-bottom: var(--space-4); }
-.status-form { display: flex; align-items: center; gap: var(--space-2); }
-.status-form__reason {
-  padding: 5px var(--space-2); border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm); font-size: var(--fs-label);
-  background: var(--surface-panel); min-width: 160px;
-}
-.status-history { list-style: none; margin: 0; padding: 0;
-  display: flex; flex-direction: column; gap: 6px; }
-.status-history__item { display: flex; align-items: center; gap: var(--space-2);
-  font-size: var(--fs-label); padding: 6px 0;
-  border-bottom: 1px solid var(--border-faint); }
-.status-history__at { font-family: var(--font-mono); font-size: var(--fs-caption);
-  color: var(--text-tertiary); }
-.status-history__by { color: var(--text-tertiary); }
-.status-history__reason { color: var(--text-secondary); }
 
-/* ── Header band (CRM IDs + owner reassign, inline under the deal strip) ── */
-.detail-band { display: flex; flex-wrap: wrap; align-items: center;
-  gap: var(--space-2) var(--space-6); margin-top: var(--space-3); }
-.detail-band__group { display: flex; flex-wrap: wrap; align-items: center;
-  gap: var(--space-2); }
-.detail-band__label { font-size: var(--fs-caption); text-transform: uppercase;
-  letter-spacing: .04em; color: var(--text-tertiary); font-weight: var(--fw-medium); }
-
-/* ── CRM tags ────────────────────────────────────────────────────────────── */
-.crm-tags { display: flex; flex-wrap: wrap; align-items: center;
-  gap: 6px var(--space-3); }
-.crm-tags__list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.crm-tag {
-  display: inline-flex; align-items: center; gap: 2px;
-  padding: 3px var(--space-2); border-radius: var(--radius-sm);
-  background: var(--surface-recessed); font-size: var(--fs-label);
-  color: var(--text-primary); width: fit-content;
-}
-.crm-tag__del {
-  border: 0; background: none; color: var(--text-tertiary); cursor: pointer;
-  line-height: 1; padding: 0 2px; font-size: var(--fs-label);
-}
-.crm-tag__del:hover { color: var(--color-danger); }
-.crm-add { display: flex; gap: var(--space-2); }
-.crm-add__input {
-  width: 11rem; padding: 5px var(--space-2); font-size: var(--fs-label);
+/* ── Deal card (spec 017 T-10, P-14) ─────────────────────────────────────── */
+/* Four attribute groups in one band — Treaty, Term, Status, Owner — over the
+   CRM band. Each editable group's pencil swaps that group's values for its
+   editor in place. */
+.deal-card { border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--surface-panel); margin-bottom: var(--space-5); }
+.deal-groups { display: grid;
+  grid-template-columns: minmax(230px, 1.25fr) minmax(190px, 1fr)
+                         minmax(200px, 1.1fr) minmax(150px, .85fr); }
+.deal-group { padding: var(--space-3) var(--space-4);
+  border-left: 1px solid var(--border-faint); min-width: 0; }
+.deal-group:first-child { border-left: 0; }
+.deal-group__head { display: flex; align-items: center; gap: var(--space-2);
+  min-height: 20px; margin-bottom: var(--space-1); }
+.deal-group__label { font-size: var(--fs-eyebrow); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
+.deal-group__head .icon-btn { margin-left: auto; }
+.deal-field { display: grid; grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center; gap: var(--space-2); padding: 2px 0; font-size: var(--fs-label); }
+.deal-field--wide { grid-template-columns: minmax(0, 1fr); }
+.deal-field__k { font-size: var(--fs-caption); color: var(--text-tertiary); white-space: nowrap; }
+.deal-field__v { color: var(--text-primary); font-weight: var(--fw-medium);
+  display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.deal-field__v > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deal-field__v--dates { font-variant-numeric: tabular-nums; }
+.deal-field--none .deal-field__v { color: var(--text-disabled); font-weight: var(--fw-regular); }
+.deal-edit { display: flex; flex-direction: column; gap: var(--space-2); padding: 2px 0; }
+.deal-edit select, .deal-edit input { font-size: var(--fs-label); padding: 3px var(--space-2);
   border: 1px solid var(--border-default); border-radius: var(--radius-sm);
-  background: var(--surface-panel);
-}
+  background: var(--surface-panel); color: var(--text-primary); min-width: 0; width: 100%; }
+.deal-edit input[type=date] { font-variant-numeric: tabular-nums; }
+.deal-edit .deal-field { padding: 0; }
+.deal-edit__actions { display: flex; align-items: center; gap: var(--space-2); padding-top: 2px; }
+.deal-edit__hint { font-size: var(--fs-caption); color: var(--text-tertiary); }
+/* Modeling status history, closed until the link opens it. */
+.deal-history { margin-top: var(--space-2); padding-top: var(--space-2);
+  border-top: 1px solid var(--border-faint); display: flex; flex-direction: column; gap: 3px; }
+.deal-history__item { display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--fs-caption); color: var(--text-tertiary); }
+.deal-history__at { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
-/* ── Reassign ────────────────────────────────────────────────────────────── */
-.reassign-form { display: flex; gap: var(--space-2); align-items: center; }
+/* ── Contracts: one row per contract, on the deal card and the create form ── */
+.contract-band { border-top: 1px solid var(--border-default); padding: var(--space-3) var(--space-4); }
+.contract-band--form { border-top: 0; padding: var(--space-4) 0 0; }
+.contract-band__head { display: flex; align-items: center; gap: var(--space-2);
+  margin-bottom: var(--space-1); }
+.contract-band__label { font-size: var(--fs-eyebrow); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
+.contract-band__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+.contract-table { display: flex; flex-direction: column; }
+.contract-row { display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(170px, 1.3fr) 104px 104px 118px 56px;
+  align-items: center; gap: var(--space-2); padding: 4px 0; font-size: var(--fs-label);
+  border-bottom: 1px solid var(--border-faint); }
+.contract-row--head { padding-bottom: 2px; border-bottom-color: var(--border-default); }
+.contract-row--head span { font-size: var(--fs-eyebrow); letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
+.contract-row__id { font-family: var(--font-mono); font-size: var(--fs-mono);
+  color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contract-row__type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contract-date { font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.contract-row__actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px;
+  opacity: 0; transition: opacity var(--dur-fast) ease; }
+.contract-row:hover .contract-row__actions, .contract-row:focus-within .contract-row__actions { opacity: 1; }
+.contract-row__del { border: 0; background: none; color: var(--text-tertiary); cursor: pointer;
+  line-height: 1; padding: 0 4px; font-size: var(--fs-label); }
+.contract-row__del:hover { color: var(--color-danger); }
+/* The status select sits in the row and is live in every Modeling status. */
+.contract-row select, .contract-row input { font-size: var(--fs-caption); padding: 2px var(--space-1);
+  border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+  background: var(--surface-panel); color: var(--text-primary); width: 100%; min-width: 0; }
+.contract-row input[type=date] { font-variant-numeric: tabular-nums; }
+.contract-row input.is-error { border-color: var(--color-danger); background: var(--color-danger-bg); }
+.contract-row--edit { background: var(--surface-recessed); margin: 0 calc(-1 * var(--space-2));
+  padding: 6px var(--space-2); border-radius: var(--radius-sm); }
+/* A row's in-place editor spans the row and lays its inputs on the same columns. */
+.contract-row__editor { grid-column: 1 / -1; display: grid; grid-template-columns: inherit;
+  gap: inherit; align-items: center; }
+.contract-row__foot { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--fs-caption); color: var(--text-tertiary); padding-top: 2px; }
+.contract-row__error { grid-column: 1 / -1; font-size: var(--fs-caption); color: var(--color-danger); }
+.contract-empty { font-size: var(--fs-label); color: var(--text-tertiary); padding: 4px 0; }
 
 /* ── Submission EDM and RDM tables ───────────────────────────────────────── */
 .submission-entity-head { margin-top: var(--space-6); }
