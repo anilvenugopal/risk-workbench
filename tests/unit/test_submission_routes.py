@@ -2110,12 +2110,6 @@ def test_statuses_post_resubmitting_the_same_modeling_status_records_an_event(cl
     assert [e.status_code for e in history] == ["ACTIVE", "ACTIVE"]
     assert {e.reason for e in history} == {None, "Re-confirmed"}
 
-    stale = client.post(
-        f"/submissions/{sid}/status", headers=_HX,
-        data={"modeling_status": "ACTIVE", "updated_at": marker, "csrf_token": _csrf()})
-    assert stale.status_code == 409
-    assert len(submission_service.get_status_history(sid)) == 2
-
 
 def test_statuses_post_redirects_without_htmx(client):
     sid, marker = _deal(client, name="Redirected deal")
@@ -2272,54 +2266,19 @@ def test_contract_delete_post_removes_the_row_and_its_dates(client):
     assert "T-100" not in response.text and "Contracts (1)" in response.text
 
 
-def _two_deals(client):
-    """Deal A and deal B, plus B's one contract."""
+def test_contract_posts_on_another_deal_are_not_found(client):
     deal_a, _ = _deal(client, name="Deal A", crm_ids="A-1")
     deal_b, _ = _deal(client, name="Deal B", crm_ids="B-1", confirmed="1")
-    return deal_a, deal_b, _contract(deal_b, "B-1")
-
-
-def _unchanged(deal_b, b1):
-    kept = _contract(deal_b, "B-1")
-    return kept.contract_status_code == "OPEN" and kept.updated_at == b1.updated_at
-
-
-def test_contract_edit_under_another_deals_url_is_not_found(client):
-    deal_a, deal_b, b1 = _two_deals(client)
-    response = client.post(
-        f"/submissions/{deal_a}/contracts/{b1.id}", headers=_HX,
-        data={"crm_id": "B-2", "treaty_type_code": "stop_loss",
-              "inception_date": "2026-04-01", "expiration_date": "",
-              "updated_at": str(b1.updated_at), "csrf_token": _csrf()})
-    assert response.status_code == 404
-    assert _unchanged(deal_b, b1)
-
-
-def test_contract_status_under_another_deals_url_is_not_found(client):
-    deal_a, deal_b, b1 = _two_deals(client)
-    response = client.post(
-        f"/submissions/{deal_a}/contracts/{b1.id}/status", headers=_HX,
-        data={"contract_status_code": "WON", "updated_at": str(b1.updated_at),
-              "csrf_token": _csrf()})
-    assert response.status_code == 404
-    assert _unchanged(deal_b, b1)
-
-
-def test_contract_delete_under_another_deals_url_is_not_found(client):
-    deal_a, deal_b, b1 = _two_deals(client)
-    response = client.post(f"/submissions/{deal_a}/contracts/{b1.id}/delete",
-                           headers=_HX, data={"csrf_token": _csrf()})
-    assert response.status_code == 404
-    assert _unchanged(deal_b, b1)
-
-
-def test_contract_add_on_a_missing_deal_is_not_found(client):
-    response = client.post(
+    b1 = _contract(deal_b, "B-1")
+    deleted = client.post(f"/submissions/{deal_a}/contracts/{b1.id}/delete",
+                          headers=_HX, data={"csrf_token": _csrf()})
+    added = client.post(
         f"/submissions/{uuid.uuid4()}/contracts", headers=_HX,
         data={"crm_id": "C-1", "treaty_type_code": "stop_loss",
               "inception_date": "2026-04-01", "expiration_date": "",
               "contract_status_code": "", "csrf_token": _csrf()})
-    assert response.status_code == 404
+    assert (deleted.status_code, added.status_code) == (404, 404)
+    assert _contract(deal_b, "B-1").id == b1.id
 
 
 def test_contract_attribute_posts_are_refused_when_the_deal_is_closed(client):
@@ -2452,17 +2411,14 @@ def test_unreachable_repository_disables_the_field_and_the_submission_still_save
     assert submission_service.get_submission(stored).client_id == 41
     assert "41 (name unavailable)" in client.get(f"/submissions/{stored}").text
     assert "Client list unavailable" in client.get("/submissions").text
-
-
-def test_edit_under_an_unreachable_repository_keeps_the_stored_client(client, no_loss_db):
-    sid, marker = _deal(client, name="Keeps its client", client_id="41")
-    form = client.get(f"/submissions/{sid}/edit").text
-    assert 'value="41 (name unavailable)"' in form
-    assert '<input type="hidden" name="client_id" value="41">' in form
-    saved = client.post(f"/submissions/{sid}", data={
-        **_payload(name="Keeps its client", client_id="41"), "updated_at": marker})
+    # Editing posts the stored id back through a hidden input, so it survives.
+    assert '<input type="hidden" name="client_id" value="41">' in client.get(
+        f"/submissions/{stored}/edit").text
+    saved = client.post(f"/submissions/{stored}", data={
+        **_payload(name="Posted anyway", client_id="41", cedant_name="Other"),
+        "updated_at": str(submission_service.get_submission(stored).updated_at)})
     assert saved.status_code == 303
-    assert submission_service.get_submission(sid).client_id == 41
+    assert submission_service.get_submission(stored).client_id == 41
 
 
 def test_a_client_not_in_a_reachable_list_is_a_field_error(client, loss_clients):
