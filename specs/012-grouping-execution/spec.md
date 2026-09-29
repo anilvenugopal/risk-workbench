@@ -114,7 +114,7 @@ Analysts are not always in the Workbench. Every individual analysis the Workbenc
 - **FR-007**: When members of one peril/region/model-version partition use different event-rate schemes, the analyst chooses one of the members' schemes for that partition before submitting; no scheme is preselected and the Workbench never chooses one (O-06).
 - **FR-008**: DLM and HD analyses may be mixed in one grouping.
 - **FR-009**: An invalid grouping is stopped with an error naming the cause: unfinished, foreign, or missing members are blocked by the Workbench, and inspection blocks a member set the platform cannot group before anything reaches the platform; a submission-time re-inspection failure fails the grouping job with a failure reason naming the cause (O-09).
-- **FR-010**: The group name is auto-generated from the deal following the `CRE_` naming conventions, prefilled in the compose dialog, and editable by the analyst before submit (O-01).
+- **FR-010**: The group name is auto-generated from the deal following the `CRE_` naming conventions, prefilled in the compose dialog, and editable by the analyst before submit (O-01); the typed name is limited to `[A-Za-z0-9_-]` because Risk Modeler rejects a group name outside that set (issue #87).
 - **FR-011**: A grouping runs as a tracked job: its status, completion, and failure reason are visible in the same job monitoring views as imports and analyses.
 - **FR-012**: A finished group is recorded as an analysis of the submission and listed in the analyses grid like any other finished analysis.
 - **FR-013**: A group's results are viewed and retrieved exactly as an individual analysis's results are.
