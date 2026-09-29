@@ -41,14 +41,14 @@ logger = logging.getLogger(__name__)
 # Risk Modeler's hard limits, boundary-confirmed in the probe run (W-2/W-13).
 PORTFOLIO_NAME_MAX = 40
 PORTFOLIO_NUMBER_MAX = 20
-# 4 characters reserved on every composed name so a " (2)"…" (9)" collision
+# 4 characters reserved on every composed name so a "_2"…"_999" collision
 # suffix always fits without a second truncation pass (R4).
 _SUFFIX_RESERVE = 4
 # The source name is never cut below this; a value long enough to demand that
 # is itself truncated from the right (R4 — safe because the name is not the
 # identity; the number is).
 _MIN_SOURCE_CHARS = 4
-_SEPARATOR = " - "
+_SEPARATOR = "_"
 
 # Above this many sub-portfolios the preview adds the plain statement that the
 # run takes several minutes (FR-006c / P-15). One named constant — no cap, no
@@ -406,34 +406,38 @@ class SubPortfolioPlan:
 
 
 def _compose_name(source_name: str, token: str, taken: Collection[str]) -> str:
-    """``{source} - {token}`` inside the 40-character limit — the token is the
+    """``{source}_{token}`` inside the 40-character limit — the token is the
     breakout value's display label where one exists, else the value (P-12 as
-    revised 2026-08-05). The token is kept whole and the source absorbs the
-    truncation, 4 characters reserved for the collision suffix; the lowest
-    free `` (2)``, `` (3)``… wins (R4). ``taken`` holds CASEFOLDED names —
-    Risk Modeler rejects a duplicate name without distinguishing case, so
-    ``SOURCE - TX`` must push ``source - TX`` to a suffix."""
+    revised 2026-08-05), both mapped onto ``[A-Za-z0-9_-]`` first so the name
+    can go into an analysis name (issue #87: ``cbhu_Puerto_Rico``). The token
+    is kept whole and the source absorbs the truncation, 4 characters reserved
+    for the collision suffix; the lowest free ``_2``, ``_3``… wins (R4).
+    ``taken`` holds CASEFOLDED names — Risk Modeler rejects a duplicate name
+    without distinguishing case, so ``SOURCE_TX`` must push ``source_TX`` to a
+    suffix."""
+    source_name = name_check.to_name_token(source_name)
+    token = name_check.to_name_token(token)
     source_budget = (PORTFOLIO_NAME_MAX - _SUFFIX_RESERVE - len(_SEPARATOR)
                      - len(token))
     if source_budget < _MIN_SOURCE_CHARS:
-        source_part = source_name[:_MIN_SOURCE_CHARS].rstrip()
+        source_part = source_name[:_MIN_SOURCE_CHARS].rstrip("_")
         value_budget = (PORTFOLIO_NAME_MAX - _SUFFIX_RESERVE - len(_SEPARATOR)
                         - len(source_part))
-        value_part = token[:value_budget].rstrip()
+        value_part = token[:value_budget].rstrip("_")
     else:
-        source_part = source_name[:source_budget].rstrip()
+        source_part = source_name[:source_budget].rstrip("_")
         value_part = token
     base = f"{source_part}{_SEPARATOR}{value_part}"
     name = base
     n = 2
     while name.casefold() in taken:
-        name = f"{base} ({n})"
-        # Beyond " (9)" the suffix outgrows the 4-character reserve — trim the
+        name = f"{base}_{n}"
+        # Beyond "_999" the suffix outgrows the 4-character reserve — trim the
         # source further so the composed name never exceeds the RM limit.
         while len(name) > PORTFOLIO_NAME_MAX and len(source_part) > 1:
-            source_part = source_part[:-1].rstrip()
+            source_part = source_part[:-1].rstrip("_")
             base = f"{source_part}{_SEPARATOR}{value_part}"
-            name = f"{base} ({n})"
+            name = f"{base}_{n}"
         n += 1
     return name
 
@@ -1116,6 +1120,8 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
         if len(label) > PORTFOLIO_NAME_MAX:
             raise GateRefused(
                 f"breakout names cap at {PORTFOLIO_NAME_MAX} characters")
+        if not name_check.is_valid_name(label):
+            raise GateRefused(name_check.name_rule_message("Breakout"))
         filters = _validate_group_filters(gate, g.get("filters"))
         key = compute_group_key(filters)
         if any(p.key == key for p in plans):

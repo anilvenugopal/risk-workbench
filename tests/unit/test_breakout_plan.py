@@ -55,8 +55,8 @@ def test_plan_is_deterministic_and_sorted_by_value():
 
 def test_short_names_compose_untouched():
     plan = _plan([_bv("TX"), _bv("CA")])
-    assert [p.name for p in plan] == ["usfl_commercial - CA",
-                                      "usfl_commercial - TX"]
+    assert [p.name for p in plan] == ["usfl_commercial_CA",
+                                      "usfl_commercial_TX"]
     assert [p.number for p in plan] == ["P1-S-CA", "P1-S-TX"]
 
 
@@ -71,9 +71,9 @@ def test_long_source_is_truncated_and_value_kept_whole():
                  source_name=source, dimension="lob")
     for p in plan:
         assert len(p.name) <= PORTFOLIO_NAME_MAX - 4  # suffix room reserved
-        assert p.name.endswith(f" - {p.value}")       # the value stays whole
-    # source budget for "General Liability" (17): 40 − 4 − 3 − 17 = 16
-    assert plan[0].name == f"{source[:16].rstrip()} - General Liability"
+        assert p.name.endswith("_" + p.value.replace(" ", "_"))  # the value stays whole
+    # source budget for "General_Liability" (17): 40 − 4 − 1 − 17 = 18
+    assert plan[0].name == "TY2607_Meridian_Ce_General_Liability"
 
 
 def test_very_long_value_truncates_value_after_source_floor():
@@ -95,8 +95,8 @@ def test_name_uses_display_label_and_identity_keeps_the_code():
                   _bv("010", 74, label="St Croix")])
     assert [p.value for p in plan] == ["010", "200"]
     by_value = {p.value: p for p in plan}
-    assert by_value["200"].name == "usfl_commercial - Puerto Rico"
-    assert by_value["010"].name == "usfl_commercial - St Croix"
+    assert by_value["200"].name == "usfl_commercial_Puerto_Rico"
+    assert by_value["010"].name == "usfl_commercial_St_Croix"
     assert by_value["200"].number == "P1-S-200"
     assert by_value["010"].number == "P1-S-010"
 
@@ -105,24 +105,24 @@ def test_identical_labels_on_distinct_values_get_collision_suffixed():
     # Two codes carrying the same label compose the same base name — the
     # intra-plan suffix keeps them distinct; the numbers never collide.
     plan = _plan([_bv("010", label="Twin"), _bv("020", label="Twin")])
-    assert [p.name for p in plan] == ["usfl_commercial - Twin",
-                                      "usfl_commercial - Twin (2)"]
+    assert [p.name for p in plan] == ["usfl_commercial_Twin",
+                                      "usfl_commercial_Twin_2"]
     assert len({p.number for p in plan}) == 2
 
 
 def test_collision_takes_lowest_free_suffix_against_existing_names():
-    existing = {"usfl_commercial - TX", "usfl_commercial - TX (2)"}
+    existing = {"usfl_commercial_TX", "usfl_commercial_TX_2"}
     plan = _plan([_bv("TX")], existing_names=existing)
-    assert plan[0].name == "usfl_commercial - TX (3)"
+    assert plan[0].name == "usfl_commercial_TX_3"
     assert len(plan[0].name) <= PORTFOLIO_NAME_MAX
 
 
 def test_collision_detection_ignores_case():
     # Risk Modeler rejects a duplicate name without distinguishing case, so an
-    # existing USFL_COMMERCIAL - tx must push the planned name to a suffix —
+    # existing USFL_COMMERCIAL_tx must push the planned name to a suffix —
     # otherwise the create fails on a name the analyst already approved.
-    plan = _plan([_bv("TX")], existing_names={"USFL_COMMERCIAL - tx"})
-    assert plan[0].name == "usfl_commercial - TX (2)"
+    plan = _plan([_bv("TX")], existing_names={"USFL_COMMERCIAL_tx"})
+    assert plan[0].name == "usfl_commercial_TX_2"
 
 
 def test_intra_plan_collisions_are_suffixed_too():
@@ -132,7 +132,7 @@ def test_intra_plan_collisions_are_suffixed_too():
     plan = _plan([_bv(a), _bv(b)], source_name="usfl_commercial")
     names = [p.name for p in plan]
     assert len(set(names)) == 2
-    assert names[1] == f"{names[0]} (2)"
+    assert names[1] == f"{names[0]}_2"
     assert all(len(n) <= PORTFOLIO_NAME_MAX for n in names)
 
 
@@ -185,7 +185,7 @@ def test_number_is_stable_across_runs_regardless_of_name_suffixing():
     # The number depends only on (source RM id, dimension, value) — the same
     # inputs with a different collision universe keep the identity stable (P-11).
     clean = _plan([_bv("TX")])
-    collided = _plan([_bv("TX")], existing_names={"usfl_commercial - TX"})
+    collided = _plan([_bv("TX")], existing_names={"usfl_commercial_TX"})
     assert clean[0].name != collided[0].name
     assert clean[0].number == collided[0].number
 
@@ -291,13 +291,13 @@ def test_peril_plan_names_by_mnemonic_and_numbers_by_code():
     # on and the number token stay the numeric code (P-30).
     plan = _plan([_bv("2", 1701), _bv("4", 517)], dimension="peril")
     assert [(p.value, p.label, p.name, p.number) for p in plan] == [
-        ("2", "WS", "usfl_commercial - WS", "P1-P-2"),
-        ("4", "FL", "usfl_commercial - FL", "P1-P-4")]
+        ("2", "WS", "usfl_commercial_WS", "P1-P-2"),
+        ("4", "FL", "usfl_commercial_FL", "P1-P-4")]
 
 
 def test_unmapped_peril_code_names_by_code_and_carries_no_label():
     plan = _plan([_bv("42")], dimension="peril")
-    assert (plan[0].name, plan[0].label) == ("usfl_commercial - 42", None)
+    assert (plan[0].name, plan[0].label) == ("usfl_commercial_42", None)
 
 
 def test_other_dimensions_display_their_value_verbatim():

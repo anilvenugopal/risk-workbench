@@ -47,7 +47,7 @@ def seed_portfolio(edm_id: str, name: str = "Portfolio A") -> str:
     return portfolio_id
 
 
-def seed_template(name: str = "Template A", event_rate_scheme_name: str | None = None,
+def seed_template(name: str = "Template_A", event_rate_scheme_name: str | None = None,
                   tags: list[str] | None = None) -> str:
     template_id = str(uuid.uuid4())
     execute_command(

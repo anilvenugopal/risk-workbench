@@ -58,8 +58,8 @@ def _run_execution(*, edm_id, portfolio_id, kind="template", suite_picks=None,
 # ── naming helpers (T-04/T-05) ───────────────────────────────────────────────────
 
 def test_build_full_name_is_cre_prefixed_underscore_delimited():
-    assert analysis_jobs.build_full_name("US Southeast Wind", "US HU DLM v23") == (
-        "CRE_US Southeast Wind_US HU DLM v23")
+    assert analysis_jobs.build_full_name("US Southeast Wind", "US_HU_DLM_v23") == (
+        "CRE_US_Southeast_Wind_US_HU_DLM_v23")
 
 
 def test_name_attempt_zero_has_no_suffix_and_clips_at_64():
@@ -104,8 +104,8 @@ def test_batch_worker_submits_and_records_job(iteration2_db, fake_irp):
 
     rows = _analyses_for(edm_id)
     assert len(rows) == 1
-    assert rows[0]["name"] == "CRE_Portfolio A_Template A"
-    assert rows[0]["full_name"] == "CRE_Portfolio A_Template A"
+    assert rows[0]["name"] == "CRE_Portfolio_A_Template_A"
+    assert rows[0]["full_name"] == "CRE_Portfolio_A_Template_A"
     # `pending` until a terminal write: irp_job.status carries the progress.
     assert rows[0]["status_code"] == "pending"
     assert rows[0]["irp_portfolio_id"] == portfolio_id
@@ -114,7 +114,7 @@ def test_batch_worker_submits_and_records_job(iteration2_db, fake_irp):
         "SELECT status, irp_analysis_id, request_params FROM irp_job "
         "WHERE irp_analysis_id = :a", {"a": rows[0]["id"]}, connection="WORKBENCH")
     assert irp_job["status"] == "QUEUED"
-    assert json.loads(irp_job["request_params"])["job_name"] == "CRE_Portfolio A_Template A"
+    assert json.loads(irp_job["request_params"])["job_name"] == "CRE_Portfolio_A_Template_A"
 
 
 def test_shared_template_across_two_suites_submits_twice_with_suffix_and_own_currency(
@@ -123,7 +123,7 @@ def test_shared_template_across_two_suites_submits_twice_with_suffix_and_own_cur
     seed_currency(scheme="DT", vintage="RL24", effective_date="2024-05-28")
     edm_id = seed_edm()
     portfolio_id = seed_portfolio(edm_id)
-    template_id = seed_template("Shared Template")
+    template_id = seed_template("Shared_Template")
     suite1 = seed_suite("Suite One", [template_id])
     suite2 = seed_suite("Suite Two", [template_id])
 
@@ -143,11 +143,11 @@ def test_shared_template_across_two_suites_submits_twice_with_suffix_and_own_cur
     rows = _analyses_for(edm_id)
     assert len(rows) == 2
     names = sorted(r["name"] for r in rows)
-    assert names == ["CRE_Portfolio A_Shared Template",
-                     "CRE_Portfolio A_Shared Template_2"]
+    assert names == ["CRE_Portfolio_A_Shared_Template",
+                     "CRE_Portfolio_A_Shared_Template_2"]
     submits = {s["job_name"]: s["currency"] for s in fake_irp.analysis_submits}
-    assert submits["CRE_Portfolio A_Shared Template"]["scheme"] == "RMS"
-    assert submits["CRE_Portfolio A_Shared Template_2"]["scheme"] == "DT"
+    assert submits["CRE_Portfolio_A_Shared_Template"]["scheme"] == "RMS"
+    assert submits["CRE_Portfolio_A_Shared_Template_2"]["scheme"] == "DT"
     assert _rwb_job_of(execution_id)["status_code"] == "succeeded"
 
 
@@ -158,8 +158,8 @@ def test_one_item_failing_to_submit_never_stops_the_loop(iteration2_db, fake_irp
     edm_id = seed_edm()
     p1 = seed_portfolio(edm_id, "Portfolio A")
     p2 = seed_portfolio(edm_id, "Portfolio B")
-    template_id = seed_template("Template A")
-    fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio A_Template A")
+    template_id = seed_template("Template_A")
+    fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio_A_Template_A")
 
     execution_id = svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[p1, p2], treaty_names=[],
@@ -172,11 +172,11 @@ def test_one_item_failing_to_submit_never_stops_the_loop(iteration2_db, fake_irp
     assert json.loads(job["output_data"]) == {"submitted": 1, "submission_failed": 1}
 
     rows = {r["name"]: r for r in _analyses_for(edm_id)}
-    failed = rows["CRE_Portfolio A_Template A"]
+    failed = rows["CRE_Portfolio_A_Template_A"]
     assert failed["status_code"] == "pending"
     assert failed["failure_reason"] and "forced analysis submit failure" in failed[
         "failure_reason"]
-    ok = rows["CRE_Portfolio B_Template A"]
+    ok = rows["CRE_Portfolio_B_Template_A"]
     assert ok["status_code"] == "pending"
     assert ok["failure_reason"] is None
 
@@ -191,8 +191,8 @@ def test_every_item_failing_to_submit_fails_the_rwb_job(iteration2_db, fake_irp)
     seed_currency()
     edm_id = seed_edm()
     portfolio_id = seed_portfolio(edm_id)
-    template_id = seed_template("Template A")
-    fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio A_Template A")
+    template_id = seed_template("Template_A")
+    fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio_A_Template_A")
 
     execution_id = svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id], treaty_names=[],
@@ -238,7 +238,7 @@ def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(iteration2_db, fa
         "portfolios": [{"id": portfolio_id, "name": "Portfolio A"}],
         "items": [{
             "item_no": 0, "suite_id": None, "suite_name": None,
-            "template_id": template_id, "template_name": "Template A",
+            "template_id": template_id, "template_name": "Template_A",
             "analysis_profile_name": "Profile", "output_profile_name": "Output",
             "event_rate_scheme_name": None,
             "currency": {"code": "USD", "scheme": "RMS", "vintage": "RL25",
@@ -704,7 +704,7 @@ def test_finalize_success_chains_one_retrieval_and_a_refire_is_a_noop(
 def _plan_item(**overrides) -> dict:
     item = {
         "item_no": 0, "suite_id": None, "suite_name": None,
-        "template_id": None, "template_name": "Template A",
+        "template_id": None, "template_name": "Template_A",
         "analysis_profile_name": "Profile", "output_profile_name": "Output",
         "event_rate_scheme_name": None,
         "currency": {"code": "USD", "scheme": "RMS", "vintage": "RL25",

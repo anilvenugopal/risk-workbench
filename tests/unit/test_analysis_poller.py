@@ -164,7 +164,7 @@ def _submission_failed_row(iteration2_db, fake_irp) -> dict:
     edm_id = seed_edm()
     portfolio_id = seed_portfolio(edm_id)
     template_id = seed_template()
-    fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio A_Template A")
+    fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio_A_Template_A")
     svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
         treaty_names=[], template_ids=[template_id],
@@ -207,7 +207,7 @@ def test_retry_success_updates_the_row_in_place(iteration2_db, fake_irp):
     _age_completed_at(row["job_id"], seconds_ago=(
         settings.irp_submission_retry_base_secs
         * 2 ** row["submission_attempt_count"] + 5))
-    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio A_Template A")
+    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio_A_Template_A")
 
     poller._submission_retry()
 
@@ -275,7 +275,7 @@ def test_retry_skips_a_soft_deleted_analysis(iteration2_db, fake_irp):
     # resubmitted by the retry batch.
     row = _submission_failed_row(iteration2_db, fake_irp)
     _age_completed_at(row["job_id"], seconds_ago=10_000_000)
-    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio A_Template A")
+    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio_A_Template_A")
     execute_command(
         "UPDATE irp_analysis SET deleted_at = :n WHERE id = :i",
         {"n": datetime.now(timezone.utc).replace(tzinfo=None),
@@ -289,7 +289,7 @@ def test_retry_skips_a_soft_deleted_analysis(iteration2_db, fake_irp):
 def test_delete_before_retry_claim_prevents_submission(iteration2_db, fake_irp):
     row = _submission_failed_row(iteration2_db, fake_irp)
     _age_completed_at(row["job_id"], seconds_ago=10_000_000)
-    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio A_Template A")
+    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio_A_Template_A")
 
     outcome = analysis_service.delete_executed_analyses(
         edm_id=row["edm_id"], analysis_ids=[row["analysis_id"]],
@@ -386,7 +386,7 @@ def test_reclaimed_row_is_retried_once_its_backoff_elapses(iteration2_db, fake_i
                     seconds_ago=settings.irp_submission_retry_stale_secs + 5)
     poller._reclaim_stale_retrying(
         stale_secs=settings.irp_submission_retry_stale_secs)
-    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio A_Template A")
+    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio_A_Template_A")
     _age_completed_at(row["job_id"], seconds_ago=10_000_000)
 
     poller._submission_retry()

@@ -166,8 +166,8 @@ def test_modal_eligible_renders_list_count_and_hidden_as_of(routes_db, client):
     assert "By line of business" in r.text
     assert "By geography - state" in r.text
     # preview list: value, generated name, account count per row (FR-006)
-    assert "usfl_commercial - EQ Comm" in r.text
-    assert "usfl_commercial - FLD Comm" in r.text
+    assert "usfl_commercial_EQ_Comm" in r.text
+    assert "usfl_commercial_FLD_Comm" in r.text
     assert ">900<" in r.text and ">801<" in r.text
     # the count + confirm button, and the FR-002b hidden field
     assert "sub-portfolios will be created" in r.text
@@ -185,8 +185,8 @@ def test_modal_dimension_param_selects_state(routes_db, client):
     # state values with their labels, sorted by value; generated names use
     # the label, never the bare code (P-12 as revised 2026-08-05)
     assert "CALIFORNIA" in r.text and "TEXAS" in r.text
-    assert "usfl_commercial - CALIFORNIA" in r.text
-    assert "usfl_commercial - TEXAS" in r.text
+    assert "usfl_commercial_CALIFORNIA" in r.text
+    assert "usfl_commercial_TEXAS" in r.text
     assert 'name="dimension" value="state"' in r.text
 
 
@@ -211,7 +211,7 @@ def test_modal_quick_chooser_offers_peril(routes_db, client):
 
     r = client.get(_url(edm_id, pid) + "?dimension=peril")
     assert 'name="dimension" value="peril"' in r.text
-    assert "usfl_commercial - EQ" in r.text and "usfl_commercial - WS" in r.text
+    assert "usfl_commercial_EQ" in r.text and "usfl_commercial_WS" in r.text
 
 
 def test_modal_marks_existing_rows_as_already_created(routes_db, client):
@@ -221,7 +221,7 @@ def test_modal_marks_existing_rows_as_already_created(routes_db, client):
         "INSERT INTO irp_portfolio (id, edm_id, name, irp_id, "
         "source_portfolio_id, breakout_dimension_code, breakout_value, "
         "inserted_at, updated_at) "
-        "VALUES (:i, :e, 'usfl_commercial - EQ Comm', '11', :s, 'lob', "
+        "VALUES (:i, :e, 'usfl_commercial_EQ_Comm', '11', :s, 'lob', "
         "'EQ Comm', :now, :now)",
         {"i": str(uuid.uuid4()), "e": edm_id, "s": pid,
          "now": datetime.utcnow()}, connection="WORKBENCH")
@@ -303,7 +303,7 @@ def test_modal_state_large_fanout_untruncated_with_note(routes_db, client):
     r = client.get(_url(edm_id, pid) + "?dimension=state")
     assert r.status_code == 200
     for i in range(43):
-        assert f"usfl_commercial - S{i:02d}" in r.text
+        assert f"usfl_commercial_S{i:02d}" in r.text
     assert "bo-row__label" not in r.text     # null labels → code alone
     assert "43 sub-portfolios is a large run" in r.text
     assert "several minutes" in r.text
@@ -534,6 +534,8 @@ def test_modal_custom_mode_renders_pills_checkboxes_and_cart(
     # 40-char RM name limit directly (P-24)
     assert f'hx-get="{_url(edm_id, pid)}/name-check"' in r.text
     assert 'maxlength="40"' in r.text
+    # and the name character rule (issue #87)
+    assert 'pattern="[A-Za-z0-9_\\-]+"' in r.text
 
 
 def test_modal_custom_mode_disables_single_value_pill(routes_db, client):
@@ -552,11 +554,11 @@ def test_modal_custom_mode_disables_single_value_pill(routes_db, client):
 def test_group_preview_returns_cart_row_with_hidden_json(
         routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
-    r = _add_group(client, edm_id, pid, label="Coastal HU",
+    r = _add_group(client, edm_id, pid, label="Coastal_HU",
                    selections={"state": ["TX", "CA"], "peril": ["2"]})
     assert r.status_code == 200
-    assert "Coastal HU" in r.text                        # the label as typed (P-24)
-    assert "usfl_commercial - Coastal HU" not in r.text  # no composed prefix
+    assert "Coastal_HU" in r.text                        # the label as typed (P-24)
+    assert "usfl_commercial_Coastal_HU" not in r.text    # no composed prefix
     assert 'name="group"' in r.text
     # upper bound = min(Σ state counts, Σ peril counts) = min(1701, 1701)
     assert "up to 1,701 accounts" in r.text
@@ -571,15 +573,15 @@ def test_group_preview_returns_cart_row_with_hidden_json(
 def test_group_preview_blocks_cart_duplicate_and_warns_overlap(
         routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
-    carted = ({"label": "Coastal HU", "filters": {"state": ["TX"]}},)
-    dup = _add_group(client, edm_id, pid, label="Coastal HU",
+    carted = ({"label": "Coastal_HU", "filters": {"state": ["TX"]}},)
+    dup = _add_group(client, edm_id, pid, label="Coastal_HU",
                      selections={"state": ["TX", "CA"]}, carted=carted)
     assert dup.status_code == 409                        # blocked, never suffixed (P-25)
     assert "already exists in the cart" in dup.text
     ok = _add_group(client, edm_id, pid, label="Inland",
                     selections={"state": ["TX", "CA"]}, carted=carted)
     assert ok.status_code == 200
-    assert "may overlap with Coastal HU" in ok.text      # shared TX (P-18)
+    assert "may overlap with Coastal_HU" in ok.text      # shared TX (P-18)
 
 
 def test_group_preview_blocks_name_taken_in_rm(routes_db, client, fake_irp):
@@ -603,10 +605,10 @@ def test_group_preview_shows_the_name_as_typed_for_adopted_sets(
     assert _confirm_cart(client, edm_id, pid, groups).status_code == 200
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="88", name="Coastal")
 
-    r = _add_group(client, edm_id, pid, label="Fresh name",
+    r = _add_group(client, edm_id, pid, label="Fresh_name",
                    selections={"state": ["TX"]})
     assert r.status_code == 200
-    assert "Fresh name" in r.text and "Coastal" not in r.text
+    assert "Fresh_name" in r.text and "Coastal" not in r.text
     assert "existing breakout" in r.text
 
     r2 = _add_group(client, edm_id, pid, label="Coastal",
@@ -656,7 +658,7 @@ def test_group_preview_blocks_a_breakout_no_account_matches(
     edm_id, pid = _custom_pair(fake_irp)
     fake_irp.match_count = 0
 
-    empty = _add_group(client, edm_id, pid, label="TX quake",
+    empty = _add_group(client, edm_id, pid, label="TX_quake",
                        selections={"state": ["TX"], "peril": ["1"]})
     assert empty.status_code == 409
     assert empty.headers["HX-Retarget"] == "#bo-cart-error"
@@ -665,10 +667,10 @@ def test_group_preview_blocks_a_breakout_no_account_matches(
 
     # the same two dimensions with a value that does share an account carts fine
     fake_irp.match_count = 1
-    ok = _add_group(client, edm_id, pid, label="TX wind",
+    ok = _add_group(client, edm_id, pid, label="TX_wind",
                     selections={"state": ["TX"], "peril": ["2"]})
     assert ok.status_code == 200
-    assert "TX wind" in ok.text
+    assert "TX_wind" in ok.text
 
 
 def test_group_preview_skips_the_match_count_for_one_dimension(
@@ -690,10 +692,10 @@ def test_group_preview_adds_when_the_match_count_cannot_be_read(
     # final check.
     edm_id, pid = _custom_pair(fake_irp)
     fake_irp.raise_on_match_count = True
-    r = _add_group(client, edm_id, pid, label="Coastal HU",
+    r = _add_group(client, edm_id, pid, label="Coastal_HU",
                    selections={"state": ["TX"], "peril": ["2"]})
     assert r.status_code == 200
-    assert "Coastal HU" in r.text
+    assert "Coastal_HU" in r.text
 
 
 def test_cart_confirm_success_rows_jobs_and_toast(routes_db, client, fake_irp):
