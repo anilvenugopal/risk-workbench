@@ -33,6 +33,7 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "db" / "bootstra
 sys.path.insert(0, str(ROOT))
 
 from app.services import submission_service  # noqa: E402
+from app.services.name_check import to_name_token  # noqa: E402
 from db import get_connection  # noqa: E402
 
 SEED = 20260922
@@ -116,7 +117,7 @@ def _plans(count: int) -> list[Plan]:
                 contract_status_code=rng.choice(CONTRACT_STATUSES),
             ))
         plans.append(Plan(
-            name=f"{short} {year} {program} - demo {index + 1:03d}",
+            name=to_name_token(f"{short}_{year}_{program}_demo_{index + 1:03d}"),
             cedant_name=cedant,
             owner_index=index % len(ANALYSTS),
             client_id=rng.choice(CLIENT_IDS),

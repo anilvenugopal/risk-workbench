@@ -47,7 +47,7 @@ def seed_portfolio(edm_id: str, name: str = "Portfolio A") -> str:
     return portfolio_id
 
 
-def seed_template(name: str = "Template A", event_rate_scheme_irp_id: int | None = None,
+def seed_template(name: str = "Template_A", event_rate_scheme_irp_id: int | None = None,
                   tags: list[str] | None = None) -> str:
     template_id = str(uuid.uuid4())
     # The execution plan derives analysis_type from the cached profile row.

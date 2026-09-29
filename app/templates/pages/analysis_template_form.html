@@ -75,7 +75,8 @@
 
       <div class="wf-field">
         <label>NAME <span class="wf-field__req">*</span></label>
-        <input class="wf-field__input" type="text" name="name" required value="{{ form.name or '' }}">
+        <input class="wf-field__input" type="text" name="name" required value="{{ form.name or '' }}"
+               pattern="{{ forms.name_pattern }}" title="{{ forms.name_title }}">
       </div>
 
       <div class="wf-field">
@@ -150,11 +151,13 @@
 
       <div class="wf-field">
         <label>TAGS</label>
-        <input class="wf-field__input" type="text" name="tags" list="tag-names" value="{{ form.tags or '' }}">
+        <input class="wf-field__input" type="text" name="tags" list="tag-names" value="{{ form.tags or '' }}"
+               pattern="[\s;]*{{ forms.name_pattern }}([\s;]+{{ forms.name_pattern }})*[\s;]*"
+               title="Tag names may use only letters, numbers, underscores, and hyphens.">
         <datalist id="tag-names">
           {% for tag in tag_names %}<option value="{{ tag }}">{% endfor %}
         </datalist>
-        <div class="wf-field__msg wf-field__hint">Separate tag names with semicolons — the first tag autocompletes over tags already used on templates (FR-006).</div>
+        <div class="wf-field__msg wf-field__hint">Separate tag names with semicolons; each may use only letters, numbers, underscores, and hyphens. The first tag autocompletes over tags already used on templates (FR-006).</div>
       </div>
     </div>
 

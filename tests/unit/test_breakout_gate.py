@@ -176,8 +176,8 @@ def test_peril_breaks_out_one_sub_portfolio_per_code(iteration2_db, fake_irp):
     assert job["rwb_job_type"] == "run_breakout_peril"
     assert [(e["value"], e["label"], e["name"], e["number"])
             for e in json.loads(job["input_data"])["plan"]] == [
-        ("1", "EQ", "usfl_commercial - EQ", "P1-P-1"),
-        ("2", "WS", "usfl_commercial - WS", "P1-P-2")]
+        ("1", "EQ", "usfl_commercial_EQ", "P1-P-1"),
+        ("2", "WS", "usfl_commercial_WS", "P1-P-2")]
 
 
 def test_country_is_eligible_when_the_summary_carries_values(iteration2_db):
@@ -205,8 +205,8 @@ def test_modal_selects_peril_when_it_is_the_only_eligible_dimension(
     pid = mk_portfolio(edm_id, summary=summary)
     modal = breakout_service.modal_context(edm_id, pid)
     assert modal.dimension == "peril"
-    assert [p.name for p in modal.plan] == ["usfl_commercial - EQ",
-                                            "usfl_commercial - WS"]
+    assert [p.name for p in modal.plan] == ["usfl_commercial_EQ",
+                                            "usfl_commercial_WS"]
 
 
 def test_gate_reports_in_flight_breakout_dimension(iteration2_db):
@@ -267,9 +267,9 @@ def test_confirm_happy_path_persists_plan_and_enqueues_one_job(
     assert [{k: v for k, v in e.items() if k != "number"}
             for e in data["plan"]] == [
         {"value": "EQ Comm", "label": None,
-         "name": "usfl_commercial - EQ Comm", "accounts": 801},
+         "name": "usfl_commercial_EQ_Comm", "accounts": 801},
         {"value": "FLD Comm", "label": None,
-         "name": "usfl_commercial - FLD Comm", "accounts": 900},
+         "name": "usfl_commercial_FLD_Comm", "accounts": 900},
     ]
     # both values carry a space, so both numbers are hash-tailed (R4) — the
     # shape and the per-value uniqueness are what matter, not the digits
@@ -394,7 +394,7 @@ def test_confirm_plan_matches_preview_except_collision_suffix(
     assert [(e["value"], e["label"], e["accounts"], e["number"])
             for e in persisted] == [
         (p.value, p.label, p.accounts, p.number) for p in preview]
-    assert persisted[0]["name"] == f"{preview[0].name} (2)"  # only the suffix moved
+    assert persisted[0]["name"] == f"{preview[0].name}_2"  # only the suffix moved
     assert persisted[1]["name"] == preview[1].name
 
 

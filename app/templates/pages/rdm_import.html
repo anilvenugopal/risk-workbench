@@ -1,4 +1,5 @@
 {% extends "base/shell.html" %}
+{% import "partials/form_macros.html" as forms %}
 {% block title %}Import RDM{% endblock %}
 
 {% block main %}
@@ -36,6 +37,7 @@
       <label for="rdm-name">NAME</label>
       <input class="wf-field__input nc-input" type="text" id="rdm-name" name="name"
              value="{{ form.name }}" required
+             pattern="{{ forms.name_pattern }}" title="{{ forms.name_title }}"
              x-ref="name" @input="onName($event)"
              hx-get="/rdms/name-check"
              hx-trigger="keyup changed delay:500ms, recheck"

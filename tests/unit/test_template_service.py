@@ -17,7 +17,7 @@ from app.workers import metadata_jobs
 
 def _values(**changes) -> TemplateValues:
     values = {
-        "name": "US Wind DLM",
+        "name": "US_Wind_DLM",
         "model_profile_irp_id": 1,
         "output_profile_irp_id": 10,
         "event_rate_scheme_irp_id": 20,
@@ -41,6 +41,37 @@ def test_dlm_requires_event_rate_scheme(iteration2_db, fake_irp):
     assert "Event rate scheme is required for DLM analyses" in exc.value.errors
 
 
+def test_template_name_outside_the_character_rule_is_rejected(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+
+    with pytest.raises(TemplateValidationError) as exc:
+        template_service.save_template(_values(name="Alpha EDM"))
+
+    assert ("Template names may use only letters, numbers, underscores, and hyphens."
+            in exc.value.errors)
+
+
+def test_template_tag_outside_the_character_rule_is_rejected(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+
+    with pytest.raises(TemplateValidationError) as exc:
+        template_service.save_template(_values(), tags=["US", "Wind (EU)"])
+
+    assert ("Tag names may use only letters, numbers, underscores, and hyphens."
+            in exc.value.errors)
+
+
+def test_suite_name_outside_the_character_rule_is_rejected(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values())
+
+    with pytest.raises(TemplateValidationError) as exc:
+        template_service.save_suite("Alpha EDM", [template_id])
+
+    assert ("Suite names may use only letters, numbers, underscores, and hyphens."
+            in exc.value.errors)
+
+
 def test_accumulation_profile_is_rejected(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     with iteration2_db.engine.begin() as conn:
@@ -54,7 +85,7 @@ def test_accumulation_profile_is_rejected(iteration2_db, fake_irp):
 
     with pytest.raises(TemplateValidationError) as exc:
         template_service.save_template(_values(
-            name="Global Accumulation", model_profile_irp_id=99,
+            name="Global_Accumulation", model_profile_irp_id=99,
             event_rate_scheme_irp_id=None,
         ))
 
@@ -75,7 +106,7 @@ def test_profile_without_software_version_is_rejected(iteration2_db, fake_irp):
 
     with pytest.raises(TemplateValidationError) as exc:
         template_service.save_template(_values(
-            name="No Version", model_profile_irp_id=98,
+            name="No_Version", model_profile_irp_id=98,
             event_rate_scheme_irp_id=None,
         ))
 
@@ -87,7 +118,7 @@ def test_hd_can_save_with_matching_scheme(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     template_id = template_service.save_template(_values(
-        name="US Wind HD with scheme",
+        name="US_Wind_HD_with_scheme",
         model_profile_irp_id=2,
     ))
 
@@ -137,7 +168,7 @@ def test_save_stores_display_names(iteration2_db, fake_irp):
 
     dlm_id = template_service.save_template(_values())
     hd_id = template_service.save_template(_values(
-        name="US Wind HD", model_profile_irp_id=2, event_rate_scheme_irp_id=None,
+        name="US_Wind_HD", model_profile_irp_id=2, event_rate_scheme_irp_id=None,
     ))
 
     dlm = template_service.get_template(dlm_id)
@@ -177,7 +208,7 @@ def test_live_template_and_suite_names_are_unique(iteration2_db, fake_irp):
     template_service.save_suite("US", [template_id])
 
     with pytest.raises(TemplateValidationError, match="already exists"):
-        template_service.save_template(_values(name="us wind dlm"))
+        template_service.save_template(_values(name="us_wind_dlm"))
     with pytest.raises(TemplateValidationError, match="already exists"):
         template_service.save_suite("us", [])
 
@@ -291,16 +322,16 @@ def test_hidden_scheme_keeps_existing_template_saveable(iteration2_db, fake_irp)
 
     # Pairing validation ignores the flag — re-saving the template still works.
     template_service.save_template(
-        _values(name="US Wind DLM renamed"), template_id=template_id)
+        _values(name="US_Wind_DLM_renamed"), template_id=template_id)
 
 
 def test_suite_items_are_unordered_and_display_sorts_by_template_name(
     iteration2_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
-    first = template_service.save_template(_values(name="Zebra Template"))
+    first = template_service.save_template(_values(name="Zebra_Template"))
     second = template_service.save_template(_values(
-        name="Alpha Template",
+        name="Alpha_Template",
         model_profile_irp_id=2,
         event_rate_scheme_irp_id=None,
     ))
@@ -351,7 +382,7 @@ def test_duplicate_template_copies_fields_and_tags(iteration2_db, fake_irp):
     original = template_service.get_template(template_id)
     copy = template_service.get_template(copy_id)
     assert copy_id != template_id
-    assert copy["name"] == "US Wind DLM (copy)"
+    assert copy["name"] == "US_Wind_DLM_copy"
     assert copy["analysis_profile_name"] == original["analysis_profile_name"]
     assert copy["output_profile_name"] == original["output_profile_name"]
     assert copy["event_rate_scheme_name"] == original["event_rate_scheme_name"]
@@ -368,8 +399,8 @@ def test_duplicate_template_name_collision_gets_a_counter(iteration2_db, fake_ir
     first_copy = template_service.duplicate_template(template_id)
     second_copy = template_service.duplicate_template(template_id)
 
-    assert template_service.get_template(first_copy)["name"] == "US Wind DLM (copy)"
-    assert template_service.get_template(second_copy)["name"] == "US Wind DLM (copy 2)"
+    assert template_service.get_template(first_copy)["name"] == "US_Wind_DLM_copy"
+    assert template_service.get_template(second_copy)["name"] == "US_Wind_DLM_copy_2"
 
 
 def test_duplicate_template_truncates_base_to_fit_name_column(iteration2_db, fake_irp):
@@ -380,7 +411,7 @@ def test_duplicate_template_truncates_base_to_fit_name_column(iteration2_db, fak
     copy_id = template_service.duplicate_template(template_id)
 
     copy_name = template_service.get_template(copy_id)["name"]
-    assert copy_name == "A" * 193 + " (copy)"
+    assert copy_name == "A" * 195 + "_copy"
     assert len(copy_name) == 200
 
 
@@ -393,5 +424,5 @@ def test_duplicate_suite_copies_membership_not_templates(iteration2_db, fake_irp
 
     copy = template_service.get_suite(copy_id)
     assert copy_id != suite_id
-    assert copy["name"] == "US (copy)"
+    assert copy["name"] == "US_copy"
     assert [item["template_id"] for item in copy["items"]] == [template_id]

@@ -1,5 +1,12 @@
 {# Shared fragments for the template builder and template/metadata tables. #}
 
+{# The browser-side half of the name rule (issue #87): every typed name that
+   ends up in a Risk Modeler analysis name carries this `pattern`. The `-` is
+   escaped because browsers compile `pattern` with the `v` flag. The server
+   check in app/services/name_check.py is the one that counts. #}
+{% set name_pattern = "[A-Za-z0-9_\-]+" %}
+{% set name_title = "Names may use only letters, numbers, underscores, and hyphens." %}
+
 {% macro family_badge(family, sm=false) -%}
   {%- if family -%}
   <span class="badge badge--{{ 'warning' if family == 'Accumulation' else ('info' if family == 'HD' else 'brand') }}{{ ' badge--sm' if sm }}">{{ family }}</span>

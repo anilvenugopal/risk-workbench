@@ -14,6 +14,7 @@ from irp_integration.analysis_validation import (
 from sqlalchemy import text
 
 from app.services._common import _txn, _uid, _utcnow
+from app.services.name_check import is_valid_name, name_rule_message
 from db import is_unique_violation
 
 
@@ -138,6 +139,8 @@ def _validate_template(conn, params: dict) -> tuple[dict, list[str]]:
     ):
         if params[key] is None:
             errors.append(f"{label} is required")
+    if params["name"] and not is_valid_name(params["name"]):
+        errors.append(name_rule_message("Template"))
 
     rows, missing = _reference_rows(conn, params)
     errors.extend(missing)
@@ -215,8 +218,11 @@ def save_template(
     conn=None,
 ) -> str:
     params = _template_params(values)
+    tags = [tag.strip() for tag in tags]
     with _txn(conn) as working:
         rows, errors = _validate_template(working, params)
+        if any(tag and not is_valid_name(tag) for tag in tags):
+            errors.append(name_rule_message("Tag"))
         if errors:
             raise TemplateValidationError(errors)
         scheme = rows["scheme"]
@@ -407,11 +413,11 @@ _NAME_MAX_LEN = 200
 
 
 def _duplicate_name(exists, original: str) -> str:
-    """`<name> (copy)` / `<name> (copy N)` against live rows (P-12/FR-021),
+    """`<name>_copy` / `<name>_copy_N` against live rows (P-12/FR-021),
     base truncated so the suffix always fits NVARCHAR(200)."""
     counter = 0
     while True:
-        suffix = " (copy)" if counter == 0 else f" (copy {counter + 1})"
+        suffix = "_copy" if counter == 0 else f"_copy_{counter + 1}"
         candidate = original[: _NAME_MAX_LEN - len(suffix)] + suffix
         if not exists(candidate):
             return candidate
@@ -460,6 +466,8 @@ def _validate_suite(conn, name: str, template_ids: list[str]) -> None:
     errors = []
     if not name.strip():
         errors.append("Suite name is required")
+    elif not is_valid_name(name.strip()):
+        errors.append(name_rule_message("Suite"))
     ids = [_uid(template_id) for template_id in template_ids]
     if len(ids) != len(set(ids)):
         errors.append("A template can appear only once in a suite")

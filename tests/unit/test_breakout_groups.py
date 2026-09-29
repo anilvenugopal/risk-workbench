@@ -95,15 +95,15 @@ def test_compose_group_cart_names_bounds_and_overlap_note(iteration2_db):
     gate = evaluate_gate(edm_id, pid)
     plans = compose_group_cart(gate, edm_id=edm_id, portfolio_id=pid, groups=[
         _group("Coastal", {"state": ["TX", "CA"], "lob": ["EQ Comm"]}),
-        _group("Florida Hurricane Commercial Book", {"state": ["TX"]}),
+        _group("Florida_Hurricane_Commercial_Book", {"state": ["TX"]}),
     ])
 
     first, second = plans
     # name = the label exactly as typed (P-24); number = the name inside 20
     # characters (P-26), hash-tailed once it no longer fits
     assert (first.name, first.number) == ("Coastal", "Coastal")
-    assert second.name == "Florida Hurricane Commercial Book"
-    assert second.number.startswith("Florida Hurric")
+    assert second.name == "Florida_Hurricane_Commercial_Book"
+    assert second.number.startswith("Florida_Hurric")
     assert len(second.number) <= breakout_service.PORTFOLIO_NUMBER_MAX
     # upper bound = min over dimensions of Σ selected per-value counts (P-23)
     assert first.accounts_upper_bound == 801       # min(220+1481, 801)
@@ -131,6 +131,9 @@ def test_compose_group_cart_refuses_bad_input(iteration2_db):
     refuse([_group("  ", {"state": ["TX"]})], "needs a name")
     too_long = "X" * (breakout_service.PORTFOLIO_NAME_MAX + 1)
     refuse([_group(too_long, {"state": ["TX"]})], "cap at")
+    refuse([_group("Alpha EDM", {"state": ["TX"]})],
+           "Breakout names may use only letters, numbers, underscores, "
+           "and hyphens.")
     refuse([_group("A", {"state": ["TX"]}),
             _group("B", {"state": ["TX"]})], "same members")
 
@@ -185,13 +188,13 @@ def test_request_group_breakout_writes_rows_and_jobs_per_group(
         iteration2_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(edm_id, pid, [
-        _group("Coastal HU", {"state": ["TX"], "peril": ["2"]}),
-        _group("EQ book", {"lob": ["EQ Comm"]}),
+        _group("Coastal_HU", {"state": ["TX"], "peril": ["2"]}),
+        _group("EQ_book", {"lob": ["EQ Comm"]}),
     ], AS_OF, iteration2_db.user_a)
 
     assert job_ids is not None and len(job_ids) == 2
     rows = _group_rows(pid)
-    assert [r["label"] for r in rows] == ["Coastal HU", "EQ book"]
+    assert [r["label"] for r in rows] == ["Coastal_HU", "EQ_book"]
     assert all(json.loads(r["filters"]) for r in rows)
     jobs = _custom_jobs()
     assert {j["requestor_type"] for j in jobs} == {"breakout_group"}
@@ -249,14 +252,14 @@ def test_reconfirm_same_members_adopts_and_dedups(iteration2_db, fake_irp):
     # same members, different label and value order → adopts the row (no
     # duplicate) and the row takes the name as typed (P-22 rev. 2026-08-10)
     second = request_group_breakout(
-        edm_id, pid, [_group("Renamed!", {"peril": ["2"], "state": ["TX"]})],
+        edm_id, pid, [_group("Renamed", {"peril": ["2"], "state": ["TX"]})],
         AS_OF, iteration2_db.user_b)
 
     rows = _group_rows(pid)
     assert len(rows) == 1                          # one row per member set
-    assert rows[0]["label"] == "Renamed!"          # the label as typed (P-24)
-    assert rows[0]["name"] == "Renamed!"
-    assert rows[0]["number"] == "Renamed!"
+    assert rows[0]["label"] == "Renamed"           # the label as typed (P-24)
+    assert rows[0]["name"] == "Renamed"
+    assert rows[0]["number"] == "Renamed"
     assert rows[0]["cart_id"] != old_cart          # the new cart claimed it
     jobs = _custom_jobs()
     assert len(jobs) == 1                          # the terminal row revived
@@ -440,8 +443,8 @@ def test_group_numbers_stay_distinct_past_the_number_cap(
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(
         edm_id, pid,
-        [_group("Coastal wind exposure north", {"state": ["TX"]}),
-         _group("Coastal wind exposure south", {"state": ["CA"]})],
+        [_group("Coastal_wind_exposure_north", {"state": ["TX"]}),
+         _group("Coastal_wind_exposure_south", {"state": ["CA"]})],
         AS_OF, iteration2_db.user_a)
 
     numbers = {r["number"] for r in _group_rows(pid)}
