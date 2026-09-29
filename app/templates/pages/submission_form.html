@@ -194,29 +194,12 @@
     {% set rows = form.contract_rows or [{}] %}
     {% macro contract_row(row, error, owner) %}
     <div class="contract-row contract-row--edit">
-      <input type="text" name="contract_crm_id" placeholder="CRM ID" autocomplete="off"
-             aria-label="CRM ID" value="{{ row.crm_id or '' }}"{% if error %} class="is-error"{% endif %}>
-      <select name="contract_treaty_type" aria-label="Treaty type">
-        <option value="">Treaty type…</option>
-        {% for code, label in treaty_types %}
-        <option value="{{ code }}"{% if row.treaty_type_code == code %} selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <input type="date" name="contract_inception" aria-label="Inception"
-             value="{{ row.inception_date or '' }}"
-             @change="$fillExpiration($el, $el.closest('.contract-row').querySelector('[name=contract_expiration]'))">
-      <input type="date" name="contract_expiration" aria-label="Expiration"
-             value="{{ row.expiration_date or '' }}">
-      <select name="contract_status" aria-label="Contract status">
-        {% for code, label in contract_statuses %}
-        <option value="{{ code }}"{% if (row.contract_status_code or 'OPEN') == code %} selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
+      {{ forms.contract_fields(row, treaty_types, contract_statuses, create=True, error=error) }}
       <span class="contract-row__actions" style="opacity: 1">
         <button class="contract-row__del" type="button" @click="remove($event)"
                 title="Remove row" aria-label="Remove row">×</button>
       </span>
-      {% if error %}<span class="contract-row__error">{{ error }}{% if owner %} <a href="/submissions/{{ owner.submission_id }}" target="_blank" rel="noopener">{{ owner.name }}</a>.{% endif %}</span>{% endif %}
+      {% if error %}<span class="contract-row__error">{{ error }}{% if owner %} {{ forms.owner_link(owner) }}{% endif %}</span>{% endif %}
     </div>
     {% endmacro %}
     <div class="contract-band contract-band--form">

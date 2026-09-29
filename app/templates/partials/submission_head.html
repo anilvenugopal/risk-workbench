@@ -6,6 +6,7 @@
    swap a 409 or 422 re-render in, banner included. A fragment response also
    swaps the Edit link out of band, and a status change fires
    `modeling-status-changed`, which the EDM and RDM sections reload on. #}
+{% import "partials/form_macros.html" as forms %}
 <div id="deal-head"
      hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }">
   <div class="detail-head">
@@ -45,11 +46,6 @@
       <span>{{ value if value else 'Not set' }}</span></span>
   </div>
   {% endmacro %}
-  {% macro pencil() %}
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-  {% endmacro %}
 
   <div class="deal-card">
     <div class="deal-groups">
@@ -69,7 +65,7 @@
           <span class="deal-group__label">Status</span>
           <button class="icon-btn icon-btn--xs" type="button" x-show="!editing"
                   @click="editing = true" title="Change the Modeling status"
-                  aria-label="Change the Modeling status">{{ pencil() }}</button>
+                  aria-label="Change the Modeling status">{{ forms.pencil() }}</button>
         </div>
         <div x-show="!editing">
           <div class="deal-field">
@@ -131,7 +127,7 @@
             <span>{{ submission.assigned_analyst_name or 'Unassigned' }}</span>
             {% if is_active %}
             <button class="icon-btn icon-btn--xs" type="button" @click="editing = true"
-                    title="Reassign owner" aria-label="Reassign owner">{{ pencil() }}</button>
+                    title="Reassign owner" aria-label="Reassign owner">{{ forms.pencil() }}</button>
             {% endif %}
           </span>
         </div>
