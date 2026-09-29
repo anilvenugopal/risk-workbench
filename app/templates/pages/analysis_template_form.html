@@ -75,7 +75,8 @@
 
       <div class="wf-field">
         <label>NAME <span class="wf-field__req">*</span></label>
-        <input class="wf-field__input" type="text" name="name" required value="{{ form.name or '' }}">
+        <input class="wf-field__input" type="text" name="name" required value="{{ form.name or '' }}"
+               pattern="{{ forms.name_pattern }}" title="{{ forms.name_title }}">
       </div>
 
       <div class="wf-field">

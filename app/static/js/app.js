@@ -82,11 +82,15 @@ function appShell() {
 // ── Alpine components ─────────────────────────────────────────────────────────
 // Registered at page load (before Alpine starts) so they exist before HTMX swaps.
 // Default an EDM/RDM name from a source filename: drop the trailing extension
-// (PORTFOLIO.BAK → PORTFOLIO) and cap at the 50-char server limit. The name field
-// still enforces the [A-Za-z0-9_-] charset via its pattern; this only sets the guess.
+// (PORTFOLIO.BAK → PORTFOLIO), map every other run of characters outside
+// [A-Za-z0-9_-] to one underscore (issue #87), and cap at the 50-char server
+// limit. The name field still enforces the charset via its pattern.
 function defaultMemberName(base) {
   const stem = base.replace(/\.[^.]+$/, '');
-  return (stem || base).slice(0, 50);
+  return (stem || base)
+    .replace(/[^A-Za-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 50);
 }
 
 // ── Name-collision gating ─────────────────────────────────────────────────────

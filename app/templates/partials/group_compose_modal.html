@@ -9,6 +9,7 @@
    a success answers 204 and the button closes the dialog, as the submit does.
    The submit's 422 lands in #group-submit-errors. #}
 {% from "partials/currency_block.html" import currency_block with context %}
+{% import "partials/form_macros.html" as forms %}
 <div class="modal-overlay" @click.self="document.getElementById('group-modal').replaceChildren()">
   <div class="modal-card modal-card--wide modal-card--group" role="dialog" aria-modal="true" aria-labelledby="group-modal-title"
        {% if not blocking %}x-data="groupComposeModal()"{% endif %}>
@@ -41,7 +42,8 @@
         <div class="modal-pane" x-show="step === 1">
           <div class="wf-field">
             <label for="group-name">GROUP NAME</label>
-            <input class="wf-field__input" id="group-name" type="text" name="group_name" value="{{ group_name }}">
+            <input class="wf-field__input" id="group-name" type="text" name="group_name" value="{{ group_name }}"
+                   pattern="{{ forms.name_pattern }}" title="{{ forms.name_title }}">
           </div>
           <div>
             <div class="exec-section-label">Members</div>

@@ -42,6 +42,7 @@
         <label>NAME <span class="wf-field__req" title="Required">*</span></label>
         <input class="wf-field__input{% if field_errors.name %} wf-field__input--error{% endif %}"
                type="text" name="name" required
+               pattern="{{ forms.name_pattern }}" title="{{ forms.name_title }}"
                value="{{ form.name or '' }}" placeholder="e.g. TY2604_AmericanFamily">
         {% if field_errors.name %}
         <div class="wf-field__msg wf-field__error">{{ field_errors.name }}</div>

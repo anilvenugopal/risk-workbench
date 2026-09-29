@@ -21,7 +21,7 @@ def _irp_id(value: str | None) -> str | None:
     return str(next(_next_irp_id)) if value == "auto" else value
 
 
-def seed_submission(name: str = "Sub One") -> str:
+def seed_submission(name: str = "Sub_One") -> str:
     submission_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO submission (id, name, cedant_name, status_code) "

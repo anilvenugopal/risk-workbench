@@ -27,7 +27,7 @@ def _submitted_group(iteration2_db, fake_irp) -> dict:
     """Drive one grouping through compose + worker so its irp_job/irp_analysis
     rows are realistic, and return the group row + its RM job id."""
     seed_currency()
-    submission_id = seed_submission("Sub One")
+    submission_id = seed_submission("Sub_One")
     edm_id = seed_edm("EDM One")
     link_submission_edm(submission_id, edm_id)
     a1 = seed_own_analysis(edm_id, "CRE_P1_T1")
@@ -36,9 +36,9 @@ def _submitted_group(iteration2_db, fake_irp) -> dict:
                        {"id": a}, connection="WORKBENCH")["irp_id"]
            for a in (a1, a2)]
     svc.request_grouping(
-        submission_id=submission_id, submission_name="Sub One",
+        submission_id=submission_id, submission_name="Sub_One",
         req=svc.GroupingRequest(
-            member_ids=[a1, a2], group_name="CRE_Sub One_Group",
+            member_ids=[a1, a2], group_name="CRE_Sub_One_Group",
             currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
             propagate_detailed_output=True,
             num_of_simulations="1", event_rate_selections=[],

@@ -123,7 +123,7 @@ def test_detail_renders_fixed_edm_and_rdm_tables_with_independent_empty_states(
 
     monkeypatch.setattr(settings, "risk_modeler_base_url", "https://api.moodys.com")
     monkeypatch.setattr(settings, "risk_modeler_tenant_name", "tenant")
-    created = client.post("/submissions", data=_payload(name="Data tables"))
+    created = client.post("/submissions", data=_payload(name="Data_tables"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     edm_id = str(uuid.uuid4())
     execute_command(
@@ -164,7 +164,7 @@ def test_detail_renders_fixed_edm_and_rdm_tables_with_independent_empty_states(
 
 
 def test_submission_entity_table_sort_updates_order_and_submission_url(client):
-    created = client.post("/submissions", data=_payload(name="Sortable entities"))
+    created = client.post("/submissions", data=_payload(name="Sortable_entities"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     for name in ("AlphaEDM", "ZuluEDM"):
         entity_id = str(uuid.uuid4())
@@ -198,7 +198,7 @@ def test_submission_entity_table_sort_updates_order_and_submission_url(client):
 def test_submission_entity_note_edits_in_place(
     client, kind, table, association_table, entity_column,
 ):
-    created = client.post("/submissions", data=_payload(name=f"Note {kind}"))
+    created = client.post("/submissions", data=_payload(name=f"Note_{kind}"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     entity_id = str(uuid.uuid4())
     execute_command(
@@ -241,7 +241,7 @@ def test_submission_entity_note_edits_in_place(
 
 
 def test_submission_entity_note_preserves_conflicting_input(client):
-    created = client.post("/submissions", data=_payload(name="Note conflict"))
+    created = client.post("/submissions", data=_payload(name="Note_conflict"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     edm_id = str(uuid.uuid4())
     execute_command(
@@ -290,7 +290,7 @@ def test_submission_entity_table_hides_risk_modeler_link_until_ready(
 
     monkeypatch.setattr(settings, "risk_modeler_base_url", "https://api.moodys.com")
     monkeypatch.setattr(settings, "risk_modeler_tenant_name", "tenant")
-    created = client.post("/submissions", data=_payload(name=f"Hidden link {kind}"))
+    created = client.post("/submissions", data=_payload(name=f"Hidden_link_{kind}"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     entity_id = str(uuid.uuid4())
     execute_command(
@@ -327,7 +327,7 @@ def test_submission_entity_table_hides_risk_modeler_link_until_ready(
 def test_submission_entity_table_polls_until_import_is_terminal(
     client, kind, table, association_table, entity_column, name,
 ):
-    created = client.post("/submissions", data=_payload(name=f"Polling {kind}"))
+    created = client.post("/submissions", data=_payload(name=f"Polling_{kind}"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     entity_id = str(uuid.uuid4())
     execute_command(
@@ -371,7 +371,7 @@ def test_submission_entity_table_polls_until_import_is_terminal(
 def test_submission_entity_table_polls_until_backfill_is_terminal(
     client, kind, table, association_table, entity_column, backfill_type, link_type,
 ):
-    created = client.post("/submissions", data=_payload(name=f"Backfill {kind}"))
+    created = client.post("/submissions", data=_payload(name=f"Backfill_{kind}"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     entity_id = str(uuid.uuid4())
     execute_command(
@@ -417,7 +417,7 @@ def test_edm_table_polls_while_a_breakout_fired_backfill_is_queued(client):
     # The breakout worker keys its auto-fired backfill head on its own
     # run_breakout_* job row (FR-013) — the EDM table must keep polling
     # through that key exactly like the analyst- and poller-keyed heads.
-    created = client.post("/submissions", data=_payload(name="Backfill breakout"))
+    created = client.post("/submissions", data=_payload(name="Backfill_breakout"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     edm_id = str(uuid.uuid4())
     execute_command(
@@ -460,7 +460,7 @@ def test_edm_table_polls_while_a_breakout_fired_backfill_is_queued(client):
 def test_add_modal_lists_unrelated_existing_entities(
     client, kind, table, association_table, entity_column, available_name, related_name,
 ):
-    created = client.post("/submissions", data=_payload(name="Add modal"))
+    created = client.post("/submissions", data=_payload(name="Add_modal"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     available = str(uuid.uuid4())
     related = str(uuid.uuid4())
@@ -481,13 +481,14 @@ def test_add_modal_lists_unrelated_existing_entities(
     assert available_name in response.text and related_name not in response.text
     assert 'hx-trigger="input delay:300ms, submit"' in response.text
     assert "$event.detail.elt === $el && $event.detail.successful" in response.text
+    assert 'pattern="[A-Za-z0-9_\-]+"' in response.text
 
 
 @pytest.mark.parametrize("kind,label", [("edms", "EDMs"), ("rdms", "RDMs")])
 def test_add_modal_distinguishes_no_candidates_from_no_search_matches(
     client, kind, label,
 ):
-    created = client.post("/submissions", data=_payload(name=f"Empty {kind}"))
+    created = client.post("/submissions", data=_payload(name=f"Empty_{kind}"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
 
     initial = client.get(f"/submissions/{submission_id}/{kind}/add")
@@ -502,7 +503,7 @@ def test_add_modal_distinguishes_no_candidates_from_no_search_matches(
 def test_add_modal_starts_browse_in_the_submission_directory(client, drive, kind):
     directory_path = str(drive / "deals" / "zephyr")
     created = client.post("/submissions", data=_payload(
-        name=f"Browse {kind}", directory_path=directory_path))
+        name=f"Browse_{kind}", directory_path=directory_path))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
 
     body = client.get(f"/submissions/{submission_id}/{kind}/add").text
@@ -516,7 +517,7 @@ def test_add_modal_starts_browse_in_the_submission_directory(client, drive, kind
 def test_submission_import_route_creates_association(
     client, fake_irp, drive, kind, source,
 ):
-    created = client.post("/submissions", data=_payload(name=f"Import {kind}"))
+    created = client.post("/submissions", data=_payload(name=f"Import_{kind}"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     response = client.post(
         f"/submissions/{submission_id}/{kind}/import",
@@ -541,10 +542,10 @@ def test_submission_import_route_creates_association(
 def test_attach_and_detach_routes_change_only_the_association(
     client, kind, table, association_table, entity_column, name,
 ):
-    first = client.post("/submissions", data=_payload(name="Route first"))
+    first = client.post("/submissions", data=_payload(name="Route_first"))
     first_id = first.headers["location"].rsplit("/", 1)[-1]
     second = client.post(
-        "/submissions", data=_payload(name="Route second", cedant_name="Second Re"))
+        "/submissions", data=_payload(name="Route_second", cedant_name="Second Re"))
     second_id = second.headers["location"].rsplit("/", 1)[-1]
     edm_id = str(uuid.uuid4())
     execute_command(
@@ -575,7 +576,7 @@ def test_attach_and_detach_routes_change_only_the_association(
 @pytest.mark.parametrize("kind", ["edms", "rdms"])
 @pytest.mark.parametrize("status", ["COMPLETED", "CANCELLED"])
 def test_closed_submission_rejects_attach_and_detach_routes(client, status, kind):
-    created = client.post("/submissions", data=_payload(name=f"Closed {status}"))
+    created = client.post("/submissions", data=_payload(name=f"Closed_{status}"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     edm_id = str(uuid.uuid4())
     table = "irp_edm" if kind == "edms" else "irp_rdm"
@@ -609,7 +610,7 @@ def test_closed_submission_rejects_import_routes(
     client, fake_irp, drive, status, kind, source,
 ):
     created = client.post(
-        "/submissions", data=_payload(name=f"Closed import {status} {kind}"))
+        "/submissions", data=_payload(name=f"Closed_import_{status}_{kind}"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     marker = submission_service.get_submission(submission_id).updated_at
     client.post(
@@ -636,7 +637,7 @@ def test_closed_submission_rejects_import_routes(
 @pytest.mark.parametrize("kind", ["edms", "rdms"])
 @pytest.mark.parametrize("action", ["import", "attach", "detach"])
 def test_submission_entity_routes_validate_csrf(client, kind, action):
-    created = client.post("/submissions", data=_payload(name="CSRF entity"))
+    created = client.post("/submissions", data=_payload(name="CSRF_entity"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     edm_id = str(uuid.uuid4())
     table = "irp_edm" if kind == "edms" else "irp_rdm"
@@ -674,6 +675,7 @@ def test_new_form_marks_the_required_fields(client):
     assert body.count('class="wf-field__req" title="Required"') == 3
     assert 'name="contract_crm_id"' in body and 'name="data_vintage"' in body
     assert 'name="inception_date"' not in body and 'name="treaty_type_code"' not in body
+    assert 'pattern="[A-Za-z0-9_\-]+"' in body
 
 
 def test_missing_name_returns_a_message_on_that_field(client):
@@ -681,6 +683,14 @@ def test_missing_name_returns_a_message_on_that_field(client):
     assert res.status_code == 422
     assert "Enter a name for this submission." in res.text
     assert "One field needs attention" in res.text
+    assert _count() == 0
+
+
+def test_name_outside_the_character_rule_is_refused(client):
+    res = client.post("/submissions", data=_payload(name="Alpha EDM"))
+    assert res.status_code == 422
+    assert ("Submission names may use only letters, numbers, underscores, and "
+            "hyphens.") in res.text
     assert _count() == 0
 
 
@@ -704,11 +714,11 @@ def test_a_blank_data_vintage_is_refused(client):
     """P-19 (note 35 D13): the data vintage is required on the submission."""
     body = client.get("/submissions/new").text
     assert 'name="data_vintage" required' in body
-    res = client.post("/submissions", data=_payload(name="No vintage", data_vintage=""))
+    res = client.post("/submissions", data=_payload(name="No_vintage", data_vintage=""))
     assert res.status_code == 422
     assert "Enter a data vintage." in res.text
     assert submission_service.list_submissions(
-        owner_ids=[client.db.user_a], name="No vintage").rows == []
+        owner_ids=[client.db.user_a], name="No_vintage").rows == []
 
 
 def test_unparseable_contract_date_is_reported_under_its_row(client):
@@ -766,7 +776,7 @@ def test_blank_treaty_year_stays_blank(client):
 
 def test_an_entered_treaty_year_is_kept(client):
     res = client.post("/submissions", data=_payload(
-        name="Dec incept", inception_date="2026-12-15", treaty_year="2027"))
+        name="Dec_incept", inception_date="2026-12-15", treaty_year="2027"))
     sid = res.headers["location"].rsplit("/", 1)[-1]
     assert submission_service.get_submission(sid).treaty_year == 2027
 
@@ -865,16 +875,16 @@ def test_link_suggest_ands_the_terms_and_shows_deal_context(client):
 
 
 def test_link_suggest_excludes_the_submission_being_edited(client):
-    res = client.post("/submissions", data=_payload(name="Sole Match Deal"))
+    res = client.post("/submissions", data=_payload(name="Sole_Match_Deal"))
     sid = res.headers["location"].rsplit("/", 1)[-1]
-    assert "Sole Match Deal" in client.get(
+    assert "Sole_Match_Deal" in client.get(
         "/submissions/link-suggest?links_to_search=Sole+Match").text
-    assert "Sole Match Deal" not in client.get(
+    assert "Sole_Match_Deal" not in client.get(
         f"/submissions/link-suggest?links_to_search=Sole+Match&links_to_exclude={sid}"
     ).text
     # An exclude that is not a UUID excludes nothing — bound as-is it would raise a
     # conversion error against submission.id on SQL Server.
-    assert "Sole Match Deal" in client.get(
+    assert "Sole_Match_Deal" in client.get(
         "/submissions/link-suggest?links_to_search=Sole+Match&links_to_exclude=x"
     ).text
 
@@ -926,7 +936,7 @@ def test_edit_form_prefills_the_linked_deal_by_name(client):
 def test_creating_with_an_unknown_link_target_is_rejected(client, link_value):
     before = _count()
     res = client.post("/submissions", data=_payload(
-        name="Stale link", links_to_submission_id=link_value))
+        name="Stale_link", links_to_submission_id=link_value))
     assert res.status_code == 422
     assert "That deal was not found" in res.text
     assert _count() == before
@@ -934,11 +944,11 @@ def test_creating_with_an_unknown_link_target_is_rejected(client, link_value):
 
 @pytest.mark.parametrize("link_value", [str(uuid.uuid4()), "not-a-uuid"])
 def test_editing_to_an_unknown_link_target_is_rejected(client, link_value):
-    res = client.post("/submissions", data=_payload(name="Keeps its link"))
+    res = client.post("/submissions", data=_payload(name="Keeps_its_link"))
     sid = res.headers["location"].rsplit("/", 1)[-1]
     submission = submission_service.get_submission(sid)
     edit = client.post(f"/submissions/{sid}", data=_payload(
-        name="Keeps its link", links_to_submission_id=link_value,
+        name="Keeps_its_link", links_to_submission_id=link_value,
         updated_at=str(submission.updated_at), confirmed="1"))
     assert edit.status_code == 422
     assert "That deal was not found" in edit.text
@@ -955,11 +965,11 @@ def test_an_id_that_is_not_a_uuid_is_not_found_rather_than_an_error(client):
 # ── Edit: self-link ──────────────────────────────────────────────────────────
 
 def test_editing_a_deal_to_link_to_itself_is_rejected(client):
-    res = client.post("/submissions", data=_payload(name="Self linker"))
+    res = client.post("/submissions", data=_payload(name="Self_linker"))
     sid = res.headers["location"].rsplit("/", 1)[-1]
     submission = submission_service.get_submission(sid)
     edit = client.post(f"/submissions/{sid}", data=_payload(
-        name="Self linker", links_to_submission_id=sid,
+        name="Self_linker", links_to_submission_id=sid,
         updated_at=str(submission.updated_at), confirmed="1"))
     assert edit.status_code == 422
     assert "A submission cannot link to itself." in edit.text
@@ -998,16 +1008,16 @@ def test_list_search_narrows_by_name(client):
 def test_list_filter_narrows_by_whole_crm_ids(client):
     """P-10: each chip matches a whole CRM ID, case-insensitive and trimmed; the
     chips OR within the filter."""
-    client.post("/submissions", data=_payload(name="Tagged deal",
+    client.post("/submissions", data=_payload(name="Tagged_deal",
                                               crm_ids="CRM-4417"))
-    client.post("/submissions", data=_payload(name="Other tag",
+    client.post("/submissions", data=_payload(name="Other_tag",
                                               cedant_name="Other Re", crm_ids="CRM-9"))
-    client.post("/submissions", data=_payload(name="Untagged deal",
+    client.post("/submissions", data=_payload(name="Untagged_deal",
                                               inception_date="2026-07-01"))
     body = client.get("/submissions?crm_id=441").text
-    assert "Tagged deal" not in body
+    assert "Tagged_deal" not in body
     body = client.get("/submissions?crm_id=+crm-4417+&crm_id=CRM-9").text
-    assert "Tagged deal" in body and "Other tag" in body and "Untagged deal" not in body
+    assert "Tagged_deal" in body and "Other_tag" in body and "Untagged_deal" not in body
     # Applied chips come back as hidden inputs the form resubmits.
     assert 'name="crm_id" value="crm-4417"' in body and 'name="crm_id" value="CRM-9"' in body
 
@@ -1024,7 +1034,7 @@ def _is_picked(body: str, code: str) -> bool:
 
 
 def test_list_owner_filter_offers_every_active_user(client):
-    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    client.post("/submissions", data=_payload(name="Deal_owned_by_A"))
     body = client.get("/submissions").text
     # Every active user is a menu row, so the analyst picks instead of typing.
     assert 'data-label="Analyst A"' in body
@@ -1032,8 +1042,8 @@ def test_list_owner_filter_offers_every_active_user(client):
     # The row carries the id the filter runs on; the name is only the label.
     assert f'data-code="{client.db.user_a}"' in body
     a, b = client.db.user_a, client.db.user_b
-    assert "Deal owned by A" in client.get(f"/submissions?owner={a}").text
-    assert "Deal owned by A" not in client.get(f"/submissions?owner={b}").text
+    assert "Deal_owned_by_A" in client.get(f"/submissions?owner={a}").text
+    assert "Deal_owned_by_A" not in client.get(f"/submissions?owner={b}").text
 
 
 def test_list_owner_any_renders_only_the_clear_all_option(client):
@@ -1059,13 +1069,13 @@ def test_list_preserves_a_selected_inactive_owner(client):
 def test_list_owner_filter_ignores_a_name_typed_into_the_url(client):
     """The Owner box submits an id. A display name in ?owner= is not one, so it
     narrows to nothing rather than substring-matching two analysts at once."""
-    client.post("/submissions", data=_payload(name="Deal owned by A"))
-    assert "Deal owned by A" not in client.get("/submissions?owner=Analyst+A").text
+    client.post("/submissions", data=_payload(name="Deal_owned_by_A"))
+    assert "Deal_owned_by_A" not in client.get("/submissions?owner=Analyst+A").text
 
 
 def test_list_shows_each_deals_crm_ids(client):
     res = client.post("/submissions", data=_payload(
-        name="Three tags", crm_ids="CRM-1, CRM-2, CRM-3"))
+        name="Three_tags", crm_ids="CRM-1, CRM-2, CRM-3"))
     assert res.status_code == 303
     body = client.get("/submissions").text
     # First tag in full; the rest collapse into a hoverable count.
@@ -1122,17 +1132,17 @@ def _fill_a_page_and_a_bit(client, extra: int = 2) -> None:
     trips the look-alike warning."""
     for i in range(submission_service.PAGE_SIZE + extra):
         client.post("/submissions", data=_payload(
-            name=f"Paged deal {i:03d}", cedant_name=f"Paged cedant {i:03d}"))
+            name=f"Paged_deal_{i:03d}", cedant_name=f"Paged cedant {i:03d}"))
 
 
 def test_a_request_targeting_sub_list_gets_the_table_alone(client):
     """The filter form and the pager both target #sub-list, and htmx keeps only
     that. Rebuilding the filter bar and the nav shell for each keystroke is the
     cost this branch removes."""
-    client.post("/submissions", data=_payload(name="Fragment deal"))
+    client.post("/submissions", data=_payload(name="Fragment_deal"))
     fragment = client.get("/submissions?q=fragment",
                           headers={"HX-Request": "true", "HX-Target": "sub-list"}).text
-    assert 'id="sub-list"' in fragment and "Fragment deal" in fragment
+    assert 'id="sub-list"' in fragment and "Fragment_deal" in fragment
     # No filter bar, no owner menu, no shell — the three things the full page
     # renders and htmx throws away.
     assert 'class="filters"' not in fragment
@@ -1140,7 +1150,7 @@ def test_a_request_targeting_sub_list_gets_the_table_alone(client):
     assert "<html" not in fragment
 
     whole_page = client.get("/submissions?q=fragment").text
-    assert 'class="filters"' in whole_page and "Fragment deal" in whole_page
+    assert 'class="filters"' in whole_page and "Fragment_deal" in whole_page
 
 
 def test_the_list_shows_one_page_with_a_next_link(client):
@@ -1156,7 +1166,7 @@ def test_the_list_shows_one_page_with_a_next_link(client):
 
 
 def test_a_short_list_shows_no_pager(client):
-    client.post("/submissions", data=_payload(name="Only deal"))
+    client.post("/submissions", data=_payload(name="Only_deal"))
     assert "Page 1" not in client.get("/submissions").text
 
 
@@ -1198,33 +1208,33 @@ def test_a_page_number_that_is_not_a_number_reads_the_first_page(client):
 def test_the_list_lands_on_the_signed_in_analysts_deals(client):
     """No `owner` parameter means the analyst's own deals (FR-020). The Owner box
     shows their name while generated URLs omit the default owner."""
-    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    client.post("/submissions", data=_payload(name="Deal_owned_by_A"))
     _mk_owned_by_b(client, "Deal owned by B")
     body = client.get("/submissions").text
-    assert "Deal owned by A" in body and "Deal owned by B" not in body
+    assert "Deal_owned_by_A" in body and "Deal owned by B" not in body
     assert f'name="owner" value="{client.db.user_a}"' in body
     assert _is_picked(body, str(client.db.user_a))
 
 
 def test_owner_any_lists_every_analysts_deals(client):
-    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    client.post("/submissions", data=_payload(name="Deal_owned_by_A"))
     _mk_owned_by_b(client, "Deal owned by B")
     body = client.get("/submissions?owner=any").text
-    assert "Deal owned by A" in body and "Deal owned by B" in body
+    assert "Deal_owned_by_A" in body and "Deal owned by B" in body
 
 
 # ── D16: multi-select filters ────────────────────────────────────────────────
 
 def test_repeated_filter_parameters_or_within_the_filter(client):
-    client.post("/submissions", data=_payload(name="Cat deal",
+    client.post("/submissions", data=_payload(name="Cat_deal",
                                               treaty_type_code="aggregate_cat_xol"))
-    client.post("/submissions", data=_payload(name="Quota deal", cedant_name="Q Re",
+    client.post("/submissions", data=_payload(name="Quota_deal", cedant_name="Q Re",
                                               treaty_type_code="stop_loss"))
-    client.post("/submissions", data=_payload(name="Surplus deal", cedant_name="S Re",
+    client.post("/submissions", data=_payload(name="Surplus_deal", cedant_name="S Re",
                                               treaty_type_code="top_and_drop"))
     body = client.get("/submissions?treaty_type=aggregate_cat_xol&treaty_type=stop_loss").text
-    assert "Cat deal" in body and "Quota deal" in body
-    assert "Surplus deal" not in body
+    assert "Cat_deal" in body and "Quota_deal" in body
+    assert "Surplus_deal" not in body
 
 
 def test_repeated_treaty_years_or_within_the_filter(client):
@@ -1236,11 +1246,11 @@ def test_repeated_treaty_years_or_within_the_filter(client):
 
 
 def test_several_owners_are_listed_together(client):
-    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    client.post("/submissions", data=_payload(name="Deal_owned_by_A"))
     _mk_owned_by_b(client, "Deal owned by B")
     a, b = client.db.user_a, client.db.user_b
     body = client.get(f"/submissions?owner={a}&owner={b}").text
-    assert "Deal owned by A" in body and "Deal owned by B" in body
+    assert "Deal_owned_by_A" in body and "Deal owned by B" in body
     # Both menu rows come back ticked, and both ids come back as hidden inputs.
     assert _is_picked(body, str(a)) and _is_picked(body, str(b))
     assert body.count('name="owner" value="') == 2
@@ -1249,10 +1259,10 @@ def test_several_owners_are_listed_together(client):
 def test_owner_any_wins_over_a_listed_owner(client):
     """The Owner menu's "Any owner" row clears the rest, but a hand-built URL can
     carry both. Every owner is the wider answer, so it wins."""
-    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    client.post("/submissions", data=_payload(name="Deal_owned_by_A"))
     _mk_owned_by_b(client, "Deal owned by B")
     body = client.get(f"/submissions?owner={client.db.user_a}&owner=any").text
-    assert "Deal owned by A" in body and "Deal owned by B" in body
+    assert "Deal_owned_by_A" in body and "Deal owned by B" in body
 
 
 def test_pager_and_sort_links_carry_every_repeated_filter_value(client):
@@ -1297,12 +1307,12 @@ def test_more_than_twenty_values_on_one_filter_never_reaches_the_query(
 
 
 def test_twenty_one_owners_returns_the_owner_message_and_no_rows(client):
-    client.post("/submissions", data=_payload(name="Visible deal"))
+    client.post("/submissions", data=_payload(name="Visible_deal"))
     owners = "&".join(f"owner={uuid.uuid4()}" for _ in range(20))
     assert client.get(f"/submissions?{owners}&owner={client.db.user_a}").status_code == 422
     body = client.get(f"/submissions?{owners}&owner={client.db.user_a}").text
     assert "Owner accepts 20 values or fewer." in body
-    assert "Visible deal" not in body
+    assert "Visible_deal" not in body
 
 
 @pytest.mark.parametrize("parameter", ["status", "contract_status", "treaty_type",
@@ -1338,12 +1348,12 @@ def test_a_list_row_opens_from_a_data_href_and_a_name_link(client):
     """The inline onclick swallowed a drag-selection of the CRM ID. The row now
     carries the target for the delegated handler in app.js, and the Name cell is a
     real link so keyboard and middle-click still open the deal."""
-    created = client.post("/submissions", data=_payload(name="Copyable deal",
+    created = client.post("/submissions", data=_payload(name="Copyable_deal",
                                                         crm_ids="CRM-4417"))
     sid = created.headers["location"].rsplit("/", 1)[-1]
     body = client.get("/submissions").text
     assert f'<tr class="data-row" data-href="/submissions/{sid}">' in body
-    assert f'<a class="open-link" href="/submissions/{sid}">Copyable deal</a>' in body
+    assert f'<a class="open-link" href="/submissions/{sid}">Copyable_deal</a>' in body
     assert "location.href='/submissions/" not in body
 
 
@@ -1493,7 +1503,7 @@ def test_invalid_filter_fragment_contains_the_validation_message(client):
 
 def _seed_results_data(client) -> tuple[str, str, str]:
     """A submission with two EDMs (one own analysis each) and one related RDM."""
-    created = client.post("/submissions", data=_payload(name="Results deal"))
+    created = client.post("/submissions", data=_payload(name="Results_deal"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     edm_ids = []
     template_id = str(uuid.uuid4())
@@ -1656,7 +1666,7 @@ def test_submission_rdm_lazy_rows_read_merged_columns(client):
     assert "Portfolio" not in html        # FR-020
 
     other = client.post("/submissions",
-                        data=_payload(name="Other deal", confirmed="1"))
+                        data=_payload(name="Other_deal", confirmed="1"))
     other_id = other.headers["location"].rsplit("/", 1)[-1]
     assert client.get(
         f"/submissions/{other_id}/rdms/{rdm_id}/analyses").status_code == 404
@@ -1746,7 +1756,7 @@ def _entries(html: str) -> list[str]:
 
 
 def test_results_fragment_offers_import_even_on_an_empty_deal(client):
-    created = client.post("/submissions", data=_payload(name="Empty deal"))
+    created = client.post("/submissions", data=_payload(name="Empty_deal"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
 
     html = client.get(f"/submissions/{submission_id}/analyses").text
@@ -1762,7 +1772,7 @@ def test_import_modal_renders_empty(client):
     response = client.get(f"/submissions/{submission_id}/analyses/import")
 
     assert response.status_code == 200
-    assert "Import analyses &middot; Results deal" in response.text
+    assert "Import analyses &middot; Results_deal" in response.text
     assert "No analyses added yet." in response.text
     assert f'hx-post="/submissions/{submission_id}/analyses/import/check"' in response.text
     assert 'type="submit" disabled' in response.text
@@ -1957,7 +1967,7 @@ _HX = {"HX-Request": "true"}
 
 
 def test_detail_page_shows_modeling_status_and_the_contract_table(client):
-    sid, _ = _deal(client, name="Two statuses", crm_ids="T-100",
+    sid, _ = _deal(client, name="Two_statuses", crm_ids="T-100",
                    expiration_date="2027-04-01")
     body = client.get(f"/submissions/{sid}").text
     assert 'id="deal-head"' in body and 'id="contracts"' in body
@@ -1973,7 +1983,7 @@ def test_detail_page_shows_modeling_status_and_the_contract_table(client):
 
 
 def test_create_with_no_contract_shows_an_empty_table_with_add(client):
-    sid, _ = _deal(client, name="Bare deal", crm_ids="")
+    sid, _ = _deal(client, name="Bare_deal", crm_ids="")
     sub = submission_service.get_submission(sid)
     assert sub.contracts == [] and sub.treaty_year is None
     body = client.get(f"/submissions/{sid}").text
@@ -1982,7 +1992,7 @@ def test_create_with_no_contract_shows_an_empty_table_with_add(client):
 
 def test_create_posts_three_rows_and_fills_blank_expiration_and_status(client):
     res = client.post("/submissions", data={
-        **_payload(name="Three rows", crm_ids=""),
+        **_payload(name="Three_rows", crm_ids=""),
         "contract_crm_id": ["A-1", "A-2", "A-3"],
         "contract_treaty_type": ["per_occurrence_cat_xol", "aggregate_xol", "top_and_drop"],
         "contract_inception": ["2027-01-01", "2027-01-01", "2027-01-01"],
@@ -2001,7 +2011,7 @@ def test_create_posts_three_rows_and_fills_blank_expiration_and_status(client):
 
 def test_create_ignores_the_blank_row_the_form_always_shows(client):
     res = client.post("/submissions", data={
-        **_payload(name="Blank row", crm_ids=""),
+        **_payload(name="Blank_row", crm_ids=""),
         "contract_crm_id": [""], "contract_treaty_type": [""],
         "contract_inception": [""], "contract_expiration": [""],
         "contract_status": ["OPEN"]})
@@ -2012,7 +2022,7 @@ def test_create_ignores_the_blank_row_the_form_always_shows(client):
 
 def test_create_refuses_a_row_without_a_crm_id_and_marks_that_row(client):
     res = client.post("/submissions", data={
-        **_payload(name="Bad row", crm_ids=""),
+        **_payload(name="Bad_row", crm_ids=""),
         "contract_crm_id": ["A-1", ""],
         "contract_treaty_type": ["per_risk_xol", "per_risk_xol"],
         "contract_inception": ["2027-01-01", "2027-01-01"],
@@ -2027,10 +2037,10 @@ def test_create_refuses_a_row_without_a_crm_id_and_marks_that_row(client):
 
 
 def test_create_refuses_a_repeated_crm_id_and_an_unknown_treaty_type(client):
-    dup = client.post("/submissions", data=_payload(name="Dup rows", crm_ids="A-1, a-1 "))
+    dup = client.post("/submissions", data=_payload(name="Dup_rows", crm_ids="A-1, a-1 "))
     assert dup.status_code == 422
     assert "A-1 is already a contract on this submission." in dup.text
-    unknown = client.post("/submissions", data=_payload(name="Bad type",
+    unknown = client.post("/submissions", data=_payload(name="Bad_type",
                                                         treaty_type_code="quota_share"))
     assert unknown.status_code == 422
     assert "Choose a treaty type from the list." in unknown.text
@@ -2044,11 +2054,11 @@ def _owner_link(sid: str, name: str) -> str:
 def test_create_refuses_a_crm_id_another_deal_holds_and_links_that_deal(client):
     """FR-003 (note 33 D14): the message sits under the typed row and the deal
     name opens the owner in a new tab."""
-    owner, _ = _deal(client, name="Owner deal", crm_ids="A-1")
-    res = client.post("/submissions", data=_payload(name="Second deal",
+    owner, _ = _deal(client, name="Owner_deal", crm_ids="A-1")
+    res = client.post("/submissions", data=_payload(name="Second_deal",
                                                     crm_ids="A-9, a-1 "))
     assert res.status_code == 422
-    assert "a-1 is already a contract on " + _owner_link(owner, "Owner deal") in res.text
+    assert "a-1 is already a contract on " + _owner_link(owner, "Owner_deal") in res.text
     assert res.text.count('class="contract-row__error"') == 1
     assert res.text.count('class="is-error"') == 1
     assert 'value="A-9"' in res.text and 'value="a-1"' in res.text
@@ -2056,8 +2066,8 @@ def test_create_refuses_a_crm_id_another_deal_holds_and_links_that_deal(client):
 
 
 def test_contract_add_and_edit_refuse_a_crm_id_another_deal_holds_and_link_it(client):
-    owner, _ = _deal(client, name="Owner deal", crm_ids="A-1")
-    sid, _ = _deal(client, name="Second deal", crm_ids="B-1", confirmed="1")
+    owner, _ = _deal(client, name="Owner_deal", crm_ids="A-1")
+    sid, _ = _deal(client, name="Second_deal", crm_ids="B-1", confirmed="1")
     added = client.post(
         f"/submissions/{sid}/contracts", headers=_HX,
         data={"crm_id": " a-1 ", "treaty_type_code": "stop_loss",
@@ -2065,7 +2075,7 @@ def test_contract_add_and_edit_refuse_a_crm_id_another_deal_holds_and_link_it(cl
               "contract_status_code": "", "csrf_token": _csrf()})
     assert added.status_code == 422
     assert ('role="alert">a-1 is already a contract on '
-            + _owner_link(owner, "Owner deal")) in added.text
+            + _owner_link(owner, "Owner_deal")) in added.text
     assert 'x-data="{ adding: true }"' in added.text and 'value=" a-1 "' in added.text
 
     b1 = _contract(sid, "B-1")
@@ -2076,13 +2086,13 @@ def test_contract_add_and_edit_refuse_a_crm_id_another_deal_holds_and_link_it(cl
               "updated_at": str(b1.updated_at), "csrf_token": _csrf()})
     assert edited.status_code == 422
     assert ('role="alert">A-1 is already a contract on '
-            + _owner_link(owner, "Owner deal")) in edited.text
+            + _owner_link(owner, "Owner_deal")) in edited.text
     assert 'x-data="{ editing: true }"' in edited.text and 'value="A-1"' in edited.text
     assert [c.crm_id for c in submission_service.list_contracts(sid)] == ["B-1"]
 
 
 def test_statuses_post_saves_modeling_status_and_returns_the_head_fragment(client):
-    sid, marker = _deal(client, name="Completed deal")
+    sid, marker = _deal(client, name="Completed_deal")
     response = client.post(
         f"/submissions/{sid}/status", headers=_HX,
         data={"modeling_status": "COMPLETED", "reason": "delivered",
@@ -2099,7 +2109,7 @@ def test_statuses_post_saves_modeling_status_and_returns_the_head_fragment(clien
 
 
 def test_statuses_post_resubmitting_the_same_modeling_status_records_an_event(client):
-    sid, marker = _deal(client, name="Unchanged modeling")
+    sid, marker = _deal(client, name="Unchanged_modeling")
     response = client.post(
         f"/submissions/{sid}/status", headers=_HX,
         data={"modeling_status": "ACTIVE", "reason": "Re-confirmed", "updated_at": marker,
@@ -2112,7 +2122,7 @@ def test_statuses_post_resubmitting_the_same_modeling_status_records_an_event(cl
 
 
 def test_statuses_post_redirects_without_htmx(client):
-    sid, marker = _deal(client, name="Redirected deal")
+    sid, marker = _deal(client, name="Redirected_deal")
     response = client.post(
         f"/submissions/{sid}/status",
         data={"modeling_status": "CANCELLED", "updated_at": marker, "csrf_token": _csrf()})
@@ -2122,7 +2132,7 @@ def test_statuses_post_redirects_without_htmx(client):
 
 
 def test_statuses_post_conflicts_on_a_stale_marker(client):
-    sid, _ = _deal(client, name="Stale deal")
+    sid, _ = _deal(client, name="Stale_deal")
     response = client.post(
         f"/submissions/{sid}/status", headers=_HX,
         data={"modeling_status": "COMPLETED", "updated_at": "1999-01-01 00:00:00",
@@ -2133,7 +2143,7 @@ def test_statuses_post_conflicts_on_a_stale_marker(client):
 
 
 def test_statuses_post_rejects_an_unknown_code(client):
-    sid, marker = _deal(client, name="Bad code deal")
+    sid, marker = _deal(client, name="Bad_code_deal")
     response = client.post(
         f"/submissions/{sid}/status", headers=_HX,
         data={"modeling_status": "HOLD", "updated_at": marker, "csrf_token": _csrf()})
@@ -2142,7 +2152,7 @@ def test_statuses_post_rejects_an_unknown_code(client):
 
 
 def test_statuses_post_without_a_csrf_token_writes_nothing(client):
-    sid, marker = _deal(client, name="No csrf deal")
+    sid, marker = _deal(client, name="No_csrf_deal")
     response = client.post(
         f"/submissions/{sid}/status",
         data={"modeling_status": "COMPLETED", "updated_at": marker, "csrf_token": "nope"})
@@ -2151,7 +2161,7 @@ def test_statuses_post_without_a_csrf_token_writes_nothing(client):
 
 
 def test_contract_status_post_saves_in_place_on_a_completed_deal(client):
-    sid, marker = _deal(client, name="Won contract", crm_ids="T-100, T-200")
+    sid, marker = _deal(client, name="Won_contract", crm_ids="T-100, T-200")
     client.post(f"/submissions/{sid}/status", data={
         "modeling_status": "COMPLETED", "updated_at": marker, "csrf_token": _csrf()})
     response = _status_post(client, sid, "T-100", "WON")
@@ -2170,7 +2180,7 @@ def test_contract_status_post_saves_in_place_on_a_completed_deal(client):
 
 
 def test_contract_status_post_conflicts_on_a_stale_marker_and_rejects_an_unknown_code(client):
-    sid, _ = _deal(client, name="Stale contract", crm_ids="T-100")
+    sid, _ = _deal(client, name="Stale_contract", crm_ids="T-100")
     stale = _status_post(client, sid, "T-100", "WON", updated_at="1999-01-01 00:00:00")
     assert stale.status_code == 409 and "changed since you opened it" in stale.text
     bad = _status_post(client, sid, "T-100", "HOLD")
@@ -2180,7 +2190,7 @@ def test_contract_status_post_conflicts_on_a_stale_marker_and_rejects_an_unknown
 
 
 def test_contract_status_post_redirects_without_htmx(client):
-    sid, _ = _deal(client, name="Redirected contract", crm_ids="T-100")
+    sid, _ = _deal(client, name="Redirected_contract", crm_ids="T-100")
     c = _contract(sid, "T-100")
     response = client.post(
         f"/submissions/{sid}/contracts/{c.id}/status",
@@ -2192,7 +2202,7 @@ def test_contract_status_post_redirects_without_htmx(client):
 
 
 def test_contract_add_post_fills_the_expiration_and_refuses_a_duplicate(client):
-    sid, _ = _deal(client, name="Add contract", crm_ids="T-100")
+    sid, _ = _deal(client, name="Add_contract", crm_ids="T-100")
     response = client.post(
         f"/submissions/{sid}/contracts", headers=_HX,
         data={"crm_id": "T-900", "treaty_type_code": "stop_loss",
@@ -2216,7 +2226,7 @@ def test_contract_add_post_fills_the_expiration_and_refuses_a_duplicate(client):
 
 
 def test_contract_add_row_opens_on_the_last_rows_dates(client):
-    sid, _ = _deal(client, name="Carry down", crm_ids="T-100",
+    sid, _ = _deal(client, name="Carry_down", crm_ids="T-100",
                    inception_date="2026-05-01", expiration_date="2027-04-30")
     body = client.get(f"/submissions/{sid}").text
     add_form = body.split(f'hx-post="/submissions/{sid}/contracts"')[1].split("</form>")[0]
@@ -2225,7 +2235,7 @@ def test_contract_add_row_opens_on_the_last_rows_dates(client):
 
 
 def test_contract_edit_post_changes_one_row_in_place(client):
-    sid, _ = _deal(client, name="Edit contract", crm_ids="T-100, T-200",
+    sid, _ = _deal(client, name="Edit_contract", crm_ids="T-100, T-200",
                    expiration_date="2027-04-01")
     t100 = _contract(sid, "T-100")
     response = client.post(
@@ -2257,7 +2267,7 @@ def test_contract_edit_post_changes_one_row_in_place(client):
 
 
 def test_contract_delete_post_removes_the_row_and_its_dates(client):
-    sid, _ = _deal(client, name="Delete contract", crm_ids="T-100, T-200")
+    sid, _ = _deal(client, name="Delete_contract", crm_ids="T-100, T-200")
     t100 = _contract(sid, "T-100")
     response = client.post(f"/submissions/{sid}/contracts/{t100.id}/delete",
                            headers=_HX, data={"csrf_token": _csrf()})
@@ -2267,8 +2277,8 @@ def test_contract_delete_post_removes_the_row_and_its_dates(client):
 
 
 def test_contract_posts_on_another_deal_are_not_found(client):
-    deal_a, _ = _deal(client, name="Deal A", crm_ids="A-1")
-    deal_b, _ = _deal(client, name="Deal B", crm_ids="B-1", confirmed="1")
+    deal_a, _ = _deal(client, name="Deal_A", crm_ids="A-1")
+    deal_b, _ = _deal(client, name="Deal_B", crm_ids="B-1", confirmed="1")
     b1 = _contract(deal_b, "B-1")
     deleted = client.post(f"/submissions/{deal_a}/contracts/{b1.id}/delete",
                           headers=_HX, data={"csrf_token": _csrf()})
@@ -2282,7 +2292,7 @@ def test_contract_posts_on_another_deal_are_not_found(client):
 
 
 def test_contract_attribute_posts_are_refused_when_the_deal_is_closed(client):
-    sid, marker = _deal(client, name="Closed contracts", crm_ids="T-100")
+    sid, marker = _deal(client, name="Closed_contracts", crm_ids="T-100")
     t100 = _contract(sid, "T-100")
     client.post(f"/submissions/{sid}/status", data={
         "modeling_status": "CANCELLED", "updated_at": marker, "csrf_token": _csrf()})
@@ -2300,7 +2310,7 @@ def test_contract_attribute_posts_are_refused_when_the_deal_is_closed(client):
 
 
 def test_contract_posts_without_a_csrf_token_write_nothing(client):
-    sid, _ = _deal(client, name="No csrf contracts", crm_ids="T-100")
+    sid, _ = _deal(client, name="No_csrf_contracts", crm_ids="T-100")
     c = _contract(sid, "T-100")
     response = client.post(
         f"/submissions/{sid}/contracts/{c.id}/status",
@@ -2315,7 +2325,7 @@ def test_contract_posts_without_a_csrf_token_write_nothing(client):
 
 
 def test_data_vintage_saves_and_the_edit_form_carries_no_contract_fields(client):
-    sid, _ = _deal(client, name="Vintage deal", data_vintage="2026-06-30", crm_ids="T-1")
+    sid, _ = _deal(client, name="Vintage_deal", data_vintage="2026-06-30", crm_ids="T-1")
     assert str(submission_service.get_submission(sid).data_vintage) == "2026-06-30"
     page = client.get(f"/submissions/{sid}").text
     assert "Data vintage" in page and "2026-06-30" in page
@@ -2323,29 +2333,29 @@ def test_data_vintage_saves_and_the_edit_form_carries_no_contract_fields(client)
     assert 'name="data_vintage"' in edit and 'value="2026-06-30"' in edit
     assert 'name="contract_crm_id"' not in edit
     saved = client.post(f"/submissions/{sid}", data={
-        **_payload(name="Vintage deal", data_vintage="2026-09-30"),
+        **_payload(name="Vintage_deal", data_vintage="2026-09-30"),
         "updated_at": str(submission_service.get_submission(sid).updated_at)})
     assert saved.status_code == 303
     sub = submission_service.get_submission(sid)
     assert str(sub.data_vintage) == "2026-09-30"
     assert [c.crm_id for c in sub.contracts] == ["T-1"]
     cleared = client.post(f"/submissions/{sid}", data={
-        **_payload(name="Vintage deal", data_vintage=""),
+        **_payload(name="Vintage_deal", data_vintage=""),
         "updated_at": str(sub.updated_at)})
     assert cleared.status_code == 422 and "Enter a data vintage." in cleared.text
     assert str(submission_service.get_submission(sid).data_vintage) == "2026-09-30"
 
 
 def test_list_offers_both_status_pickers_and_filters_on_a_contract(client):
-    won, _ = _deal(client, name="Won listed", crm_ids="T-100")
+    won, _ = _deal(client, name="Won_listed", crm_ids="T-100")
     _status_post(client, won, "T-100", "WON")
-    _deal(client, name="Still in process", cedant_name="Other Re")
+    _deal(client, name="Still_in_process", cedant_name="Other Re")
     body = client.get("/submissions").text
     assert 'id="status-label">Modeling status</span>' in body
     assert 'id="contract_status-label">Contract status</span>' in body
     assert "Hold" not in body
     narrowed = client.get("/submissions?contract_status=WON").text
-    assert "Won listed" in narrowed and "Still in process" not in narrowed
+    assert "Won_listed" in narrowed and "Still_in_process" not in narrowed
     assert _is_picked(narrowed, "WON")
     assert "<th>Contract status</th>" not in narrowed
 
@@ -2380,7 +2390,7 @@ def test_client_from_the_repository_list_saves_and_shows_as_id_and_name(
     form = client.get("/submissions/new").text
     assert '<option value="27"' in form and "27 - Travelers Corporate Cat" in form
     assert "Client list unavailable" not in form
-    sid, _ = _deal(client, name="Client deal", client_id="27")
+    sid, _ = _deal(client, name="Client_deal", client_id="27")
     assert submission_service.get_submission(sid).client_id == 27
     page = client.get(f"/submissions/{sid}").text
     assert "Client" in page and "27 - Travelers Corporate Cat" in page
@@ -2389,14 +2399,14 @@ def test_client_from_the_repository_list_saves_and_shows_as_id_and_name(
 
 
 def test_blank_client_saves_and_matches_no_client_filter(client, loss_clients):
-    sid, _ = _deal(client, name="No client deal", client_id="")
+    sid, _ = _deal(client, name="No_client_deal", client_id="")
     assert submission_service.get_submission(sid).client_id is None
-    with_client, _ = _deal(client, name="Client 27 deal", client_id="27",
+    with_client, _ = _deal(client, name="Client_27_deal", client_id="27",
                            cedant_name="Other Re")
     body = client.get("/submissions?client=27").text
-    assert "Client 27 deal" in body and "No client deal" not in body
+    assert "Client_27_deal" in body and "No_client_deal" not in body
     assert _is_picked(body, "27")
-    assert "No client deal" in client.get("/submissions").text
+    assert "No_client_deal" in client.get("/submissions").text
 
 
 def test_unreachable_repository_disables_the_field_and_the_submission_still_saves(
@@ -2404,10 +2414,10 @@ def test_unreachable_repository_disables_the_field_and_the_submission_still_save
     form = client.get("/submissions/new").text
     assert "Client list unavailable — the submission saves without one" in form
     assert 'name="client_id"' not in form
-    sid, _ = _deal(client, name="Unreachable repo deal")
+    sid, _ = _deal(client, name="Unreachable_repo_deal")
     assert submission_service.get_submission(sid).client_id is None
     # An id posted anyway is stored as posted: the list could not be checked.
-    stored, _ = _deal(client, name="Posted anyway", client_id="41", cedant_name="Other")
+    stored, _ = _deal(client, name="Posted_anyway", client_id="41", cedant_name="Other")
     assert submission_service.get_submission(stored).client_id == 41
     assert "41 (name unavailable)" in client.get(f"/submissions/{stored}").text
     assert "Client list unavailable" in client.get("/submissions").text
@@ -2415,7 +2425,7 @@ def test_unreachable_repository_disables_the_field_and_the_submission_still_save
     assert '<input type="hidden" name="client_id" value="41">' in client.get(
         f"/submissions/{stored}/edit").text
     saved = client.post(f"/submissions/{stored}", data={
-        **_payload(name="Posted anyway", client_id="41", cedant_name="Other"),
+        **_payload(name="Posted_anyway", client_id="41", cedant_name="Other"),
         "updated_at": str(submission_service.get_submission(stored).updated_at)})
     assert saved.status_code == 303
     assert submission_service.get_submission(stored).client_id == 41
@@ -2423,12 +2433,12 @@ def test_unreachable_repository_disables_the_field_and_the_submission_still_save
 
 def test_a_client_not_in_a_reachable_list_is_a_field_error(client, loss_clients):
     before = _count()
-    response = client.post("/submissions", data=_payload(name="Bad client",
+    response = client.post("/submissions", data=_payload(name="Bad_client",
                                                          client_id="99"))
     assert response.status_code == 422
     assert "Choose a client from the list." in response.text
     assert _count() == before
-    response = client.post("/submissions", data=_payload(name="Bad client",
+    response = client.post("/submissions", data=_payload(name="Bad_client",
                                                          client_id="abc"))
     assert response.status_code == 422 and _count() == before
 
@@ -2436,24 +2446,24 @@ def test_a_client_not_in_a_reachable_list_is_a_field_error(client, loss_clients)
 # ── spec 017 US3: in force and the CRM ID cap on the submissions list ────────
 
 def test_in_force_as_of_lists_won_deals_on_risk_and_defaults_to_today(client):
-    won, _ = _deal(client, name="On risk", crm_ids="T-100", expiration_date="2099-01-01")
+    won, _ = _deal(client, name="On_risk", crm_ids="T-100", expiration_date="2099-01-01")
     _status_post(client, won, "T-100", "WON")
-    _deal(client, name="Still open", cedant_name="Other Re", crm_ids="T-300",
+    _deal(client, name="Still_open", cedant_name="Other Re", crm_ids="T-300",
           expiration_date="2099-01-01")
     body = client.get("/submissions?in_force=1").text
-    assert "On risk" in body and "Still open" not in body
+    assert "On_risk" in body and "Still_open" not in body
     assert 'name="in_force" value="1"' in body and " checked" in body
     assert f'name="as_of" aria-label="As of date"\n           value="{date.today().isoformat()}"' in body
     later = client.get("/submissions?in_force=1&as_of=2100-01-01").text
-    assert "On risk" not in later
+    assert "On_risk" not in later
     assert 'name="as_of" aria-label="As of date"\n           value="2100-01-01"' in later
     assert "in_force=1" in later and "as_of=2100-01-01" in later  # pager / sort links
     assert client.get("/submissions?in_force=1&as_of=someday").status_code == 422
 
 
 def test_twenty_one_crm_ids_return_the_message_and_no_rows(client):
-    client.post("/submissions", data=_payload(name="Visible deal", crm_ids="T-1"))
+    client.post("/submissions", data=_payload(name="Visible_deal", crm_ids="T-1"))
     body = client.get("/submissions?" + "&".join(f"crm_id=T-{i}" for i in range(21)))
     assert body.status_code == 422
     assert "CRM ID accepts 20 values or fewer." in body.text
-    assert "Visible deal" not in body.text
+    assert "Visible_deal" not in body.text

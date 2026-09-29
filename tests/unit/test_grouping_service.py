@@ -40,7 +40,7 @@ _SIMULATION_PERIODS = json.dumps({"peril_code": "WS", "region_code": "NA",
 
 def _submission_with_two_ready(iteration2_db) -> dict:
     seed_currency()
-    submission_id = seed_submission("Sub One")
+    submission_id = seed_submission("Sub_One")
     edm_id = seed_edm("EDM One")
     link_submission_edm(submission_id, edm_id)
     a1 = seed_own_analysis(edm_id, "CRE_P1_T1",
@@ -65,7 +65,7 @@ def _request(ctx, iteration2_db, member_ids=None, **overrides) -> str:
     member_ids = member_ids or [ctx["a1"], ctx["a2"]]
     fields = {
         "member_ids": member_ids,
-        "group_name": "CRE_Sub One_Group",
+        "group_name": "CRE_Sub_One_Group",
         "currency_code": "USD", "currency_scheme": "RMS",
         "currency_vintage": "RL25", "propagate_detailed_output": True,
         "num_of_simulations": "1", "event_rate_selections": [],
@@ -75,7 +75,7 @@ def _request(ctx, iteration2_db, member_ids=None, **overrides) -> str:
     }
     fields.update(overrides)
     return svc.request_grouping(
-        submission_id=ctx["submission_id"], submission_name="Sub One",
+        submission_id=ctx["submission_id"], submission_name="Sub_One",
         req=svc.GroupingRequest(**fields), actor_id=iteration2_db.user_a)
 
 
@@ -98,7 +98,7 @@ def _plan(request_id: str) -> dict:
 def test_eligible_members_mix_own_broker_and_group(iteration2_db):
     ctx = _submission_with_two_ready(iteration2_db)
     seed_broker_analysis(ctx["submission_id"], "Broker EU Wind")
-    seed_group(ctx["submission_id"], "CRE_Sub One_Group")
+    seed_group(ctx["submission_id"], "CRE_Sub_One_Group")
 
     members = svc.list_eligible_members(ctx["submission_id"])
 
@@ -154,6 +154,17 @@ def test_gate_collects_failures_and_persists_nothing(iteration2_db):
 
     # ineligible, <2, members changed since inspection, name, currency
     assert len(exc.value.errors) == 5
+    _no_rwb_job()
+
+
+def test_gate_rejects_a_group_name_outside_the_character_rule(iteration2_db):
+    ctx = _submission_with_two_ready(iteration2_db)
+
+    with pytest.raises(ExecutionGateError) as exc:
+        _request(ctx, iteration2_db, group_name="Alpha EDM")
+
+    assert exc.value.errors == [
+        "Group names may use only letters, numbers, underscores, and hyphens."]
     _no_rwb_job()
 
 
@@ -300,14 +311,14 @@ def test_gate_rejects_malformed_unlisted_or_duplicate_simulation_periods(
 def test_build_group_name_defaults_from_the_submission(iteration2_db):
     ctx = _submission_with_two_ready(iteration2_db)
     assert svc.build_group_name(ctx["submission_id"],
-                                "Sub One") == "CRE_Sub One_Group"
+                                "Sub_One") == "CRE_Sub_One_Group"
 
 
 def test_build_group_name_suffixes_on_a_live_collision(iteration2_db):
     ctx = _submission_with_two_ready(iteration2_db)
-    seed_group(ctx["submission_id"], "CRE_Sub One_Group")
+    seed_group(ctx["submission_id"], "CRE_Sub_One_Group")
     assert svc.build_group_name(ctx["submission_id"],
-                                "Sub One") == "CRE_Sub One_Group_2"
+                                "Sub_One") == "CRE_Sub_One_Group_2"
 
 
 def test_build_group_name_truncates_at_64(iteration2_db):
@@ -333,7 +344,7 @@ def test_plan_is_persisted_verbatim_on_the_rwb_job(iteration2_db):
     plan = _plan(request_id)
     assert plan["grouping_request_id"] == request_id
     assert plan["submission_id"] == ctx["submission_id"]
-    assert plan["group_full_name"] == "CRE_Sub One_Group"
+    assert plan["group_full_name"] == "CRE_Sub_One_Group"
     assert plan["currency"] == {"code": "USD", "scheme": "RMS",
                                 "vintage": "RL25", "asOfDate": "2025-05-28"}
     assert plan["propagate_detailed_losses"] is True
@@ -361,11 +372,11 @@ def test_plan_is_persisted_verbatim_on_the_rwb_job(iteration2_db):
 
 def test_posted_name_collision_takes_the_suffix_not_an_error(iteration2_db):
     ctx = _submission_with_two_ready(iteration2_db)
-    seed_group(ctx["submission_id"], "CRE_Sub One_Group")
+    seed_group(ctx["submission_id"], "CRE_Sub_One_Group")
 
     request_id = _request(ctx, iteration2_db)
 
-    assert _plan(request_id)["group_full_name"] == "CRE_Sub One_Group_2"
+    assert _plan(request_id)["group_full_name"] == "CRE_Sub_One_Group_2"
 
 
 # ── inspection (T-02 / FR-019) ───────────────────────────────────────────────────
@@ -443,7 +454,7 @@ def test_broker_and_group_members_carry_their_own_currency_source(
     broker = seed_broker_analysis(
         ctx["submission_id"], "Broker EU Wind",
         settings={"currency": {"currencyCode": "CAD"}, "appAnalysisId": 51001})
-    group = seed_group(ctx["submission_id"], "CRE_Sub One_Group",
+    group = seed_group(ctx["submission_id"], "CRE_Sub_One_Group",
                        currency="CAD")
 
     view = _currency_view(ctx, [broker, group])

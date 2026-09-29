@@ -1,4 +1,5 @@
 {% extends "base/shell.html" %}
+{% import "partials/form_macros.html" as forms %}
 {% block title %}
 {% if mode == 'create' %}New suite
 {% elif mode == 'edit' %}Edit {{ suite.name }}
@@ -64,7 +65,8 @@
     <div class="wf-fields" style="max-width:480px">
       <div class="wf-field">
         <label>SUITE NAME <span class="wf-field__req">*</span></label>
-        <input class="wf-field__input" type="text" name="name" required value="{{ name_value }}">
+        <input class="wf-field__input" type="text" name="name" required value="{{ name_value }}"
+               pattern="{{ forms.name_pattern }}" title="{{ forms.name_title }}">
       </div>
     </div>
 

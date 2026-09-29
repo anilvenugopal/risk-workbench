@@ -74,7 +74,7 @@ def _flat(body: str) -> str:
 def _template_form(**overrides) -> dict:
     form = {
         "csrf_token": generate_csrf_token(),
-        "name": "US Wind DLM",
+        "name": "US_Wind_DLM",
         "analysis_profile_name": "RMS Default RL25",
         "event_rate_scheme_name": "RMS WS",
         "output_profile_name": "RMS Default Output",
@@ -102,7 +102,7 @@ def test_admin_page_has_separate_suites_and_templates_tabs(iteration2_db, fake_i
     assert "Templates" in body
     # Default tab (suites) shows the suites table, not the templates table —
     # the two lists never appear together (user-directed 2026-08-19).
-    assert "US Wind DLM" not in body
+    assert "US_Wind_DLM" not in body
 
 
 def test_templates_tab_shows_templates_not_suites(iteration2_db, fake_irp):
@@ -116,7 +116,7 @@ def test_templates_tab_shows_templates_not_suites(iteration2_db, fake_irp):
 
     body = _client().get("/templates/table?tab=templates").text
 
-    assert "US Wind DLM" in body
+    assert "US_Wind_DLM" in body
     assert "DLM" in body
 
 
@@ -132,7 +132,7 @@ def test_suites_tab_shows_suites_not_templates(iteration2_db, fake_irp):
     body = _client().get("/templates/table?tab=suites").text
 
     assert ">US<" in body
-    assert "US Wind DLM" not in body
+    assert "US_Wind_DLM" not in body
 
 
 def test_non_admin_sees_no_mutation_controls(iteration2_db, fake_irp):
@@ -150,7 +150,7 @@ def _values_for_service(**overrides):
     from app.services.template_service import TemplateValues
 
     values = dict(
-        name="US Wind DLM",
+        name="US_Wind_DLM",
         analysis_profile_name="RMS Default RL25",
         output_profile_name="RMS Default Output",
         event_rate_scheme_name="RMS WS",
@@ -188,7 +188,7 @@ def test_create_template_redirects_to_templates_tab(iteration2_db, fake_irp):
     assert resp.status_code == 303
     assert resp.headers["location"] == "/templates?tab=templates"
     [created] = template_service.list_templates()
-    assert created["name"] == "US Wind DLM"
+    assert created["name"] == "US_Wind_DLM"
     assert created["tags"] == ["US", "Wind"]
 
 
@@ -235,7 +235,7 @@ def test_template_detail_view_for_non_admin_has_no_edit_form(iteration2_db, fake
         f"/templates/analysis-templates/{template_id}"
     ).text
 
-    assert "US Wind DLM" in body
+    assert "US_Wind_DLM" in body
     assert "<form" not in body
 
 
@@ -245,8 +245,9 @@ def test_template_detail_edit_form_for_admin_prefills_values(iteration2_db, fake
 
     body = _client().get(f"/templates/analysis-templates/{template_id}").text
 
-    assert 'value="US Wind DLM"' in body
+    assert 'value="US_Wind_DLM"' in body
     assert '<option value="RMS Default RL25" selected>' in body
+    assert 'pattern="[A-Za-z0-9_\-]+"' in body
 
 
 def test_update_template_round_trip(iteration2_db, fake_irp):
@@ -255,12 +256,12 @@ def test_update_template_round_trip(iteration2_db, fake_irp):
 
     resp = _client().post(
         f"/templates/analysis-templates/{template_id}",
-        data=_template_form(name="US Wind DLM Updated"),
+        data=_template_form(name="US_Wind_DLM_Updated"),
     )
 
     assert resp.status_code == 303
     assert resp.headers["location"] == "/templates?tab=templates"
-    assert template_service.get_template(template_id)["name"] == "US Wind DLM Updated"
+    assert template_service.get_template(template_id)["name"] == "US_Wind_DLM_Updated"
 
 
 def test_delete_guard_names_referencing_suite(iteration2_db, fake_irp):
@@ -321,7 +322,7 @@ def test_duplicate_template_route_redirects_to_the_copys_detail_page(
     [original, copy] = sorted(
         template_service.list_templates(), key=lambda t: t["name"],
     )
-    assert copy["name"] == "US Wind DLM (copy)"
+    assert copy["name"] == "US_Wind_DLM_copy"
     assert resp.headers["location"] == f"/templates/analysis-templates/{copy['id']}"
 
 
@@ -436,7 +437,7 @@ def test_edit_form_keeps_a_saved_template_free_of_a_scheme(
     one — otherwise the next save silently puts the scheme back."""
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service(
-        name="US Wind HD", analysis_profile_name="RMS Default HD",
+        name="US_Wind_HD", analysis_profile_name="RMS Default HD",
         event_rate_scheme_name=None,
     ))
 
@@ -503,7 +504,8 @@ def test_new_suite_form_has_search_box_over_the_template_picker(
     body = _client().get("/templates/suites/new").text
 
     assert 'id="suite-item-filter"' in body
-    assert "US Wind DLM" in body
+    assert "US_Wind_DLM" in body
+    assert 'pattern="[A-Za-z0-9_\-]+"' in body
 
 
 def test_new_suite_form_blocked_for_non_admin(iteration2_db, fake_irp):
@@ -544,7 +546,7 @@ def test_update_suite_item_add_and_remove_round_trip(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     first = template_service.save_template(_values_for_service())
     second = template_service.save_template(_values_for_service(
-        name="US Wind HD", analysis_profile_name="RMS Default HD",
+        name="US_Wind_HD", analysis_profile_name="RMS Default HD",
         event_rate_scheme_name=None,
     ))
     suite_id = template_service.save_suite("US", [first])
@@ -572,7 +574,7 @@ def test_suite_detail_view_for_non_admin_has_no_edit_form(iteration2_db, fake_ir
 
     body = _client(_make_user()).get(f"/templates/suites/{suite_id}").text
 
-    assert "US Wind DLM" in body
+    assert "US_Wind_DLM" in body
     assert "<form" not in body
 
 
@@ -618,7 +620,7 @@ def test_duplicate_suite_route_redirects_to_the_copys_detail_page(
     [original, copy] = sorted(
         template_service.list_suites(), key=lambda s: s["name"],
     )
-    assert copy["name"] == "US (copy)"
+    assert copy["name"] == "US_copy"
     assert resp.headers["location"] == f"/templates/suites/{copy['id']}"
 
 

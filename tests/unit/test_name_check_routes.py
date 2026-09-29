@@ -123,6 +123,15 @@ def test_rdm_name_check_mirrors(monkeypatch):
 
 # ── POST /edms/import — blocking 422 + fail-open redirect ─────────────────────────
 
+def test_import_forms_carry_the_name_pattern(monkeypatch):
+    monkeypatch.setattr(edm_service, "list_edms", lambda: [])
+    client = _client()
+    for path in ("/edms/import", "/rdms/import"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert 'pattern="[A-Za-z0-9_\-]+"' in r.text
+
+
 def test_import_collision_maps_to_422_banner(monkeypatch):
     def _raise(**kw):
         raise NameCollisionError("An EDM named 'Dupe' already exists in Risk "

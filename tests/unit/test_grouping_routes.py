@@ -59,7 +59,7 @@ def _client() -> TestClient:
 
 def _seeded_submission() -> dict:
     seed_currency()
-    submission_id = seed_submission("Sub One")
+    submission_id = seed_submission("Sub_One")
     edm_id = seed_edm("EDM One")
     link_submission_edm(submission_id, edm_id)
     a1 = seed_own_analysis(edm_id, "CRE_P1_T1", irp_app_analysis_id="41001",
@@ -73,7 +73,7 @@ def _seeded_submission() -> dict:
 def _mixed_group(fake_irp) -> dict:
     """The sandbox HD + DLM + nested-group inspection (grouping_inspections)."""
     seed_currency()
-    submission_id = seed_submission("Sub One")
+    submission_id = seed_submission("Sub_One")
     edm_id = seed_edm("EDM One")
     link_submission_edm(submission_id, edm_id)
     ctx = seed_mixed_group(fake_irp, submission_id, edm_id)
@@ -101,7 +101,7 @@ def _inspect(client, ctx, member_ids=None):
 def _submit_form(client, ctx, **overrides) -> dict:
     form = {"csrf_token": _csrf(client),
             "member_ids": ctx["member_ids"],
-            "group_name": "CRE_Sub One_Group", "currency_code": "USD",
+            "group_name": "CRE_Sub_One_Group", "currency_code": "USD",
             "currency_scheme": "RMS", "currency_vintage": "RL25",
             "propagate_detailed_output": "on",
             "num_of_simulations": "1",
@@ -121,7 +121,8 @@ def test_get_renders_the_dialog_with_prechecked_members(iteration2_db):
         params=[("analysis_ids", ctx["a1"]), ("analysis_ids", ctx["a2"])])
 
     assert response.status_code == 200
-    assert 'value="CRE_Sub One_Group"' in response.text  # prefilled, editable
+    assert 'value="CRE_Sub_One_Group"' in response.text  # prefilled, editable
+    assert 'pattern="[A-Za-z0-9_\\-]+"' in response.text  # the name rule (#87)
     assert response.text.count(" checked") >= 2          # both rows pre-checked
     assert "Propagate detailed output" in response.text
     assert ">Next<" in response.text and "Inspect members" not in response.text
@@ -137,7 +138,7 @@ def test_get_renders_the_dialog_with_prechecked_members(iteration2_db):
 
 def test_get_blocks_with_fewer_than_two_eligible_members(iteration2_db):
     seed_currency()
-    submission_id = seed_submission("Sub One")
+    submission_id = seed_submission("Sub_One")
     edm_id = seed_edm("EDM One")
     link_submission_edm(submission_id, edm_id)
     seed_own_analysis(edm_id, "CRE_P1_T1")
@@ -532,7 +533,7 @@ def env_vintage(monkeypatch):
     monkeypatch.setattr(settings, "default_analysis_currency_vintage", "RL25")
 
 
-def _finish(client, ctx, member_ids=None, group_name="CRE_Sub One_Group"):
+def _finish(client, ctx, member_ids=None, group_name="CRE_Sub_One_Group"):
     return client.post(
         f"/submissions/{ctx['submission_id']}/analyses/group/finish",
         data={"csrf_token": _csrf(client),
@@ -582,7 +583,7 @@ def test_finish_submits_the_suffixed_name_over_a_treaty_mismatch(
         iteration2_db, fake_irp, env_vintage):
     ctx = _seeded_submission()
     ids = ctx["irp_ids"]
-    seed_group(ctx["submission_id"], "CRE_Sub One_Group")
+    seed_group(ctx["submission_id"], "CRE_Sub_One_Group")
     fake_irp.seed_grouping_inspection(ids, warnings=(GroupingProblem(
         code="inconsistent_treaty_terms",
         message="Treaty number XOL-2026-01 has inconsistent loss-affecting terms.",
@@ -599,7 +600,7 @@ def test_finish_submits_the_suffixed_name_over_a_treaty_mismatch(
         "SELECT input_data FROM rwb_job WHERE requestor_id = :r",
         {"r": trigger["grouping-submitted"]["grouping_request_id"]},
         connection="WORKBENCH")[0]["input_data"])
-    assert plan["group_full_name"] == "CRE_Sub One_Group_2"
+    assert plan["group_full_name"] == "CRE_Sub_One_Group_2"
 
 
 def _assert_finish_stopped(response, fake_irp, ctx) -> None:

@@ -1,4 +1,5 @@
 {% extends "base/shell.html" %}
+{% import "partials/form_macros.html" as forms %}
 {% block title %}Import EDM{% endblock %}
 
 {% block main %}
@@ -37,6 +38,7 @@
       <label for="edm-name">NAME</label>
       <input class="wf-field__input nc-input" type="text" id="edm-name" name="name"
              value="{{ form.name }}" required
+             pattern="{{ forms.name_pattern }}" title="{{ forms.name_title }}"
              x-ref="name" @input="onName($event)"
              hx-get="/edms/name-check"
              hx-trigger="keyup changed delay:500ms, recheck"

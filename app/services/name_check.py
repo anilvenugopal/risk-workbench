@@ -62,12 +62,30 @@ def check_rdm_name(name: str) -> CollisionCheck:
     return _check("rdm", name)
 
 
+def name_rule_message(noun: str) -> str:
+    """The sentence every name field shows when a name breaks the character
+    rule (issue #87): Risk Modeler rejects an analysis name outside
+    ``[A-Za-z0-9_-]``, and the analysis name is composed from these names."""
+    return f"{noun} names may use only letters, numbers, underscores, and hyphens."
+
+
+def is_valid_name(name: str) -> bool:
+    return bool(_NAME_RE.fullmatch(name))
+
+
+def to_name_token(text: str) -> str:
+    """Map free text onto the name rule: each run of other characters becomes
+    one ``_`` (``Puerto Rico`` → ``Puerto_Rico``), leading and trailing ``_``
+    dropped."""
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", text).strip("_")
+
+
 def clean_entity_name(name: str) -> str:
     cleaned = (name or "").strip()
-    if not cleaned or len(cleaned) > _NAME_MAX or not _NAME_RE.fullmatch(cleaned):
+    if not cleaned or len(cleaned) > _NAME_MAX or not is_valid_name(cleaned):
         raise InvalidMemberName(
-            "EDM/RDM names may use only letters, numbers, underscores, and "
-            f"hyphens, with a maximum of {_NAME_MAX} characters.")
+            name_rule_message("EDM/RDM").rstrip(".")
+            + f", with a maximum of {_NAME_MAX} characters.")
     return cleaned
 
 
@@ -133,4 +151,5 @@ def _evict(now: float) -> None:
 
 
 __all__ = ["CollisionCheck", "clean_entity_name", "check_edm_name", "check_rdm_name",
-           "check_portfolio_name", "clear_cache"]
+           "check_portfolio_name", "clear_cache", "is_valid_name",
+           "name_rule_message", "to_name_token"]
