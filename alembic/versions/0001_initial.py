@@ -1209,11 +1209,12 @@ def downgrade() -> None:
     op.drop_table("breakout_dimension_kind")
 
     # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
-    # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.
+    # irp_job_resource → irp_job → the eight kind tables), ahead of Iteration-1.
     op.drop_table("irp_analysis_group_member")
     op.drop_index("uq_irp_analysis_execution_item", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_live_submission_name",
                   table_name="irp_analysis")
+    op.drop_index("ix_irp_analysis_irp_id", table_name="irp_analysis")
     op.drop_index("ix_irp_analysis_submission_id", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_live_edm_name", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_rdm_irp", table_name="irp_analysis")
@@ -1234,6 +1235,8 @@ def downgrade() -> None:
     op.drop_index("ix_irp_job_type_status", table_name="irp_job")
     op.drop_table("irp_job")
     for kind in (
+        "rwb_job_context_type_kind",
+        "rwb_job_link_type_kind",
         "irp_analysis_status_kind",
         "rwb_job_status_kind",
         "rwb_job_requestor_type_kind",
