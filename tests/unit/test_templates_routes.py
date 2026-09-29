@@ -75,9 +75,9 @@ def _template_form(**overrides) -> dict:
     form = {
         "csrf_token": generate_csrf_token(),
         "name": "US Wind DLM",
-        "analysis_profile_name": "RMS Default RL25",
-        "event_rate_scheme_name": "RMS WS",
-        "output_profile_name": "RMS Default Output",
+        "model_profile_irp_id": "1",
+        "event_rate_scheme_irp_id": "20",
+        "output_profile_irp_id": "10",
         "min_loss_threshold": "1.00",
         "num_max_loss_event": "1",
         "treat_construction_occupancy_as_unknown": "1",
@@ -151,9 +151,9 @@ def _values_for_service(**overrides):
 
     values = dict(
         name="US Wind DLM",
-        analysis_profile_name="RMS Default RL25",
-        output_profile_name="RMS Default Output",
-        event_rate_scheme_name="RMS WS",
+        model_profile_irp_id=1,
+        output_profile_irp_id=10,
+        event_rate_scheme_irp_id=20,
         min_loss_threshold=Decimal("1.00"),
         num_max_loss_event=1,
         franchise_deductible=False,
@@ -196,7 +196,7 @@ def test_dlm_rejection_re_renders_form_naming_the_rule(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     resp = _client().post(
         "/templates/analysis-templates",
-        data=_template_form(event_rate_scheme_name=""),
+        data=_template_form(event_rate_scheme_irp_id=""),
     )
 
     assert resp.status_code == 200
@@ -246,7 +246,7 @@ def test_template_detail_edit_form_for_admin_prefills_values(iteration2_db, fake
     body = _client().get(f"/templates/analysis-templates/{template_id}").text
 
     assert 'value="US Wind DLM"' in body
-    assert '<option value="RMS Default RL25" selected>' in body
+    assert '<option value="1" selected>' in body
 
 
 def test_update_template_round_trip(iteration2_db, fake_irp):
@@ -343,12 +343,12 @@ def test_direct_duplicate_template_post_rejected_for_non_admin(
 def test_duplicate_surfaces_drift_validation_error_on_the_form(
     iteration2_db, fake_irp,
 ):
-    # Saved while its profile was absent from the cache (pairing validation
-    # short-circuits), then a sync lands the profile as DLM — the copy now
-    # fails the scheme-required rule.
-    template_id = template_service.save_template(
-        _values_for_service(event_rate_scheme_name=None))
+    # The scheme left the cache after the template was saved, so the copy
+    # cannot resolve its id.
     metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values_for_service())
+    with iteration2_db.engine.begin() as conn:
+        conn.exec_driver_sql("DELETE FROM irp_event_rate_scheme WHERE irp_id = 20")
 
     resp = _client().post(
         f"/templates/analysis-templates/{template_id}/duplicate",
@@ -356,8 +356,25 @@ def test_duplicate_surfaces_drift_validation_error_on_the_form(
     )
 
     assert resp.status_code == 200
-    assert "Event rate scheme is required for DLM analyses" in resp.text
+    assert "Event rate scheme not found in Risk Modeler" in resp.text
     assert len(template_service.list_templates()) == 1
+
+
+def test_failed_resave_labels_the_missing_scheme_by_its_stored_name(
+    iteration2_db, fake_irp,
+):
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values_for_service())
+    with iteration2_db.engine.begin() as conn:
+        conn.exec_driver_sql("DELETE FROM irp_event_rate_scheme WHERE irp_id = 20")
+
+    resp = _client().post(
+        f"/templates/analysis-templates/{template_id}", data=_template_form(),
+    )
+
+    assert resp.status_code == 200
+    assert "Event rate scheme not found in Risk Modeler" in resp.text
+    assert "RMS WS (not found in Risk Modeler)" in resp.text
 
 
 def test_unresolved_badge_renders_on_detail_and_list(iteration2_db, fake_irp):
@@ -381,10 +398,10 @@ def test_scheme_options_fragment_prefills_exactly_one_match(iteration2_db, fake_
     metadata_jobs._sync_irp_metadata_body()
 
     body = _client().get(
-        "/templates/analysis-templates/scheme-options?profile=RMS Default RL25"
+        "/templates/analysis-templates/scheme-options?profile=1"
     ).text
 
-    assert '<option value="RMS WS" selected>' in body
+    assert '<option value="20" selected>' in body
 
 
 def test_scheme_options_fragment_empty_for_blank_profile(iteration2_db, fake_irp):
@@ -407,11 +424,11 @@ def test_scheme_options_populate_on_profile_change_alone(iteration2_db, fake_irp
 
     resp = _client().get(
         "/templates/analysis-templates/scheme-options",
-        params={"profile": "RMS Default RL25"},
+        params={"profile": "1"},
     )
 
     assert resp.status_code == 200
-    assert '<option value="RMS WS" selected>' in resp.text
+    assert '<option value="20" selected>' in resp.text
 
 
 def test_edit_form_prefills_scheme_options_for_the_stored_profile(
@@ -425,7 +442,7 @@ def test_edit_form_prefills_scheme_options_for_the_stored_profile(
 
     body = _client().get(f"/templates/analysis-templates/{template_id}").text
 
-    assert '<option value="RMS WS" selected>' in body
+    assert '<option value="20" selected>' in body
 
 
 def test_edit_form_keeps_a_saved_template_free_of_a_scheme(
@@ -436,14 +453,14 @@ def test_edit_form_keeps_a_saved_template_free_of_a_scheme(
     one — otherwise the next save silently puts the scheme back."""
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service(
-        name="US Wind HD", analysis_profile_name="RMS Default HD",
-        event_rate_scheme_name=None,
+        name="US Wind HD", model_profile_irp_id=2,
+        event_rate_scheme_irp_id=None,
     ))
 
     body = _client().get(f"/templates/analysis-templates/{template_id}").text
 
     assert "<option value=\"\" selected>Choose a scheme" in _flat(body)
-    assert '<option value="RMS WS" selected>' not in body
+    assert '<option value="20" selected>' not in body
 
 
 def test_edit_form_labels_hidden_scheme_as_hidden_not_missing(
@@ -544,8 +561,8 @@ def test_update_suite_item_add_and_remove_round_trip(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     first = template_service.save_template(_values_for_service())
     second = template_service.save_template(_values_for_service(
-        name="US Wind HD", analysis_profile_name="RMS Default HD",
-        event_rate_scheme_name=None,
+        name="US Wind HD", model_profile_irp_id=2,
+        event_rate_scheme_irp_id=None,
     ))
     suite_id = template_service.save_suite("US", [first])
 

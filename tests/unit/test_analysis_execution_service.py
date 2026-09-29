@@ -14,7 +14,7 @@ import uuid
 import pytest
 
 from app.services import analysis_execution_service as svc
-from db import execute_one
+from db import execute_command, execute_one
 from tests.unit.analysis_rows import (
     seed_currency,
     seed_edm,
@@ -123,6 +123,24 @@ def test_gate_rejects_cache_invalid_vintage(iteration2_db):
             currency_vintage="NOT-A-REAL-VINTAGE",
             actor_id=iteration2_db.user_a)
     assert any("vintage" in e.lower() for e in exc_info.value.errors)
+
+
+def test_gate_rejects_template_whose_profile_left_the_cache(iteration2_db):
+    seed_currency()
+    edm_id = seed_edm()
+    portfolio_id = seed_portfolio(edm_id)
+    template_id = seed_template()
+    execute_command("DELETE FROM irp_model_profile WHERE irp_id = 1", {},
+                    connection="WORKBENCH")
+
+    with pytest.raises(svc.ExecutionGateError) as exc_info:
+        svc.request_execution(
+            edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
+            treaty_names=[], template_ids=[template_id],
+            currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
+            actor_id=iteration2_db.user_a)
+    assert exc_info.value.errors == [
+        "A selected template's model profile is no longer in Risk Modeler."]
 
 
 def test_gate_rejects_edm_not_ready(iteration2_db):

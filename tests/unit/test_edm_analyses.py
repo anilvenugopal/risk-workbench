@@ -150,7 +150,8 @@ def _seed_executed(*, edm_id: str, name: str, loss_results=None,
         template_id = str(uuid.uuid4())
         execute_command(
             "INSERT INTO analysis_template (id, name, analysis_profile_name, "
-            "output_profile_name) VALUES (:id, :n, 'Profile', 'Output')",
+            "output_profile_name, model_profile_irp_id, output_profile_irp_id) "
+            "VALUES (:id, :n, 'Profile', 'Output', 1, 10)",
             {"id": template_id, "n": template_name}, connection="WORKBENCH")
     analysis_id = str(uuid.uuid4())
     execute_command(

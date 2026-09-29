@@ -43,8 +43,9 @@ def _insert_template(engine, *, name: str) -> str:
     tid = str(uuid.uuid4())
     with engine.begin() as conn:
         conn.execute(text(
-            "INSERT INTO analysis_template (id, name, inserted_at, updated_at) "
-            "VALUES (:id, :name, :now, :now)"
+            "INSERT INTO analysis_template (id, name, model_profile_irp_id, "
+            "output_profile_irp_id, inserted_at, updated_at) "
+            "VALUES (:id, :name, 1, 10, :now, :now)"
         ), {"id": tid, "name": name, "now": _now()})
     return tid
 
