@@ -38,6 +38,7 @@ from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.routers._list_filters import (
     MAX_TREATY_YEAR,
     MIN_TREATY_YEAR,
+    MULTI_FILTERS,
     parse_list_filters,
     picker_options,
 )
@@ -972,9 +973,6 @@ def _not_found(request: Request):
 # naming it gets the table on its own: rebuilding the status list, the analyst
 # list and the nav shell for htmx to discard is the cost of a keystroke otherwise.
 _LIST_TARGET = "sub-list"
-# Each multi-select menu writes one input per picked value (D16).
-_MULTI_PARAMS = ("crm_id", "treaty_type", "treaty_year", "status", "contract_status",
-                 "client", "owner")
 _TEXT_PARAMS = ("q", "cedant")
 
 
@@ -999,7 +997,7 @@ def _sort_links(sort_query: str, sort: str, descending: bool) -> dict[str, dict]
 @router.get("/submissions", response_class=HTMLResponse)
 def list_submissions_page(request: Request):
     parsed = parse_list_filters(
-        request.query_params, multi_keys=_MULTI_PARAMS, text_keys=_TEXT_PARAMS)
+        request.query_params, multi_keys=MULTI_FILTERS, text_keys=_TEXT_PARAMS)
     validation_error = parsed.error
     multi_values = parsed.multi
     # No `owner` at all — a nav click, a bare bookmark — lands the analyst on their
@@ -1043,7 +1041,7 @@ def list_submissions_page(request: Request):
         )
         if filters[filter_key] is not None
     ]
-    for key in _MULTI_PARAMS:
+    for key in MULTI_FILTERS:
         query_values += [(key, value) for value in filter_values[key]]
     if parsed.in_force:
         query_values += [("in_force", "1"), ("as_of", filter_values["as_of"])]

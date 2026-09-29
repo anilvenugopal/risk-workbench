@@ -3,7 +3,7 @@ libraries (spec 017 T-08; contracts/routes.md §3).
 
 Each text parameter is capped by length and word count, each multi-value
 parameter at ``MAX_FILTER_VALUES`` values, and every refusal is one line naming
-the filter. Eight multi-value filters at twenty values is 160 bound parameters,
+the filter. Seven multi-value filters at twenty values is 140 bound parameters,
 under SQL Server's 2,100-parameter limit.
 """
 
@@ -27,14 +27,16 @@ TEXT_FILTERS = {
     "q": ("Name", "name"),
     "cedant": ("Cedant", "cedant_name"),
 }
+# Key order is the order the list's pager, sort links and pushed URL repeat
+# the picked values in.
 MULTI_FILTERS = {
     "crm_id": ("CRM ID", "crm_ids"),
-    "owner": ("Owner", "owner_ids"),
-    "status": ("Modeling status", "status_codes"),
-    "contract_status": ("Contract status", "contract_status_codes"),
     "treaty_type": ("Treaty type", "treaty_type_codes"),
     "treaty_year": ("Treaty year", "treaty_years"),
+    "status": ("Modeling status", "status_codes"),
+    "contract_status": ("Contract status", "contract_status_codes"),
     "client": ("Client ID", "client_ids"),
+    "owner": ("Owner", "owner_ids"),
 }
 # The submission-attribute filters the EDM and RDM libraries carry (FR-015,
 # P-13): no Modeling status, and no owner default.
