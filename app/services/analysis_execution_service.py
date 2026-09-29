@@ -101,8 +101,9 @@ def _template_rows(template_ids: list[str]) -> dict[str, dict]:
     marks = ", ".join(f":t{i}" for i in range(len(ids)))
     rows = execute(
         f"""
-        SELECT id, name, analysis_profile_name, output_profile_name,
-               event_rate_scheme_name, min_loss_threshold, num_max_loss_event,
+        SELECT id, name, model_profile_irp_id, output_profile_irp_id,
+               event_rate_scheme_irp_id, analysis_type,
+               min_loss_threshold, num_max_loss_event,
                franchise_deductible, treat_construction_occupancy_as_unknown
         FROM analysis_template
         WHERE deleted_at IS NULL AND id IN ({marks})
@@ -258,9 +259,10 @@ def _compose_plan(
                 "suite_name": suite_item.suite_name,
                 "template_id": template_id,
                 "template_name": t["name"],
-                "analysis_profile_name": t["analysis_profile_name"],
-                "output_profile_name": t["output_profile_name"],
-                "event_rate_scheme_name": t["event_rate_scheme_name"],
+                "model_profile_id": t["model_profile_irp_id"],
+                "output_profile_id": t["output_profile_irp_id"],
+                "event_rate_scheme_id": t["event_rate_scheme_irp_id"],
+                "analysis_type": t["analysis_type"],
                 "currency": dict(suite_item.currency),
                 "min_loss_threshold": float(t["min_loss_threshold"]),
                 "num_max_loss_event": int(t["num_max_loss_event"]),

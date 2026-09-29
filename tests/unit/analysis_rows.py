@@ -47,14 +47,15 @@ def seed_portfolio(edm_id: str, name: str = "Portfolio A") -> str:
     return portfolio_id
 
 
-def seed_template(name: str = "Template A", event_rate_scheme_name: str | None = None,
+def seed_template(name: str = "Template A", event_rate_scheme_irp_id: int | None = None,
                   tags: list[str] | None = None) -> str:
     template_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO analysis_template (id, name, analysis_profile_name, "
-        "output_profile_name, event_rate_scheme_name) "
-        "VALUES (:id, :name, 'Profile', 'Output', :scheme)",
-        {"id": template_id, "name": name, "scheme": event_rate_scheme_name},
+        "output_profile_name, model_profile_irp_id, output_profile_irp_id, "
+        "event_rate_scheme_irp_id, analysis_type) "
+        "VALUES (:id, :name, 'Profile', 'Output', 1, 10, :scheme, 'HD')",
+        {"id": template_id, "name": name, "scheme": event_rate_scheme_irp_id},
         connection="WORKBENCH")
     for tag in tags or []:
         execute_command(
