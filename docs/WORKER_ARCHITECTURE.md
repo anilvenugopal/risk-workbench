@@ -86,19 +86,15 @@ Four steps, always in this order:
 3. **Seed the type into `rwb_job_type_kind`.** `rwb_job.rwb_job_type` is a
    kind-table foreign key (Article 3 of the constitution — internal
    categoricals are never bare strings), so the value must exist in
-   `rwb_job_type_kind` before any row can reference it. It's seeded in
-   **two places, kept in sync by hand**:
-   - `alembic/versions/0001_initial.py`'s `upgrade()` — a plain `INSERT`,
-     runs once when the schema is first created (`make db-rebuild` /
-     `wsl-db-rebuild`).
-   - `infra/scripts/seed_db.py` — an idempotent `MERGE`, safe to re-run any
-     time (`make db-bootstrap` / `wsl-db-seed`). This is what backfills a
-     newly-added type into a database that already exists, without a full
-     rebuild.
-
-   Add the same `(code, label, sort_order)` row to both. There's no single
-   source of truth for this list — matching an existing row's shape in both
-   files is the whole job.
+   `rwb_job_type_kind` before any row can reference it. Insert the
+   `(code, label, sort_order)` row in a new Alembic revision (see
+   `AGENTS.md`, Schema Changes); `alembic upgrade head` then adds it to every
+   database, new or existing. Do not edit `0001_initial.py`.
+   `infra/scripts/seed_db.py` still carries the kind rows that predate the
+   revision freeze as an idempotent `MERGE`; it does not need the new row.
+   Add the same `(code, label, sort_order)` row to `RWB_JOB_TYPE_SEED` in
+   `tests/iteration1_mirror.py`, which seeds the unit tier's SQLite
+   `rwb_job_type_kind`; no drift test compares seed rows.
 
 4. **Call `enqueue_rwb_job`** (or `ensure_pending_rwb_job` for a
    request-path retry) from wherever the job should be triggered, with
@@ -107,8 +103,8 @@ Four steps, always in this order:
 Nothing else needs to change. `app/workers/loader.py`'s `discover_jobs()`
 walks every `app/workers/*_jobs.py` module and imports it, which is what
 registers the actor with Dramatiq — no manifest, no registry, no list to
-update by hand for discovery itself (only the kind-table seed in step 3 is
-a real, unavoidable second place).
+update by hand for discovery itself. The kind-table revision and the mirror
+seed row in step 3 are the only other places a new job type appears.
 
 ## Discovery: how a new `*_jobs.py` file gets picked up
 

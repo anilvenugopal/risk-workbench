@@ -200,7 +200,7 @@ def iteration1_db() -> SimpleNamespace:
 @pytest.fixture()
 def iteration2_db() -> SimpleNamespace:
     """Build the Iteration-1 + Iteration-2 + Iteration-3 WORKBENCH schema in SQLite
-    (the dev DB is drop-create-seed, so services always see the full shape), seed
+    (every revision is applied, so services always see the full shape), seed
     the kind tables and two analysts, register it as WORKBENCH, and return the
     analyst ids. Engine disposal is handled by the autouse root fixture."""
     engine = _memory_engine()

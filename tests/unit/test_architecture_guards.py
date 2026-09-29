@@ -8,7 +8,7 @@ tier rather than production:
 2. **Article 6 / FR-041 — no row-level security on the async entities.** No
    ``customer_id`` column, no ``apply_scope`` / ``scoped_execute`` helper, no
    ``user_customer_access`` gate anywhere the EDM/RDM/job modules live
-   (services, routers, worker, poller, and the single Alembic revision). Every
+   (services, routers, worker, poller, and every Alembic revision). Every
    authenticated analyst sees every entity; ownership reaches a submission only
    through submission association tables. (Complements ``test_no_scope.py``, which
    guards the wider ``app/`` + ``db/`` trees; this adds the Alembic schema.)
@@ -26,7 +26,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _APP = _REPO_ROOT / "app"
 _POLLER = _APP / "poller"
 _GATEWAY = _APP / "services" / "irp_gateway.py"
-_MIGRATION = _REPO_ROOT / "alembic" / "versions" / "0001_initial.py"
+_MIGRATIONS = _REPO_ROOT / "alembic" / "versions"
 
 # Matches a real poll-to-completion identifier (e.g. ``poll_edm_import_to_completion``)
 # but NOT the doc form ``poll_*_to_completion`` the poller/gateway use in prose — the
@@ -75,8 +75,7 @@ def test_workers_never_poll_to_completion():
 def test_no_scope_construct_on_async_entities():
     """Article 6 / FR-041: no customer/scope construct on EDM/RDM/job sources."""
     paths = list(_APP.rglob("*.py"))
-    if _MIGRATION.exists():
-        paths.append(_MIGRATION)
+    paths.extend(_MIGRATIONS.glob("*.py"))
     offenders = []
     for path in paths:
         text = _strip_line_comments(path.read_text(encoding="utf-8"))

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuild the Workbench schema on RHEL9 from the checked-out Alembic revision.
+# Rebuild the Workbench schema on RHEL9 from the checked-out Alembic revisions.
 #
 # DESTRUCTIVE: every table and row in the configured Workbench database is
 # deleted. Stop the application before running the script. The rebuild creates
