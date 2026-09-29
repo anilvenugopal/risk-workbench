@@ -222,33 +222,43 @@ def _admin_context(request: Request) -> dict:
     }
 
 
-def _select_options(rows: list[dict], key: str, current_value: str | None) -> list[dict]:
-    """Live cache rows for a `<select>`, marking the stored/submitted value as
-    selected. If that value isn't among the live rows (FR-011 unresolved), a
-    synthetic option carries it through instead of silently swapping in
-    whatever option would otherwise render first — never a silent overwrite
-    on save."""
+def _select_options(
+    rows: list[dict], current_id: int | None, current_label: str | None,
+) -> list[dict]:
+    """Live cache rows for a `<select>`, marking the stored/submitted Risk
+    Modeler id as selected. If that id isn't among the live rows (FR-011
+    unresolved), a synthetic option carries it through under the stored
+    display name instead of silently swapping in whatever option would
+    otherwise render first — never a silent overwrite on save."""
     options = [dict(row) for row in rows]
-    if not current_value:
+    if current_id is None:
         return options
-    if any(option.get(key) == current_value for option in options):
+    if any(option.get("irp_id") == current_id for option in options):
         for option in options:
-            option["selected"] = option.get(key) == current_value
+            option["selected"] = option.get("irp_id") == current_id
         return options
     for option in options:
         option["selected"] = False
-    return [{key: current_value, "unresolved": True, "selected": True}] + options
+    synthetic = {
+        "irp_id": current_id,
+        "name": current_label or str(current_id),
+        "unresolved": True,
+        "selected": True,
+    }
+    return [synthetic] + options
 
 
-def _scheme_select_options(rows: list[dict], current_value: str | None) -> list[dict]:
+def _scheme_select_options(
+    rows: list[dict], current_id: int | None, current_label: str | None,
+) -> list[dict]:
     """_select_options for the event-rate-scheme select, reclassifying its
     synthetic stored-value option: the generic label says "not found in Risk
     Modeler", but a stored scheme can be absent from the live list while still
     cached — hidden by an admin (workbench_is_active = 0, FR-022) or belonging
     to another peril/region. Tag the hidden case; give the off-profile case its
     real peril/region so it renders like any resolved option."""
-    options = _select_options(rows, "name", current_value)
-    if not current_value:
+    options = _select_options(rows, current_id, current_label)
+    if current_id is None:
         # scheme_options() pre-selects a lone profile match for the cascade
         # fragment (FR-007). On the form itself the stored value governs, so a
         # template saved without a scheme renders without one instead of
@@ -258,11 +268,12 @@ def _scheme_select_options(rows: list[dict], current_value: str | None) -> list[
         return options
     if not options or not options[0].get("unresolved"):
         return options
-    cached = template_service.scheme_lookup(options[0]["name"])
+    cached = template_service.scheme_lookup(current_id)
     if cached is None:
         return options
     synthetic = options[0]
     del synthetic["unresolved"]
+    synthetic["name"] = cached["name"]
     if cached["workbench_is_active"]:
         synthetic["peril_code"] = cached["peril_code"]
         synthetic["model_region_code"] = cached["model_region_code"]
@@ -297,10 +308,11 @@ def _template_form_context(
         values["treat_construction_occupancy_as_unknown"] = True
     values.setdefault("min_loss_threshold", Decimal("1.00"))
     values.setdefault("num_max_loss_event", 1)
-    profile_name = values.get("analysis_profile_name") or ""
+    labels = template or {}
+    profile_id = values.get("model_profile_irp_id")
     reference = template_service.reference_options()
     event_scheme_rows = (
-        template_service.scheme_options(profile_name) if profile_name else []
+        template_service.scheme_options(profile_id) if profile_id is not None else []
     )
     return {
         "current_user": current_user,
@@ -310,11 +322,14 @@ def _template_form_context(
         "form": values,
         "errors": list(errors),
         "model_profile_options": _select_options(
-            reference["model_profiles"], "name", values.get("analysis_profile_name")),
+            reference["model_profiles"], profile_id,
+            labels.get("analysis_profile_name")),
         "event_rate_scheme_options": _scheme_select_options(
-            event_scheme_rows, values.get("event_rate_scheme_name")),
+            event_scheme_rows, values.get("event_rate_scheme_irp_id"),
+            labels.get("event_rate_scheme_name")),
         "output_profile_options": _select_options(
-            reference["output_profiles"], "name", values.get("output_profile_name")),
+            reference["output_profiles"], values.get("output_profile_irp_id"),
+            labels.get("output_profile_name")),
         "tag_names": template_service.list_tag_names(),
     }
 
@@ -335,9 +350,9 @@ def _parse_template_values(form: dict) -> tuple[TemplateValues | None, list[str]
         return None, errors
     values = TemplateValues(
         name=form["name"],
-        analysis_profile_name=form["analysis_profile_name"],
-        output_profile_name=form["output_profile_name"],
-        event_rate_scheme_name=form["event_rate_scheme_name"] or None,
+        model_profile_irp_id=form["model_profile_irp_id"],
+        output_profile_irp_id=form["output_profile_irp_id"],
+        event_rate_scheme_irp_id=form["event_rate_scheme_irp_id"],
         min_loss_threshold=threshold,
         num_max_loss_event=max_events,
         franchise_deductible=form["franchise_deductible"],
@@ -474,15 +489,15 @@ def new_template_form(request: Request):
 @router.get("/templates/analysis-templates/scheme-options", response_class=HTMLResponse)
 def scheme_options_fragment(request: Request):
     profile = (request.query_params.get("profile") or "").strip()
-    options = template_service.scheme_options(profile) if profile else []
+    options = template_service.scheme_options(int(profile)) if profile.isdigit() else []
     return _page(request, "partials/scheme_options.html", {"options": options})
 
 
 def _template_form(
     name: Annotated[str, Form()] = "",
-    analysis_profile_name: Annotated[str, Form()] = "",
-    event_rate_scheme_name: Annotated[str, Form()] = "",
-    output_profile_name: Annotated[str, Form()] = "",
+    model_profile_irp_id: Annotated[int | None, Form()] = None,
+    event_rate_scheme_irp_id: Annotated[int | None, Form()] = None,
+    output_profile_irp_id: Annotated[int | None, Form()] = None,
     min_loss_threshold: Annotated[str, Form()] = "1.00",
     num_max_loss_event: Annotated[str, Form()] = "1",
     franchise_deductible: Annotated[str | None, Form()] = None,
@@ -491,9 +506,9 @@ def _template_form(
 ) -> dict:
     return {
         "name": name,
-        "analysis_profile_name": analysis_profile_name,
-        "event_rate_scheme_name": event_rate_scheme_name or None,
-        "output_profile_name": output_profile_name,
+        "model_profile_irp_id": model_profile_irp_id,
+        "event_rate_scheme_irp_id": event_rate_scheme_irp_id,
+        "output_profile_irp_id": output_profile_irp_id,
         "min_loss_threshold": min_loss_threshold,
         "num_max_loss_event": num_max_loss_event,
         "franchise_deductible": franchise_deductible == "on",
@@ -571,8 +586,9 @@ def update_template_route(
             return RedirectResponse("/templates?tab=templates", status_code=303)
 
     context = _template_form_context(
-        request, mode="edit", template={"id": template_id, **form}, form=form,
-        errors=errors)
+        request, mode="edit",
+        template=template_service.get_template(template_id) or {"id": template_id},
+        form=form, errors=errors)
     return _page(request, "pages/analysis_template_form.html", context)
 
 

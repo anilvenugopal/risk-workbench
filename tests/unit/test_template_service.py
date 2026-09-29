@@ -18,9 +18,9 @@ from app.workers import metadata_jobs
 def _values(**changes) -> TemplateValues:
     values = {
         "name": "US Wind DLM",
-        "analysis_profile_name": "RMS Default RL25",
-        "output_profile_name": "RMS Default Output",
-        "event_rate_scheme_name": "RMS WS",
+        "model_profile_irp_id": 1,
+        "output_profile_irp_id": 10,
+        "event_rate_scheme_irp_id": 20,
         "min_loss_threshold": Decimal("1.00"),
         "num_max_loss_event": 1,
         "franchise_deductible": False,
@@ -35,7 +35,7 @@ def test_dlm_requires_event_rate_scheme(iteration2_db, fake_irp):
 
     with pytest.raises(TemplateValidationError) as exc:
         template_service.save_template(
-            _values(event_rate_scheme_name=None), actor_id=iteration2_db.user_a
+            _values(event_rate_scheme_irp_id=None), actor_id=iteration2_db.user_a
         )
 
     assert "Event rate scheme is required for DLM analyses" in exc.value.errors
@@ -55,15 +55,15 @@ def test_hd_and_accumulation_can_save_without_scheme(iteration2_db, fake_irp):
     hd_id = template_service.save_template(
         _values(
             name="US Wind HD",
-            analysis_profile_name="RMS Default HD",
-            event_rate_scheme_name=None,
+            model_profile_irp_id=2,
+            event_rate_scheme_irp_id=None,
         )
     )
     accumulation_id = template_service.save_template(
         _values(
             name="Global Accumulation",
-            analysis_profile_name="Global Accumulation",
-            event_rate_scheme_name=None,
+            model_profile_irp_id=99,
+            event_rate_scheme_irp_id=None,
         )
     )
 
@@ -76,7 +76,7 @@ def test_hd_can_save_with_matching_scheme(iteration2_db, fake_irp):
 
     template_id = template_service.save_template(_values(
         name="US Wind HD with scheme",
-        analysis_profile_name="RMS Default HD",
+        model_profile_irp_id=2,
     ))
 
     assert template_service.get_template(template_id)["event_rate_scheme_name"] == "RMS WS"
@@ -97,29 +97,68 @@ def test_mismatched_scheme_is_rejected_when_both_cache_rows_resolve(
         """)
 
     with pytest.raises(TemplateValidationError) as exc:
-        template_service.save_template(_values(event_rate_scheme_name="RMS EQ"))
+        template_service.save_template(_values(event_rate_scheme_irp_id=21))
 
     assert any("does not match model profile peril/region" in error
                for error in exc.value.errors)
 
 
-def test_pairing_check_skips_when_scheme_or_profile_is_absent(
-    iteration2_db, fake_irp,
-):
+def test_ids_absent_from_the_cache_are_rejected(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
-    absent_scheme_id = template_service.save_template(_values(
-        name="Unresolved Scheme",
-        event_rate_scheme_name="Removed Scheme",
-    ))
-    absent_profile_id = template_service.save_template(_values(
-        name="Unresolved Profile",
-        analysis_profile_name="Removed Profile",
-        event_rate_scheme_name=None,
+    with pytest.raises(TemplateValidationError) as absent_scheme:
+        template_service.save_template(_values(event_rate_scheme_irp_id=999))
+    with pytest.raises(TemplateValidationError) as absent_profile:
+        template_service.save_template(_values(
+            model_profile_irp_id=999, event_rate_scheme_irp_id=None,
+        ))
+
+    assert absent_scheme.value.errors == (
+        "Event rate scheme not found in Risk Modeler",)
+    assert absent_profile.value.errors == (
+        "Model profile not found in Risk Modeler",)
+    assert template_service.list_templates() == []
+
+
+def test_save_stores_display_names_and_analysis_type(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+
+    dlm_id = template_service.save_template(_values())
+    hd_id = template_service.save_template(_values(
+        name="US Wind HD", model_profile_irp_id=2, event_rate_scheme_irp_id=None,
     ))
 
-    assert template_service.get_template(absent_scheme_id)["unresolved"] is True
-    assert template_service.get_template(absent_profile_id)["unresolved"] is True
+    dlm = template_service.get_template(dlm_id)
+    assert dlm["analysis_profile_name"] == "RMS Default RL25"
+    assert dlm["output_profile_name"] == "RMS Default Output"
+    assert dlm["event_rate_scheme_name"] == "RMS WS"
+    assert dlm["analysis_type"] == "DLM"
+    hd = template_service.get_template(hd_id)
+    assert hd["analysis_profile_name"] == "RMS Default HD"
+    assert hd["event_rate_scheme_name"] is None
+    assert hd["analysis_type"] == "HD"
+
+
+def test_duplicate_scheme_names_resolve_to_one_row(iteration2_db, fake_irp):
+    """Issue 68: Risk Modeler reuses event rate scheme names across
+    peril/region. Joining by irp_id keeps one template to one row."""
+    metadata_jobs._sync_irp_metadata_body()
+    with iteration2_db.engine.begin() as conn:
+        conn.exec_driver_sql("""
+            INSERT INTO irp_event_rate_scheme
+                (id, irp_id, name, peril_code, model_region_code, is_hd,
+                 inserted_at, updated_at)
+            VALUES
+                ('eq-ws', 21, 'RMS WS', 'EQ', 'NAEQ', 0,
+                 '2026-08-18', '2026-08-18')
+        """)
+
+    template_id = template_service.save_template(_values())
+    template_service.save_suite("US", [template_id])
+
+    templates = template_service.list_templates()
+    assert [(t["id"], t["unresolved"]) for t in templates] == [(template_id, False)]
+    assert template_service.list_suites()[0]["item_count"] == 1
 
 
 def test_live_template_and_suite_names_are_unique(iteration2_db, fake_irp):
@@ -170,8 +209,8 @@ def test_unresolved_flag_tracks_cache_removal_and_return(iteration2_db, fake_irp
 
 def test_scheme_prefill_requires_exactly_one_match(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
-    one = template_service.scheme_options("RMS Default RL25")
-    zero = template_service.scheme_options("Open profile")
+    one = template_service.scheme_options(1)
+    zero = template_service.scheme_options(3)
 
     assert [(row["name"], row["selected"]) for row in one] == [("RMS WS", True)]
     assert zero == []
@@ -185,7 +224,7 @@ def test_scheme_prefill_requires_exactly_one_match(iteration2_db, fake_irp):
                 ('second-ws', 22, 'RMS WS Alternate', 'WS', 'NAWS', 0,
                  '2026-08-18', '2026-08-18')
         """)
-    multiple = template_service.scheme_options("RMS Default RL25")
+    multiple = template_service.scheme_options(1)
     assert len(multiple) == 2
     assert not any(row["selected"] for row in multiple)
 
@@ -195,7 +234,7 @@ def test_scheme_prefill_skips_non_dlm_profiles(iteration2_db, fake_irp):
     an HD profile — it offers the same options with nothing chosen."""
     metadata_jobs._sync_irp_metadata_body()
 
-    options = template_service.scheme_options("RMS Default HD")
+    options = template_service.scheme_options(2)
 
     assert [row["name"] for row in options] == ["RMS WS"]
     assert not any(row["selected"] for row in options)
@@ -214,17 +253,17 @@ def test_scheme_options_exclude_workbench_inactive_schemes(
                 ('second-ws', 22, 'RMS WS Alternate', 'WS', 'NAWS', 0,
                  '2026-08-18', '2026-08-18')
         """)
-    assert len(template_service.scheme_options("RMS Default RL25")) == 2
+    assert len(template_service.scheme_options(1)) == 2
 
     template_service.set_scheme_visibility(22, False)
 
     # Hiding one leaves a single active match, so the auto-prefill applies.
-    options = template_service.scheme_options("RMS Default RL25")
+    options = template_service.scheme_options(1)
     assert [(row["name"], row["selected"]) for row in options] == [
         ("RMS WS", True)]
 
     template_service.set_scheme_visibility(22, True)
-    assert len(template_service.scheme_options("RMS Default RL25")) == 2
+    assert len(template_service.scheme_options(1)) == 2
 
 
 def test_set_scheme_visibility_rejects_unknown_scheme(iteration2_db, fake_irp):
@@ -252,8 +291,8 @@ def test_suite_items_are_unordered_and_display_sorts_by_template_name(
     first = template_service.save_template(_values(name="Zebra Template"))
     second = template_service.save_template(_values(
         name="Alpha Template",
-        analysis_profile_name="RMS Default HD",
-        event_rate_scheme_name=None,
+        model_profile_irp_id=2,
+        event_rate_scheme_irp_id=None,
     ))
     suite_id = template_service.save_suite("US", [first, second])
 
@@ -306,6 +345,10 @@ def test_duplicate_template_copies_fields_and_tags(iteration2_db, fake_irp):
     assert copy["analysis_profile_name"] == original["analysis_profile_name"]
     assert copy["output_profile_name"] == original["output_profile_name"]
     assert copy["event_rate_scheme_name"] == original["event_rate_scheme_name"]
+    assert copy["model_profile_irp_id"] == 1
+    assert copy["output_profile_irp_id"] == 10
+    assert copy["event_rate_scheme_irp_id"] == 20
+    assert copy["analysis_type"] == "DLM"
     assert copy["tags"] == ["US", "Wind"]
 
 

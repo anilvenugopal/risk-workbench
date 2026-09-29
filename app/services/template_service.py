@@ -20,9 +20,9 @@ from db import is_unique_violation
 @dataclass(frozen=True)
 class TemplateValues:
     name: str
-    analysis_profile_name: str
-    output_profile_name: str
-    event_rate_scheme_name: str | None
+    model_profile_irp_id: int | None
+    output_profile_irp_id: int | None
+    event_rate_scheme_irp_id: int | None
     min_loss_threshold: Decimal = Decimal("1.00")
     num_max_loss_event: int = 1
     franchise_deductible: bool = False
@@ -47,17 +47,12 @@ class TemplateInUseError(TemplateServiceError):
         )
 
 
-def _clean_optional(value: str | None) -> str | None:
-    cleaned = value.strip() if isinstance(value, str) else value
-    return cleaned or None
-
-
 def _template_params(values: TemplateValues) -> dict:
     return {
         "name": values.name.strip(),
-        "profile": values.analysis_profile_name.strip(),
-        "output": values.output_profile_name.strip(),
-        "scheme": _clean_optional(values.event_rate_scheme_name),
+        "profile_id": values.model_profile_irp_id,
+        "output_id": values.output_profile_irp_id,
+        "scheme_id": values.event_rate_scheme_irp_id,
         "threshold": str(
             Decimal(values.min_loss_threshold).quantize(Decimal("0.01"))
         ),
@@ -76,16 +71,16 @@ def _rows(conn, sql: str, params: dict | None = None) -> list[dict]:
     return [dict(row) for row in conn.execute(text(sql), params or {}).mappings()]
 
 
-def _profile(conn, name: str) -> dict | None:
+def _profile(conn, irp_id: int) -> dict | None:
     return _row(
         conn,
         """
         SELECT name, is_accumulation, software_version_code, peril_code,
                model_region_code
         FROM irp_model_profile
-        WHERE name = :name
+        WHERE irp_id = :irp_id
         """,
-        {"name": name},
+        {"irp_id": irp_id},
     )
 
 
@@ -102,48 +97,69 @@ def profile_family(
     return analysis_type_for_software_version(software_version_code)
 
 
-def _validate_profile_scheme_pairing(conn, params: dict) -> list[str]:
-    profile = _profile(conn, params["profile"]) if params["profile"] else None
-    if profile is None or profile["is_accumulation"]:
-        return []
-    version = profile["software_version_code"]
-    if version is None:
-        return []
-
-    scheme = None
-    if params["scheme"]:
-        scheme = _row(
+def _reference_rows(conn, params: dict) -> tuple[dict, list[str]]:
+    """Resolve the posted Risk Modeler ids against the cache tables. A hidden
+    scheme (workbench_is_active = 0) still resolves; only an id absent from
+    the cache is an error."""
+    rows = {"profile": None, "output": None, "scheme": None}
+    errors = []
+    if params["profile_id"] is not None:
+        rows["profile"] = _profile(conn, params["profile_id"])
+        if rows["profile"] is None:
+            errors.append("Model profile not found in Risk Modeler")
+    if params["output_id"] is not None:
+        rows["output"] = _row(
+            conn,
+            "SELECT name FROM irp_output_profile WHERE irp_id = :irp_id",
+            {"irp_id": params["output_id"]},
+        )
+        if rows["output"] is None:
+            errors.append("Output profile not found in Risk Modeler")
+    if params["scheme_id"] is not None:
+        rows["scheme"] = _row(
             conn,
             """
-            SELECT peril_code, model_region_code
+            SELECT name, peril_code, model_region_code
             FROM irp_event_rate_scheme
-            WHERE name = :name
+            WHERE irp_id = :irp_id
             """,
-            {"name": params["scheme"]},
+            {"irp_id": params["scheme_id"]},
         )
-    error = validate_event_rate_scheme_settings(
-        software_version_code=version,
-        scheme_provided=bool(params["scheme"]),
+        if rows["scheme"] is None:
+            errors.append("Event rate scheme not found in Risk Modeler")
+    return rows, errors
+
+
+def _pairing_error(profile: dict, scheme: dict | None) -> str | None:
+    if profile["is_accumulation"] or profile["software_version_code"] is None:
+        return None
+    return validate_event_rate_scheme_settings(
+        software_version_code=profile["software_version_code"],
+        scheme_provided=scheme is not None,
         profile_peril_code=profile["peril_code"],
         profile_model_region_code=profile["model_region_code"],
         scheme_peril_code=scheme["peril_code"] if scheme else None,
         scheme_model_region_code=scheme["model_region_code"] if scheme else None,
     )
-    return [error] if error else []
 
 
-def _validate_template(conn, params: dict) -> list[str]:
+def _validate_template(conn, params: dict) -> tuple[dict, list[str]]:
     errors = []
     for label, key in (
         ("Template name", "name"),
-        ("Model profile", "profile"),
-        ("Output profile", "output"),
+        ("Model profile", "profile_id"),
+        ("Output profile", "output_id"),
     ):
-        if not params[key]:
+        if params[key] in (None, ""):
             errors.append(f"{label} is required")
 
-    errors.extend(_validate_profile_scheme_pairing(conn, params))
-    return errors
+    rows, missing = _reference_rows(conn, params)
+    errors.extend(missing)
+    if not errors:
+        error = _pairing_error(rows["profile"], rows["scheme"])
+        if error:
+            errors.append(error)
+    return rows, errors
 
 
 def _replace_tags(conn, template_id: str, tags: Iterable[str], actor_id: str | None) -> None:
@@ -201,9 +217,19 @@ def save_template(
 ) -> str:
     params = _template_params(values)
     with _txn(conn) as working:
-        errors = _validate_template(working, params)
+        rows, errors = _validate_template(working, params)
         if errors:
             raise TemplateValidationError(errors)
+        profile, scheme = rows["profile"], rows["scheme"]
+        family = profile_family(
+            profile["is_accumulation"], profile["software_version_code"]
+        )
+        params.update({
+            "profile_name": profile["name"],
+            "output_name": rows["output"]["name"],
+            "scheme_name": scheme["name"] if scheme else None,
+            "analysis_type": family if family in ("DLM", "HD") else None,
+        })
 
         if _live_name_exists(
             working, "analysis_template", params["name"], exclude_id=template_id,
@@ -226,12 +252,15 @@ def save_template(
                     working.execute(text("""
                         INSERT INTO analysis_template
                           (id, name, analysis_profile_name, output_profile_name,
-                           event_rate_scheme_name, min_loss_threshold,
+                           event_rate_scheme_name, model_profile_irp_id,
+                           output_profile_irp_id, event_rate_scheme_irp_id,
+                           analysis_type, min_loss_threshold,
                            num_max_loss_event, franchise_deductible,
                            treat_construction_occupancy_as_unknown,
                            inserted_at, updated_at, inserted_by, updated_by)
                         VALUES
-                          (:id, :name, :profile, :output, :scheme,
+                          (:id, :name, :profile_name, :output_name, :scheme_name,
+                           :profile_id, :output_id, :scheme_id, :analysis_type,
                            :threshold, :max_events, :franchise, :occupancy,
                            :now, :now, :actor, :actor)
                     """), write_params)
@@ -239,9 +268,13 @@ def save_template(
                     result = working.execute(text("""
                         UPDATE analysis_template
                         SET name = :name,
-                            analysis_profile_name = :profile,
-                            output_profile_name = :output,
-                            event_rate_scheme_name = :scheme,
+                            analysis_profile_name = :profile_name,
+                            output_profile_name = :output_name,
+                            event_rate_scheme_name = :scheme_name,
+                            model_profile_irp_id = :profile_id,
+                            output_profile_irp_id = :output_id,
+                            event_rate_scheme_irp_id = :scheme_id,
+                            analysis_type = :analysis_type,
                             min_loss_threshold = :threshold,
                             num_max_loss_event = :max_events,
                             franchise_deductible = :franchise,
@@ -272,9 +305,9 @@ _TEMPLATE_SELECT = """
            ers.id AS event_rate_scheme_id
     FROM analysis_template t
     LEFT JOIN app_user u ON u.id = t.inserted_by
-    LEFT JOIN irp_model_profile mp ON mp.name = t.analysis_profile_name
-    LEFT JOIN irp_output_profile op ON op.name = t.output_profile_name
-    LEFT JOIN irp_event_rate_scheme ers ON ers.name = t.event_rate_scheme_name
+    LEFT JOIN irp_model_profile mp ON mp.irp_id = t.model_profile_irp_id
+    LEFT JOIN irp_output_profile op ON op.irp_id = t.output_profile_irp_id
+    LEFT JOIN irp_event_rate_scheme ers ON ers.irp_id = t.event_rate_scheme_irp_id
 """
 
 
@@ -284,7 +317,7 @@ def _decorate_template(row: dict, tags: Iterable[str] = ()) -> dict:
     row["model_profile_unresolved"] = row["model_profile_id"] is None
     row["output_profile_unresolved"] = row["output_profile_id"] is None
     row["event_rate_scheme_unresolved"] = (
-        bool(row["event_rate_scheme_name"])
+        row["event_rate_scheme_irp_id"] is not None
         and row["event_rate_scheme_id"] is None
     )
     row["unresolved"] = any((
@@ -416,9 +449,9 @@ def duplicate_template(
 
         values = TemplateValues(
             name=_duplicate_name(_name_taken, row["name"]),
-            analysis_profile_name=row["analysis_profile_name"],
-            output_profile_name=row["output_profile_name"],
-            event_rate_scheme_name=row["event_rate_scheme_name"],
+            model_profile_irp_id=row["model_profile_irp_id"],
+            output_profile_irp_id=row["output_profile_irp_id"],
+            event_rate_scheme_irp_id=row["event_rate_scheme_irp_id"],
             min_loss_threshold=Decimal(str(row["min_loss_threshold"])),
             num_max_loss_event=int(row["num_max_loss_event"]),
             franchise_deductible=bool(row["franchise_deductible"]),
@@ -530,12 +563,12 @@ _SUITE_ITEM_SELECT = """
            t.name AS template_name, t.deleted_at AS template_deleted_at,
            mp.id AS model_profile_id, op.id AS output_profile_id,
            ers.id AS event_rate_scheme_id,
-           t.event_rate_scheme_name
+           t.event_rate_scheme_irp_id
     FROM template_suite_item i
     LEFT JOIN analysis_template t ON t.id = i.template_id
-    LEFT JOIN irp_model_profile mp ON mp.name = t.analysis_profile_name
-    LEFT JOIN irp_output_profile op ON op.name = t.output_profile_name
-    LEFT JOIN irp_event_rate_scheme ers ON ers.name = t.event_rate_scheme_name
+    LEFT JOIN irp_model_profile mp ON mp.irp_id = t.model_profile_irp_id
+    LEFT JOIN irp_output_profile op ON op.irp_id = t.output_profile_irp_id
+    LEFT JOIN irp_event_rate_scheme ers ON ers.irp_id = t.event_rate_scheme_irp_id
 """
 
 
@@ -549,7 +582,7 @@ def _decorate_suite_item(item: dict) -> dict:
         or item["model_profile_id"] is None
         or item["output_profile_id"] is None
         or (
-            bool(item["event_rate_scheme_name"])
+            item["event_rate_scheme_irp_id"] is not None
             and item["event_rate_scheme_id"] is None
         )
     )
@@ -644,9 +677,9 @@ def duplicate_suite(
         return save_suite(new_name, template_ids, actor_id=actor_id, conn=working)
 
 
-def scheme_options(profile_name: str, *, conn=None) -> list[dict]:
+def scheme_options(profile_irp_id: int, *, conn=None) -> list[dict]:
     with _txn(conn) as working:
-        profile = _profile(working, profile_name)
+        profile = _profile(working, profile_irp_id)
         if (
             profile is None
             or profile["peril_code"] is None
@@ -654,7 +687,8 @@ def scheme_options(profile_name: str, *, conn=None) -> list[dict]:
         ):
             return []
         options = _rows(working, """
-            SELECT name, peril_code, model_region_code, model_version_code, is_hd
+            SELECT irp_id, name, peril_code, model_region_code,
+                   model_version_code, is_hd
             FROM irp_event_rate_scheme
             WHERE peril_code = :peril AND model_region_code = :region
               AND workbench_is_active = 1
@@ -674,16 +708,16 @@ def scheme_options(profile_name: str, *, conn=None) -> list[dict]:
         return options
 
 
-def scheme_lookup(name: str, *, conn=None) -> dict | None:
-    """The cached event-rate-scheme row for a stored name, active or not —
+def scheme_lookup(irp_id: int, *, conn=None) -> dict | None:
+    """The cached event-rate-scheme row for a stored id, active or not —
     lets the builder tell an admin-hidden scheme apart from one missing from
     the cache (`scheme_options` filters to active, profile-matched rows)."""
     with _txn(conn) as working:
         return _row(working, """
             SELECT name, peril_code, model_region_code, workbench_is_active
             FROM irp_event_rate_scheme
-            WHERE name = :name
-        """, {"name": name})
+            WHERE irp_id = :irp_id
+        """, {"irp_id": irp_id})
 
 
 def set_scheme_visibility(irp_id: int, is_active: bool, *, conn=None) -> None:
@@ -702,7 +736,7 @@ def set_scheme_visibility(irp_id: int, is_active: bool, *, conn=None) -> None:
 def reference_options(*, conn=None) -> dict[str, list[dict]]:
     with _txn(conn) as working:
         profiles = _rows(working, """
-            SELECT name, is_accumulation, software_version_code,
+            SELECT irp_id, name, is_accumulation, software_version_code,
                    peril_code, model_region_code
             FROM irp_model_profile ORDER BY name
         """)
@@ -713,7 +747,7 @@ def reference_options(*, conn=None) -> dict[str, list[dict]]:
         return {
             "model_profiles": profiles,
             "output_profiles": _rows(
-                working, "SELECT name FROM irp_output_profile ORDER BY name"
+                working, "SELECT irp_id, name FROM irp_output_profile ORDER BY name"
             ),
         }
 
