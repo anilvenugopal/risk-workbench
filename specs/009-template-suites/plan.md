@@ -101,6 +101,7 @@ the currency metadata tabs or any remaining task.
 | T-08 | Suites are unordered (spec P-08): `template_suite_item` drops `position` and `portfolio_name_override`; display order is normalized by name. `analysis_template.treaty_name_pattern` is dropped with it (spec P-09). | Approved 2026-08-18 |
 | T-10 | Currency comes off `analysis_template` (spec P-11, design note 17 D4 — replaces T-09, whose required-NOT-NULL design is recorded in research.md R13): drop `currency_code`, `currency_scheme_code`, and `currency_vintage` from the migration and schema mirror; delete `_validate_currency`, `vintage_options()`, and the currency unresolved flags from `template_service`; remove the `vintage-options` route/partial and the builder's three currency selects; flip the sqlserver NOT-NULL assertions to absence assertions and drop the currency cases from the unit tests. The cache tables, gateway reads, sync worker, and metadata tabs are untouched. | Approved 2026-08-20 |
 | T-11 | Duplicate-and-edit (spec P-12/FR-021): `duplicate_template(id)` and `duplicate_suite(id)` in `template_service` copy the row plus its tag/membership rows in one transaction, compute `<name> (copy)` / `<name> (copy N)` against live names (base truncated to fit NVARCHAR(200); the filtered-unique index still guards the race), and return the new id; `POST /templates/analysis-templates/{id}/duplicate` and `POST /templates/suites/{id}/duplicate` (`_require_admin`, CSRF) redirect to the copy's detail/edit page; Duplicate button on both detail pages. No schema change. | Approved 2026-08-20 |
+| T-12 | Templates reference model profile, output profile and event rate scheme by Risk Modeler id (issue 68): `analysis_template` gains `model_profile_irp_id`, `output_profile_irp_id`, `event_rate_scheme_irp_id` and `analysis_type` (revision 0002); the builder posts ids; save resolves each id against its cache table, copies the name into the `*_name` column as a display label, rejects an id absent from the cache ("… not found in Risk Modeler"), and sets `analysis_type` from the cached profile's `software_version_code`; the unresolved joins (R9) and the analysis submit (`submit_portfolio_analysis_job` id parameters, irp-integration 0.11.0rc1) use the ids. Constitution Article 2 amended (4.3.0). | Approved 2026-09-29 |
 **Constitution check** (v3.1.0) — no violations; the articles that shaped the design:
 
 - **Article 11**: `reference_data.get_*` calls are reads, not job polling, but they run
@@ -108,9 +109,10 @@ the currency metadata tabs or any remaining task.
   + dispatch is the only request-path action. (The EDM-sync precedent's inline-read latitude was
   considered and not needed — R5.) The T-06 validation utility is pure (no I/O), so importing it
   from `template_service` on the request path touches no IRP interface Article 11 governs.
-- **Article 2**: templates store profile/scheme **names** (and no currency values, P-11),
-  resolved live by Risk Modeler at submit time (Iteration 7); the cache exists for pick lists and
-  validation, never as a typed handle registry.
+- **Article 2**: templates store the Risk Modeler **ids** of the model profile, output profile
+  and event rate scheme (T-12; no currency values, P-11) and the submit passes those ids; the
+  names beside them are display labels. The cache exists for pick lists, save-time resolution
+  and validation, never as a typed handle registry.
 - **Article 3**: the two new boolean settings are API parameters, not categoricals — no kind
   tables; the DLM/HD half of the marker is derived, never stored, and `is_accumulation` records
   which endpoint returned the row (a source fact, not an app-defined category). The one new

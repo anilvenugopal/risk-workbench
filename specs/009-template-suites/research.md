@@ -131,9 +131,24 @@ DATA_MODEL §7's `irp_tag_id`; no `irp_tag` cache table in this iteration.
 
 ## R9 — Unresolved references are derived, never stored
 
-FR-011's "flagged unresolved" is a read-time LEFT JOIN from the template's saved names to
-the live cache rows — no flag column. A re-sync that removes a profile makes the flag appear; a
-later sync that restores it makes the flag disappear, with no write to the template.
+FR-011's "flagged unresolved" is a read-time LEFT JOIN from the template's saved
+`model_profile_irp_id` / `output_profile_irp_id` / `event_rate_scheme_irp_id` to the live cache
+rows' `irp_id` — no flag column. A re-sync that removes a profile makes the flag appear; a later
+sync that restores it makes the flag disappear, with no write to the template.
+
+The join key was the name until issue 68. Risk Modeler reuses event rate scheme names across
+peril/region, so the name join multiplied rows (one template listed three times on 2026-09-28) and
+the save-time pairing check read an arbitrary scheme row. The issue first proposed keeping the
+name as the key: read every cached row for the name, test whether one matches the profile's
+peril/region, and replace the two LEFT JOINs with scalar counts compared to zero. Rejected
+2026-09-29: the live query found 7 scheme names repeating across peril/region, so that fix
+qualifies a key that was never unique, and Article 2's reason for name coupling ("Risk Modeler
+re-validates names to internal IDs") does not hold for reference data — the wheel resolved the
+names to `modelProfileId` / `outputProfileId` / `eventRateSchemeId` itself. Storing the ids and
+submitting by id (irp-integration 0.11.0rc1) removes the lookup. Accepted risk: a scheme retired
+in Risk Modeler after the last metadata sync reaches submit as a stale id and fails with Risk
+Modeler's error instead of the wheel's "not found" message; the poller records a submission
+failure and retries.
 
 ## R10 — Starter suites (T-05) — deferred out of MVP
 
