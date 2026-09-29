@@ -83,8 +83,17 @@ ENTITY_TABLE_SORT_STARTS_DESCENDING = {
 
 # ── Result / row DTOs (contracts/data-access.md) ─────────────────────────────
 
+class _ClientDisplay:
+    """``"27 - Travelers Corporate Cat"``, or ``"27 (name unavailable)"``, from
+    a row's ``client_id`` and ``client_name`` (``client_service.display``)."""
+
+    @property
+    def client_display(self) -> str | None:
+        return client_service.display(self.client_id, self.client_name)
+
+
 @dataclass
-class SubmissionRow:
+class SubmissionRow(_ClientDisplay):
     """One master-list / look-alike row. The contract summary (``crm_ids``,
     ``treaty_type_labels``, ``inception_date``) is filled for the master list
     only (see ``_attach_contracts``); every other reader leaves it empty."""
@@ -103,10 +112,6 @@ class SubmissionRow:
     crm_ids: list[str] = field(default_factory=list)
     treaty_type_labels: list[str] = field(default_factory=list)
     inception_date: Any = None
-
-    @property
-    def client_display(self) -> str | None:
-        return client_service.display(self.client_id, self.client_name)
 
 
 @dataclass
@@ -169,7 +174,7 @@ class ContractInvalid(ValueError):
 
 
 @dataclass
-class Submission:
+class Submission(_ClientDisplay):
     """Full detail view of a deal (cached Modeling status included). Treaty type,
     the term and the deal status live on ``contracts``."""
     id: str
@@ -188,10 +193,6 @@ class Submission:
     data_vintage: Any = None
     client_name: str | None = None
     contracts: list[Contract] = field(default_factory=list)
-
-    @property
-    def client_display(self) -> str | None:
-        return client_service.display(self.client_id, self.client_name)
 
 
 @dataclass
