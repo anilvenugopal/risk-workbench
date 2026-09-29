@@ -1,8 +1,3 @@
-<!-- SPECKIT START -->
-When present, read `specs/017-submission-data-and-search/plan.md` for the current
-technology, project structure, and shell-command decisions.
-<!-- SPECKIT END -->
-
 # Risk Analysis Workbench — Agent Context
 
 This is the single source of truth for coding-agent instructions in this repo.
@@ -206,10 +201,16 @@ make db-migrate                                              # alembic upgrade h
 
 - Write `upgrade()` and `downgrade()` by hand with `op.*`. `alembic/env.py` has no
   model metadata, so `--autogenerate` is not available.
+- The id is the next unused four-digit number. Before merging, run
+  `uv run alembic heads`; if another merged branch took the same id, renumber the
+  revision and point its `down_revision` at the current head. `main` always has
+  exactly one head, or `alembic upgrade head` fails with "Multiple head revisions".
 - Kind-table rows a change needs go in the same revision as the table or column
   that references them.
-- When a revision changes a table mirrored in `tests/iteration1_mirror.py`, update
-  the mirror in the same commit; `tests/sqlserver/test_schema_drift.py` fails otherwise.
+- When a revision changes a table mirrored in `tests/iteration1_mirror.py` or adds a
+  kind-table row, update the mirror in the same commit. The mirror's `*_SEED` lists
+  hold the kind rows the unit tier seeds. `tests/sqlserver/test_schema_drift.py`
+  catches a missing column, not a missing seed row.
 - `make db-rebuild` drops the three app databases and replays every revision. Use
   it only on a dev database whose data is disposable. It never replaces writing the
   revision.

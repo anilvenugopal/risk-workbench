@@ -92,6 +92,9 @@ Four steps, always in this order:
    database, new or existing. Do not edit `0001_initial.py`.
    `infra/scripts/seed_db.py` still carries the kind rows that predate the
    revision freeze as an idempotent `MERGE`; it does not need the new row.
+   Add the same `(code, label, sort_order)` row to `RWB_JOB_TYPE_SEED` in
+   `tests/iteration1_mirror.py`, which seeds the unit tier's SQLite
+   `rwb_job_type_kind`; no drift test compares seed rows.
 
 4. **Call `enqueue_rwb_job`** (or `ensure_pending_rwb_job` for a
    request-path retry) from wherever the job should be triggered, with
@@ -100,8 +103,8 @@ Four steps, always in this order:
 Nothing else needs to change. `app/workers/loader.py`'s `discover_jobs()`
 walks every `app/workers/*_jobs.py` module and imports it, which is what
 registers the actor with Dramatiq — no manifest, no registry, no list to
-update by hand for discovery itself (only the kind-table revision in step 3
-is a real, unavoidable second place).
+update by hand for discovery itself. The kind-table revision and the mirror
+seed row in step 3 are the only other places a new job type appears.
 
 ## Discovery: how a new `*_jobs.py` file gets picked up
 

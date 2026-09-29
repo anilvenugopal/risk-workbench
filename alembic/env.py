@@ -24,10 +24,6 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Target metadata: import all models here so Alembic sees them.
-# Uncomment as models are created in Iteration 0+.
-# from app.models import Base  # noqa: F401
-# target_metadata = Base.metadata
 target_metadata = None
 
 
