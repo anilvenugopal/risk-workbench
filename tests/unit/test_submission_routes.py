@@ -2098,15 +2098,23 @@ def test_statuses_post_saves_modeling_status_and_returns_the_head_fragment(clien
     assert '<span id="submission-actions" hx-swap-oob="true"></span>' in response.text
 
 
-def test_statuses_post_resubmitting_the_same_modeling_status_adds_no_event(client):
+def test_statuses_post_resubmitting_the_same_modeling_status_records_an_event(client):
     sid, marker = _deal(client, name="Unchanged modeling")
     response = client.post(
         f"/submissions/{sid}/status", headers=_HX,
-        data={"modeling_status": "ACTIVE", "reason": "", "updated_at": marker,
+        data={"modeling_status": "ACTIVE", "reason": "Re-confirmed", "updated_at": marker,
               "csrf_token": _csrf()})
     assert response.status_code == 200
     assert "HX-Trigger" not in response.headers
-    assert len(submission_service.get_status_history(sid)) == 1
+    history = submission_service.get_status_history(sid)
+    assert [e.status_code for e in history] == ["ACTIVE", "ACTIVE"]
+    assert history[0].reason == "Re-confirmed"
+
+    stale = client.post(
+        f"/submissions/{sid}/status", headers=_HX,
+        data={"modeling_status": "ACTIVE", "updated_at": marker, "csrf_token": _csrf()})
+    assert stale.status_code == 409
+    assert len(submission_service.get_status_history(sid)) == 2
 
 
 def test_statuses_post_redirects_without_htmx(client):

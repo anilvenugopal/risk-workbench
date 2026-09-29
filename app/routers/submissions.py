@@ -1570,30 +1570,30 @@ def change_status(
     updated_at: str = Form(...),
     csrf_token: str = Form(...),
 ):
-    """The Status editor's Save. Re-saving the status the deal already has adds
-    no event. Contract status is set per row (``set_contract_status``). A change
-    answers with ``HX-Trigger: modeling-status-changed`` so the sections gated
-    on Active reload themselves."""
+    """The Status editor's Save. Every save is recorded as an event, including
+    one that keeps the status the deal already has (``set_status``). Contract
+    status is set per row (``set_contract_status``). A code change answers with
+    ``HX-Trigger: modeling-status-changed`` so the sections gated on Active
+    reload themselves."""
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _not_found(request)
     changed = modeling_status != submission.status_code
-    if changed:
-        try:
-            submission_service.set_status(
-                submission_id=submission_id, modeling_status=modeling_status,
-                reason=reason.strip() or None,
-                expected_updated_at=updated_at, actor_id=request.state.user.id,
-            )
-        except ValueError:
-            return _head_partial(
-                request, submission_id, status_code=422,
-                head_error="Modeling status is Active, Completed or Cancelled.")
-        except ConcurrencyConflict as exc:
-            return _head_partial(request, submission_id, head_error=str(exc),
-                                 status_code=409)
+    try:
+        submission_service.set_status(
+            submission_id=submission_id, modeling_status=modeling_status,
+            reason=reason.strip() or None,
+            expected_updated_at=updated_at, actor_id=request.state.user.id,
+        )
+    except ValueError:
+        return _head_partial(
+            request, submission_id, status_code=422,
+            head_error="Modeling status is Active, Completed or Cancelled.")
+    except ConcurrencyConflict as exc:
+        return _head_partial(request, submission_id, head_error=str(exc),
+                             status_code=409)
     if _is_htmx(request):
         response = _head_partial(request, submission_id)
         if changed:
