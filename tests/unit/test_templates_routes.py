@@ -377,22 +377,6 @@ def test_failed_resave_labels_the_missing_scheme_by_its_stored_name(
     assert "RMS WS (not found in Risk Modeler)" in resp.text
 
 
-def test_blank_scheme_saves_with_an_hd_profile(iteration2_db, fake_irp):
-    metadata_jobs._sync_irp_metadata_body()
-
-    resp = _client().post(
-        "/templates/analysis-templates",
-        data=_template_form(
-            name="US Wind HD", model_profile_irp_id="2", event_rate_scheme_irp_id="",
-        ),
-    )
-
-    assert resp.status_code == 303
-    (saved,) = template_service.list_templates()
-    assert saved["event_rate_scheme_irp_id"] is None
-    assert saved["analysis_type"] == "HD"
-
-
 def test_unresolved_badge_renders_on_detail_and_list(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())

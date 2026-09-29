@@ -11,9 +11,9 @@
   Why: event rate scheme names repeat across peril/region in Risk Modeler
   (7 live duplicates on 2026-09-28), so a name is not a key for them.
   `analysis_template` stores `model_profile_irp_id`, `output_profile_irp_id`,
-  `event_rate_scheme_irp_id` and `analysis_type` (revision 0002); the name
-  columns stay as display labels; submit passes the ids to
-  `submit_portfolio_analysis_job` (irp-integration 0.11.0rc1).
+  `event_rate_scheme_irp_id` (revision 0002); the name columns stay as
+  display labels; submit passes the ids to
+  `submit_portfolio_analysis_job` (irp-integration 0.11.0).
 
   Templates: none. AGENTS.md version reference updated to v4.3.0.
 

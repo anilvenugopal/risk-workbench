@@ -1499,7 +1499,8 @@ def _seed_results_data(client) -> tuple[str, str, str]:
     template_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO analysis_template (id, name, analysis_profile_name, "
-        "output_profile_name) VALUES (:id, 'CRE v25', 'Profile', 'Output')",
+        "output_profile_name, model_profile_irp_id, output_profile_irp_id) "
+        "VALUES (:id, 'CRE v25', 'Profile', 'Output', 1, 10)",
         {"id": template_id}, connection="WORKBENCH")
     for index, edm_name in enumerate(("Coastal HO 2026", "Inland HO 2026")):
         edm_id = str(uuid.uuid4())

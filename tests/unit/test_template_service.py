@@ -41,7 +41,7 @@ def test_dlm_requires_event_rate_scheme(iteration2_db, fake_irp):
     assert "Event rate scheme is required for DLM analyses" in exc.value.errors
 
 
-def test_hd_and_accumulation_can_save_without_scheme(iteration2_db, fake_irp):
+def test_accumulation_profile_is_rejected(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     with iteration2_db.engine.begin() as conn:
         conn.exec_driver_sql("""
@@ -52,23 +52,35 @@ def test_hd_and_accumulation_can_save_without_scheme(iteration2_db, fake_irp):
                  '2026-08-18', '2026-08-18')
         """)
 
-    hd_id = template_service.save_template(
-        _values(
-            name="US Wind HD",
-            model_profile_irp_id=2,
+    with pytest.raises(TemplateValidationError) as exc:
+        template_service.save_template(_values(
+            name="Global Accumulation", model_profile_irp_id=99,
             event_rate_scheme_irp_id=None,
-        )
-    )
-    accumulation_id = template_service.save_template(
-        _values(
-            name="Global Accumulation",
-            model_profile_irp_id=99,
-            event_rate_scheme_irp_id=None,
-        )
-    )
+        ))
 
-    assert template_service.get_template(hd_id)["profile_family"] == "HD"
-    assert template_service.get_template(accumulation_id)["profile_family"] == "Accumulation"
+    assert exc.value.errors == ("Accumulation model profiles are not supported",)
+
+
+def test_profile_without_software_version_is_rejected(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+    with iteration2_db.engine.begin() as conn:
+        conn.exec_driver_sql("""
+            INSERT INTO irp_model_profile
+                (id, irp_id, name, is_accumulation, software_version_code,
+                 inserted_at, updated_at)
+            VALUES
+                ('no-version', 98, 'No Version', 0, NULL,
+                 '2026-08-18', '2026-08-18')
+        """)
+
+    with pytest.raises(TemplateValidationError) as exc:
+        template_service.save_template(_values(
+            name="No Version", model_profile_irp_id=98,
+            event_rate_scheme_irp_id=None,
+        ))
+
+    assert exc.value.errors == (
+        "Model profile has no software version in Risk Modeler",)
 
 
 def test_hd_can_save_with_matching_scheme(iteration2_db, fake_irp):
@@ -120,7 +132,7 @@ def test_ids_absent_from_the_cache_are_rejected(iteration2_db, fake_irp):
     assert template_service.list_templates() == []
 
 
-def test_save_stores_display_names_and_analysis_type(iteration2_db, fake_irp):
+def test_save_stores_display_names(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     dlm_id = template_service.save_template(_values())
@@ -132,11 +144,9 @@ def test_save_stores_display_names_and_analysis_type(iteration2_db, fake_irp):
     assert dlm["analysis_profile_name"] == "RMS Default RL25"
     assert dlm["output_profile_name"] == "RMS Default Output"
     assert dlm["event_rate_scheme_name"] == "RMS WS"
-    assert dlm["analysis_type"] == "DLM"
     hd = template_service.get_template(hd_id)
     assert hd["analysis_profile_name"] == "RMS Default HD"
     assert hd["event_rate_scheme_name"] is None
-    assert hd["analysis_type"] == "HD"
 
 
 def test_duplicate_scheme_names_resolve_to_one_row(iteration2_db, fake_irp):
@@ -348,7 +358,6 @@ def test_duplicate_template_copies_fields_and_tags(iteration2_db, fake_irp):
     assert copy["model_profile_irp_id"] == 1
     assert copy["output_profile_irp_id"] == 10
     assert copy["event_rate_scheme_irp_id"] == 20
-    assert copy["analysis_type"] == "DLM"
     assert copy["tags"] == ["US", "Wind"]
 
 

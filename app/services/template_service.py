@@ -88,8 +88,7 @@ def profile_family(
     is_accumulation: bool | None, software_version_code: str | None,
 ) -> str | None:
     """DLM/HD/Accumulation marker for a cached model profile (FR-004);
-    None when the cached software version is absent — no marker, and the
-    DLM scheme-required rule does not apply."""
+    None when the cached software version is absent — no marker."""
     if is_accumulation:
         return "Accumulation"
     if software_version_code is None:
@@ -130,19 +129,6 @@ def _reference_rows(conn, params: dict) -> tuple[dict, list[str]]:
     return rows, errors
 
 
-def _pairing_error(profile: dict, scheme: dict | None) -> str | None:
-    if profile["is_accumulation"] or profile["software_version_code"] is None:
-        return None
-    return validate_event_rate_scheme_settings(
-        software_version_code=profile["software_version_code"],
-        scheme_provided=scheme is not None,
-        profile_peril_code=profile["peril_code"],
-        profile_model_region_code=profile["model_region_code"],
-        scheme_peril_code=scheme["peril_code"] if scheme else None,
-        scheme_model_region_code=scheme["model_region_code"] if scheme else None,
-    )
-
-
 def _validate_template(conn, params: dict) -> tuple[dict, list[str]]:
     errors = []
     for label, key in (
@@ -150,13 +136,26 @@ def _validate_template(conn, params: dict) -> tuple[dict, list[str]]:
         ("Model profile", "profile_id"),
         ("Output profile", "output_id"),
     ):
-        if params[key] in (None, ""):
+        if params[key] is None:
             errors.append(f"{label} is required")
 
     rows, missing = _reference_rows(conn, params)
     errors.extend(missing)
+    profile, scheme = rows["profile"], rows["scheme"]
+    if profile is not None:
+        if profile["is_accumulation"]:
+            errors.append("Accumulation model profiles are not supported")
+        elif profile["software_version_code"] is None:
+            errors.append("Model profile has no software version in Risk Modeler")
     if not errors:
-        error = _pairing_error(rows["profile"], rows["scheme"])
+        error = validate_event_rate_scheme_settings(
+            software_version_code=profile["software_version_code"],
+            scheme_provided=scheme is not None,
+            profile_peril_code=profile["peril_code"],
+            profile_model_region_code=profile["model_region_code"],
+            scheme_peril_code=scheme["peril_code"] if scheme else None,
+            scheme_model_region_code=scheme["model_region_code"] if scheme else None,
+        )
         if error:
             errors.append(error)
     return rows, errors
@@ -220,15 +219,11 @@ def save_template(
         rows, errors = _validate_template(working, params)
         if errors:
             raise TemplateValidationError(errors)
-        profile, scheme = rows["profile"], rows["scheme"]
-        family = profile_family(
-            profile["is_accumulation"], profile["software_version_code"]
-        )
+        scheme = rows["scheme"]
         params.update({
-            "profile_name": profile["name"],
+            "profile_name": rows["profile"]["name"],
             "output_name": rows["output"]["name"],
             "scheme_name": scheme["name"] if scheme else None,
-            "analysis_type": family if family in ("DLM", "HD") else None,
         })
 
         if _live_name_exists(
@@ -254,13 +249,13 @@ def save_template(
                           (id, name, analysis_profile_name, output_profile_name,
                            event_rate_scheme_name, model_profile_irp_id,
                            output_profile_irp_id, event_rate_scheme_irp_id,
-                           analysis_type, min_loss_threshold,
+                           min_loss_threshold,
                            num_max_loss_event, franchise_deductible,
                            treat_construction_occupancy_as_unknown,
                            inserted_at, updated_at, inserted_by, updated_by)
                         VALUES
                           (:id, :name, :profile_name, :output_name, :scheme_name,
-                           :profile_id, :output_id, :scheme_id, :analysis_type,
+                           :profile_id, :output_id, :scheme_id,
                            :threshold, :max_events, :franchise, :occupancy,
                            :now, :now, :actor, :actor)
                     """), write_params)
@@ -274,7 +269,6 @@ def save_template(
                             model_profile_irp_id = :profile_id,
                             output_profile_irp_id = :output_id,
                             event_rate_scheme_irp_id = :scheme_id,
-                            analysis_type = :analysis_type,
                             min_loss_threshold = :threshold,
                             num_max_loss_event = :max_events,
                             franchise_deductible = :franchise,
@@ -698,8 +692,8 @@ def scheme_options(profile_irp_id: int, *, conn=None) -> list[dict]:
             "region": profile["model_region_code"],
         })
         # Pre-fill only where a scheme is required (FR-005/FR-007): a DLM
-        # profile with exactly one active match. HD and Accumulation profiles
-        # save without a scheme, so choosing one for the analyst is a surprise.
+        # profile with exactly one active match. HD profiles save without a
+        # scheme, so choosing one for the analyst is a surprise.
         selected = len(options) == 1 and profile_family(
             profile["is_accumulation"], profile["software_version_code"]
         ) == "DLM"

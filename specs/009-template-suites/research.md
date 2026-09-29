@@ -145,7 +145,10 @@ peril/region, and replace the two LEFT JOINs with scalar counts compared to zero
 qualifies a key that was never unique, and Article 2's reason for name coupling ("Risk Modeler
 re-validates names to internal IDs") does not hold for reference data — the wheel resolved the
 names to `modelProfileId` / `outputProfileId` / `eventRateSchemeId` itself. Storing the ids and
-submitting by id (irp-integration 0.11.0rc1) removes the lookup. Accepted risk: a scheme retired
+submitting by id (irp-integration 0.11.0) removes the lookup. Storing `analysis_type` on the
+template alongside the ids was rejected 2026-09-29: it duplicates a fact the `irp_model_profile`
+cache owns, so the execution plan derives it from the cached `software_version_code` at compose.
+Accepted risk: a scheme retired
 in Risk Modeler after the last metadata sync reaches submit as a stale id and fails with Risk
 Modeler's error instead of the wheel's "not found" message; the poller records a submission
 failure and retries.

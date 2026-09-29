@@ -296,8 +296,9 @@ ITERATION4_SCHEMA = [
     """CREATE TABLE analysis_template (
         id TEXT PRIMARY KEY, name TEXT, analysis_profile_name TEXT,
         output_profile_name TEXT, event_rate_scheme_name TEXT,
-        model_profile_irp_id INTEGER, output_profile_irp_id INTEGER,
-        event_rate_scheme_irp_id INTEGER, analysis_type TEXT,
+        model_profile_irp_id INTEGER NOT NULL,
+        output_profile_irp_id INTEGER NOT NULL,
+        event_rate_scheme_irp_id INTEGER,
         min_loss_threshold NUMERIC NOT NULL DEFAULT 1.00,
         num_max_loss_event INTEGER NOT NULL DEFAULT 1,
         franchise_deductible INTEGER NOT NULL DEFAULT 0,

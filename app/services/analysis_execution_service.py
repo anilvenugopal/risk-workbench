@@ -14,6 +14,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from irp_integration.analysis_validation import analysis_type_for_software_version
+
 from app.config import settings
 from app.services import (
     edm_service,
@@ -101,12 +103,13 @@ def _template_rows(template_ids: list[str]) -> dict[str, dict]:
     marks = ", ".join(f":t{i}" for i in range(len(ids)))
     rows = execute(
         f"""
-        SELECT id, name, model_profile_irp_id, output_profile_irp_id,
-               event_rate_scheme_irp_id, analysis_type,
-               min_loss_threshold, num_max_loss_event,
-               franchise_deductible, treat_construction_occupancy_as_unknown
-        FROM analysis_template
-        WHERE deleted_at IS NULL AND id IN ({marks})
+        SELECT t.id, t.name, t.model_profile_irp_id, t.output_profile_irp_id,
+               t.event_rate_scheme_irp_id, mp.software_version_code,
+               t.min_loss_threshold, t.num_max_loss_event,
+               t.franchise_deductible, t.treat_construction_occupancy_as_unknown
+        FROM analysis_template t
+        LEFT JOIN irp_model_profile mp ON mp.irp_id = t.model_profile_irp_id
+        WHERE t.deleted_at IS NULL AND t.id IN ({marks})
         """, params, connection="WORKBENCH")
     by_id = {_uid(r["id"]): dict(r) for r in rows}
     if by_id:
@@ -234,6 +237,9 @@ def _validate(
     else:
         errors.append(f"Unknown execution kind '{kind}'.")
 
+    if any(row["software_version_code"] is None for row in template_rows.values()):
+        errors.append("A selected template's model profile is no longer in Risk Modeler.")
+
     if errors:
         raise ExecutionGateError(errors)
     return edm, portfolios, suite_items, template_rows
@@ -262,7 +268,8 @@ def _compose_plan(
                 "model_profile_id": t["model_profile_irp_id"],
                 "output_profile_id": t["output_profile_irp_id"],
                 "event_rate_scheme_id": t["event_rate_scheme_irp_id"],
-                "analysis_type": t["analysis_type"],
+                "analysis_type": analysis_type_for_software_version(
+                    t["software_version_code"]),
                 "currency": dict(suite_item.currency),
                 "min_loss_threshold": float(t["min_loss_threshold"]),
                 "num_max_loss_event": int(t["num_max_loss_event"]),

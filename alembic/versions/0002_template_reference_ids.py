@@ -7,7 +7,7 @@ Create Date: 2026-09-29
 
 Event rate scheme names repeat across peril/region in Risk Modeler, so the
 name columns stay as display labels and the new id columns carry the
-reference. Existing rows keep NULL ids until re-saved.
+reference.
 """
 
 from __future__ import annotations
@@ -25,24 +25,19 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "analysis_template",
-        sa.Column("model_profile_irp_id", sa.Integer, nullable=True),
+        sa.Column("model_profile_irp_id", sa.Integer, nullable=False),
     )
     op.add_column(
         "analysis_template",
-        sa.Column("output_profile_irp_id", sa.Integer, nullable=True),
+        sa.Column("output_profile_irp_id", sa.Integer, nullable=False),
     )
     op.add_column(
         "analysis_template",
         sa.Column("event_rate_scheme_irp_id", sa.Integer, nullable=True),
     )
-    op.add_column(
-        "analysis_template",
-        sa.Column("analysis_type", sa.NVARCHAR(10), nullable=True),
-    )
 
 
 def downgrade() -> None:
-    op.drop_column("analysis_template", "analysis_type")
     op.drop_column("analysis_template", "event_rate_scheme_irp_id")
     op.drop_column("analysis_template", "output_profile_irp_id")
     op.drop_column("analysis_template", "model_profile_irp_id")

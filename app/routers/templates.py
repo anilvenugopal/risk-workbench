@@ -308,7 +308,17 @@ def _template_form_context(
         values["treat_construction_occupancy_as_unknown"] = True
     values.setdefault("min_loss_threshold", Decimal("1.00"))
     values.setdefault("num_max_loss_event", 1)
-    labels = template or {}
+    # A stored display name only labels the stored id: once the form posts a
+    # different id, the synthetic-option fallback in _select_options applies.
+    labels = {
+        name_key: template.get(name_key)
+        for id_key, name_key in (
+            ("model_profile_irp_id", "analysis_profile_name"),
+            ("event_rate_scheme_irp_id", "event_rate_scheme_name"),
+            ("output_profile_irp_id", "output_profile_name"),
+        )
+        if template is not None and values.get(id_key) == template.get(id_key)
+    }
     profile_id = values.get("model_profile_irp_id")
     reference = template_service.reference_options()
     event_scheme_rows = (

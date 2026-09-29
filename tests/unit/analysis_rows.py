@@ -50,11 +50,18 @@ def seed_portfolio(edm_id: str, name: str = "Portfolio A") -> str:
 def seed_template(name: str = "Template A", event_rate_scheme_irp_id: int | None = None,
                   tags: list[str] | None = None) -> str:
     template_id = str(uuid.uuid4())
+    # The execution plan derives analysis_type from the cached profile row.
+    if not execute_one("SELECT 1 FROM irp_model_profile WHERE irp_id = 1",
+                       {}, connection="WORKBENCH"):
+        execute_command(
+            "INSERT INTO irp_model_profile (id, irp_id, name, "
+            "software_version_code) VALUES (:id, 1, 'Profile', 'HDv3.0')",
+            {"id": str(uuid.uuid4())}, connection="WORKBENCH")
     execute_command(
         "INSERT INTO analysis_template (id, name, analysis_profile_name, "
         "output_profile_name, model_profile_irp_id, output_profile_irp_id, "
-        "event_rate_scheme_irp_id, analysis_type) "
-        "VALUES (:id, :name, 'Profile', 'Output', 1, 10, :scheme, 'HD')",
+        "event_rate_scheme_irp_id) "
+        "VALUES (:id, :name, 'Profile', 'Output', 1, 10, :scheme)",
         {"id": template_id, "name": name, "scheme": event_rate_scheme_irp_id},
         connection="WORKBENCH")
     for tag in tags or []:

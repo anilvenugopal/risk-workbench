@@ -118,10 +118,9 @@ template configuration (reversal history: research.md R13); (g)
 |---|---|---|
 | `id` | uuid PK | |
 | `name` | NVARCHAR(200) NOT NULL | filtered-unique on live rows |
-| `model_profile_irp_id` | INT NULL | `irp_model_profile.irp_id`; resolved against the cache at save (revision 0002, issue 68) |
-| `output_profile_irp_id` | INT NULL | `irp_output_profile.irp_id` |
-| `event_rate_scheme_irp_id` | INT NULL | `irp_event_rate_scheme.irp_id`; required when the cached profile is DLM (validated at save) |
-| `analysis_type` | NVARCHAR(10) NULL | `DLM` / `HD` from the cached profile's `software_version_code` at save; passed to submit |
+| `model_profile_irp_id` | INT NOT NULL | `irp_model_profile.irp_id`; resolved against the cache at save (revision 0002, issue 68); no FK — the sync hard-deletes cache rows and a stale id renders as unresolved |
+| `output_profile_irp_id` | INT NOT NULL | `irp_output_profile.irp_id` |
+| `event_rate_scheme_irp_id` | INT NULL | `irp_event_rate_scheme.irp_id`; required when the cached profile is DLM, optional for HD (validated at save) |
 | `analysis_profile_name` | NVARCHAR(200) NOT NULL | display label copied from the cache at save |
 | `output_profile_name` | NVARCHAR(200) NOT NULL | display label |
 | `event_rate_scheme_name` | NVARCHAR(200) NULL | display label |
