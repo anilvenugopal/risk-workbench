@@ -53,7 +53,7 @@ update script's four cases (`test_bulk_update_contract_status.py`).
    Cat XOL, inception 2027-01-01: expiration fills as 2027-12-31. Then `A-2`
    Aggregate XOL and `A-3` Top & Drop: rows two and three open with both dates
    already filled; change row three's expiration to 2029-12-31. Set data vintage
-   2027-01-15: treaty year reads 2027 before you save. Save: the contract table shows three rows under the
+   2027-01-15. Save: the contract table shows three rows under the
    headers CRM ID · Treaty type · Inception · Expiration · Contract status,
    all Open.
 3. Edit row two's CRM ID to `a-1` and save: refused, the row named. Open
@@ -109,8 +109,8 @@ update script's four cases (`test_bulk_update_contract_status.py`).
 
 Set up: submission A (owner Cheryl) with contracts `T-100` Won and `T-200`
 Lost, both Per Risk XOL 2026-01-01 to 2026-12-31, plus `T-300` Aggregate XOL
-Won 2026-01-01 to 2026-12-31; submission B (owner Ben) with `T-400` In
-Process; both attached to EDM X; EDM Y attached to nothing; submission C with
+Won 2026-01-01 to 2026-12-31; submission B (owner Ben) with `T-400` Open;
+both attached to EDM X; EDM Y attached to nothing; submission C with
 no contract.
 
 1. EDM library, CRM ID chips `T-200`, `T-400`: X listed once; Y not listed.

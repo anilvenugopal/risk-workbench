@@ -75,6 +75,21 @@ def main() -> int:
             """))
             print("  [submission_status_kind] seeds OK")
 
+            # contract_status_kind seeds (idempotent via MERGE) — spec 017 P-02
+            conn.execute(text("""
+                MERGE contract_status_kind AS target
+                USING (VALUES
+                    ('OPEN', 'Open', 10),
+                    ('WON',  'Won',  20),
+                    ('LOST', 'Lost', 30)
+                ) AS src (code, label, sort_order)
+                ON target.code = src.code
+                WHEN NOT MATCHED THEN
+                    INSERT (code, label, sort_order)
+                    VALUES (src.code, src.label, src.sort_order);
+            """))
+            print("  [contract_status_kind] seeds OK")
+
             # treaty_type_kind seeds (idempotent via MERGE) — CIC's eleven (spec 017 FR-012)
             conn.execute(text("""
                 MERGE treaty_type_kind AS target

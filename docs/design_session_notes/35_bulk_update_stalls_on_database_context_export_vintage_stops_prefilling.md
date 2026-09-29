@@ -302,7 +302,7 @@ Wendy's aside is fair: *"It's amazing how searching seems to be the most complex
 - **`34` O34-5**: land decided schema changes before the rebuild. **`OPEN` done** (`f252d09`). **`data_vintage NOT NULL` superseded by O35-3.**
 - **`34` O34-6**: the whole-team walkthrough date. **Due today, not raised.**
 - **`33` O33-2**: backfill rule, N+1 retrieval, `irp-integration 0.10.0rc1` from TestPyPI. **Not raised.** `017` touches `pyproject.toml` / `requirements.txt` / `uv.lock` since `34`, so check whether the pin moved before the rebuild.
-- **`33` O33-3** (pure premium / AAL per treaty in the expanded row): **not built**, and `bd91ffe`'s layout pass didn't add it. **`33` O33-4**: the **treaty-year default is still there** (`submission_form.html:121`, *"Defaults to the data vintage year"*) although 9/22 D8 reversed it. **Given D13, the hint's premise weakens further.** **`33` O33-5** ("Deal" → "Program"): not built.
+- **`33` O33-3** (pure premium / AAL per treaty in the expanded row): **not built**, and `bd91ffe`'s layout pass didn't add it. **`33` O33-4**: the **treaty-year default is still there** (`submission_form.html:121`, *"Defaults to the data vintage year"*) although 9/22 D8 reversed it. **Given D13, the hint's premise weakens further.** **`33` O33-5** ("Deal" → "Program"): built in `4c6d293` (2026-09-28).
 - **`33` O33-7** (Power BI deep link, CRM redirect), **`33` O33-8** (the 9/21 record): **not raised.** O33-8 gains a data point: D13's "we said" most plausibly traces to 9/21.
 - From `32` and earlier, per `34` §8: **O32-3 closed** (`4aedd41`), **O32-14 closed as not possible** (`9b08ec9`), **O32-11 advanced** (D14–D16), **O32-12 advanced** (D18). Everything else **not raised**.
 

@@ -95,7 +95,6 @@ values into `crm_id` and `treaty_incept` client-side; both stay editable and
 
 ```python
 # submission_service
-WON = "WON"
 @dataclass(frozen=True)
 class Contract: id; submission_id; crm_id; treaty_type_code; treaty_type_label
                 inception_date; expiration_date; contract_status_code
@@ -113,15 +112,21 @@ def create_submission(*, …, data_vintage=None, contracts: list[ContractInput] 
 def update_submission(*, …, data_vintage=None, …) -> None        # no contract fields
 def list_contracts(submission_id) -> list[Contract]
 def add_contract(*, submission_id, contract: ContractInput, actor_id) -> str
-def update_contract(*, contract_id, contract: ContractInput, expected_updated_at, actor_id) -> None
-def set_contract_status(*, contract_id, to_status, expected_updated_at, actor_id) -> None
-def remove_contract(*, contract_id, actor_id) -> None
+def update_contract(*, submission_id, contract_id, contract: ContractInput,
+                    expected_updated_at, actor_id) -> None
+def set_contract_status(*, submission_id, contract_id, to_status, expected_updated_at,
+                        actor_id) -> None
+def remove_contract(*, submission_id, contract_id, actor_id) -> None
+    # each raises LookupError when the contract is not one of submission_id's
 def set_status(*, submission_id, modeling_status, reason=None, expected_updated_at, actor_id) -> None
+def treaty_type_kinds() -> list[tuple[str, str]]
+def contract_status_kinds() -> list[tuple[str, str]]
+
+# submission_filters
+WON = "WON"
 def submission_filter_clauses(filters: dict, alias: str = "s") -> tuple[list[str], dict]
     # returns the submission-level clauses; the contract-level clauses arrive
     # already wrapped as one EXISTS string in the same list
-def treaty_type_kinds() -> list[tuple[str, str]]
-def contract_status_kinds() -> list[tuple[str, str]]
 ```
 
 Deleted: `CrmTag`, `add_crm_id`, `remove_crm_id`, `list_crm_ids`,
