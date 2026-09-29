@@ -83,17 +83,8 @@ ENTITY_TABLE_SORT_STARTS_DESCENDING = {
 
 # ── Result / row DTOs (contracts/data-access.md) ─────────────────────────────
 
-class _ClientDisplay:
-    """``"27 - Travelers Corporate Cat"``, or ``"27 (name unavailable)"``, from
-    a row's ``client_id`` and ``client_name`` (``client_service.display``)."""
-
-    @property
-    def client_display(self) -> str | None:
-        return client_service.display(self.client_id, self.client_name)
-
-
 @dataclass
-class SubmissionRow(_ClientDisplay):
+class SubmissionRow:
     """One master-list / look-alike row. The contract summary (``crm_ids``,
     ``treaty_type_labels``, ``inception_date``) is filled for the master list
     only (see ``_attach_contracts``); every other reader leaves it empty."""
@@ -112,6 +103,10 @@ class SubmissionRow(_ClientDisplay):
     crm_ids: list[str] = field(default_factory=list)
     treaty_type_labels: list[str] = field(default_factory=list)
     inception_date: Any = None
+
+    @property
+    def client_display(self) -> str | None:
+        return client_service.display(self.client_id, self.client_name)
 
 
 @dataclass
@@ -174,7 +169,7 @@ class ContractInvalid(ValueError):
 
 
 @dataclass
-class Submission(_ClientDisplay):
+class Submission:
     """Full detail view of a deal (cached Modeling status included). Treaty type,
     the term and the deal status live on ``contracts``."""
     id: str
@@ -193,6 +188,10 @@ class Submission(_ClientDisplay):
     data_vintage: Any = None
     client_name: str | None = None
     contracts: list[Contract] = field(default_factory=list)
+
+    @property
+    def client_display(self) -> str | None:
+        return client_service.display(self.client_id, self.client_name)
 
 
 @dataclass
@@ -1389,15 +1388,10 @@ def set_contract_status(
 
 def remove_contract(*, submission_id: Any, contract_id: Any, actor_id: Any) -> None:
     """Delete one contract of an ACTIVE deal; its status and dates go with it
-    (FR-004). A contract that is already gone is a no-op; one on another deal
-    is ``LookupError``."""
-    cid = _as_uuid(contract_id)
-    owner = _contract_submission(cid)
-    if owner is None:
-        return
-    if owner != _as_uuid(submission_id):
-        raise LookupError(f"contract {contract_id} is not on submission {submission_id}")
-    _require_active(_load_status(owner))
+    (FR-004). ``LookupError`` unless the contract is one of ``submission_id``'s
+    (``_own_contract``)."""
+    sid, cid = _own_contract(submission_id, contract_id)
+    _require_active(_load_status(sid))
     execute_command(
         "DELETE FROM contract WHERE id = :id", {"id": cid}, connection="WORKBENCH",
     )

@@ -1083,7 +1083,8 @@ def test_add_update_and_remove_a_contract(iteration1_db):
     assert edited.contract_status_code == "OPEN"   # status is not the editor's
     remove_contract(submission_id=sid, contract_id=cid, actor_id=a)
     assert [c.crm_id for c in list_contracts(sid)] == ["T-200"]
-    remove_contract(submission_id=sid, contract_id=cid, actor_id=a)          # already gone: no-op
+    with pytest.raises(LookupError):
+        remove_contract(submission_id=sid, contract_id=cid, actor_id=a)  # already gone
 
 
 def test_add_and_update_refuse_a_duplicate_crm_id_on_the_deal(iteration1_db):
@@ -1173,7 +1174,6 @@ def test_contract_writes_under_another_deal_are_refused(iteration1_db):
         remove_contract(submission_id=deal_a, contract_id=b1.id, actor_id=a)
     kept = _contract(deal_b, "B-1")
     assert (kept.contract_status_code, kept.updated_at) == ("OPEN", b1.updated_at)
-    remove_contract(submission_id=deal_a, contract_id=uuid.uuid4(), actor_id=a)  # no-op
     with pytest.raises(LookupError):
         _add(iteration1_db, uuid.uuid4(), "C-1")
 

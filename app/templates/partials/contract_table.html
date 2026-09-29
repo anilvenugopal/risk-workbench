@@ -8,10 +8,37 @@
    in app/routers/submissions.py. #}
 {% import "partials/form_macros.html" as forms %}
 
+{# The five inputs of an editor row, in the table's column order. `row` is a
+   Contract, the posted values of a refused row, or none for a fresh Add row. #}
+{% macro editor_fields(row, status_field=True) %}
+<input type="text" name="crm_id" placeholder="CRM ID" autocomplete="off"
+       aria-label="CRM ID" required value="{{ row.crm_id if row else '' }}">
+<select name="treaty_type_code" aria-label="Treaty type" required>
+  <option value="">Treaty type…</option>
+  {% for code, label in treaty_types %}
+  <option value="{{ code }}"{% if row and row.treaty_type_code == code %} selected{% endif %}>{{ label }}</option>
+  {% endfor %}
+</select>
+<input type="date" name="inception_date" aria-label="Inception" required
+       value="{{ row.inception_date if row else '' }}"
+       @change="$fillExpiration($el, $el.form.elements.expiration_date)">
+<input type="date" name="expiration_date" aria-label="Expiration"
+       value="{{ row.expiration_date if row else '' }}">
+{% if status_field %}
+<select name="contract_status_code" aria-label="Contract status">
+  {% for code, label in contract_statuses %}
+  <option value="{{ code }}"{% if row and row.contract_status_code == code %} selected{% endif %}>{{ label }}</option>
+  {% endfor %}
+</select>
+{% else %}
+<span></span>
+{% endif %}
+{% endmacro %}
+
 <div id="contracts" class="contract-band" x-data="{ adding: {{ 'true' if add_row else 'false' }} }"
      hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }">
   {% if contract_error %}
-  <div class="form-banner form-banner--error" role="alert">{{ contract_error }}{% if contract_error_owner %} {{ forms.owner_link(contract_error_owner) }}{% endif %}</div>
+  <div class="form-banner form-banner--error" role="alert">{{ contract_error }}{% if contract_error_owner %} <a href="/submissions/{{ contract_error_owner.submission_id }}" target="_blank" rel="noopener">{{ contract_error_owner.name }}</a>.{% endif %}</div>
   {% endif %}
 
   <div class="contract-band__head">
@@ -70,8 +97,7 @@
             hx-target="#contracts" hx-swap="outerHTML" x-show="editing" x-cloak>
         <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
         <input type="hidden" name="updated_at" value="{{ c.updated_at }}">
-        {{ forms.contract_fields(edit_row if reopened else c, treaty_types, contract_statuses,
-                                 status_field=False) }}
+        {{ editor_fields(edit_row if reopened else c, status_field=False) }}
         <span></span>
         <span class="contract-row__foot">
           <button class="btn-sm btn-sm--primary" type="submit">Save</button>
@@ -94,7 +120,7 @@
           hx-post="/submissions/{{ submission.id }}/contracts"
           hx-target="#contracts" hx-swap="outerHTML" x-show="adding" x-cloak>
       <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-      {{ forms.contract_fields(fresh, treaty_types, contract_statuses) }}
+      {{ editor_fields(fresh) }}
       <span></span>
       <span class="contract-row__foot">
         <button class="btn-sm btn-sm--primary" type="submit">Add</button>

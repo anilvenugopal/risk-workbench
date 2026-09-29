@@ -198,22 +198,19 @@ def _error_banner(field_errors: dict[str, str], action: str) -> list[str]:
 
 
 def _form_context(
-    *, mode: str, form: dict, submission, clients: list | None,
-    links_to: str | None = None, errors: list[str] | None = None,
-    field_errors: dict[str, str] | None = None, field_owners: dict | None = None,
-    warnings: list | None = None,
+    *, mode: str, form: dict, submission, links_to: str | None = None,
+    errors: list[str] | None = None, field_errors: dict[str, str] | None = None,
+    field_owners: dict | None = None, warnings: list | None = None,
 ) -> dict:
-    """The render context for ``pages/submission_form.html``. ``clients`` is
-    the repository's client list, or ``None`` when it could not be read.
-    ``errors``, ``field_errors`` and ``warnings`` are three same-shaped
-    collections the template treats differently, so they are keyword-only.
-    ``field_owners`` holds the ``ContractOwner`` a contract row's error links
-    to."""
+    """The render context for ``pages/submission_form.html``. ``errors``,
+    ``field_errors`` and ``warnings`` are three same-shaped collections the
+    template treats differently, so they are keyword-only. ``field_owners``
+    holds the ``ContractOwner`` a contract row's error links to."""
     return {
         "mode": mode,
         "treaty_types": submission_service.treaty_type_kinds(),
         "contract_statuses": submission_service.contract_status_kinds(),
-        "clients": clients,
+        "clients": client_service.list_clients(),
         "form": form,
         "submission": submission,
         "link_target": submission_service.get_submission(links_to),
@@ -229,13 +226,13 @@ def _form_context(
 
 def _reshow_form(
     request: Request, *, mode: str, nav_key: str, form: dict, submission,
-    clients: list | None, links_to: str | None, errors=None, field_errors=None,
-    field_owners=None, warnings=None, status_code: int = 200,
+    links_to: str | None, errors=None, field_errors=None, field_owners=None,
+    warnings=None, status_code: int = 200,
 ):
     return _render(
         request, "pages/submission_form.html", nav_key,
         _form_context(mode=mode, form=form, submission=submission,
-                      clients=clients, links_to=links_to, errors=errors,
+                      links_to=links_to, errors=errors,
                       field_errors=field_errors, field_owners=field_owners,
                       warnings=warnings),
         status_code=status_code)
@@ -1151,8 +1148,7 @@ def link_suggest(request: Request):
 @router.get("/submissions/new", response_class=HTMLResponse)
 def new_form(request: Request):
     return _render(request, "pages/submission_form.html", "submissions.all",
-                   _form_context(mode="create", form={}, submission=None,
-                                 clients=client_service.list_clients()))
+                   _form_context(mode="create", form={}, submission=None))
 
 
 @router.post("/submissions")
@@ -1190,16 +1186,16 @@ def create(
         "contract_rows": contract_rows,
     }
     links_to = links_to_submission_id.strip() or None
-    clients = client_service.list_clients()
 
     _reshow = partial(_reshow_form, request, mode="create",
                       nav_key="submissions.all", form=form, submission=None,
-                      clients=clients, links_to=links_to)
+                      links_to=links_to)
 
     field_errors, parsed_treaty_year, parsed_data_vintage = _validate_submission_form(
         name=name, cedant_name=cedant_name, treaty_year=treaty_year,
         data_vintage=data_vintage, directory_path=directory_path)
-    parsed_client_id, client_error = _validate_client(client_id, clients)
+    parsed_client_id, client_error = _validate_client(
+        client_id, client_service.list_clients())
     if client_error:
         field_errors["client_id"] = client_error
     if field_errors:
@@ -1457,7 +1453,6 @@ def edit_form(request: Request, submission_id: str):
     return _render(
         request, "pages/submission_form.html", "submissions.detail",
         _form_context(mode="edit", form=form, submission=submission,
-                      clients=client_service.list_clients(),
                       links_to=submission.links_to_submission_id))
 
 
@@ -1491,16 +1486,16 @@ def update(
         "links_to_submission_id": links_to_submission_id,
     }
     links_to = links_to_submission_id.strip() or None
-    clients = client_service.list_clients()
 
     _reshow = partial(_reshow_form, request, mode="edit",
                       nav_key="submissions.detail", form=form,
-                      submission=submission, clients=clients, links_to=links_to)
+                      submission=submission, links_to=links_to)
 
     field_errors, parsed_treaty_year, parsed_data_vintage = _validate_submission_form(
         name=name, cedant_name=cedant_name, treaty_year=treaty_year,
         data_vintage=data_vintage, directory_path=directory_path)
-    parsed_client_id, client_error = _validate_client(client_id, clients)
+    parsed_client_id, client_error = _validate_client(
+        client_id, client_service.list_clients())
     if client_error:
         field_errors["client_id"] = client_error
     if field_errors:
