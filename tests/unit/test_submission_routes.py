@@ -2454,6 +2454,17 @@ def test_unreachable_repository_disables_the_field_and_the_submission_still_save
     assert "Client list unavailable" in client.get("/submissions").text
 
 
+def test_edit_under_an_unreachable_repository_keeps_the_stored_client(client, no_loss_db):
+    sid, marker = _deal(client, name="Keeps its client", client_id="41")
+    form = client.get(f"/submissions/{sid}/edit").text
+    assert 'value="41 (name unavailable)"' in form
+    assert '<input type="hidden" name="client_id" value="41">' in form
+    saved = client.post(f"/submissions/{sid}", data={
+        **_payload(name="Keeps its client", client_id="41"), "updated_at": marker})
+    assert saved.status_code == 303
+    assert submission_service.get_submission(sid).client_id == 41
+
+
 def test_a_client_not_in_a_reachable_list_is_a_field_error(client, loss_clients):
     before = _count()
     response = client.post("/submissions", data=_payload(name="Bad client",

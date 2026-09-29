@@ -76,12 +76,17 @@
 
       {# Client ID is CIC's repository list, "ID - name", narrowed on either
          (FR-008); optional throughout (P-04). When the repository cannot be
-         read the field is disabled and posts nothing (FR-009). #}
+         read the field is disabled: a deal with no client posts nothing, and a
+         deal with one posts its stored id back unchanged (FR-009). #}
       <div class="wf-field">
         <label>CLIENT ID</label>
         {% if clients is none %}
         <input class="wf-field__input" type="text" disabled
-               value="Client list unavailable — the submission saves without one">
+               value="{{ form.client_id ~ ' (name unavailable)' if form.client_id
+                         else 'Client list unavailable — the submission saves without one' }}">
+        {% if form.client_id %}
+        <input type="hidden" name="client_id" value="{{ form.client_id }}">
+        {% endif %}
         {% else %}
         {% call forms.typeahead_select('client_id',
                                        input_class=(' wf-field__input--error' if field_errors.client_id else ''),
