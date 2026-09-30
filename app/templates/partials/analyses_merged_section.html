@@ -1,12 +1,15 @@
 {# Self-poll contract:
-   ``analyses-changed`` (the delete POST) refetches. ``every 3s`` while any run
-   or retrieval is live, an RDM capture is running, or the named execution batch
-   is still in flight — that last one keeps the section polling before its first
-   analysis row exists. The status filter and ``execution_id`` both ride the
-   poll URL so a swap never resets either. ``execution-submitted`` is handled in
-   app.js, not here: it carries the execution id this section polls on.
-   app.js restores expanded rows and ticked checkboxes across swaps via
-   data-restore-open; data-analyses-section scopes the selection helpers. #}
+   ``analyses-changed`` (the delete POST) refetches the section. The 3s poll is
+   analyses_poller.html: while any run or retrieval is live, an RDM capture is
+   running, or the named execution batch is still in flight, it posts the live
+   row ids to ``/rows`` and swaps only those rows. It replaces the section when
+   the set of rows changes. The poller sits outside the rows block so an
+   execution polls before its first analysis row exists. The status filter,
+   ``execution_id`` and sort ride the poll URL so a replace never resets them.
+   ``execution-submitted`` is handled in app.js, not here: it carries the
+   execution id this section polls on. app.js restores expanded rows and ticked
+   checkboxes across a full replace via data-restore-open;
+   data-analyses-section scopes the selection helpers. #}
 {# One click-to-sort header cell (note 27 D6, copying the 8/9 D15 pattern).
    A <button>, not the <a> the two submissions copies use: the target here is an
    HTML fragment, so an href would be a broken ctrl-click destination, and an
@@ -71,13 +74,10 @@
 {% set sort_state = {'key': sort_key, 'desc': sort_desc,
      'stem': sort_stem, 'target': section_id} %}
 {% set broker_total = groups|map(attribute='analysis_count')|sum %}
-{% set live = execution_live|default(false)
-     or analyses|selectattr('is_live')|list|length > 0
-     or groups|selectattr('sync_running')|list|length > 0 %}
 <details class="sec" open id="{{ section_id }}" data-analyses-section data-restore-open
   x-data="analysisPicks()"
   hx-get="{{ analyses_url }}"
-  hx-trigger="analyses-changed from:body{% if live %}, every 3s{% endif %}"
+  hx-trigger="analyses-changed from:body"
   hx-target="this" hx-swap="outerHTML">
   <summary>
     <span class="sec__caret">▸</span>
@@ -152,6 +152,12 @@
             title="Open the selected analyses side by side (new tab)">View ↗</button>
     {% endif %}
   </summary>
+  {% set shown_live = analyses|selectattr('is_live') %}
+  {% if status_filter %}{% set shown_live = shown_live|selectattr('group_key', 'eq', status_filter) %}{% endif %}
+  {% with rows_url = analyses_base ~ '/rows' ~ ('?' ~ query if query else ''),
+          poll_ids = shown_live|map(attribute='id')|list %}
+  {% include "partials/analyses_poller.html" %}
+  {% endwith %}
   {% if analyses or groups %}
   <div class="dtable-shell">
     <div class="dtable dtable--selectable"

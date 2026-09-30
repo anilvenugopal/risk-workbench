@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._analysis_delete import delete_analyses_response
+from app.routers._analysis_rows import analysis_rows_response, retarget_section
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import save_notes
 from app.routers._list_filters import library_filters, picker_options
@@ -360,6 +361,16 @@ def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str
                                      submission_id=submission_id)
 
 
+@router.post(
+    "/submissions/{submission_id}/edms/{edm_id}/analyses/rows",
+    response_class=HTMLResponse,
+)
+async def contextual_detail_analyses_rows(
+    request: Request, submission_id: str, edm_id: str,
+):
+    return await _analyses_rows(request, edm_id, submission_id)
+
+
 @router.post("/submissions/{submission_id}/edms/{edm_id}/analyses/delete")
 async def contextual_delete_analyses(
     request: Request, submission_id: str, edm_id: str,
@@ -624,11 +635,13 @@ def _analyses_status_filter(request: Request) -> str:
     return status if status in _ANALYSES_STATUS_FILTERS else ""
 
 
-def _analyses_gone_notice(message: str) -> HTMLResponse:
+def _analyses_gone_notice(submission_id: str | None) -> HTMLResponse:
     """The Analyses section with nothing left to poll. Not
-    ``analyses_merged_section.html``: that template always emits the ``hx-get``
-    and ``hx-trigger`` the 3s poll runs on, and this notice must omit them so the
-    poll stops instead of refetching a section that no longer resolves."""
+    ``analyses_merged_section.html``: that template renders the poller while a
+    row is live, and this notice must omit it so the poll stops instead of
+    refetching a section that no longer resolves."""
+    message = ("This EDM is no longer related to the submission." if submission_id
+               else "This EDM no longer exists.")
     return HTMLResponse(
         '<details class="sec" open id="edm-executed-analyses">'
         '<summary><span class="sec__title">Analyses</span></summary>'
@@ -636,36 +649,53 @@ def _analyses_gone_notice(message: str) -> HTMLResponse:
         '</div></details>')
 
 
+def _analyses_section_context(request: Request, edm_id: str,
+                              submission_id: str | None = None) -> dict | None:
+    """The merged Analyses section's context, or None once the EDM (or its
+    relation to ``submission_id``) is gone. With ``submission_id`` the section
+    polls and deletes against its submission-scoped URL and renders the
+    submission's RDM group rows; the plain library page has neither."""
+    section = edm_service.get_edm_analyses(edm_id=edm_id,
+                                           submission_id=submission_id)
+    if section is None:
+        return None
+    execution_id = (request.query_params.get("execution_id") or "").strip() or None
+    base = f"/edms/{edm_id}/analyses" if submission_id is None else (
+        f"/submissions/{submission_id}/edms/{edm_id}/analyses")
+    sort, descending = analysis_service.sort_from_query(request.query_params)
+    return {"edm": section, "groups": section.rdms,
+            "source_submission": section.submission,
+            "analyses": analysis_service.sort_analyses(
+                section.executed_analyses, sort, descending),
+            "sort": sort,
+            "sort_desc": descending,
+            "status_filter": _analyses_status_filter(request),
+            "execution_id": execution_id,
+            "execution_live": analysis_service.execution_batch_is_live(
+                execution_id),
+            "section_id": "edm-executed-analyses",
+            "analyses_table_url": base}
+
+
 def _analyses_section_partial(request: Request, edm_id: str,
                               *, submission_id: str | None = None):
     """The merged Analyses section's own fragment (analyses_merged_section.html)
     — its polling unit, separate from the rest of the detail body (T-11
     refinement) so an in-flight execution never re-swaps rows the analyst has
-    expanded elsewhere on the page. With ``submission_id`` the fragment polls and
-    deletes against its submission-scoped URL and renders the submission's RDM
-    group rows; the plain library page has neither."""
-    section = edm_service.get_edm_analyses(edm_id=edm_id,
-                                           submission_id=submission_id)
-    if section is None:
-        return _analyses_gone_notice(
-            "This EDM is no longer related to the submission." if submission_id
-            else "This EDM no longer exists.")
-    execution_id = (request.query_params.get("execution_id") or "").strip() or None
-    base = f"/edms/{edm_id}/analyses" if submission_id is None else (
-        f"/submissions/{submission_id}/edms/{edm_id}/analyses")
-    sort, descending = analysis_service.sort_from_query(request.query_params)
-    return _partial(request, "partials/analyses_merged_section.html",
-                    {"edm": section, "groups": section.rdms,
-                     "source_submission": section.submission,
-                     "analyses": analysis_service.sort_analyses(
-                         section.executed_analyses, sort, descending),
-                     "sort": sort,
-                     "sort_desc": descending,
-                     "status_filter": _analyses_status_filter(request),
-                     "execution_id": execution_id,
-                     "execution_live": analysis_service.execution_batch_is_live(
-                         execution_id),
-                     "analyses_table_url": base})
+    expanded elsewhere on the page."""
+    ctx = _analyses_section_context(request, edm_id, submission_id)
+    if ctx is None:
+        return _analyses_gone_notice(submission_id)
+    return _partial(request, "partials/analyses_merged_section.html", ctx)
+
+
+async def _analyses_rows(request: Request, edm_id: str,
+                         submission_id: str | None = None):
+    ctx = _analyses_section_context(request, edm_id, submission_id)
+    if ctx is None:
+        return retarget_section(_analyses_gone_notice(submission_id),
+                                "edm-executed-analyses")
+    return analysis_rows_response(request, ctx, await request.form(), _partial)
 
 
 @router.get("/edms/{edm_id}/analyses", response_class=HTMLResponse)
@@ -673,6 +703,13 @@ def detail_analyses(request: Request, edm_id: str):
     """Read-only Analyses-table fragment for HTMX polling. No writes, no Risk
     Modeler call (Article 11)."""
     return _analyses_section_partial(request, edm_id)
+
+
+@router.post("/edms/{edm_id}/analyses/rows", response_class=HTMLResponse)
+async def detail_analyses_rows(request: Request, edm_id: str):
+    """The Analyses section's 3s poll. No writes, no Risk Modeler call
+    (Article 11)."""
+    return await _analyses_rows(request, edm_id)
 
 
 @router.get("/edms/{edm_id}/analyses/compare", response_class=HTMLResponse)

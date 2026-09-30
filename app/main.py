@@ -72,6 +72,7 @@ templates.env.globals["generate_csrf_token"] = generate_csrf_token
 templates.env.globals["default_perspective"] = analysis_service.DEFAULT_PERSPECTIVE
 templates.env.globals["default_perspective_label"] = (
     analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+templates.env.globals["analyses_hash"] = analysis_service.section_hash
 # Breakout values are stored as the EDM's own filter values; peril's are numeric
 # codes, so every template that shows one runs it through this filter.
 templates.env.filters["breakout_display"] = breakout_service.display_value

@@ -1,0 +1,12 @@
+{# The rows POST's answer when the section's set of rows is unchanged: each
+   tracked row swaps its own contents, so the section's ticks, scroll and
+   expanded rows stay put. The status filter is not re-applied — a row that
+   moves to another status keeps updating where it is. #}
+{% for a in rows %}
+{% with oob = true %}{% include "partials/executed_analysis_row.html" %}{% endwith %}
+{% endfor %}
+{% with oob = true,
+        poll_ids = rows|selectattr('is_live')|map(attribute='id')|list,
+        rows_url = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
+{% include "partials/analyses_poller.html" %}
+{% endwith %}

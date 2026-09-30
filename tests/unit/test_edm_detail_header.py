@@ -39,6 +39,7 @@ def _client() -> TestClient:
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+    templates.env.globals["analyses_hash"] = analysis_service.section_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(edms.router)
@@ -282,6 +283,76 @@ def test_empty_analyses_poll_tracks_the_selected_execution(monkeypatch):
         "/edms/edm-1/analyses?status=ready&execution_id=execution-1")
     assert "every 3s" not in terminal.text
     assert "execution_id=execution-1" in terminal.text
+
+
+def test_analyses_section_polls_its_live_rows_not_itself(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_analyses",
+                        lambda **kwargs: _analyses_section())
+
+    html = _client().get("/edms/edm-1/analyses?status=in_progress").text
+
+    assert 'hx-trigger="analyses-changed from:body"' in html
+    poller = html[html.index('id="edm-executed-analyses-poller"'):]
+    assert 'hx-post="/edms/edm-1/analyses/rows?status=in_progress"' in poller
+    assert 'hx-trigger="every 3s"' in poller
+    assert '"live": "analysis-1"' in poller
+
+
+def _post_rows(section, **data):
+    return _client().post("/edms/edm-1/analyses/rows", data={
+        "hash": analysis_service.section_hash(section.executed_analyses,
+                                              section.rdms),
+        "live": "analysis-1", **data})
+
+
+def test_analyses_rows_poll_swaps_only_the_tracked_rows(monkeypatch):
+    section = _analyses_section()
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: section)
+
+    response = _post_rows(section)
+
+    assert response.status_code == 200
+    assert "HX-Retarget" not in response.headers
+    assert ('id="analysis-row-analysis-1" hx-swap-oob="innerHTML"'
+            in response.text)
+    assert "data-analyses-section" not in response.text
+    assert 'hx-trigger="every 3s"' in response.text
+
+
+def test_analyses_rows_poll_replaces_the_section_when_its_rows_change(monkeypatch):
+    section = _analyses_section()
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: section)
+
+    response = _post_rows(section, hash="stale")
+
+    assert response.headers["HX-Retarget"] == "#edm-executed-analyses"
+    assert response.headers["HX-Reswap"] == "outerHTML"
+    assert "data-analyses-section" in response.text
+
+
+def test_analyses_rows_poll_stops_once_the_tracked_row_is_terminal(monkeypatch):
+    section = _analyses_section()
+    section.executed_analyses[0].status_code = "error"
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: section)
+
+    response = _post_rows(section)
+
+    assert 'id="analysis-row-analysis-1" hx-swap-oob="innerHTML"' in response.text
+    assert 'id="edm-executed-analyses-poller"' in response.text
+    assert "every 3s" not in response.text
+
+
+def test_analyses_rows_poll_ends_when_the_edm_is_gone(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: None)
+
+    response = _client().post(
+        "/submissions/submission-a/edms/edm-1/analyses/rows",
+        data={"hash": "any", "live": "analysis-1"})
+
+    assert response.headers["HX-Retarget"] == "#edm-executed-analyses"
+    assert response.headers["HX-Reswap"] == "outerHTML"
+    assert "no longer related to the submission" in response.text
+    assert "hx-trigger" not in response.text
 
 
 def test_successful_execute_response_carries_execution_id(monkeypatch):
