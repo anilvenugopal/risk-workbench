@@ -236,7 +236,7 @@ IDE-style, three zones:
 | Jobs | IRP Jobs, RWB Jobs, Exceptions |
 | Results | Results, Loss Repository |
 | Moody's IRP | Sync Metadata, EDM Library, RDM Library |
-| Administration | Users, Settings |
+| Administration | Users, Cedants, Settings |
 
 ### 4.6 Icons
 
@@ -442,7 +442,7 @@ Ownership is a plain list filter: `WHERE assigned_analyst_id = current_user.id`.
 
 ### 6.3 Admin maintenance
 
-Admin rail destination maintains users and role assignments only (there is no customer-access grant to manage). Building it early makes role-gating testable end-to-end immediately.
+Admin rail destination maintains users, role assignments and the cedant list (there is no customer-access grant to manage). Building it early makes role-gating testable end-to-end immediately.
 
 ---
 
@@ -1558,7 +1558,7 @@ touched.
 
 ### Locked decisions
 
-- **2026-09-30 — Cedant list (issue #129).** The cedant becomes an admin-maintained `cedant` table that `submission.cedant_id` references, reversing CR-003 O3. Free text let one cedant collect several spellings. Names are unique case-insensitively; cedants are deactivated, never deleted; Edit keeps a submission's inactive cedant. §7.2, DATA_MODEL §4.
+- **2026-09-30 — Cedant list (issue #129).** The cedant becomes an admin-maintained `cedant` table that `submission.cedant_id` references, reversing CR-003 O3. Free text let one cedant collect several spellings. Names are unique case-insensitively; cedants are deactivated, never deleted; Edit keeps a submission's inactive cedant. Admins maintain the list at `/admin/cedants`. §6.3, §7.2, DATA_MODEL §4.
 - **2026-09-29 — Migration files from now on.** The spec 017 merge froze `alembic/versions/0001_initial.py` as the base revision. Every later `WORKBENCH` schema change is a new Alembic revision applied with `alembic upgrade head` (§21.0). The Rebuild / Refresh / Skip prompt is retired; `make db-rebuild` remains a dev-only reset that replays every revision.
 - **2026-08-28 — Design session 22: viewing/comparison signed off; the grouping defect; the client table reverses to read-only; Parquet replaces the paginated API; event type via reference data APIs.**
   - **Viewing and comparison signed off (D1–D9)** — the first client acceptance of the results layer; one change request (right-justify return periods, D5). RL + OEP defaults, uncapped viewing, 5-pair comparison cap, selection-order base, cross-currency block, clipboard in ones at full precision — all confirmed. Closes 19 O19-8/O19-9; confirms 20 O20-6/O20-8 (§16.2, FR §7).
