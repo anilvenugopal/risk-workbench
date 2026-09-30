@@ -5,9 +5,9 @@
    (geography/LOB/currency), null until available. Every field is read
    defensively; a missing field renders "—", never an error. Records ==
    locations, so there is no separate Records column (preview rev 7).
-   Expanding the row (8/4 CR15) reveals the FULL value lists the collapsed
-   cells truncate — lines of business, countries, states, currencies —
-   capped at 100 values each (CR19) — and, on a generated sub-portfolio, its
+   Expanding the row (8/4 CR15) reveals the full name and the FULL value
+   lists the collapsed cells truncate — lines of business, countries, states,
+   currencies — capped at 100 values each (CR19) — and, on a generated sub-portfolio, its
    lineage: the base portfolio and the breakout criteria (FR-014 as revised
    2026-08-11; the collapsed row carries no lineage). #}
 {%- macro num(v) -%}
@@ -46,27 +46,28 @@
   <span class="l">
     <span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">
-        <span class="dt-title">{{ p.name }}</span>
+        <span class="dt-title" title="{{ p.name }}">{{ p.name }}</span>
         <span class="dt-subline">
           {# spec 005 US3 (FR-014 rev. 2026-08-11): the collapsed row marks a
              generated sub-portfolio with the arrow and nothing more — the base
              portfolio and the criteria are in the expanded panel below. #}
           {% if p.source_name %}<span class="dt-frommark" title="Broken out from {{ p.source_name }} — expand the row for the breakout criteria">↳</span>{% endif %}
           {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
+          {# spec 005 (FR-001): the breakout entry point / in-flight indicator
+             sits under the name so the name keeps the whole track (#134); EDM
+             ready only. Clicking must not toggle the row — interactive
+             elements inside <summary> don't, and the stopPropagation matches
+             the section-header action precedent. #}
+          {% if p.breakout_flight %}
+          <span class="bo-inline" title="a {{ p.breakout_flight.noun }} breakout is running for this portfolio"><span class="bo-spinner"></span>{{ p.breakout_flight.done }} of {{ p.breakout_flight.planned }}</span>
+          {% elif edm is defined and edm.status == 'ready' %}
+          <button class="bo-btn" type="button" onclick="event.stopPropagation()"
+                  hx-get="/edms/{{ edm.id }}/portfolios/{{ p.id }}/breakout"
+                  hx-target="#breakout-modal-mount" hx-swap="innerHTML"
+                  title="One sub-portfolio per value of the chosen dimension, or custom breakouts">Break out</button>
+          {% endif %}
         </span>
       </span>
-      {# spec 005 (FR-001): the breakout entry point / in-flight indicator,
-         near the expand affordance; EDM ready only. Clicking must not toggle
-         the row — interactive elements inside <summary> don't, and the
-         stopPropagation matches the section-header action precedent. #}
-      {% if p.breakout_flight %}
-      <span class="bo-inline" title="a {{ p.breakout_flight.noun }} breakout is running for this portfolio"><span class="bo-spinner"></span>{{ p.breakout_flight.done }} of {{ p.breakout_flight.planned }}</span>
-      {% elif edm is defined and edm.status == 'ready' %}
-      <button class="bo-btn" type="button" onclick="event.stopPropagation()"
-              hx-get="/edms/{{ edm.id }}/portfolios/{{ p.id }}/breakout"
-              hx-target="#breakout-modal-mount" hx-swap="innerHTML"
-              title="One sub-portfolio per value of the chosen dimension, or custom breakouts">Break out</button>
-      {% endif %}
     </span>
   </span>
   <span>{{ num(m.get('totalLocations')) }}</span>
@@ -108,13 +109,17 @@
   <div class="drow__body drow__body--recessed">
     <div class="portfolio-detail-columns">
       <div>
-        {# spec 005 US3 (FR-014 as revised 2026-08-11): lineage renders here, in
-           the expanded panel of a generated row only — the IMMEDIATE source,
-           never a rendered chain, plus the breakout criteria in the Risk
-           Modeler description format. Base and broker-arrived rows render none
-           of it. #}
-        {% if p.source_name %}
+        {# The full name first (issue #134), then — spec 005 US3 (FR-014 as
+           revised 2026-08-11) — lineage on a generated row only: the IMMEDIATE
+           source, never a rendered chain, plus the breakout criteria in the
+           Risk Modeler description format. Base and broker-arrived rows render
+           no lineage. #}
         <dl class="drow-lists drow-lineage">
+          <div>
+            <dt>Portfolio</dt>
+            <dd>{{ p.name }}</dd>
+          </div>
+          {% if p.source_name %}
           <div>
             <dt>Base portfolio</dt>
             <dd>{{ p.source_name }}</dd>
@@ -133,8 +138,8 @@
               {%- endif -%}
             </dd>
           </div>
+          {% endif %}
         </dl>
-        {% endif %}
         {% if lobs or countries or states or curr %}
         <dl class="drow-lists">
           {% for label, values in [('Lines of business', lobs), ('Countries', countries),
