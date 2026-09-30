@@ -12,7 +12,8 @@ and prunes (soft-deletes) rows RM's enumeration no longer returns.
 
 ``build_treaty_workbook`` is the FR-024/R5 Excel export: a standard ``.xlsx``
 built in-process (openpyxl) from **stored** detail only — one row per treaty,
-columns = the union of attribute keys across the set. **No Risk Modeler call.**
+columns = the union of attribute keys across the set, minus ``uri`` and
+``tagIds``; cedant/currency/LOBs export as labels. **No Risk Modeler call.**
 
 Read-only this iteration (FR-025): no create/edit (the §5 ``create_treaty``
 pass-through is a later concern). No row scoping anywhere (Article 6).
@@ -127,8 +128,9 @@ class TreatyRow:
         list values collapsed to their labels, enum codes spelled out and
         date-times date-truncated (8/4 CR18), RM's internal ``uri`` dropped,
         and an alias key (``id``/``name``/``number``) dropped when its
-        ``treaty*`` twin agrees. The Excel export does NOT use this — it
-        stays verbatim."""
+        ``treaty*`` twin agrees. The Excel export shapes cedant/currency/LOBs
+        the same way but keeps enum codes, timestamps and the alias keys
+        unchanged."""
         attrs = self.attributes or {}
         items: list[tuple[str, Any]] = []
         for k, v in attrs.items():
@@ -223,10 +225,13 @@ def list_treaties(*, edm_id: Any) -> list[TreatyRow]:
         as_of=r["as_of"]) for r in rows]
 
 
+_EXPORT_DROPPED_KEYS = {"uri", "tagIds"}
+_EXPORT_LABEL_KEYS = {"cedant", "currency", "lobs"}
+
+
 def _cell(value: Any) -> Any:
     """An attribute value as an .xlsx-safe cell: scalars pass through; dicts/
-    lists (currency/cedant/producer are objects in RM's schema) serialize to
-    JSON text; None stays empty."""
+    lists serialize to JSON text; None stays empty."""
     if value is None or isinstance(value, (int, float, str, bool)):
         return value
     return json.dumps(value)
@@ -246,7 +251,7 @@ def build_treaty_workbook(*, edm_id: Any) -> bytes:
     seen: set[str] = set()
     for t in treaties:
         for key in (t.attributes or {}):
-            if key not in seen:
+            if key not in seen and key not in _EXPORT_DROPPED_KEYS:
                 seen.add(key)
                 columns.append(key)
 
@@ -256,7 +261,9 @@ def build_treaty_workbook(*, edm_id: Any) -> bytes:
     ws.append(["Treaty", "Treaty Id", *columns])
     for t in treaties:
         attrs = t.attributes or {}
-        ws.append([t.name, t.irp_id, *(_cell(attrs.get(k)) for k in columns)])
+        ws.append([t.name, t.irp_id, *(
+            display_value(attrs.get(k)) if k in _EXPORT_LABEL_KEYS
+            else _cell(attrs.get(k)) for k in columns)])
 
     buf = io.BytesIO()
     wb.save(buf)
