@@ -13,7 +13,7 @@ and prunes (soft-deletes) rows RM's enumeration no longer returns.
 ``build_treaty_workbook`` is the FR-024/R5 Excel export: a standard ``.xlsx``
 built in-process (openpyxl) from **stored** detail only — one row per treaty,
 columns = the union of attribute keys across the set, minus ``uri`` and
-``tagIds``; cedant/currency/LOBs export as labels. **No Risk Modeler call.**
+``tagIds``; cedant/currency/LOBs/producer export as labels. **No Risk Modeler call.**
 
 Read-only this iteration (FR-025): no create/edit (the §5 ``create_treaty``
 pass-through is a later concern). No row scoping anywhere (Article 6).
@@ -128,8 +128,8 @@ class TreatyRow:
         list values collapsed to their labels, enum codes spelled out and
         date-times date-truncated (8/4 CR18), RM's internal ``uri`` dropped,
         and an alias key (``id``/``name``/``number``) dropped when its
-        ``treaty*`` twin agrees. The Excel export shapes cedant/currency/LOBs
-        the same way but keeps enum codes, timestamps and the alias keys
+        ``treaty*`` twin agrees. The Excel export shapes cedant/currency/LOBs/
+        producer the same way but keeps enum codes, timestamps and the alias keys
         unchanged."""
         attrs = self.attributes or {}
         items: list[tuple[str, Any]] = []
@@ -226,7 +226,7 @@ def list_treaties(*, edm_id: Any) -> list[TreatyRow]:
 
 
 _EXPORT_DROPPED_KEYS = {"uri", "tagIds"}
-_EXPORT_LABEL_KEYS = {"cedant", "currency", "lobs"}
+_EXPORT_LABEL_KEYS = {"cedant", "currency", "lobs", "producer"}
 
 
 def _cell(value: Any) -> Any:

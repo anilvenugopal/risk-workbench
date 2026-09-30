@@ -9,7 +9,6 @@ with **no** Risk Modeler call (the export is a read of stored detail only).
 from __future__ import annotations
 
 import io
-import json
 import uuid
 from types import SimpleNamespace
 
@@ -88,8 +87,7 @@ def test_workbook_is_valid_xlsx_with_union_of_attribute_columns(iteration2_db):
     assert cat["lobs"] == "Lend, Prop"
     assert "uri" not in header
     assert "tagIds" not in header
-    # other non-scalar attribute values are serialized, not dropped
-    assert json.loads(cat["producer"]) == CAT["producer"]
+    assert cat["producer"] == "Broker Co"
 
 
 def test_workbook_joins_a_list_of_cedants(iteration2_db):
