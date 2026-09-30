@@ -3,7 +3,7 @@ libraries (spec 017 T-08; contracts/routes.md §3).
 
 Each text parameter is capped by length and word count, each multi-value
 parameter at ``MAX_FILTER_VALUES`` values, and every refusal is one line naming
-the filter. Seven multi-value filters at twenty values is 140 bound parameters,
+the filter. Eight multi-value filters at twenty values is 160 bound parameters,
 under SQL Server's 2,100-parameter limit.
 """
 
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from app.services import auth_service, client_service, submission_service
+from app.services import auth_service, cedant_service, client_service, submission_service
 from app.services._common import _parse_int
 from app.services.submission_filters import has_submission_filters
 
@@ -25,11 +25,11 @@ MIN_TREATY_YEAR, MAX_TREATY_YEAR = 1900, 2999
 # query parameter -> (label, key in the ``filters`` dict of contracts §5)
 TEXT_FILTERS = {
     "q": ("Name", "name"),
-    "cedant": ("Cedant", "cedant_name"),
 }
 # Key order is the order the list's pager, sort links and pushed URL repeat
 # the picked values in.
 MULTI_FILTERS = {
+    "cedant": ("Cedant", "cedant_ids"),
     "crm_id": ("CRM ID", "crm_ids"),
     "treaty_type": ("Treaty type", "treaty_type_codes"),
     "treaty_year": ("Treaty year", "treaty_years"),
@@ -40,9 +40,8 @@ MULTI_FILTERS = {
 }
 # The submission-attribute filters the EDM and RDM libraries carry (FR-015,
 # P-13): no Modeling status, and no owner default.
-LIBRARY_MULTI_PARAMS = ("owner", "client", "treaty_type", "treaty_year", "crm_id",
-                        "contract_status")
-LIBRARY_TEXT_PARAMS = ("cedant",)
+LIBRARY_MULTI_PARAMS = ("owner", "cedant", "client", "treaty_type", "treaty_year",
+                        "crm_id", "contract_status")
 
 
 @dataclass
@@ -109,13 +108,17 @@ def parse_list_filters(query_params, *, multi_keys, text_keys) -> ListFilters:
 
 
 def picker_options() -> dict[str, Any]:
-    """The option lists behind the shared filter pickers: owners, treaty
-    types, contract statuses and repository clients (``None`` when the
-    repository is unreachable, so the picker renders disabled)."""
+    """The option lists behind the shared filter pickers: owners, cedants
+    (inactive ones too, so an old deal stays findable), treaty types, contract
+    statuses and repository clients (``None`` when the repository is
+    unreachable, so the picker renders disabled)."""
     clients = client_service.list_clients()
     return {
         "owner_options": [(analyst["id"], analyst["display_name"])
                           for analyst in auth_service.list_active_analysts()],
+        "cedant_options": [
+            (cedant.id, cedant.name if cedant.is_active else f"{cedant.name} (inactive)")
+            for cedant in cedant_service.list_cedants(include_inactive=True)],
         "treaty_types": submission_service.treaty_type_kinds(),
         "contract_statuses": submission_service.contract_status_kinds(),
         "client_options": (None if clients is None
@@ -132,8 +135,7 @@ def library_filters(request) -> tuple[ListFilters, dict[str, Any]]:
     poll URL. The page route adds ``picker_options()`` itself; the polled
     table fragment renders no pickers and skips the repository read."""
     parsed = parse_list_filters(
-        request.query_params, multi_keys=LIBRARY_MULTI_PARAMS,
-        text_keys=LIBRARY_TEXT_PARAMS)
+        request.query_params, multi_keys=LIBRARY_MULTI_PARAMS, text_keys=())
     filter_values = {
         "q": request.query_params.get("q", ""),
         "status": request.query_params.get("status", ""),

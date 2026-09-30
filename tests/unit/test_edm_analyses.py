@@ -15,11 +15,12 @@ from starlette.testclient import TestClient
 
 from app.services import analysis_service, irp_gateway, submission_service
 from db import execute_command
+from tests.unit.conftest import cedant_id
 
 
 def _submission(db, name: str) -> str:
     return submission_service.create_submission(
-        name=name, cedant_name=name, treaty_year=2026,
+        name=name, cedant_id=cedant_id(name), treaty_year=2026,
         data_vintage="2026-06-30", actor_id=db.user_a, confirmed=True).submission_id
 
 

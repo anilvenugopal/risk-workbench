@@ -33,6 +33,7 @@ from app.services.errors import (
 )
 from app.workers import entity_jobs
 from db import execute_command, execute_one, execute_scalar
+from tests.unit.conftest import cedant_id
 
 
 # The name rule ([A-Za-z0-9_-]+, ≤50) is enforced on the standalone import path too
@@ -155,10 +156,10 @@ def test_list_edms_applies_no_scoping(iteration2_db, fake_irp, drive):
 def test_contextual_detail_validates_association_and_lists_submission_edms(
         iteration2_db):
     first = submission_service.create_submission(
-        name="First submission", cedant_name="First", treaty_year=2026,
+        name="First submission", cedant_id=cedant_id("First"), treaty_year=2026,
         data_vintage="2026-06-30", actor_id=iteration2_db.user_a, confirmed=True).submission_id
     second = submission_service.create_submission(
-        name="Second submission", cedant_name="Second", treaty_year=2026,
+        name="Second submission", cedant_id=cedant_id("Second"), treaty_year=2026,
         data_vintage="2026-06-30", actor_id=iteration2_db.user_a, confirmed=True).submission_id
     shared = str(uuid.uuid4())
     other = str(uuid.uuid4())

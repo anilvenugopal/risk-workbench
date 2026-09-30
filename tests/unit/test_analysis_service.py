@@ -44,6 +44,7 @@ from tests.unit.run_details_fixtures import (
     detail,
     settings_metadata,
 )
+from tests.unit.conftest import cedant_id
 
 # The live own-analysis get-analysis payload (spec 015 capture, 2026-09-11):
 # DLM 5741781, North Atlantic windstorm on RL25, currency as an object.
@@ -751,7 +752,7 @@ def test_submitted_settings_parsed_for_display(iteration2_db):
 def _submission(user_id: str, name: str = "Deal A") -> str:
     from app.services import submission_service
     return submission_service.create_submission(
-        name=name, cedant_name=name, treaty_year=2026,
+        name=name, cedant_id=cedant_id(name), treaty_year=2026,
         data_vintage="2026-06-30", actor_id=user_id, confirmed=True).submission_id
 
 

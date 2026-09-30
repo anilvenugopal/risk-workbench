@@ -16,10 +16,12 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 
 from db import execute, execute_command, execute_scalar, get_connection
+from db.config import build_sqlalchemy_url, get_connection_config
 from db.errors import SQLServerQueryError
+from tests.sqlserver.scratch import run_alembic
 
 pytestmark = pytest.mark.sqlserver
 
@@ -136,7 +138,7 @@ class TestSubmissionMigration:
             "SELECT name FROM sys.indexes "
             "WHERE object_id = OBJECT_ID('dbo.submission') AND name IS NOT NULL",
             {}, connection="WORKBENCH")}
-        assert {"ix_submission_cedant_name", "ix_submission_assigned_analyst_id"} <= names
+        assert {"ix_submission_cedant_id", "ix_submission_assigned_analyst_id"} <= names
         assert not {"ix_submission_list_order", "ix_submission_treaty_type_code"} & names
         assert execute_scalar(
             "SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.contract') "
@@ -151,7 +153,7 @@ class TestSubmissionMigration:
             "SELECT COUNT(*) FROM sys.foreign_keys "
             "WHERE parent_object_id = OBJECT_ID('dbo.submission')",
             {}, connection="WORKBENCH")
-        assert n == 5  # analyst, status, links_to, inserted_by, updated_by
+        assert n == 6  # analyst, cedant, status, links_to, inserted_by, updated_by
 
     @pytest.mark.parametrize("table,entity_column,index_name", [
         ("submission_edm", "edm_id", "ix_submission_edm_edm_submission"),
@@ -176,6 +178,39 @@ class TestSubmissionMigration:
         ) == 1
 
 
+def test_0003_backfills_one_cedant_per_distinct_name(scratch_database):
+    """Issue 129: spelling variants stay separate cedants, and every
+    submission keeps the name it had."""
+    run_alembic("upgrade", "0002", scratch_database)
+    engine = create_engine(build_sqlalchemy_url(
+        get_connection_config("WORKBENCH"), database=scratch_database))
+    uid = str(uuid.uuid4())
+    before = {str(uuid.uuid4()): name
+              for name in ("Acme Re", "Acme Re", "Acme Reinsurance")}
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO app_user (id, email, display_name) "
+                "VALUES (:id, 'mig@example.com', 'Mig')"), {"id": uid})
+            for sid, name in before.items():
+                conn.execute(text(
+                    "INSERT INTO submission (id, assigned_analyst_id, name, "
+                    "cedant_name, data_vintage) "
+                    "VALUES (:id, :uid, 'Deal', :cedant, '2026-06-30')"),
+                    {"id": sid, "uid": uid, "cedant": name})
+        run_alembic("upgrade", "0003", scratch_database)
+        with engine.connect() as conn:
+            cedants = conn.execute(text(
+                "SELECT name FROM cedant ORDER BY name")).scalars().all()
+            after = dict(conn.execute(text(
+                "SELECT s.id, c.name FROM submission s "
+                "JOIN cedant c ON c.id = s.cedant_id")).all())
+    finally:
+        engine.dispose()
+    assert cedants == ["Acme Re", "Acme Reinsurance"]
+    assert {str(sid).lower(): name for sid, name in after.items()} == before
+
+
 # ── Fixtures: a throwaway analyst + submission (cleaned up after) ─────────────
 
 @pytest.fixture()
@@ -187,15 +222,19 @@ def temp_submission():
         "INSERT INTO app_user (id, email, display_name, must_change_password, "
         "is_active) VALUES (:id, :email, 'Mig Test', 0, 1)",
         {"id": uid, "email": f"mig_{uid[:8]}@example.com"}, connection="WORKBENCH")
+    cid = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO cedant (id, name) VALUES (:id, :name)",
+        {"id": cid, "name": f"Mig Cedant {cid[:8]}"}, connection="WORKBENCH")
     with get_connection("WORKBENCH") as conn:
         with conn.begin():
             conn.execute(text(
-                "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
+                "INSERT INTO submission (id, assigned_analyst_id, name, cedant_id, "
                 "data_vintage, status_code, inserted_at, updated_at, inserted_by, "
                 "updated_by) "
-                "VALUES (:id, :uid, 'MigDeal', 'Mig Cedant', '2026-06-30', "
+                "VALUES (:id, :uid, 'MigDeal', :cid, '2026-06-30', "
                 "'ACTIVE', :now, :now, :uid, :uid)"
-            ), {"id": sid, "uid": uid, "now": now})
+            ), {"id": sid, "uid": uid, "cid": cid, "now": now})
             conn.execute(text(
                 "INSERT INTO submission_status_event (id, submission_id, status_code, "
                 "at, inserted_by) VALUES (:eid, :sid, 'ACTIVE', :now, :uid)"
@@ -209,6 +248,8 @@ def temp_submission():
     execute_command("DELETE FROM submission WHERE id = :sid", {"sid": sid},
                     connection="WORKBENCH")
     execute_command("DELETE FROM app_user WHERE id = :uid", {"uid": uid},
+                    connection="WORKBENCH")
+    execute_command("DELETE FROM cedant WHERE id = :cid", {"cid": cid},
                     connection="WORKBENCH")
 
 

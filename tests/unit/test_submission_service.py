@@ -29,7 +29,6 @@ from app.services.submission_service import (
     ContractInvalid,
     ContractOwner,
     add_contract,
-    cedant_suggestions,
     create_submission,
     find_similar,
     get_status_history,
@@ -54,6 +53,7 @@ from db import (
     execute_scalar,
     is_unique_violation,
 )
+from tests.unit.conftest import cedant_id
 
 STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
 
@@ -72,7 +72,7 @@ def _mk(db, *, owner=None, name="TY2604_AmericanFamily", cedant="American Family
         crm = crm or f"CRM-{uuid.uuid4().hex[:6]}"
         contracts = [ContractInput(crm_id=crm, treaty_type_code=tt, inception_date=inc)]
     res = create_submission(
-        name=name, cedant_name=cedant, treaty_year=ty, contracts=contracts,
+        name=name, cedant_id=cedant_id(cedant), treaty_year=ty, contracts=contracts,
         data_vintage="2026-06-30", actor_id=owner or db.user_a, confirmed=confirmed,
     )
     return res
@@ -404,58 +404,19 @@ def test_closed_submission_rejects_association_writes(iteration2_db, drive):
             actor_id=iteration2_db.user_a, submission_id=submission_id)
 
 
-def test_cedant_suggestions_distinct_and_sorted(iteration1_db):
-    _mk(iteration1_db, name="A", cedant="Acme Mutual", tt="per_occurrence_cat_xol",
-        inc=date(2026, 1, 1))
-    _mk(iteration1_db, name="B", cedant="Acme Mutual", tt="aggregate_xol",
-        inc=date(2026, 2, 1))   # same cedant, distinct attrs (no dup warning)
-    _mk(iteration1_db, name="C", cedant="Acadia Re", tt="per_occurrence_cat_xol",
-        inc=date(2026, 3, 1))
-    _mk(iteration1_db, name="D", cedant="Beta Insurance", tt="stop_loss",
-        inc=date(2026, 4, 1))
-    # cedant_suggestions is a global DISTINCT with no owner scope, so restrict the
-    # equality check to the cedants this test created — unrelated "Ac…" cedants in
-    # a shared dev DB then can't fail it, while DISTINCT + sort order are still
-    # verified (Acme Mutual appears once; Acadia sorts before Acme).
-    out = cedant_suggestions("Ac")
-    ours = [c for c in out if c in {"Acadia Re", "Acme Mutual"}]
-    assert ours == ["Acadia Re", "Acme Mutual"]
-    assert "Beta Insurance" not in out
-    assert cedant_suggestions("") == []
-
-
-def test_cedant_suggestions_match_anywhere_in_the_name(iteration1_db):
-    # CR7: prefix matching never found "American Family Mutual" from "fam".
-    _mk(iteration1_db, name="AF", cedant="American Family Mutual",
-        tt="per_occurrence_cat_xol", inc=date(2026, 5, 1))
-    assert "American Family Mutual" in cedant_suggestions("fam")
-
-
-def test_cedant_suggestions_treat_wildcards_literally(iteration1_db):
-    _mk(iteration1_db, name="Pct", cedant="50% Quota Co", tt="stop_loss",
-        inc=date(2026, 6, 1))
-    _mk(iteration1_db, name="Plain", cedant="Zeta Re", tt="stop_loss",
-        inc=date(2026, 7, 1))
-    out = cedant_suggestions("0%")
-    assert "50% Quota Co" in out and "Zeta Re" not in out
-
-
-def test_suggestions_ignore_a_one_character_term(iteration1_db):
+def test_link_search_ignores_a_one_character_term(iteration1_db):
     # A one-character LIKE '%a%' scans every submission for a menu the analyst
-    # cannot read; both searches wait for the second character.
+    # cannot read; the search waits for the second character.
     _mk(iteration1_db, name="Solo", cedant="Solo Re", tt="stop_loss",
         inc=date(2026, 8, 1))
-    assert cedant_suggestions("S") == []
-    assert cedant_suggestions("  s  ") == []
     assert search_submissions_for_link("S") == []
-    assert "Solo Re" in cedant_suggestions("So")
+    assert search_submissions_for_link("So") != []
 
 
-def test_suggestions_cap_the_row_count_in_the_query(iteration1_db):
+def test_link_search_caps_the_row_count_in_the_query(iteration1_db):
     for index in range(6):
         _mk(iteration1_db, name=f"Capped {index}", cedant=f"Capped Re {index}",
             tt="stop_loss", inc=date(2026, 9, 1))
-    assert len(cedant_suggestions("Capped Re", limit=3)) == 3
     assert len(search_submissions_for_link("Capped", limit=2)) == 2
 
 
@@ -489,14 +450,15 @@ def test_list_filters_combine(iteration1_db):
     # Scope every filter query to this test's throwaway owner so rows already
     # present in a shared dev DB can't skew the counts. owner_ids is itself just
     # another AND-predicate, so this still exercises filter combination.
-    assert len(list_submissions(owner_ids=[a], cedant_name="Acme").rows) == 2
+    assert len(list_submissions(owner_ids=[a], cedant_ids=[cedant_id("Acme")]).rows) == 2
     assert len(list_submissions(
         owner_ids=[a], treaty_type_codes=["per_occurrence_cat_xol"]).rows) == 2
     assert len(list_submissions(owner_ids=[a], inception_date=date(2026, 6, 1)).rows) == 1
     assert len(list_submissions(owner_ids=[a], treaty_years=[2025]).rows) == 1
     # combined AND: Acme + per_occurrence_cat_xol → only X
     combo = list_submissions(
-        owner_ids=[a], cedant_name="Acme", treaty_type_codes=["per_occurrence_cat_xol"]).rows
+        owner_ids=[a], cedant_ids=[cedant_id("Acme")],
+        treaty_type_codes=["per_occurrence_cat_xol"]).rows
     assert len(combo) == 1 and combo[0].name == "X"
 
 
@@ -516,15 +478,26 @@ def test_list_search_by_name_ands_every_word(iteration1_db):
     assert list_submissions(owner_ids=[a], name="mutual").rows == []
 
 
-def test_list_cedant_filter_matches_part_of_the_name(iteration1_db):
-    """The cedant box is free text, so it has to match the way an analyst types it —
-    a fragment, in whatever case. Exact equality returned nothing for "fam"."""
+def test_list_cedant_filter_matches_any_picked_cedant(iteration1_db):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, owner=a, name="Cedant partial",
-              cedant="American Family Mutual").submission_id
-    assert {r.id for r in list_submissions(owner_ids=[a], cedant_name="fam").rows} == {sid}
-    assert {r.id for r in list_submissions(
-        owner_ids=[a], cedant_name="american mutual").rows} == {sid}
+    acme = _mk(iteration1_db, owner=a, name="Acme deal", cedant="Acme").submission_id
+    beta = _mk(iteration1_db, owner=a, name="Beta deal", cedant="Beta").submission_id
+    _mk(iteration1_db, owner=a, name="Gamma deal", cedant="Gamma")
+    picked = [cedant_id("Acme"), cedant_id("Beta")]
+    assert {r.id for r in list_submissions(owner_ids=[a], cedant_ids=picked).rows} == {
+        acme, beta}
+    assert list_submissions(owner_ids=[a], cedant_ids=["not-a-uuid"]).rows == []
+
+
+def test_a_cedant_rename_shows_on_the_list_row(iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, owner=a, name="Renamed cedant deal",
+              cedant="Old Name Re").submission_id
+    execute_command("UPDATE cedant SET name = 'New Name Re' WHERE id = :id",
+                    {"id": cedant_id("Old Name Re")}, connection="WORKBENCH")
+    row = next(r for r in list_submissions(owner_ids=[a]).rows if r.id == sid)
+    assert row.cedant_name == "New Name Re"
+    assert get_submission(sid).cedant_name == "New Name Re"
 
 
 def test_list_filter_by_owner_id(iteration1_db):
@@ -946,7 +919,7 @@ def test_create_and_update_refuse_a_blank_data_vintage(iteration1_db):
     """P-19: the data vintage is required on the submission (note 35 D13)."""
     a = iteration1_db.user_a
     with pytest.raises(ValueError, match="data_vintage"):
-        create_submission(name="No vintage", cedant_name="V Re", data_vintage=None,
+        create_submission(name="No vintage", cedant_id=cedant_id("V Re"), data_vintage=None,
                           actor_id=a, confirmed=True)
     assert list_submissions(owner_ids=[a], name="No vintage").rows == []
     sid = _mk(iteration1_db, owner=a, name="Has vintage").submission_id
@@ -958,7 +931,7 @@ def test_create_and_update_refuse_a_blank_data_vintage(iteration1_db):
 
 def test_create_writes_every_contract_row_in_one_transaction(iteration1_db):
     res = create_submission(
-        name="TY2701_Allstate", cedant_name="Allstate", data_vintage="2026-06-30",
+        name="TY2701_Allstate", cedant_id=cedant_id("Allstate"), data_vintage="2026-06-30",
         contracts=[_row("A-1", "per_occurrence_cat_xol"),
                    _row("A-2", "aggregate_xol"),
                    _row("A-3", "top_and_drop", exp=date(2029, 12, 31), status="WON")],
@@ -983,7 +956,7 @@ def test_create_writes_every_contract_row_in_one_transaction(iteration1_db):
 def test_create_refuses_a_bad_contract_row_and_writes_nothing(
         iteration1_db, rows, index, message):
     with pytest.raises(ContractInvalid) as raised:
-        create_submission(name="Refused", cedant_name="R Re", contracts=rows,
+        create_submission(name="Refused", cedant_id=cedant_id("R Re"), contracts=rows,
                           data_vintage="2026-06-30", actor_id=iteration1_db.user_a, confirmed=True)
     assert raised.value.index == index and str(raised.value) == message
     assert raised.value.owner is None
@@ -995,7 +968,7 @@ def test_create_refuses_a_crm_id_that_is_a_contract_on_another_deal(iteration1_d
     whatever the case and whitespace of the typed value."""
     owner = _mk(iteration1_db, name="Owner deal", crm="X-1").submission_id
     with pytest.raises(ContractInvalid) as raised:
-        create_submission(name="Second", cedant_name="S Re",
+        create_submission(name="Second", cedant_id=cedant_id("S Re"),
                           contracts=[_row("X-9"), _row(" x-1 ")],
                           data_vintage="2026-06-30", actor_id=iteration1_db.user_a, confirmed=True)
     assert raised.value.index == 1
@@ -1189,26 +1162,26 @@ def test_find_similar_name_and_attribute_arms(iteration1_db):
     # planted row's presence/absence rather than exact result sets, so unrelated
     # look-alikes already in a shared dev DB don't fail the test.
     # name-match arm (different cedant, different contracts)
-    by_name = find_similar(name="TY2604_Acme", cedant_name="Zzz",
+    by_name = find_similar(name="TY2604_Acme", cedant_id=cedant_id("Zzz"),
                            contract_terms=[("stop_loss", date(2030, 1, 1))])
     assert first in {r.id for r in by_name}
     # attribute-match arm (different name): same cedant with a contract of the
     # same treaty type and inception as one of the posted rows
     by_attr = find_similar(
-        name="Totally Different", cedant_name="Acme Mutual",
+        name="Totally Different", cedant_id=cedant_id("Acme Mutual"),
         contract_terms=[("stop_loss", date(2030, 1, 1)),
                         ("per_occurrence_cat_xol", date(2026, 4, 1))])
     assert first in {r.id for r in by_attr}
     # same cedant, no contract posted → name alone decides
     assert first not in {r.id for r in find_similar(
-        name="Totally Different", cedant_name="Acme Mutual")}
+        name="Totally Different", cedant_id=cedant_id("Acme Mutual"))}
     # genuinely new deal → our row is not a look-alike
     assert first not in {r.id for r in find_similar(
-        name="Brand New", cedant_name="Nobody Re",
+        name="Brand New", cedant_id=cedant_id("Nobody Re"),
         contract_terms=[("stop_loss", date(2031, 1, 1))])}
     # exclude_id skips the row being renamed
     assert first not in {r.id for r in find_similar(
-        name="TY2604_Acme", cedant_name="Acme Mutual",
+        name="TY2604_Acme", cedant_id=cedant_id("Acme Mutual"),
         contract_terms=[("per_occurrence_cat_xol", date(2026, 4, 1))],
         exclude_id=first)}
 
@@ -1252,7 +1225,7 @@ def test_create_with_an_unknown_link_target_is_rejected(iteration1_db, link_valu
     # deal has to be refused before the INSERT turns it into a driver error.
     with pytest.raises(UnknownLinkError):
         create_submission(
-            name="Stale link", cedant_name="American Family",
+            name="Stale link", cedant_id=cedant_id("American Family"),
             links_to_submission_id=link_value, data_vintage="2026-06-30", actor_id=iteration1_db.user_a,
             confirmed=True)
     # Scoped to this test's throwaway owner, so the assertion is "the deal was not
@@ -1288,7 +1261,7 @@ def test_blank_treaty_year_stays_blank(iteration1_db):
     """P-20 (note 33 D8): the treaty year is entered by hand; nothing fills a
     blank one from the contracts or the data vintage."""
     sid = create_submission(
-        name="No year given", cedant_name="Y Re", treaty_year=None,
+        name="No year given", cedant_id=cedant_id("Y Re"), treaty_year=None,
         contracts=[_row("A-1", inc=date(2027, 1, 1)), _row("A-2", inc=date(2026, 7, 1))],
         data_vintage="2026-06-30", actor_id=iteration1_db.user_a, confirmed=True).submission_id
     assert get_submission(sid).treaty_year is None
@@ -1438,14 +1411,15 @@ def test_view_emits_one_row_per_contract_and_none_for_a_deal_without(iteration1_
 def test_filter_clauses_prefix_every_parameter_and_group_the_contract_ones(
         iteration1_db):
     clauses, params = submission_filters.submission_filter_clauses(
-        {"owner_ids": [iteration1_db.user_a], "name": "am fam", "cedant_name": "mutual",
+        {"owner_ids": [iteration1_db.user_a], "name": "am fam",
+         "cedant_ids": [str(uuid.uuid4())],
          "crm_ids": ["T-1"], "treaty_type_codes": ["per_risk_xol"],
          "inception_date": "2026-04-01", "treaty_years": [2026],
          "status_codes": ["ACTIVE"], "contract_status_codes": ["WON"], "client_ids": [27],
          "in_force_as_of": date(2026, 6, 1)}, alias="x")
     assert all("x." in clause for clause in clauses)
     assert "s." not in " ".join(clauses)
-    assert set(params) == {"owner0", "n0", "n1", "c0", "crm0", "tt0", "inc", "ty0",
+    assert set(params) == {"owner0", "n0", "n1", "ced0", "crm0", "tt0", "inc", "ty0",
                            "ms0", "cs0", "cl0", "won", "asof"}
     assert params["won"] == submission_filters.WON == "WON"
     # P-18: every contract-level clause sits in the one EXISTS over contract.
@@ -1490,7 +1464,7 @@ def test_contract_level_filters_are_met_by_one_contract_together(iteration1_db):
 def test_client_id_is_stored_updated_and_filtered(iteration1_db, loss_clients):
     a = iteration1_db.user_a
     res = create_submission(
-        name="With client", cedant_name="C", client_id=27, data_vintage="2026-06-30", actor_id=a, confirmed=True)
+        name="With client", cedant_id=cedant_id("C"), client_id=27, data_vintage="2026-06-30", actor_id=a, confirmed=True)
     bare = _mk(iteration1_db, owner=a, name="Bare", inc=date(2026, 7, 1)).submission_id
     sub = get_submission(res.submission_id)
     assert sub.client_id == 27 and sub.client_name == "Travelers Corporate Cat"

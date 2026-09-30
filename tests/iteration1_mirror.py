@@ -30,9 +30,14 @@ ITERATION1_SCHEMA = [
     """CREATE TABLE contract_status_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
+    """CREATE TABLE cedant (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1,
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
+    )""",
+    "CREATE UNIQUE INDEX uq_cedant_name ON cedant (name COLLATE NOCASE)",
     """CREATE TABLE submission (
         id TEXT PRIMARY KEY, assigned_analyst_id TEXT, name TEXT,
-        cedant_name TEXT, treaty_year INTEGER, links_to_submission_id TEXT,
+        cedant_id TEXT, treaty_year INTEGER, links_to_submission_id TEXT,
         directory_path TEXT, client_id INTEGER, data_vintage TEXT,
         status_code TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
@@ -45,17 +50,18 @@ ITERATION1_SCHEMA = [
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     "CREATE UNIQUE INDEX uq_contract_crm_id ON contract (crm_id COLLATE NOCASE)",
-    # Same text as alembic/versions/0001_initial.py: SQLite runs it unchanged.
+    # Same text as alembic/versions/0003_cedant.py: SQLite runs it unchanged.
     """CREATE VIEW v_contract AS
 SELECT s.id            AS submission_id,
        s.name          AS submission_name,
-       s.cedant_name, s.client_id, s.treaty_year, s.data_vintage,
+       ced.name        AS cedant_name, s.client_id, s.treaty_year, s.data_vintage,
        s.status_code   AS modeling_status_code,
        c.id            AS contract_id,
        c.crm_id, c.treaty_type_code, c.inception_date, c.expiration_date,
        c.contract_status_code
 FROM contract c
-JOIN submission s ON s.id = c.submission_id""",
+JOIN submission s ON s.id = c.submission_id
+JOIN cedant ced ON ced.id = s.cedant_id""",
     """CREATE TABLE submission_status_event (
         id TEXT PRIMARY KEY, submission_id TEXT, status_code TEXT, reason TEXT,
         at TEXT, inserted_by TEXT
@@ -391,7 +397,8 @@ ANALYSIS_PERSPECTIVE_SEED = [("GR", "Gross", 10),
 # Tables whose mirror must match the real migrated schema column-for-column. A new
 # migration column here MUST be added to the mirror above or the guard fails.
 EXACT_MATCH_TABLES = (
-    "treaty_type_kind", "submission_status_kind", "contract_status_kind", "submission",
+    "treaty_type_kind", "submission_status_kind", "contract_status_kind", "cedant",
+    "submission",
     "contract", "submission_status_event", "submission_edm",
     "submission_rdm",
     # Iteration 2 — irp_job / rwb_job families (full mirrors, exact match).
