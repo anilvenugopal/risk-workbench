@@ -35,7 +35,17 @@ def _make_edm(name: str = "EDM") -> str:
 
 CAT = {"treatyName": "Cat XoL", "treatyType": "CATA", "attachmentLevel": "PORT",
        "attachmentPoint": 25000000.0, "occurrenceLimit": 100000000.0,
-       "currency": {"code": "USD"}}
+       "currency": {"code": "USD"},
+       "cedant": {"cedantId": "ASST", "cedantName": "Asset Re"},
+       "lobs": [
+           {"lobId": 5955, "lobName": "Lend",
+            "uri": "/platform/riskdata/v1/exposures/5331056/treaties/2/lobs/5955"},
+           {"lobId": 8837, "lobName": "Prop",
+            "uri": "/platform/riskdata/v1/exposures/5331056/treaties/2/lobs/8837"},
+       ],
+       "producer": {"producerId": "P1", "producerName": "Broker Co"},
+       "uri": "/platform/riskdata/v1/exposures/5331056/treaties/2",
+       "tagIds": [1, 2]}
 QS = {"treatyName": "Quota Share", "treatyType": "QUOT", "attachmentLevel": "POL",
       "riskLimit": 10000000.0, "percentageRiShare": 40.0}
 
@@ -71,8 +81,28 @@ def test_workbook_is_valid_xlsx_with_union_of_attribute_columns(iteration2_db):
     # a key absent from a treaty renders empty, never an error
     assert by_name["Cat XoL"]["riskLimit"] in (None, "")
     assert by_name["Quota Share"]["percentageRiShare"] == 40.0
-    # non-scalar attribute values are serialized, not dropped
-    assert "USD" in str(by_name["Cat XoL"]["currency"])
+    cat = by_name["Cat XoL"]
+    assert cat["currency"] == "USD"
+    assert cat["cedant"] == "Asset Re"
+    assert cat["lobs"] == "Lend, Prop"
+    assert "uri" not in header
+    assert "tagIds" not in header
+    assert cat["producer"] == "Broker Co"
+
+
+def test_workbook_joins_a_list_of_cedants(iteration2_db):
+    edm_id = _make_edm()
+    treaty_service.upsert_treaty_detail(
+        edm_id=edm_id, irp_id="1044", name="Multi", as_of=_utcnow(),
+        attributes={"treatyName": "Multi", "cedant": [
+            {"cedantId": "A1", "cedantName": "A"},
+            {"cedantId": "B1", "cedantName": "B"}]})
+
+    ws = load_workbook(io.BytesIO(
+        treaty_service.build_treaty_workbook(edm_id=edm_id))).active
+    header = [c.value for c in ws[1]]
+    row = dict(zip(header, next(ws.iter_rows(min_row=2, values_only=True))))
+    assert row["cedant"] == "A, B"
 
 
 def test_workbook_reads_stored_detail_only_no_gateway_call(
