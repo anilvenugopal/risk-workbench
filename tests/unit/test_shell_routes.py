@@ -131,6 +131,24 @@ class TestWorkflowsIrpJobs:
         assert resp.status_code == 200
         assert "Portfolio A DLM" in resp.text
 
+    @pytest.mark.parametrize("status, progress, chip", [
+        ("RUNNING", 45, ">RUNNING 45%<"),
+        ("RUNNING", None, ">RUNNING<"),
+        ("QUEUED", 10, ">QUEUED<"),
+    ])
+    def test_status_chip_shows_progress_only_while_running(
+            self, monkeypatch, status, progress, chip):
+        from app.services import irp_job_service
+
+        monkeypatch.setattr(irp_job_service, "list_recent", lambda: [{
+            "id": "1", "irp_job_type": "analysis", "type_label": "Analysis",
+            "status": status, "progress": progress, "attempts": 1,
+            "submitted_at": "2026-08-21 10:00:00", "submitted_by": "Test User",
+            "entity_name": "Portfolio A DLM",
+        }])
+        resp = TestClient(_make_app()).get("/workflows/irp-jobs/table")
+        assert chip in resp.text
+
     def test_empty_state(self, monkeypatch):
         from app.services import irp_job_service
 

@@ -151,7 +151,8 @@ clicked and, on the next `window` focus, POSTs the existing `.../sync` route onc
 
 Replaces the stub body with a read-only table over `irp_job` (newest first, capped):
 type, entity/analysis name, status chip, submitted-by (`inserted_by` → user), submitted
-at, attempts. 3s self-poll on the fragment. No actions.
+at, attempts. The status chip of a RUNNING job appends `irp_job.progress` when it is
+set, e.g. `RUNNING 45%`. 3s self-poll on the fragment. No actions.
 
 ## Portfolio table changes (existing routes)
 
