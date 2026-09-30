@@ -205,6 +205,7 @@ def _render_table(*, statuses, filters=None):
     # The app's own env (autoescape on) — that is what turns the poll URL's query
     # separator into `&amp;` (valid HTML, htmx reads it back as `&`).
     env = Jinja2Templates(directory=TEMPLATE_DIRS).env
+    env.globals["ui_poll_interval_secs"] = 3
     filter_values = {"q": "", "status": "", **(filters or {})}
     live = any(s in edm_service.TRANSIENT_STATUSES for s in statuses)
     html = env.get_template("partials/library_table.html").render(

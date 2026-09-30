@@ -9,7 +9,7 @@
 {% set live = backfill_running or entities | selectattr('status', 'in', ('pending_import', 'importing')) | list | length > 0 %}
 <section id="submission-{{ kind }}-section"
   hx-get="{{ table_url }}" hx-target="this" hx-swap="outerHTML"
-  hx-trigger="{% if live %}every 3s [!document.querySelector('.entity-notes-cell--editing')], {% endif %}modeling-status-changed from:body">
+  hx-trigger="{% if live %}every {{ ui_poll_interval_secs }}s [!document.querySelector('.entity-notes-cell--editing')], {% endif %}modeling-status-changed from:body">
 {% if entity_message %}<div class="form-banner">{{ entity_message }}</div>{% endif %}
 <div class="section-head submission-entity-head">
   <h2>{{ kind|upper }}s</h2>

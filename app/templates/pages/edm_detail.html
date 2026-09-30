@@ -16,7 +16,7 @@
 {% include "partials/edm_detail_body.html" %}
 {# The modal mounts sit OUTSIDE the self-polling #edm-detail wrapper — same
    reason submission_detail.html keeps #submission-entity-modal outside its
-   polled sections: an open modal must never be wiped by the 3s poll. #}
+   polled sections: an open modal must never be wiped by the poll. #}
 <div id="execute-modal"></div>
 {# Breakout modal mount (spec 005). The hx-on handler lets the modal's 404
    (portfolio gone) and 409 (confirm refused) fragments swap in — htmx drops

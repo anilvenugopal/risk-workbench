@@ -403,7 +403,7 @@ def _results_section_context(request: Request, submission_id: str,
         "delete_url": f"/submissions/{submission_id}/analyses/delete",
         "import_url": f"/submissions/{submission_id}/analyses/import",
         "status_filter": _results_status_filter(request),
-        # Keeps the 3s poll alive between a compose POST and the worker's claim
+        # Keeps the poll alive between a compose POST and the worker's claim
         # of the group row (spec 012 — no group row exists yet to read as live).
         "grouping_request_id": grouping_request_id or "",
         "execution_live": grouping_service.grouping_request_is_live(
@@ -437,7 +437,7 @@ def submission_analyses(request: Request, submission_id: str):
 @router.post("/submissions/{submission_id}/analyses/rows",
              response_class=HTMLResponse)
 async def submission_analyses_rows(request: Request, submission_id: str):
-    """The Results section's 3s poll. No writes, no Risk Modeler call
+    """The Results section's poll. No writes, no Risk Modeler call
     (Article 11)."""
     submission = submission_service.get_submission(submission_id)
     if submission is None:

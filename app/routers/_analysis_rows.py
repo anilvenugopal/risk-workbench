@@ -1,4 +1,4 @@
-"""The Analyses section's 3s rows POST, shared by the EDM, contextual-EDM, and
+"""The Analyses section's rows POST, shared by the EDM, contextual-EDM, and
 submission scope routes. It writes nothing, so it takes no CSRF token."""
 
 from __future__ import annotations

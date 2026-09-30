@@ -67,6 +67,7 @@ templates.env.globals["app_env"] = settings.app_env
 templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
 templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
 templates.env.globals["generate_csrf_token"] = generate_csrf_token
+templates.env.globals["ui_poll_interval_secs"] = settings.ui_poll_interval_secs
 # Every perspective toggle and the merged grid's AAL column open on this one;
 # a global keeps the routes that render those partials out of it.
 templates.env.globals["default_perspective"] = analysis_service.DEFAULT_PERSPECTIVE

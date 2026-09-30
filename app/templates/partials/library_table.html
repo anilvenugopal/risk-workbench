@@ -8,7 +8,7 @@
      list_route     — the unfiltered list route (clear-filters target)
 
    Live list: while any row is still moving
-   under a worker (`live`), this wrapper polls its own render every 3s and swaps
+   under a worker (`live`), this wrapper polls its own render and swaps
    itself, so a pending → importing → ready row updates without a reload. The
    filters stay outside the wrapper, so a swap never disturbs what's typed; the
    request's own query string (`query_string`) rides along on the poll URL, so a
@@ -18,7 +18,7 @@
 <div id="lib-live"
   {%- if live %}
   hx-get="{{ list_route }}/table?{{ query_string }}"
-  hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"
+  hx-trigger="every {{ ui_poll_interval_secs }}s" hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
 
   {% if validation_error %}

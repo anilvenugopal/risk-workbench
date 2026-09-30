@@ -3,7 +3,7 @@
    an analysis at TY (spec 016 P-09) — newest export first. Every row repeats
    its export's columns on the right; the # column is the export's ordinal and a
    heavier rule opens each export's block. The four selects filter the rows, and
-   the values in force ride on the poll, Retry, and Close URLs. Polls every 10s
+   the values in force ride on the poll, Retry, and Close URLs. Polls
    only while some row is not terminal. Retry and Close re-render the whole
    section, with `action_message` when one was refused (§7, §8). #}
 {% import "partials/export_row_macros.html" as rows_macros %}
@@ -20,7 +20,7 @@
 {%- endmacro %}
 {% set in_progress = rows|rejectattr('is_terminal')|list|length > 0 %}
 <details class="sec" open id="submission-exports"
-  {% if in_progress %}hx-get="/submissions/{{ submission_id }}/exports{{ query }}" hx-trigger="every 10s"
+  {% if in_progress %}hx-get="/submissions/{{ submission_id }}/exports{{ query }}" hx-trigger="every {{ ui_poll_interval_secs }}s"
   hx-target="this" hx-swap="outerHTML"{% endif %}>
   <summary>
     <span class="sec__caret">▸</span>

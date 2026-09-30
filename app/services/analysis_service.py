@@ -324,7 +324,7 @@ class ExecutedAnalysis:
 
     @property
     def is_live(self) -> bool:
-        """Drives the EDM page's 3s self-poll: still moving toward a terminal
+        """Drives the EDM page's self-poll: still moving toward a terminal
         outcome. ``pending`` is the only in-flight run status — every write that
         leaves it is terminal. A ready run whose retrieval is still pending
         keeps polling so the loss numbers land with no analyst action; a failed
@@ -486,7 +486,7 @@ def sort_analyses(rows: list, sort: str, descending: bool) -> list:
 
 
 def section_hash(analyses: list, groups: list) -> str:
-    """Names the Analyses section's set of rows. The 3s poll replaces the whole
+    """Names the Analyses section's set of rows. The poll replaces the whole
     section only when this changes; otherwise it swaps the live rows alone."""
     key = repr((sorted(str(a.id) for a in analyses),
                 sorted((str(g.rdm_id), g.analysis_count) for g in groups)))

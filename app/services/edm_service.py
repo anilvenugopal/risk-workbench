@@ -405,7 +405,7 @@ class EdmDetail:
     # 'error'; None when the failure recorded no submit detail.
     import_error: str | None = None
     # Spec 005 (FR-012): a ``run_breakout_*`` job on one of this EDM's
-    # portfolios is pending|running — keeps the body's 3s self-poll alive so
+    # portfolios is pending|running — keeps the body's self-poll alive so
     # generated rows appear as the worker upserts them.
     breakout_running: bool = False
     # Owning submissions (M:N), oldest-first, linked in the header's meta line
@@ -578,7 +578,7 @@ def get_contextual_edm_detail(
 def get_edm_analyses(
     *, edm_id: Any, submission_id: Any | None = None,
 ) -> EdmAnalysesSection | None:
-    """The Analyses section's own read (T-11). Its 3s self-poll re-renders that
+    """The Analyses section's own read (T-11). Its self-poll re-renders that
     one fragment, so it must not pay for the whole detail page — portfolios,
     geohaz, treaties and breakout page state are all unread by the fragment.
     With ``submission_id`` it also reads the submission's RDMs, which the merged

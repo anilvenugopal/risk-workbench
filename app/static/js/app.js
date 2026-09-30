@@ -836,7 +836,7 @@ document.addEventListener('alpine:init', () => {
   // boxes themselves are read straight off the DOM by hx-include at click
   // time. init() recounts after each full section swap (the swap hook below
   // restores the ticks by value); the MutationObserver recounts when an RDM
-  // group lazy-loads its broker rows or the 3s poll swaps a finished row's
+  // group lazy-loads its broker rows or the poll swaps a finished row's
   // checkbox in, neither of which fires a change event.
   Alpine.data('analysisPicks', () => ({
     count: 0,

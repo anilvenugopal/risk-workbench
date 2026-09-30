@@ -268,7 +268,7 @@ def _detail(request: Request, edm_id: str, status_code: int = 200):
                        {"status_code": 404, "title": "Not found",
                         "detail": "That EDM does not exist."}, status_code=404)
     # Rendered by the page shell (not the polled #edm-detail body, which would
-    # wipe it on the first 3s swap): the import was saved fail-open because the
+    # wipe it on the first poll swap): the import was saved fail-open because the
     # name-collision check couldn't reach Risk Modeler.
     return _render(request, "pages/edm_detail.html",
                    {"edm": edm,
@@ -707,7 +707,7 @@ def detail_analyses(request: Request, edm_id: str):
 
 @router.post("/edms/{edm_id}/analyses/rows", response_class=HTMLResponse)
 async def detail_analyses_rows(request: Request, edm_id: str):
-    """The Analyses section's 3s poll. No writes, no Risk Modeler call
+    """The Analyses section's poll. No writes, no Risk Modeler call
     (Article 11)."""
     return await _analyses_rows(request, edm_id)
 
@@ -813,13 +813,13 @@ def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
     edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
         # EDM hard-gone mid-poll: return a terminal notice with no trigger,
-        # so the every-3s poll ends instead of returning a repeating 404.
+        # so the poll ends instead of returning a repeating 404.
         return HTMLResponse(
             '<div class="page-pad" id="edm-detail">'
             '<div class="state-box state-box--warn">This EDM no longer exists.'
             '</div></div>')
     if poll and edm.sync_running and edm.detail_state == "populated":
-        # A populated page mid-sync: swapping the body every 3s would collapse
+        # A populated page mid-sync: swapping the body on every poll would collapse
         # every <details> the analyst opened and — because #edm-detail is the
         # page's scrolling element — scroll them back to the top. 204 → htmx
         # swaps nothing and the poll keeps ticking; the first post-sync poll
@@ -832,7 +832,7 @@ def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
 
 @router.get("/edms/{edm_id}/body", response_class=HTMLResponse)
 def detail_body(request: Request, edm_id: str):
-    """Read-only body render for HTMX polling. The template emits the ``every 3s``
+    """Read-only body render for HTMX polling. The template emits the poll
     trigger only while the backfill head is in flight (``sync_running``) or the
     import itself still is, so the page updates on its own when the rwb job lands —
     and polling stops once the work is terminal. A populated page mid-sync gets a
@@ -848,11 +848,11 @@ def portfolios_section(request: Request, edm_id: str,
 
     A breakout changes only that section — the completion banner, the source
     row's ``N of M`` counter, the generated rows, the per-row failure lines —
-    so the section polls this route every 3s instead of the whole body: the
+    so the section polls this route instead of the whole body: the
     body wrapper ``#edm-detail`` is the page's scrolling element, and replacing
     it scrolled the analyst back to the top every cycle. The response also
     OOB-swaps the header meta line and the rollup strip, the two places outside
-    the section that carry a portfolio count. The template emits the ``every 3s``
+    the section that carry a portfolio count. The template emits the poll
     trigger only while the breakout episode is live (the run itself, or its
     FR-013 follow-up backfill filling figures in), so polling self-terminates.
 
@@ -866,7 +866,7 @@ def portfolios_section(request: Request, edm_id: str,
     edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
         # EDM hard-gone mid-poll: a terminal notice with no trigger, so the
-        # every-3s poll ends instead of 404-looping (the body-poll precedent).
+        # poll ends instead of 404-looping (the body-poll precedent).
         return HTMLResponse(
             '<details class="sec" open id="edm-portfolios">'
             '<summary><span class="sec__title">Portfolios</span></summary>'
