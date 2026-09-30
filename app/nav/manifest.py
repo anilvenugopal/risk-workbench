@@ -112,6 +112,31 @@ NODES: list[dict[str, Any]] = [
         "hidden": False,
         "bottom": True,
     },
+    # ── Administration sidebar ───────────────────────────────────────────────
+    {
+        "key": "admin.users",
+        "label": "Users",
+        "parent": "admin",
+        "route": "/admin/users",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": False,
+        "roles": ["admin"],
+        "hidden": False,
+        "bottom": False,
+    },
+    {
+        "key": "admin.cedants",
+        "label": "Cedants",
+        "parent": "admin",
+        "route": "/admin/cedants",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": False,
+        "roles": ["admin"],
+        "hidden": False,
+        "bottom": False,
+    },
     # ── Templates sidebar ────────────────────────────────────────────────────
     {
         "key": "templates.suites",

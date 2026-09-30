@@ -1,4 +1,5 @@
-"""Admin routes — user management (list, create, reset password, assign role, force-logout)."""
+"""Admin routes — user management (list, create, reset password, assign role,
+force-logout) and the cedant list."""
 
 from __future__ import annotations
 
@@ -8,6 +9,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.auth.password import hash_password, validate_password_requirements
 from app.routers._guards import require_admin
+from app.services import cedant_service
+from app.services.cedant_service import CedantValidationError
 from db import execute, execute_command
 
 router = APIRouter(prefix="/admin")
@@ -40,7 +43,7 @@ def user_list(request: Request):
         {},
         connection="WORKBENCH",
     )
-    nav = get_nav_context(current_user, "admin")
+    nav = get_nav_context(current_user, "admin.users")
     return _templates(request).TemplateResponse(request, "admin/users.html", {
         "current_user": current_user,
         "nav": nav,
@@ -56,7 +59,7 @@ def new_user_form(request: Request):
     if redirect:
         return redirect
     from app.nav import get_nav_context
-    nav = get_nav_context(current_user, "admin")
+    nav = get_nav_context(current_user, "admin.users")
     all_roles = execute(
         "SELECT code, label FROM role_kind ORDER BY sort_order",
         {},
@@ -91,7 +94,7 @@ def create_user(
     errors = validate_password_requirements(password)
     if errors:
         from app.nav import get_nav_context
-        nav = get_nav_context(current_user, "admin")
+        nav = get_nav_context(current_user, "admin.users")
         return _templates(request).TemplateResponse(request, "admin/user_detail.html", {
             "current_user": current_user,
             "nav": nav,
@@ -141,7 +144,7 @@ def user_detail(request: Request, user_id: str):
         {},
         connection="WORKBENCH",
     )
-    nav = get_nav_context(current_user, "admin")
+    nav = get_nav_context(current_user, "admin.users")
     return _templates(request).TemplateResponse(request, "admin/user_detail.html", {
         "current_user": current_user,
         "nav": nav,
@@ -336,3 +339,76 @@ def provision_oidc_user(
         connection="WORKBENCH",
     )
     return RedirectResponse(f"/admin/users/{user_id}", status_code=302)
+
+
+# ── /admin/cedants ────────────────────────────────────────────────────────────
+# No delete: submissions reference a cedant by id, so a cedant leaves the Create
+# picker by deactivation (P-03).
+
+def _cedants_page(request: Request, current_user, *, status_code: int = 200, **errors):
+    from app.nav import get_nav_context
+    return _templates(request).TemplateResponse(request, "admin/cedants.html", {
+        "current_user": current_user,
+        "nav": get_nav_context(current_user, "admin.cedants"),
+        "cedants": cedant_service.list_cedants(include_inactive=True),
+        **errors,
+    }, status_code=status_code)
+
+
+@router.get("/cedants", response_class=HTMLResponse)
+def cedant_list(request: Request):
+    current_user, redirect = require_admin(request)
+    if redirect:
+        return redirect
+    return _cedants_page(request, current_user)
+
+
+@router.post("/cedants")
+def add_cedant(request: Request, name: str = Form(""), csrf_token: str = Form(...)):
+    current_user, redirect = require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse("/admin/cedants", status_code=303)
+    try:
+        cedant_service.add_cedant(name, actor_id=current_user.id)
+    except CedantValidationError as exc:
+        return _cedants_page(request, current_user, status_code=422,
+                             add_error=str(exc), add_value=name)
+    return RedirectResponse("/admin/cedants", status_code=303)
+
+
+@router.post("/cedants/{cedant_id}/rename")
+def rename_cedant(request: Request, cedant_id: str, name: str = Form(""),
+                  csrf_token: str = Form(...)):
+    current_user, redirect = require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse("/admin/cedants", status_code=303)
+    try:
+        cedant_service.rename_cedant(cedant_id, name, actor_id=current_user.id)
+    except CedantValidationError as exc:
+        return _cedants_page(request, current_user, status_code=422,
+                             rename_error=str(exc), rename_id=cedant_id.lower(),
+                             rename_value=name)
+    return RedirectResponse("/admin/cedants", status_code=303)
+
+
+@router.post("/cedants/{cedant_id}/deactivate")
+def deactivate_cedant(request: Request, cedant_id: str, csrf_token: str = Form(...)):
+    return _set_cedant_active(request, cedant_id, False, csrf_token)
+
+
+@router.post("/cedants/{cedant_id}/reactivate")
+def reactivate_cedant(request: Request, cedant_id: str, csrf_token: str = Form(...)):
+    return _set_cedant_active(request, cedant_id, True, csrf_token)
+
+
+def _set_cedant_active(request: Request, cedant_id: str, active: bool, csrf_token: str):
+    current_user, redirect = require_admin(request)
+    if redirect:
+        return redirect
+    if validate_csrf_token(csrf_token):
+        cedant_service.set_cedant_active(cedant_id, active, actor_id=current_user.id)
+    return RedirectResponse("/admin/cedants", status_code=303)
