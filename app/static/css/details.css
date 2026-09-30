@@ -74,11 +74,12 @@ a.sec__note--link:hover { text-decoration: underline; }
    than losing its last letters. */
 .dtable--wraphead .dtable__head > span { white-space: normal; line-height: 1.15;
   overflow: visible; text-overflow: clip; }
-/* The EDM portfolio table wraps the name in its 230px track instead of cutting
+/* The EDM portfolio table wraps the name in its track instead of cutting
    a breakout name off at the ellipsis; a name with no space to break at still
    wraps rather than being clipped by the cell. */
 .dtable--wrapname .drow > summary > :nth-child(2) { white-space: normal; }
 .dtable--wrapname .dt-title { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.dtable--wrapname .dt-namecol { gap: var(--space-1); }
 /* .drow-static and .dtable__group set display, which beats the UA [hidden] rule;
    the export form's name search hides rows with el.hidden. */
 .drow-static[hidden], .dtable__group[hidden] { display: none; }
