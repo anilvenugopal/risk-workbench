@@ -30,7 +30,7 @@ Active.
 | Field | Name | Rules |
 |---|---|---|
 | Name | `name` | required (unchanged) |
-| Cedant | `cedant_name` | required (unchanged) |
+| Cedant | `cedant_id` | required; one of the active cedants, or on Edit the submission's own cedant even when inactive; any other id → 422 "Pick a cedant from the list." (issue #129) |
 | Client ID | `client_id` | optional; options from `client_service.list_clients()` as `"ID - name"`; disabled with "Client list unavailable — the submission saves without one" when the list is `None` |
 | Data vintage | `data_vintage` | required ISO date; a blank one is refused with "Enter a data vintage." |
 | Treaty year | `treaty_year` | optional; nothing fills it |
@@ -58,7 +58,7 @@ Every multi-value parameter caps at 20 values; over the cap the page returns
 | Param | Type | Label | Applies to | Level | Semantics |
 |---|---|---|---|---|---|
 | `q` | text | Name | all three | submission / entity | unchanged |
-| `cedant` | text | Cedant | all three | submission | word-AND substring on `cedant_name` |
+| `cedant` | multi | Cedant | all three | submission | `cedant_id IN`; the picker lists every cedant, inactive ones labelled "(inactive)" |
 | `owner` | multi | Owner | all three | submission | unchanged defaults |
 | `client` | multi | Client ID | all three | submission | `client_id IN`; NULL never matches |
 | `treaty_year` | multi | Treaty year | all three | submission | `treaty_year IN` |
@@ -133,7 +133,7 @@ Deleted: `CrmTag`, `add_crm_id`, `remove_crm_id`, `list_crm_ids`,
 `set_crm_dates`, `reset_crm_dates`, `deal_status_kinds`,
 `export_service.list_clients`.
 
-`filters` keys (all optional): `owner_ids`, `name`, `cedant_name`,
+`filters` keys (all optional): `owner_ids`, `name`, `cedant_ids`,
 `client_ids`, `treaty_years`, `status_codes` (Modeling), `crm_ids`,
 `treaty_type_codes`, `inception_date`, `contract_status_codes`,
 `in_force_as_of`.

@@ -17,7 +17,7 @@ Shared typed errors (raised by the service layer, mapped to HTTP by the router):
 
 ```python
 def create_submission(
-    *, name: str, cedant_name: str, treaty_type_code: str, inception_date: date,
+    *, name: str, cedant_id: UUID, treaty_type_code: str, inception_date: date,
     treaty_year: int | None = None, links_to_submission_id: UUID | None = None,
     directory_path: str | None = None, actor_id: UUID, confirmed: bool = False,
 ) -> CreateResult:
@@ -41,7 +41,7 @@ def get_submission(submission_id: UUID) -> Submission | None:
 def list_submissions(
     *, owner_id: UUID | None = None,        # set → that analyst's deals; None → every owner
     name: str | None = None,                # word-AND substring match (CR1/CR2)
-    cedant_name: str | None = None,         # word-AND substring match
+    cedant_ids: list[UUID] | None = None,   # any of the picked cedants
     crm_id: str | None = None,              # substring of any CRM tag (CR3)
     treaty_type_code: str | None = None,
     inception_date: date | None = None,
@@ -65,17 +65,11 @@ def status_kinds() -> list[tuple[str, str]]:
     submission_status_kind, for the list's status filter."""
 
 def find_similar(
-    *, name: str, cedant_name: str, treaty_type_code: str, inception_date: date,
+    *, name: str, cedant_id: UUID, treaty_type_code: str, inception_date: date,
     exclude_id: UUID | None = None,
 ) -> list[SubmissionRow]:
     """Return submissions matching name OR (cedant+treaty_type+inception) (FR-004/R4).
     exclude_id skips the row being renamed. Never raises; empty list = no look-alikes."""
-
-def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
-    """SELECT DISTINCT cedant_name … LIKE %term% (FR-006/R6). No cedant table.
-    Contains, not prefix (CR7): "fam" has to find "American Family Mutual".
-    A term under 2 characters returns []; limit is applied by the server via
-    db.row_limit(), not by slicing the rows in Python."""
 
 def search_submissions_for_link(
     term: str, *, exclude_id: UUID | None = None, limit: int = 10,
@@ -83,8 +77,8 @@ def search_submissions_for_link(
     """Backs the "links to" picker (CR8). Every whitespace-separated term must
     match the name or the cedant — AND, not OR (CR2). exclude_id drops the
     submission being edited so it cannot be offered as its own link; a non-UUID
-    exclude_id excludes nothing. Same 2-character minimum and server-side limit
-    as cedant_suggestions."""
+    exclude_id excludes nothing. A term under 2 characters returns []; limit is
+    applied by the server via db.row_limit(), not by slicing the rows in Python."""
 ```
 
 ### Edit / reassign (gated + concurrency-checked)
