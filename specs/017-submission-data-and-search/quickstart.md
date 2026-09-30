@@ -97,7 +97,7 @@ update script's four cases (`test_bulk_update_contract_status.py`).
    offer the eleven FR-012 values. Insert a twelfth row into
    `treaty_type_kind` and reload: both offer twelve.
 5. From the step-1 submission open **Export** on a finished analysis: Client
-   reads 27, Data vintage is empty (and required), the Contract select reads
+   reads 27, Data vintage reads 2026-06-30 (and required), the Contract select reads
    `T-100`, CRM ID `T-100`, treaty inception 2027-01-01. Change the inception and export:
    the export row records the changed date; the submission is unchanged. On
    a two-contract submission the Contract select opens blank; choosing one

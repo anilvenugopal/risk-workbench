@@ -85,7 +85,7 @@ in §3; the `#lib-live` poll URL carries the request's own query string.
 
 `GET /submissions/{sid}/exports/new` renders, beside the fields spec 014
 defines: `client_id` pre-selected from `submission.client_id`; `data_vintage`
-empty, entered for that export; a **Contract** select with one
+pre-filled from `submission.data_vintage`, editable, and recorded on the export only; a **Contract** select with one
 option per contract (`data-crm-id`, `data-inception`), pre-selected when the
 submission has exactly one, blank otherwise. Choosing an option copies its
 values into `crm_id` and `treaty_incept` client-side; both stay editable and

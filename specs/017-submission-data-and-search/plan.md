@@ -69,7 +69,8 @@ service and the templates that read deal status and deal dates change.
 - **Client and treaty types are unchanged** from 9/18 (T-06, T-07); the
   client label becomes "Client ID" (P-05).
 - **Export pre-fill (FR-011).** The export form's `client_id` typeahead
-  pre-selects the submission's client, `data_vintage` starts empty, and a
+  pre-selects the submission's client, `data_vintage` pre-fills from the
+  submission, and a
   Contract select (one option per contract, pre-selected
   when there is one) fills `crm_id` and `treaty_incept` from data attributes
   in an Alpine sliver; both inputs stay editable. `export_service.list_clients`
@@ -222,8 +223,8 @@ None.
   qualifies; the default order with a contract-less submission placed by
   creation date; the library `EXISTS` cases from 9/18 unchanged;
   `v_contract` emits one row per contract and none for a contract-less
-  submission; the export form pre-fills the client and the single contract
-  and leaves data vintage empty; a blank submission data vintage is refused
+  submission; the export form pre-fills the client, the data vintage and the
+  single contract; a blank submission data vintage is refused
   and a blank treaty year stays blank; route tests for the four contract POSTs and every renamed param.
 - **SQL Server integration**: the migration creates `contract` with its FKs,
   `contract_status_kind` holds three rows, `submission` has no
