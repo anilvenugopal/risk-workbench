@@ -89,7 +89,7 @@ its own fragment (`GET /edms/{edm_id}/analyses` and
 `GET /submissions/{submission_id}/edms/{edm_id}/analyses`). While `live` — any
 `irp_analysis` of this EDM still `status_code='pending'`, or the matching
 `execute_analysis_batch` `rwb_job` selected by the optional `execution_id` query
-parameter is `pending` or `running` — the section's poller posts every 3s to
+parameter is `pending` or `running` — the section's poller posts every `UI_POLL_INTERVAL_SECS` seconds to
 `POST …/analyses/rows` (sibling of each GET, and of the submission Results section's
 `GET /submissions/{submission_id}/analyses`). The form body carries `live`, the
 comma-separated ids of the in-progress rows shown, and `hash`, a sha1 of the section's
@@ -156,7 +156,7 @@ No new server route. The treaty section gains "Add / edit in Risk Modeler ↗"
 (`_rm_datasource_url(edm.name, "treaties")`, `target="_blank"` — the existing link,
 now offered for create as well). An Alpine sliver marks the page when the link is
 clicked and, on the next `window` focus, POSTs the existing `.../sync` route once; the
-3s poll then shows the refreshed treaties. No `irp_job`, no job-monitor entry.
+poll then shows the refreshed treaties. No `irp_job`, no job-monitor entry.
 
 ## Job monitor (T-12)
 
@@ -164,7 +164,7 @@ clicked and, on the next `window` focus, POSTs the existing `.../sync` route onc
 
 Replaces the stub body with a read-only table over `irp_job` (newest first, capped):
 type, entity/analysis name, status chip, submitted-by (`inserted_by` → user), submitted
-at, attempts. 3s self-poll on the fragment. No actions.
+at, attempts. Self-polls on the fragment. No actions.
 
 ## Portfolio table changes (existing routes)
 

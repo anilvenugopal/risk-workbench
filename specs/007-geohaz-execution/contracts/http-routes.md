@@ -35,7 +35,7 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
 - The status cell shows the in-line status for a non-terminal job or the
   stored raw `hazardVersion` otherwise (data-model §4).
 - Self-terminating poll: the fragment carries
-  `hx-get … hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"` **only
+  `hx-get … hx-trigger="every {UI_POLL_INTERVAL_SECS}s" hx-target="this" hx-swap="outerHTML"` **only
   while** the portfolio has a non-terminal lookup; on terminal render the
   attributes are omitted and polling stops (FR-012, T-01).
 - 200 with a terminal cell rendering an em-dash (`<span class="na">—</span>`,

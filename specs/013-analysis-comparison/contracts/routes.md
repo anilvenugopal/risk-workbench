@@ -18,7 +18,7 @@ Behavior:
 
 - Renders `partials/compare_modal.html` into `#compare-modal-mount` — the
   mount sits **outside** the self-polling analyses section (breakout-modal
-  precedent), so the 3s poll never removes an open modal.
+  precedent), so the poll never removes an open modal.
 - The list is `list_comparable_analyses` for the scope (data-model.md):
   every analysis of the table at hand, in table order. Submission-scoped
   routes include own and broker analyses; the plain EDM route includes own
