@@ -365,10 +365,12 @@ def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str
     "/submissions/{submission_id}/edms/{edm_id}/analyses/rows",
     response_class=HTMLResponse,
 )
-async def contextual_detail_analyses_rows(
+def contextual_detail_analyses_rows(
     request: Request, submission_id: str, edm_id: str,
+    section_hash: Annotated[str, Form(alias="hash")] = "",
+    live: Annotated[str, Form()] = "",
 ):
-    return await _analyses_rows(request, edm_id, submission_id)
+    return _analyses_rows(request, edm_id, section_hash, live, submission_id)
 
 
 @router.post("/submissions/{submission_id}/edms/{edm_id}/analyses/delete")
@@ -689,13 +691,13 @@ def _analyses_section_partial(request: Request, edm_id: str,
     return _partial(request, "partials/analyses_merged_section.html", ctx)
 
 
-async def _analyses_rows(request: Request, edm_id: str,
-                         submission_id: str | None = None):
+def _analyses_rows(request: Request, edm_id: str, section_hash: str, live: str,
+                   submission_id: str | None = None):
     ctx = _analyses_section_context(request, edm_id, submission_id)
     if ctx is None:
         return retarget_section(_analyses_gone_notice(submission_id),
                                 "edm-executed-analyses")
-    return analysis_rows_response(request, ctx, await request.form(), _partial)
+    return analysis_rows_response(request, ctx, section_hash, live)
 
 
 @router.get("/edms/{edm_id}/analyses", response_class=HTMLResponse)
@@ -706,10 +708,14 @@ def detail_analyses(request: Request, edm_id: str):
 
 
 @router.post("/edms/{edm_id}/analyses/rows", response_class=HTMLResponse)
-async def detail_analyses_rows(request: Request, edm_id: str):
+def detail_analyses_rows(
+    request: Request, edm_id: str,
+    section_hash: Annotated[str, Form(alias="hash")] = "",
+    live: Annotated[str, Form()] = "",
+):
     """The Analyses section's poll. No writes, no Risk Modeler call
     (Article 11)."""
-    return await _analyses_rows(request, edm_id)
+    return _analyses_rows(request, edm_id, section_hash, live)
 
 
 @router.get("/edms/{edm_id}/analyses/compare", response_class=HTMLResponse)

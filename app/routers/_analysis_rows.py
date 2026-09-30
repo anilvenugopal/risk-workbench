@@ -15,17 +15,19 @@ def retarget_section(response: Response, section_id: str) -> Response:
     return response
 
 
-def analysis_rows_response(request: Request, ctx: dict, form,
-                           partial) -> Response:
+def analysis_rows_response(request: Request, ctx: dict, section_hash: str,
+                           live: str) -> Response:
     """The tracked rows, each swapped in place, while the section's set of rows
-    is unchanged; the whole section once it has changed. ``partial`` is the
-    calling router's ``_partial``."""
-    if form.get("hash") != analysis_service.section_hash(ctx["analyses"],
-                                                         ctx["groups"]):
+    is unchanged; the whole section once it has changed."""
+    ctx = {"current_user": request.state.user, **ctx}
+    templates = request.app.state.templates
+    if section_hash != analysis_service.section_hash(ctx["analyses"],
+                                                     ctx["groups"]):
         return retarget_section(
-            partial(request, "partials/analyses_merged_section.html", ctx),
+            templates.TemplateResponse(
+                request, "partials/analyses_merged_section.html", ctx),
             ctx["section_id"])
-    tracked = set((form.get("live") or "").split(","))
+    tracked = set(live.split(","))
     rows = [a for a in ctx["analyses"] if str(a.id) in tracked]
-    return partial(request, "partials/analyses_rows_poll.html",
-                   {**ctx, "rows": rows})
+    return templates.TemplateResponse(
+        request, "partials/analyses_rows_poll.html", {**ctx, "rows": rows})

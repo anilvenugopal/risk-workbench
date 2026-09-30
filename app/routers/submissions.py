@@ -436,7 +436,11 @@ def submission_analyses(request: Request, submission_id: str):
 
 @router.post("/submissions/{submission_id}/analyses/rows",
              response_class=HTMLResponse)
-async def submission_analyses_rows(request: Request, submission_id: str):
+def submission_analyses_rows(
+    request: Request, submission_id: str,
+    section_hash: Annotated[str, Form(alias="hash")] = "",
+    live: Annotated[str, Form()] = "",
+):
     """The Results section's poll. No writes, no Risk Modeler call
     (Article 11)."""
     submission = submission_service.get_submission(submission_id)
@@ -444,7 +448,7 @@ async def submission_analyses_rows(request: Request, submission_id: str):
         return retarget_section(_results_gone(), "submission-analyses")
     return analysis_rows_response(
         request, _results_section_context(request, submission_id, submission),
-        await request.form(), _partial)
+        section_hash, live)
 
 
 @router.get("/submissions/{submission_id}/rdms/{rdm_id}/analyses",
