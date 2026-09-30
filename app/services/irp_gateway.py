@@ -585,8 +585,9 @@ class IRPGateway(Protocol):
 
     def submit_portfolio_analysis(
         self, *, edm_name: str, portfolio_name: str, job_name: str,
-        analysis_profile_name: str, output_profile_name: str,
-        event_rate_scheme_name: str | None, treaty_names: list[str],
+        model_profile_id: int, output_profile_id: int,
+        event_rate_scheme_id: int | None, analysis_type: str,
+        treaty_names: list[str],
         tag_names: list[str], currency: dict,
         min_loss_threshold: float, num_max_loss_event: int,
         franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
@@ -1227,8 +1228,9 @@ class _RealGateway:
 
     def submit_portfolio_analysis(
         self, *, edm_name: str, portfolio_name: str, job_name: str,
-        analysis_profile_name: str, output_profile_name: str,
-        event_rate_scheme_name: str | None, treaty_names: list[str],
+        model_profile_id: int, output_profile_id: int,
+        event_rate_scheme_id: int | None, analysis_type: str,
+        treaty_names: list[str],
         tag_names: list[str], currency: dict,
         min_loss_threshold: float, num_max_loss_event: int,
         franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
@@ -1239,9 +1241,10 @@ class _RealGateway:
         # avoiding one RM search per submitted item.
         job_id, request_body = self._client().analysis.submit_portfolio_analysis_job(
             edm_name=edm_name, portfolio_name=portfolio_name, job_name=job_name,
-            analysis_profile_name=analysis_profile_name,
-            output_profile_name=output_profile_name,
-            event_rate_scheme_name=event_rate_scheme_name,
+            model_profile_id=model_profile_id,
+            output_profile_id=output_profile_id,
+            event_rate_scheme_id=event_rate_scheme_id,
+            analysis_type=analysis_type,
             treaty_names=treaty_names, tag_names=tag_names, currency=currency,
             skip_duplicate_check=True,
             franchise_deductible=franchise_deductible,
@@ -1660,17 +1663,19 @@ def list_currency_scheme_vintages() -> list[CurrencySchemeVintageEntry]:
 
 def submit_portfolio_analysis(
     *, edm_name: str, portfolio_name: str, job_name: str,
-    analysis_profile_name: str, output_profile_name: str,
-    event_rate_scheme_name: str | None, treaty_names: list[str],
+    model_profile_id: int, output_profile_id: int,
+    event_rate_scheme_id: int | None, analysis_type: str,
+    treaty_names: list[str],
     tag_names: list[str], currency: dict,
     min_loss_threshold: float, num_max_loss_event: int,
     franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
 ) -> tuple[str, dict]:
     return _active().submit_portfolio_analysis(
         edm_name=edm_name, portfolio_name=portfolio_name, job_name=job_name,
-        analysis_profile_name=analysis_profile_name,
-        output_profile_name=output_profile_name,
-        event_rate_scheme_name=event_rate_scheme_name,
+        model_profile_id=model_profile_id,
+        output_profile_id=output_profile_id,
+        event_rate_scheme_id=event_rate_scheme_id,
+        analysis_type=analysis_type,
         treaty_names=treaty_names, tag_names=tag_names, currency=currency,
         min_loss_threshold=min_loss_threshold,
         num_max_loss_event=num_max_loss_event,

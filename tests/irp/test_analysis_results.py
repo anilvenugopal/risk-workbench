@@ -21,6 +21,7 @@ import os
 import time
 
 import pytest
+from irp_integration.analysis_validation import analysis_type_for_software_version
 
 from app.services import irp_gateway
 from app.workers.analysis_jobs import STORED_RETURN_PERIODS
@@ -48,8 +49,10 @@ def test_stats_and_ep_for_all_five_perspectives():
     job_name = f"RWB T019 Results {int(time.time())}"
     irp_id, request_body = gateway.submit_portfolio_analysis(
         edm_name=_EDM_NAME, portfolio_name=_PORTFOLIO_NAME, job_name=job_name,
-        analysis_profile_name=profile.name, output_profile_name=output.name,
-        event_rate_scheme_name=None, treaty_names=[], tag_names=[],
+        model_profile_id=profile.irp_id, output_profile_id=output.irp_id,
+        event_rate_scheme_id=None,
+        analysis_type=analysis_type_for_software_version(profile.software_version_code),
+        treaty_names=[], tag_names=[],
         currency={"code": "USD", "scheme": "RMS",
                  "vintage": "RL25", "asOfDate": "2025-05-28"},
         min_loss_threshold=1.0, num_max_loss_event=1,

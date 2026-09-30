@@ -75,12 +75,13 @@
 
       <div class="wf-field">
         <label>NAME <span class="wf-field__req">*</span></label>
-        <input class="wf-field__input" type="text" name="name" required value="{{ form.name or '' }}">
+        <input class="wf-field__input" type="text" name="name" required value="{{ form.name or '' }}"
+               pattern="{{ forms.name_pattern }}" title="{{ forms.name_title }}">
       </div>
 
       <div class="wf-field">
         <label>MODEL PROFILE <span class="wf-field__req">*</span></label>
-        {% call forms.typeahead_select('analysis_profile_name', {
+        {% call forms.typeahead_select('model_profile_irp_id', {
              'id': 'tpl-profile',
              'hx-get': '/templates/analysis-templates/scheme-options',
              'hx-trigger': 'change', 'hx-target': '#tpl-scheme', 'hx-swap': 'innerHTML',
@@ -88,7 +89,7 @@
              required=true) %}
             <option value=""{% if not (model_profile_options | selectattr('selected') | list) %} selected{% endif %}>Choose a model profile…</option>
             {% for option in model_profile_options %}
-            <option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>
+            <option value="{{ option.irp_id }}"{% if option.selected %} selected{% endif %}>
               {%- if option.unresolved -%}
               {{ option.name }} (not found in Risk Modeler)
               {%- else -%}
@@ -102,7 +103,7 @@
 
       <div class="wf-field">
         <label>EVENT RATE SCHEME</label>
-        {% call forms.typeahead_select('event_rate_scheme_name',
+        {% call forms.typeahead_select('event_rate_scheme_irp_id',
              {'id': 'tpl-scheme', '@htmx:after-swap': 'sync()'},
              search='selectSearch({ clearable: true })') %}
             {% with options = event_rate_scheme_options %}{% include "partials/scheme_options.html" %}{% endwith %}
@@ -112,10 +113,10 @@
 
       <div class="wf-field">
         <label>OUTPUT PROFILE <span class="wf-field__req">*</span></label>
-        {% call forms.typeahead_select('output_profile_name', required=true) %}
+        {% call forms.typeahead_select('output_profile_irp_id', required=true) %}
             <option value=""{% if not (output_profile_options | selectattr('selected') | list) %} selected{% endif %}>Choose an output profile…</option>
             {% for option in output_profile_options %}
-            <option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>
+            <option value="{{ option.irp_id }}"{% if option.selected %} selected{% endif %}>
               {{ option.name }}{% if option.unresolved %} (not found in Risk Modeler){% endif %}
             </option>
             {% endfor %}
@@ -150,11 +151,13 @@
 
       <div class="wf-field">
         <label>TAGS</label>
-        <input class="wf-field__input" type="text" name="tags" list="tag-names" value="{{ form.tags or '' }}">
+        <input class="wf-field__input" type="text" name="tags" list="tag-names" value="{{ form.tags or '' }}"
+               pattern="[\s;]*{{ forms.name_pattern }}([\s;]+{{ forms.name_pattern }})*[\s;]*"
+               title="Tag names may use only letters, numbers, underscores, and hyphens.">
         <datalist id="tag-names">
           {% for tag in tag_names %}<option value="{{ tag }}">{% endfor %}
         </datalist>
-        <div class="wf-field__msg wf-field__hint">Separate tag names with semicolons — the first tag autocompletes over tags already used on templates (FR-006).</div>
+        <div class="wf-field__msg wf-field__hint">Separate tag names with semicolons; each may use only letters, numbers, underscores, and hyphens. The first tag autocompletes over tags already used on templates (FR-006).</div>
       </div>
     </div>
 

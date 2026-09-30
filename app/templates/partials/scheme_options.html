@@ -1,6 +1,6 @@
 <option value=""{% if not (options | selectattr('selected') | list) %} selected{% endif %}>Choose a scheme…</option>
 {% for option in options %}
-<option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>
+<option value="{{ option.irp_id }}"{% if option.selected %} selected{% endif %}>
   {%- if option.unresolved -%}
   {{ option.name }} (not found in Risk Modeler)
   {%- elif option.hidden -%}

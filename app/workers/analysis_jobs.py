@@ -21,6 +21,7 @@ from sqlalchemy import text
 from app.config import TY
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import STORED_RETURN_PERIODS, _utcnow
+from app.services.name_check import to_name_token
 from app.workers import broker, dispatch, runtime
 from app.workers.queues import rwb_actor
 from db import execute, execute_command, execute_one, get_connection, is_unique_violation
@@ -34,7 +35,11 @@ NAME_MAX_LEN = 64
 
 
 def build_full_name(portfolio_name: str, template_name: str) -> str:
-    return f"CRE_{portfolio_name}_{template_name}"
+    """Risk Modeler rejects an analysis name outside ``[A-Za-z0-9_-]`` (issue
+    #87). Template names are checked at save; a portfolio name synced from
+    Risk Modeler can carry anything, so it is mapped here. The raw portfolio
+    name still goes to Risk Modeler as the portfolio to analyse."""
+    return f"CRE_{to_name_token(portfolio_name)}_{template_name}"
 
 
 def name_attempt(full_name: str, attempt: int) -> tuple[str, str]:
@@ -145,9 +150,10 @@ def _submit_one(*, edm_id: str, edm_name: str, execution_id: str, portfolio: dic
     submit_kwargs = {
         "edm_name": edm_name, "portfolio_name": portfolio["name"],
         "job_name": claimed["name"],
-        "analysis_profile_name": item["analysis_profile_name"],
-        "output_profile_name": item["output_profile_name"],
-        "event_rate_scheme_name": item["event_rate_scheme_name"],
+        "model_profile_id": item["model_profile_id"],
+        "output_profile_id": item["output_profile_id"],
+        "event_rate_scheme_id": item["event_rate_scheme_id"],
+        "analysis_type": item["analysis_type"],
         "treaty_names": treaty_names, "tag_names": item["tag_names"],
         "currency": item["currency"],
         "min_loss_threshold": item["min_loss_threshold"],

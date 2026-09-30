@@ -10,6 +10,8 @@ Uses the fake IRP gateway only — no DB fixture needed.
 
 from __future__ import annotations
 
+import pytest
+
 from app.config import settings
 from app.services import name_check
 
@@ -81,3 +83,27 @@ def test_cache_bound_evicts_and_never_grows_past_max(fake_irp, monkeypatch):
     name_check.check_edm_name("live-2")
     assert ("edm", "expired-1") not in name_check._cache
     assert len(name_check._cache) <= 2
+
+
+# ── The name character rule (issue #87) ─────────────────────────────────────────
+
+@pytest.mark.parametrize("text, token", [
+    ("Puerto Rico", "Puerto_Rico"),
+    ("CS/WT", "CS_WT"),
+    ("St. Croix", "St_Croix"),
+    (" x ", "x"),
+    ("(x)", "x"),
+    ("already_valid-1", "already_valid-1"),
+])
+def test_to_name_token_maps_each_run_of_other_characters_to_one_underscore(text, token):
+    assert name_check.to_name_token(text) == token
+
+
+@pytest.mark.parametrize("name", ["TY2604_Am-Fam", "a", "_", "-"])
+def test_is_valid_name_accepts_letters_digits_underscore_hyphen(name):
+    assert name_check.is_valid_name(name)
+
+
+@pytest.mark.parametrize("name", ["Alpha EDM", "a.b", "", "a(2)", "Puerto Rico"])
+def test_is_valid_name_rejects_anything_else(name):
+    assert not name_check.is_valid_name(name)

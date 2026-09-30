@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from app.services import irp_gateway, rwb_job_service
+from app.services import irp_gateway, name_check, rwb_job_service
 from app.services._common import _parse_json_dict, _uid
 from app.services.analysis_execution_service import (
     ExecutionGateError,
@@ -391,6 +391,8 @@ def _validate(submission_id: Any, req: GroupingRequest) -> _ValidGrouping:
     group_name = req.group_name.strip()
     if not group_name:
         errors.append("Enter a group name.")
+    elif not name_check.is_valid_name(group_name):
+        errors.append(name_check.name_rule_message("Group"))
     currency, currency_error = _validate_currency(
         req.currency_code, req.currency_scheme, req.currency_vintage)
     if currency_error:

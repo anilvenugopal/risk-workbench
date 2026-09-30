@@ -88,7 +88,8 @@ def _executed(*, edm_id: str, portfolio_id: str | None = None, name="Portfolio A
 
 def _template(name="Template A") -> str:
     return _mk("analysis_template", name=name, analysis_profile_name="Profile",
-               output_profile_name="Output")
+               output_profile_name="Output", model_profile_irp_id=1,
+               output_profile_irp_id=10)
 
 
 def _broker(*, rdm_id: str, edm_id: str, irp_id: str) -> str:

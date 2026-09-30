@@ -698,8 +698,9 @@ class FakeIRP:
 
     def submit_portfolio_analysis(
         self, *, edm_name: str, portfolio_name: str, job_name: str,
-        analysis_profile_name: str, output_profile_name: str,
-        event_rate_scheme_name: str | None, treaty_names: list[str],
+        model_profile_id: int, output_profile_id: int,
+        event_rate_scheme_id: int | None, analysis_type: str,
+        treaty_names: list[str],
         tag_names: list[str], currency: dict,
         min_loss_threshold: float, num_max_loss_event: int,
         franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
@@ -707,9 +708,10 @@ class FakeIRP:
         self.analysis_submits.append({
             "edm_name": edm_name, "portfolio_name": portfolio_name,
             "job_name": job_name,
-            "analysis_profile_name": analysis_profile_name,
-            "output_profile_name": output_profile_name,
-            "event_rate_scheme_name": event_rate_scheme_name,
+            "model_profile_id": model_profile_id,
+            "output_profile_id": output_profile_id,
+            "event_rate_scheme_id": event_rate_scheme_id,
+            "analysis_type": analysis_type,
             "treaty_names": list(treaty_names), "tag_names": list(tag_names),
             "currency": dict(currency),
             "min_loss_threshold": min_loss_threshold,
@@ -726,7 +728,7 @@ class FakeIRP:
         request_body = {
             "resourceUri": f"/irp/analysis/{irp_id}",
             "resourceType": "portfolio",
-            "type": "DLM" if event_rate_scheme_name else "HD",
+            "type": analysis_type,
             "settings": {
                 "name": job_name,
                 "currency": currency,

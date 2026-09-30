@@ -2,6 +2,21 @@
   Sync Impact Report
   ==================
 
+  --- 2026-09-29 (issue 68 — analysis templates reference RM ids) ---
+  Version change: 4.2.3 → 4.3.0  (MINOR — Article 2's name-based coupling
+  bullet narrows to EDMs, portfolios, analyses and treaties; model profile,
+  output profile and event rate scheme are coupled by Risk Modeler id;
+  13-article numbering stable)
+
+  Why: event rate scheme names repeat across peril/region in Risk Modeler
+  (7 live duplicates on 2026-09-28), so a name is not a key for them.
+  `analysis_template` stores `model_profile_irp_id`, `output_profile_irp_id`,
+  `event_rate_scheme_irp_id` (revision 0002); the name columns stay as
+  display labels; submit passes the ids to
+  `submit_portfolio_analysis_job` (irp-integration 0.11.0).
+
+  Templates: none. AGENTS.md version reference updated to v4.3.0.
+
   --- 2026-09-23 (spec 017 Contract status Open, note 34 D9) ---
   Version change: 4.2.2 → 4.2.3  (PATCH — Article 4's in-place list reads
   Won / Lost / Open for `contract.contract_status_code`; no rule changes;
@@ -246,11 +261,15 @@ removed with it — nothing is projected).
 - **"What's next" is computed in code** — a prerequisite gate (a lookup +
   entity-existence / job-terminal-status check), not read off a stored
   `stage.exec_status`.
-- **Coupling is name-based** — each operation resolves its inputs live from Risk
-  Modeler by name at submit time (`search_edms` / `search_portfolios` /
-  `search_analyses` / `search_treaties`). Risk Modeler re-validates names to
-  internal IDs anyway, so a local typed-handle registry would only duplicate
-  state IRP already owns.
+- **Coupling is name-based for EDMs, portfolios, analyses and treaties** — each
+  operation resolves those inputs live from Risk Modeler by name at submit time
+  (`search_edms` / `search_portfolios` / `search_analyses` / `search_treaties`).
+  Risk Modeler re-validates names to internal IDs anyway, so a local
+  typed-handle registry would only duplicate state IRP already owns.
+- **Model profile, output profile and event rate scheme are coupled by Risk
+  Modeler id** — event rate scheme names repeat across peril/region, so
+  `analysis_template` stores the `irp_id` of each and submits by id; the name
+  is stored beside it as a display label only.
 - Entity rows reference each other directly; a job's produced entity records its
   creator via `created_by_irp_job_irp_id`. Any proposal to persist a stored
   sequence/DAG MUST be justified against this article.
@@ -518,4 +537,4 @@ research begins.
 
 ---
 
-**Version**: 4.2.3 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-23
+**Version**: 4.3.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-29

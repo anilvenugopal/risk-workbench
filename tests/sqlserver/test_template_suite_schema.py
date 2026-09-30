@@ -98,6 +98,21 @@ def test_analysis_template_defaults():
     assert defaults["treat_construction_occupancy_as_unknown"].strip("()'") == "1"
 
 
+def test_analysis_template_reference_id_nullability():
+    nullable = {row["COLUMN_NAME"]: row["IS_NULLABLE"] for row in execute(
+        "SELECT COLUMN_NAME, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'analysis_template' "
+        "AND COLUMN_NAME IN ('model_profile_irp_id', 'output_profile_irp_id', "
+        "'event_rate_scheme_irp_id')",
+        connection="WORKBENCH",
+    )}
+    assert nullable == {
+        "model_profile_irp_id": "NO",
+        "output_profile_irp_id": "NO",
+        "event_rate_scheme_irp_id": "YES",
+    }
+
+
 def test_event_rate_scheme_workbench_is_active_column():
     rows = execute(
         "SELECT DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT "
@@ -117,6 +132,7 @@ def test_event_rate_scheme_workbench_is_active_column():
     ("analysis_template", "currency_code"),
     ("analysis_template", "currency_scheme_code"),
     ("analysis_template", "currency_vintage"),
+    ("analysis_template", "analysis_type"),
     ("template_suite_item", "position"),
     ("template_suite_item", "portfolio_name_override"),
 ])

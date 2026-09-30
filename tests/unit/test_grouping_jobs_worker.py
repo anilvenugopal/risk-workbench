@@ -36,19 +36,19 @@ def _irp(analysis_id: str) -> int:
                            {"id": analysis_id}, connection="WORKBENCH")["irp_id"])
 
 
-def _composed_grouping(iteration2_db, group_name: str = "CRE_Sub One_Group",
+def _composed_grouping(iteration2_db, group_name: str = "CRE_Sub_One_Group",
                        fingerprint: str | None = None) -> dict:
     """Drive one grouping through the real compose gate and return its plan.
     The fingerprint defaults to the one FakeIRP's default inspection carries."""
     seed_currency()
-    submission_id = seed_submission("Sub One")
+    submission_id = seed_submission("Sub_One")
     edm_id = seed_edm("EDM One")
     link_submission_edm(submission_id, edm_id)
     a1 = seed_own_analysis(edm_id, "CRE_P1_T1")
     a2 = seed_own_analysis(edm_id, "CRE_P2_T1")
     ids = [_irp(a1), _irp(a2)]
     request_id = svc.request_grouping(
-        submission_id=submission_id, submission_name="Sub One",
+        submission_id=submission_id, submission_name="Sub_One",
         req=svc.GroupingRequest(
             member_ids=[a1, a2], group_name=group_name,
             currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
@@ -89,7 +89,7 @@ def test_worker_claims_submits_and_records(iteration2_db, fake_irp):
 
     group = _group_row(ctx["plan"]["group_analysis_id"])
     assert group["status_code"] == "pending"
-    assert group["name"] == "CRE_Sub One_Group"
+    assert group["name"] == "CRE_Sub_One_Group"
     assert bool(group["is_group"])
     assert group["submission_id"] == ctx["submission_id"]
     members = execute(
@@ -98,10 +98,10 @@ def test_worker_claims_submits_and_records(iteration2_db, fake_irp):
         connection="WORKBENCH")
     assert {m["member_analysis_id"] for m in members} == {ctx["a1"], ctx["a2"]}
 
-    assert fake_irp.grouping_name_checks == ["CRE_Sub One_Group"]
+    assert fake_irp.grouping_name_checks == ["CRE_Sub_One_Group"]
     assert len(fake_irp.grouping_submits) == 1
     submit = fake_irp.grouping_submits[0]
-    assert submit["group_name"] == "CRE_Sub One_Group"
+    assert submit["group_name"] == "CRE_Sub_One_Group"
     assert submit["analysis_ids"] == ctx["irp_ids"]
     assert submit["propagate_detailed_losses"] is True
     assert submit["num_of_simulations"] == 50000
@@ -148,24 +148,24 @@ def test_redelivery_resumes_the_claimed_row_by_pk(iteration2_db, fake_irp):
 
 
 def test_duplicate_name_retries_with_the_next_suffix(iteration2_db, fake_irp):
-    fake_irp.duplicate_group_names.add("CRE_Sub One_Group")
+    fake_irp.duplicate_group_names.add("CRE_Sub_One_Group")
     ctx = _composed_grouping(iteration2_db)
 
     assert grouping_jobs.run_pending(worker_id="w1") == 1
 
     group = _group_row(ctx["plan"]["group_analysis_id"])
     assert group["status_code"] == "pending"
-    assert group["name"] == "CRE_Sub One_Group_2"
-    assert group["full_name"] == "CRE_Sub One_Group_2"
+    assert group["name"] == "CRE_Sub_One_Group_2"
+    assert group["full_name"] == "CRE_Sub_One_Group_2"
     assert fake_irp.grouping_name_checks == [
-        "CRE_Sub One_Group", "CRE_Sub One_Group_2"]
+        "CRE_Sub_One_Group", "CRE_Sub_One_Group_2"]
     assert [s["group_name"] for s in fake_irp.grouping_submits] == [
-        "CRE_Sub One_Group_2"]
+        "CRE_Sub_One_Group_2"]
 
 
 def test_submit_failure_records_submission_failed_without_retry(
         iteration2_db, fake_irp):
-    fake_irp.raise_on_submit_grouping_for.add("CRE_Sub One_Group")
+    fake_irp.raise_on_submit_grouping_for.add("CRE_Sub_One_Group")
     ctx = _composed_grouping(iteration2_db)
 
     grouping_jobs.run_pending(worker_id="w1")
@@ -176,7 +176,7 @@ def test_submit_failure_records_submission_failed_without_retry(
     irp_job = _irp_job(group["id"])
     assert irp_job["status"] == "SUBMISSION FAILED"
     assert irp_job["irp_id"] is None
-    assert json.loads(irp_job["request_params"])["group_name"] == "CRE_Sub One_Group"
+    assert json.loads(irp_job["request_params"])["group_name"] == "CRE_Sub_One_Group"
     rwb = execute_one(
         "SELECT status_code FROM rwb_job WHERE id = :id",
         {"id": ctx["rwb_job_id"]}, connection="WORKBENCH")
@@ -223,7 +223,7 @@ def test_structured_problem_names_the_partition_and_pet_ids(
 def test_worker_submits_the_simulation_sets_beside_the_scheme_and_fingerprint(
         iteration2_db, fake_irp):
     seed_currency()
-    submission_id = seed_submission("Sub One")
+    submission_id = seed_submission("Sub_One")
     edm_id = seed_edm("EDM One")
     link_submission_edm(submission_id, edm_id)
     ctx = seed_mixed_group(fake_irp, submission_id, edm_id)
@@ -236,9 +236,9 @@ def test_worker_submits_the_simulation_sets_beside_the_scheme_and_fingerprint(
     jp_periods = {"peril_code": "WS", "region_code": "JP", "model_version": "2.1",
                   "simulation_periods": 100000}
     svc.request_grouping(
-        submission_id=submission_id, submission_name="Sub One",
+        submission_id=submission_id, submission_name="Sub_One",
         req=svc.GroupingRequest(
-            member_ids=ctx["member_ids"], group_name="CRE_Sub One_Group",
+            member_ids=ctx["member_ids"], group_name="CRE_Sub_One_Group",
             currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
             propagate_detailed_output=True, num_of_simulations="50000",
             event_rate_selections=[json.dumps(ws_scheme)],
@@ -257,7 +257,7 @@ def test_worker_submits_the_simulation_sets_beside_the_scheme_and_fingerprint(
     assert submit["simulation_periods_selections"] == [jp_periods]
     assert submit["expected_inspection_fingerprint"] == FINGERPRINT
     group = execute_one("SELECT id, status_code FROM irp_analysis WHERE is_group = 1 "
-                        "AND name = 'CRE_Sub One_Group'", {}, connection="WORKBENCH")
+                        "AND name = 'CRE_Sub_One_Group'", {}, connection="WORKBENCH")
     assert group["status_code"] == "pending"
     irp_job = _irp_job(group["id"])
     assert irp_job["status"] == "QUEUED"

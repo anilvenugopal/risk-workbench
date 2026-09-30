@@ -51,6 +51,7 @@ from app.services import (
     edm_service,
     export_service,
     grouping_service,
+    name_check,
     rdm_service,
     shared_drive,
     submission_service,
@@ -120,6 +121,8 @@ def _validate_submission_form(
     errors: dict[str, str] = {}
     if not name.strip():
         errors["name"] = "Enter a name for this submission."
+    elif not name_check.is_valid_name(name.strip()):
+        errors["name"] = name_check.name_rule_message("Submission")
     if not cedant_name.strip():
         errors["cedant_name"] = "Enter a cedant."
 

@@ -12,6 +12,7 @@
    one fetch — Alpine pills toggle x-show, so switching dimensions loses no
    ticked state (T-15); cart rows arrive server-composed from the
    group-preview POST. #}
+{% import "partials/form_macros.html" as forms %}
 {%- set base_url = '/edms/' ~ edm_id ~ '/portfolios/' ~ portfolio_id ~ '/breakout' -%}
 {%- set gate = modal.gate if not missing else None -%}
 {%- set custom_mode = mode == 'custom' -%}
@@ -167,7 +168,8 @@
            present in the EDM (P-25 — the EDM import name-check pattern). #}
         <div class="bo-addrow">
           <input type="text" name="group_label" maxlength="{{ name_max }}"
-                 placeholder="Breakout name — e.g. Coastal HU" class="nc-input"
+                 pattern="{{ forms.name_pattern }}" title="{{ forms.name_title }}"
+                 placeholder="Breakout name — e.g. Coastal_HU" class="nc-input"
                  @input="onName($event)"
                  hx-get="{{ base_url }}/name-check"
                  hx-trigger="keyup changed delay:500ms"

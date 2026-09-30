@@ -57,9 +57,9 @@ def test_breakout_request_and_run_emit_business_events(
         assert portfolio_jobs.run_one(rwb_job_id=jid,
                                       rwb_job_type="run_breakout_lob")
     wmsgs = _messages(caplog, "app.workers.portfolio_jobs")
-    assert any("usfl_commercial - EQ Comm created" in m and str(a) in m
+    assert any("usfl_commercial_EQ_Comm created" in m and str(a) in m
                for m in wmsgs)
-    assert any("usfl_commercial - FLD Comm failed" in m
+    assert any("usfl_commercial_FLD_Comm failed" in m
                and "zero accounts" in m and str(a) in m for m in wmsgs)
     assert any("breakout lob completed" in m and str(a) in m
                and "1 created" in m and "1 failed of 2 planned" in m
