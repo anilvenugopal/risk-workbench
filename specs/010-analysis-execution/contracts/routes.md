@@ -85,19 +85,32 @@ No IRP call happens on this request path.
 ## User-executed analyses section
 
 Rendered inside `partials/edm_detail_body.html` on both page variants; the section is
-its own polling fragment (`GET /edms/{edm_id}/analyses` and
-`GET /submissions/{submission_id}/edms/{edm_id}/analyses`), self-polling every 3s while
-`live` — any `irp_analysis` of this EDM still `status_code='pending'`, or the matching
+its own fragment (`GET /edms/{edm_id}/analyses` and
+`GET /submissions/{submission_id}/edms/{edm_id}/analyses`). While `live` — any
+`irp_analysis` of this EDM still `status_code='pending'`, or the matching
 `execute_analysis_batch` `rwb_job` selected by the optional `execution_id` query
-parameter is `pending` or `running`. The fragment preserves `execution_id` in its poll
-and status-filter URLs, so polling starts before the worker inserts an `irp_analysis`
-row and stops only after the batch is terminal and no analysis is live. Because that
-poll re-runs every 3s, both GETs read only what the
-fragment renders (`edm_service.get_edm_analyses`), never the whole detail page. Both
-GETs accept `?status=` clamped to
-`failed` / `in_progress` / `ready` (P-18); the filter is baked into the poll URL so a
-swap never resets it. Rows render in three fixed groups — Failed, In progress, Ready —
-date-descending within each.
+parameter is `pending` or `running` — the section's poller posts every 3s to
+`POST …/analyses/rows` (sibling of each GET, and of the submission Results section's
+`GET /submissions/{submission_id}/analyses`). The form body carries `live`, the
+comma-separated ids of the in-progress rows shown, and `hash`, a sha1 of the section's
+sorted analysis ids plus each RDM group's `(rdm_id, analysis_count)`. The route writes
+nothing and takes no CSRF token.
+
+- Hash unchanged: the response holds each tracked row as an `hx-swap-oob="innerHTML"`
+  fragment on `details#analysis-row-{id}`, plus a fresh poller. Rows keep their place
+  under the current sort and status filter; a row whose status moved out of the filter
+  keeps updating where it is. Ticks, horizontal scroll, and expanded rows are untouched.
+- Hash changed: the response is the whole section with `HX-Retarget: #{section_id}` and
+  `HX-Reswap: outerHTML`.
+- Section gone (EDM deleted or no longer related, submission deleted): the terminal
+  notice with the same retarget headers, which ends the poll.
+
+The GET URL and the rows URL both preserve `execution_id`, `?status=` and the sort, so
+polling starts before the worker inserts an `irp_analysis` row and stops only after the
+batch is terminal and no analysis is live. Every read covers only what the fragment
+renders (`edm_service.get_edm_analyses`), never the whole detail page. The GETs accept
+`?status=` clamped to `failed` / `in_progress` / `ready` (P-18). Rows render in three
+fixed groups — Failed, In progress, Ready — date-descending within each.
 
 `list_executed_analyses` returns one row per analysis by left-joining the latest
 linked `irp_job` through `ROW_NUMBER() OVER (PARTITION BY irp_analysis_id ORDER BY
