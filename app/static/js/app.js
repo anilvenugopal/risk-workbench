@@ -178,6 +178,7 @@ document.addEventListener('alpine:init', () => {
     sourceSelected: false,
     nameVal: '',
     nameState: 'pending',
+    queued: '',
     init() {
       this.nameVal = this.$refs.name ? this.$refs.name.value : '';
       this.nameState = ncState(this.$root.querySelector('.name-collision'));
@@ -225,6 +226,16 @@ document.addEventListener('alpine:init', () => {
     },
     onCheckError(e) {
       if (ncFailOpen(e)) this.onSwap();
+    },
+    // The submission's Add EDM/RDM modal stays open after an import (#131).
+    onImported() {
+      const name = this.$refs.name;
+      this.queued = name.value.trim();
+      name.value = '';
+      this.onName({ target: name });
+      this.$root.querySelectorAll('input[name="source_paths"]')
+        .forEach((c) => { c.checked = false; });
+      this.sourceSelected = false;
     },
   }));
 

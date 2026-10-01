@@ -16,7 +16,7 @@
             hx-post="/submissions/{{ submission.id }}/{{ entity_plural }}/import"
             hx-target="#submission-{{ kind }}-section" hx-swap="outerHTML"
             hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
-            @htmx:after-request="if ($event.detail.elt === $el && $event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()"
+            @htmx:after-request="if ($event.detail.elt === $el && $event.detail.successful) onImported()"
             x-data="importForm()" @change="onChange($event)" @htmx:after-swap="onSwap()"
             @htmx:response-error="onCheckError($event)" @htmx:send-error="onCheckError($event)">
         <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
@@ -34,6 +34,7 @@
         </div>
         {% with name = form.name, kind = entity_kind %}{% include "partials/name_collision.html" %}{% endwith %}
         <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
+        <div class="form-banner" role="status" x-show="queued" x-cloak>{{ entity_kind }} import started: <span x-text="queued"></span>.</div>
         <div class="modal-footer entity-modal-footer">
           <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
           <button class="modal-btn modal-btn--primary" type="submit" :disabled="!canSubmit">Import {{ entity_kind }}</button>
