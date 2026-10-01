@@ -7,7 +7,7 @@ Prerequisite: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) completed — git,
 Python 3.14, ODBC Driver 18, Redis/Valkey, nginx, gcc/g++/make, rsync all
 installed.
 
-Placeholders below (`cinreadm`, `/rms`) stand in for whatever
+Placeholders below (`cinreadmd`, `/rms`) stand in for whatever
 account and path infra actually assigns — substitute the real values when
 deploying for real.
 
@@ -29,8 +29,8 @@ Requested from infra once per server, not repeated per deployment:
 3. Grant the deployment account two narrowly scoped `sudoers` entries, without
    full root — `rhel9-setup.sh` writes both:
    ```
-   cinreadm ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
-   cinreadm ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/conf.d/risk-workbench.conf
+   cinreadmd ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+   cinreadmd ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/conf.d/risk-workbench.conf
    ```
    These are the only privileged actions the deployment performs: writing
    that one nginx config file and reloading nginx.
@@ -45,7 +45,7 @@ ad hoc process the deployment account owns and manages itself.
 ## 1. Verify prerequisites
 
 ```bash
-APP_DIR=/rms DEPLOY_USER=cinreadm PYTHON_PKG=python3.14 \
+APP_DIR=/rms DEPLOY_USER=cinreadmd PYTHON_PKG=python3.14 \
     bash infra/scripts/rhel9/rhel9-check-prereqs.sh
 ```
 
@@ -171,7 +171,7 @@ created and owned correctly by
 [rhel9-setup.sh](../../infra/scripts/rhel9/rhel9-setup.sh) section 7 — `/var/lib` is
 the standard Linux location for a service's own persistent data, not a
 personal user's home directory (early manual testing used
-`/home/cinreadm/valkey-data`; corrected here since a home directory ties
+`/home/cinreadmd/valkey-data`; corrected here since a home directory ties
 the data to one specific account, and `/var/lib` itself is root-owned the
 same way `/opt` is — confirmed directly with `ls -ld /var/lib` — so the
 one-time `mkdir`+`chown` needs `sudo`, same pattern as the app directory).
@@ -244,7 +244,7 @@ the nginx reload from step 7 collapse into one script, meant to run from a
 dev machine or CI/CD runner — never on RHEL9 itself:
 
 ```bash
-DEPLOY_HOST=cinreadm@<rhel9-ip> \
+DEPLOY_HOST=cinreadmd@<rhel9-ip> \
 DEPLOY_DIR=/rms \
 SSH_KEY=~/.ssh/risk-workbench-deploy \
 bash infra/scripts/rhel9/rhel9-ssh-deploy.sh

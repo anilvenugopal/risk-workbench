@@ -6,7 +6,7 @@
 # pipeline (over SSH), as a pre-flight check before pulling code or
 # installing dependencies.
 #
-# Usage: APP_DIR=/rms DEPLOY_USER=cinreadm \
+# Usage: APP_DIR=/rms DEPLOY_USER=cinreadmd \
 #        PYTHON_PKG=python3.14 ./rhel9-check-prereqs.sh
 
 set -euo pipefail

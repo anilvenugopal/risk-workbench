@@ -5,7 +5,7 @@ Installs the system-level packages Risk Workbench needs to run: git, Python
 build tools, and `rsync`.
 
 Prerequisite: [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) completed —
-registered RHEL9 distro, `cinreadm` created with sudo, locale fixed.
+registered RHEL9 distro, `cinreadmd` created with sudo, locale fixed.
 
 This covers system packages only. For `uv` and running the app for
 development, see [SCAFFOLDING.md](../SCAFFOLDING.md).
@@ -15,12 +15,12 @@ development, see [SCAFFOLDING.md](../SCAFFOLDING.md).
 Run the setup script, then the check script to confirm it worked:
 
 ```bash
-DEPLOY_USER=cinreadm APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup.sh
+DEPLOY_USER=cinreadmd APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup.sh
 ```
 
 Verify it worked with:
 ```bash
-APP_DIR=/rms DEPLOY_USER=cinreadm PYTHON_PKG=python3.14 \
+APP_DIR=/rms DEPLOY_USER=cinreadmd PYTHON_PKG=python3.14 \
     bash infra/scripts/rhel9/rhel9-check-prereqs.sh
 ```
 
@@ -102,11 +102,11 @@ Where the application code and its data live, and who owns it.
 
 ### Install
 
-For this run, `cinreadm` is the app's owner.
+For this run, `cinreadmd` is the app's owner.
 
 ```bash
 sudo mkdir -p /rms
-sudo chown cinreadm:cinreadm /rms
+sudo chown cinreadmd:cinreadmd /rms
 ```
 
 ---
@@ -358,7 +358,7 @@ account instead of the service account that should own it.
 
 ```bash
 sudo mkdir -p /var/lib/risk-workbench/valkey
-sudo chown -R cinreadm:cinreadm /var/lib/risk-workbench
+sudo chown -R cinreadmd:cinreadmd /var/lib/risk-workbench
 ```
 
 Then start Valkey against it:
@@ -437,12 +437,12 @@ deploy, without holding general sudo. Two narrow sudoers rules grant exactly
 that, each restricted to one specific command:
 
 ```bash
-echo 'cinreadm ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx' | \
+echo 'cinreadmd ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx' | \
     sudo tee /etc/sudoers.d/risk-workbench-nginx-reload > /dev/null
 sudo chmod 440 /etc/sudoers.d/risk-workbench-nginx-reload
 sudo visudo -c -f /etc/sudoers.d/risk-workbench-nginx-reload
 
-echo 'cinreadm ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/conf.d/risk-workbench.conf' | \
+echo 'cinreadmd ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/conf.d/risk-workbench.conf' | \
     sudo tee /etc/sudoers.d/risk-workbench-nginx-conf-write > /dev/null
 sudo chmod 440 /etc/sudoers.d/risk-workbench-nginx-conf-write
 sudo visudo -c -f /etc/sudoers.d/risk-workbench-nginx-conf-write
@@ -508,9 +508,9 @@ one before starting the other. Diagnose with
 ### Order of operations
 
 ```bash
-DEPLOY_USER=cinreadm APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup.sh  # once
+DEPLOY_USER=cinreadmd APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup.sh  # once
 cp <your .env> infra/.env                             # once
-DEPLOY_USER=cinreadm APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup-podman-mssql.sh  # once, if wanted
+DEPLOY_USER=cinreadmd APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup-podman-mssql.sh  # once, if wanted
 APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start.sh         # every session
 APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start-podman-mssql.sh  # every session, if wanted
 ```
@@ -545,8 +545,8 @@ assigns a range (`usermod --add-subuids`) only when the account has none.
 SQL Server's data lives at `/var/lib/risk-workbench/mssql`, bind-mounted
 into the container — not a Podman-managed named volume (which would
 default to `~/.local/share/containers/storage/volumes/...` under
-`cinreadm`'s home directory). Same reasoning as Valkey's data directory
-above: not tied to one personal account, survives `cinreadm` being
+`cinreadmd`'s home directory). Same reasoning as Valkey's data directory
+above: not tied to one personal account, survives `cinreadmd` being
 replaced by a real service account later. Stopping or removing the
 container never touches this directory.
 
@@ -554,9 +554,9 @@ container never touches this directory.
 
 SQL Server's container runs internally as UID `10001`, GID `0` (fixed by
 the image, same on every machine). Rootless Podman maps that internal UID
-to a host UID from `cinreadm`'s own subuid range (confirmed:
-`165536 + 10001 - 1 = 175536` on this machine) — not to `cinreadm`'s real
-UID. A plain `cinreadm`-owned directory is invisible to the container for
+to a host UID from `cinreadmd`'s own subuid range (confirmed:
+`165536 + 10001 - 1 = 175536` on this machine) — not to `cinreadmd`'s real
+UID. A plain `cinreadmd`-owned directory is invisible to the container for
 writing until this is fixed:
 
 ```bash
@@ -565,7 +565,7 @@ podman unshare chown -R 10001:0 /var/lib/risk-workbench/mssql
 
 `podman unshare` runs the command inside the same UID mapping rootless
 containers use, so `chown 10001:0` resolves to the correct real host UID
-regardless of what `cinreadm`'s actual subuid range happens to be — the
+regardless of what `cinreadmd`'s actual subuid range happens to be — the
 `10001:0` numbers never need to change per machine.
 `rhel9-setup-podman-mssql.sh` runs this automatically.
 
