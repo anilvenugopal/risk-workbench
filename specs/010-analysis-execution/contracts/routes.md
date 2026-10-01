@@ -87,7 +87,7 @@ No IRP call happens on this request path.
 Rendered inside `partials/edm_detail_body.html` on both page variants; the section is
 its own fragment (`GET /edms/{edm_id}/analyses` and
 `GET /submissions/{submission_id}/edms/{edm_id}/analyses`). While `live` — any
-`irp_analysis` of this EDM still `status_code='pending'`, or the matching
+`irp_analysis` the status filter shows still `status_code='pending'`, or the matching
 `execute_analysis_batch` `rwb_job` selected by the optional `execution_id` query
 parameter is `pending` or `running` — the section's poller posts every `UI_POLL_INTERVAL_SECS` seconds to
 `POST …/analyses/rows` (sibling of each GET, and of the submission Results section's

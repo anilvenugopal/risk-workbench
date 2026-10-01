@@ -299,6 +299,16 @@ def test_analyses_section_polls_its_live_rows_not_itself(monkeypatch):
     assert '"live": "analysis-1"' in poller
 
 
+def test_analyses_poll_ignores_live_rows_the_filter_hides(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_analyses",
+                        lambda **kwargs: _analyses_section())
+
+    html = _client().get("/edms/edm-1/analyses?status=ready").text
+
+    assert 'id="edm-executed-analyses-poller"' in html
+    assert "every 3s" not in html
+
+
 def _post_rows(section, **data):
     return _client().post("/edms/edm-1/analyses/rows", data={
         "hash": analysis_service.analyses_hash(section.executed_analyses,
