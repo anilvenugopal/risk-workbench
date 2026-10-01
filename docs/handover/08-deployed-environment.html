@@ -87,12 +87,12 @@
 
 <p>Every row below needs a firewall rule that lets the app server reach that host and port. Getting the firewall requests created, approved, and carried out was the biggest blocker in the first deployment. Any new server, for production or a lower environment (B11 on <a href="09-path-to-production.html#blockers">page 9</a>), needs the same rules, so raise the requests as soon as the server's IP address is known.</p>
 
-<p>Each connection's host is set in <code>infra/.env</code> unless its setting says otherwise; each SQL Server port is in the matching <code>MSSQL_&lt;NAME&gt;_PORT</code>. The Risk Modeler and DATABRIDGE hosts below are the values in the development <code>infra/.env</code>.</p>
+<p>Each connection's host is set in <code>infra/.env</code> unless its setting says otherwise; each SQL Server port is in the matching <code>MSSQL_&lt;NAME&gt;_PORT</code>. CIC's SQL Server databases use port 4988, so <code>MSSQL_WORKBENCH_PORT</code> and <code>MSSQL_LOSS_PORT</code> must be set to 4988; the default is 1433, which Data Bridge uses. The Risk Modeler and DATABRIDGE hosts below are the values in the development <code>infra/.env</code>.</p>
 
 <table>
 <tr><th>Destination</th><th>Host and setting</th><th>Port</th><th>Opened by</th><th>Needed</th></tr>
-<tr><td>Workbench database (CIC SQL Server)</td><td>To fill in<br>Setting: <code>MSSQL_WORKBENCH_SERVER</code></td><td>1433</td><td>uvicorn, workers, poller</td><td>Now</td></tr>
-<tr><td>Loss repository (CIC SQL Server)</td><td>The same server as the Workbench database<br>Setting: <code>MSSQL_LOSS_SERVER</code></td><td>1433</td><td>uvicorn (the client list from <code>dbo.Client</code>, <code>/health</code>), workers (exports)</td><td>Now</td></tr>
+<tr><td>Workbench database (CIC SQL Server)</td><td>To fill in<br>Setting: <code>MSSQL_WORKBENCH_SERVER</code></td><td>4988</td><td>uvicorn, workers, poller</td><td>Now</td></tr>
+<tr><td>Loss repository (CIC SQL Server)</td><td>The same server as the Workbench database<br>Setting: <code>MSSQL_LOSS_SERVER</code></td><td>4988</td><td>uvicorn (the client list from <code>dbo.Client</code>, <code>/health</code>), workers (exports)</td><td>Now</td></tr>
 <tr><td>Risk Modeler API</td><td><code>api-euw1.rms-ppe.com</code><br>Setting: <code>RISK_MODELER_BASE_URL</code>. Bearer sign-in uses the same host.</td><td>443</td><td>uvicorn, workers, poller</td><td>Now</td></tr>
 <tr><td>Risk Modeler S3 tenant</td><td>To fill in<br>Setting: None. Risk Modeler returns a presigned S3 URL for each upload and export download.</td><td>443</td><td>workers</td><td>Now</td></tr>
 <tr><td>DATABRIDGE SQL Server (Moody's)</td><td><code>467d5f3e13599b70a8f60bcb2808f105.eih.rms-ppe.com</code><br>Setting: <code>MSSQL_DATABRIDGE_SERVER</code></td><td>1433</td><td>uvicorn (the breakout match count), workers (breakout account selection)</td><td>Now. Also needs the Data Bridge IP allowlist entry below.</td></tr>
