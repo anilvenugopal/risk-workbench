@@ -10,8 +10,12 @@ from sqlalchemy import text
 
 from app.services._common import _in_clause, _uid, _utcnow, _word_and_clauses
 from db import execute, execute_command, execute_one, is_unique_violation
+from db.cedant_seed import MAX_NAME_LENGTH
 
-MAX_NAME_LENGTH = 255
+_INSERT_SQL = (
+    "INSERT INTO cedant (id, name, inserted_at, updated_at, inserted_by, updated_by) "
+    "VALUES (:id, :name, :now, :now, :actor, :actor)"
+)
 
 
 class CedantValidationError(ValueError):
@@ -69,7 +73,7 @@ def _checked_name(name: str, exclude_id: str | None = None) -> str:
 
 
 def _write(sql: str, params: dict, name: str, exclude_id: str | None = None) -> None:
-    # Two admins can pass the name check together; uq_cedant_name refuses the
+    # Two analysts can pass the name check together; uq_cedant_name refuses the
     # second write, which then gets the same message the check gives.
     try:
         execute_command(sql, params, connection="WORKBENCH")
@@ -84,11 +88,8 @@ def add_cedant(name: str, *, actor_id: str) -> str:
     name = _checked_name(name)
     cedant_id = str(uuid.uuid4())
     now = _utcnow()
-    _write(
-        "INSERT INTO cedant (id, name, inserted_at, updated_at, inserted_by, updated_by) "
-        "VALUES (:id, :name, :now, :now, :actor, :actor)",
-        {"id": cedant_id, "name": name, "now": now, "actor": actor_id}, name,
-    )
+    _write(_INSERT_SQL,
+           {"id": cedant_id, "name": name, "now": now, "actor": actor_id}, name)
     return cedant_id
 
 
@@ -129,10 +130,8 @@ def save_new_cedant(conn, cedant: NewCedant, *, actor_id: str) -> str:
         return cedant.id
     cedant_id = str(uuid.uuid4())
     now = _utcnow()
-    conn.execute(text(
-        "INSERT INTO cedant (id, name, inserted_at, updated_at, inserted_by, updated_by) "
-        "VALUES (:id, :name, :now, :now, :actor, :actor)"),
-        {"id": cedant_id, "name": cedant.name, "now": now, "actor": actor_id})
+    conn.execute(text(_INSERT_SQL),
+                 {"id": cedant_id, "name": cedant.name, "now": now, "actor": actor_id})
     return cedant_id
 
 

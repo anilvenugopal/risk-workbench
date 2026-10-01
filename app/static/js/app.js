@@ -295,7 +295,7 @@ document.addEventListener('alpine:init', () => {
   // fetches and renders the options; this only handles open/close, the
   // keyboard, and committing a pick. The id goes into the hidden x-ref="value"
   // input and the chosen submission's name is shown as a chip. The picker needs
-  // JavaScript. (The CEDANT field uses selectSearch below, issue #129.)
+  // JavaScript.
   //
   // `minTerm` comes from the template, which renders it from the route context's
   // `min_suggest_term` — one number, submission_service.MIN_SUGGEST_TERM, reaching
@@ -362,18 +362,14 @@ document.addEventListener('alpine:init', () => {
       if (!opt) return;
       const value = opt.dataset.value;
       const label = opt.dataset.label || value;
-      if (this.$refs.value) {
-        this.$refs.value.value = value;
-        this.chosenLabel = label;
-        this.chosen = true;
-        this.$refs.input.value = '';
-      } else {
-        this.$refs.input.value = label;
-      }
+      this.$refs.value.value = value;
+      this.chosenLabel = label;
+      this.chosen = true;
+      this.$refs.input.value = '';
       this.close();
     },
     clear() {
-      if (this.$refs.value) this.$refs.value.value = '';
+      this.$refs.value.value = '';
       this.chosen = false;
       this.chosenLabel = '';
       this.close();

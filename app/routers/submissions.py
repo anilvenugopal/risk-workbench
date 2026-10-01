@@ -1121,18 +1121,6 @@ def list_submissions_page(request: Request):
     }, status_code=422 if validation_error else 200)
 
 
-def _suggest_menu(request: Request, options: list[dict], term: str,
-                  empty_message: str, menu_id: str):
-    """Render the typeahead menu. ``menu_id`` is the id of the div htmx swaps
-    into, and each option derives its own id from it."""
-    return _partial(request, "partials/typeahead_menu.html", {
-        "options": options,
-        "searched": len(term.strip()) >= submission_service.MIN_SUGGEST_TERM,
-        "empty_message": empty_message,
-        "menu_id": menu_id,
-    })
-
-
 @router.get("/submissions/link-suggest", response_class=HTMLResponse)
 def link_suggest(request: Request):
     """Typeahead menu for the "links to" picker (CR8). Searches name and cedant;
@@ -1147,9 +1135,8 @@ def link_suggest(request: Request):
     matches = submission_service.search_submissions_for_link(
         term, exclude_id=exclude_id,
     )
-    return _suggest_menu(
-        request,
-        [
+    return _partial(request, "partials/typeahead_menu.html", {
+        "options": [
             {
                 "value": row.id,
                 "label": row.name,
@@ -1157,8 +1144,10 @@ def link_suggest(request: Request):
             }
             for row in matches
         ],
-        term, "No matching submission.", "link-menu",
-    )
+        "searched": len(term.strip()) >= submission_service.MIN_SUGGEST_TERM,
+        "empty_message": "No matching submission.",
+        "menu_id": "link-menu",
+    })
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
