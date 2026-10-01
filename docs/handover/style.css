@@ -19,6 +19,9 @@ td {
   vertical-align: top;
 }
 
-pre {
-  overflow-x: auto;
+svg.diagram {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 1rem 0;
 }

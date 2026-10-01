@@ -13,28 +13,63 @@
 
 <h2 id="components">Components</h2>
 
-<pre>
- browser
-    |
-    v
- nginx :80 ---- /static/ served from app/static/
-    |
-    v
- uvicorn :8000  (FastAPI app, app/main.py)
-    |  writes rwb_job rows, sends a wake-up message
-    |                         |
-    |                         v
-    |                  Redis / Valkey :6379  (Dramatiq broker)
-    |                         |
-    |                         v
-    |                  Dramatiq workers, one per queue  (app/workers/)
-    |                         |
-    v                         v
- SQL Server: rwb_workbench, rwb_exposure, rwb_loss  &lt;----  poller (app/poller/run.py)
-                              |                                |
-                              v                                v
-                  Moody's Risk Modeler API and DATABRIDGE (through irp-integration)
-</pre>
+<svg class="diagram" viewBox="0 0 900 570" role="img" aria-labelledby="components-title">
+<title id="components-title">Components and how they connect</title>
+<defs>
+<marker id="components-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+</marker>
+</defs>
+<g fill="none" stroke="currentColor">
+<rect x="20" y="20" width="170" height="40"/>
+<rect x="20" y="100" width="170" height="60"/>
+<rect x="20" y="210" width="170" height="70"/>
+<rect x="250" y="210" width="170" height="70"/>
+<rect x="250" y="350" width="170" height="90"/>
+<rect x="480" y="350" width="170" height="90"/>
+<rect x="710" y="350" width="170" height="90"/>
+<rect x="20" y="500" width="860" height="50"/>
+</g>
+<g fill="none" stroke="currentColor" marker-end="url(#components-arrow)">
+<path d="M105,60 V100"/>
+<path d="M105,160 V210"/>
+<path d="M190,245 H250"/>
+<path d="M795,350 V245 H420"/>
+<path d="M335,280 V350"/>
+<path d="M420,395 H480"/>
+<path d="M710,395 H650"/>
+<path d="M105,280 V500"/>
+<path d="M335,440 V500"/>
+<path d="M795,440 V500"/>
+<path d="M160,280 V315 H329 a6,6 0 0 1 12,0 H565 V350" stroke-dasharray="5 4"/>
+</g>
+<g fill="currentColor" font-size="14" text-anchor="middle">
+<text x="105" y="45">browser</text>
+<text x="105" y="125">nginx :80</text>
+<text x="105" y="145" font-size="12">serves /static/</text>
+<text x="105" y="235">uvicorn :8000</text>
+<text x="105" y="253" font-size="12">FastAPI app</text>
+<text x="105" y="270" font-size="12" font-family="monospace">app/main.py</text>
+<text x="335" y="235">Redis / Valkey :6379</text>
+<text x="335" y="253" font-size="12">Dramatiq broker</text>
+<text x="335" y="375">Dramatiq workers</text>
+<text x="335" y="395" font-size="12">one command per queue</text>
+<text x="335" y="425" font-size="12" font-family="monospace">app/workers/</text>
+<text x="565" y="375">Moody's Risk Modeler</text>
+<text x="565" y="395" font-size="12">API and DATABRIDGE,</text>
+<text x="565" y="413" font-size="12">through irp-integration</text>
+<text x="795" y="375">poller</text>
+<text x="795" y="395" font-size="12">one process</text>
+<text x="795" y="425" font-size="12" font-family="monospace">app/poller/run.py</text>
+<text x="450" y="530">SQL Server: rwb_workbench, rwb_exposure, rwb_loss</text>
+</g>
+<g fill="currentColor" font-size="12">
+<text x="113" y="190">proxy</text>
+<text x="600" y="238" text-anchor="middle">message</text>
+<text x="327" y="300" text-anchor="end">message</text>
+<text x="455" y="308" text-anchor="middle">bounded reads on the request path</text>
+</g>
+</svg>
 
 <table>
 <tr><th>Component</th><th>What it does</th><th>Where it lives</th></tr>
@@ -53,15 +88,66 @@
 
 <p>A route handler answers the analyst within one HTTP request. Anything slow, anything that waits on Risk Modeler, and anything whose size grows with the book runs in a worker or the poller.</p>
 
-<pre>
- request path (uvicorn)            worker path (Dramatiq)             poller
- ----------------------            ----------------------             ------
- validate the form                 claim the rwb_job row              one get_*_job call per
- read and write rwb_workbench      submit the Risk Modeler job        in-flight irp_job
- enqueue rwb_job + send message -> record irp_job                     on a terminal status:
-                                   read results, DATABRIDGE,            update the entity,
-                                   download and load exports            enqueue the next rwb_job
-</pre>
+<svg class="diagram" viewBox="0 0 920 720" role="img" aria-labelledby="paths-title">
+<title id="paths-title">What runs on the request path, the worker path, and in the poller</title>
+<defs>
+<marker id="paths-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+</marker>
+</defs>
+<g fill="none" stroke="currentColor">
+<rect x="20" y="20" width="280" height="690"/>
+<path d="M20,55 H300"/>
+<rect x="320" y="20" width="280" height="690"/>
+<path d="M320,55 H600"/>
+<rect x="620" y="20" width="280" height="690"/>
+<path d="M620,55 H900"/>
+<rect x="40" y="70" width="240" height="60"/>
+<rect x="40" y="150" width="240" height="60"/>
+<rect x="40" y="230" width="240" height="60"/>
+<rect x="340" y="310" width="240" height="60"/>
+<rect x="340" y="390" width="240" height="60"/>
+<rect x="640" y="470" width="240" height="60"/>
+<rect x="640" y="550" width="240" height="60"/>
+<rect x="340" y="630" width="240" height="60"/>
+</g>
+<g fill="none" stroke="currentColor" marker-end="url(#paths-arrow)">
+<path d="M160,130 V150"/>
+<path d="M160,210 V230"/>
+<path d="M280,260 H460 V310"/>
+<path d="M460,370 V390"/>
+<path d="M580,420 H760 V470"/>
+<path d="M760,530 V550"/>
+<path d="M640,580 H460 V630"/>
+</g>
+<g fill="currentColor" font-size="14" text-anchor="middle">
+<text x="160" y="43">Request path (uvicorn)</text>
+<text x="460" y="43">Worker path (Dramatiq)</text>
+<text x="760" y="43">Poller</text>
+</g>
+<g fill="currentColor" font-size="13" text-anchor="middle">
+<text x="160" y="105">Validate the form</text>
+<text x="160" y="185">Read and write rwb_workbench</text>
+<text x="160" y="257">Insert the rwb_job row</text>
+<text x="160" y="273">and send its message</text>
+<text x="460" y="345">Claim the rwb_job row</text>
+<text x="460" y="417">Submit the Risk Modeler job</text>
+<text x="460" y="433">and insert the irp_job row</text>
+<text x="760" y="497">One get_*_job call</text>
+<text x="760" y="513">per in-flight irp_job</text>
+<text x="760" y="569">On a terminal status: update</text>
+<text x="760" y="585">the entity, insert the next</text>
+<text x="760" y="601">rwb_job, send its message</text>
+<text x="460" y="649">The next rwb_job reads results</text>
+<text x="460" y="665">and DATABRIDGE, downloads</text>
+<text x="460" y="681">and loads exports</text>
+</g>
+<g fill="currentColor" font-size="12">
+<text x="468" y="280">message</text>
+<text x="768" y="440">next poller pass</text>
+<text x="468" y="600">message</text>
+</g>
+</svg>
 
 <table>
 <tr><th>May run in a route handler</th><th>Must run in a worker or the poller</th></tr>
