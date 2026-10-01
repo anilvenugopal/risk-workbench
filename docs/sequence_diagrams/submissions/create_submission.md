@@ -9,7 +9,7 @@ name or the cedant — so this flow touches no external system at all. It writes
 transaction (three when the analyst typed a new cedant) and returns.
 
 Code: `submissions.create` → `submission_service.create_submission`. The Cedant field filters
-the active cedants already rendered into the form (`selectSearch` in `app.js`); a typed new name
+the cedants already rendered into the form (`selectSearch` in `app.js`); a typed new name
 is resolved by `cedant_service.new_cedant` and written by `cedant_service.save_new_cedant`.
 
 **Classification:** entirely **sync**. No RM call, no `rwb_job`, no worker, no poller.
@@ -18,7 +18,7 @@ is resolved by `cedant_service.new_cedant` and written by `cedant_service.save_n
 
 | # | Table | Row / change | Written by | Process |
 |---|---|---|---|---|
-| 0 | `cedant` | INSERT, or UPDATE `is_active=1` — only when the analyst picked "Add cedant" or "Reactivate" (issue #129 P-06, P-07) | `save_new_cedant` | 🟦 request |
+| 0 | `cedant` | INSERT — only when the analyst picked "Add cedant" (issue #129 P-06) | `save_new_cedant` | 🟦 request |
 | 1 | `submission` | INSERT — `status_code='ACTIVE'`, `assigned_analyst_id = the creator` | `create_submission` | 🟦 request |
 | 2 | `submission_status_event` | INSERT — the initial `ACTIVE` event, `reason=NULL` | `create_submission` | 🟦 request |
 
@@ -38,12 +38,12 @@ sequenceDiagram
         Note over User,DB: REQUEST PATH — the whole flow. No RM, no worker, no poller
         User->>App: GET /submissions/new
         App-->>User: the form
-        Note over User,App: the Cedant field filters the rendered active cedants in the browser;<br/>a name matching none is staged as cedant_id="new" + new_cedant_name
+        Note over User,App: the Cedant field filters the rendered cedants in the browser;<br/>a name matching none is staged as cedant_id="new" + new_cedant_name
 
         User->>App: POST /submissions (CSRF)
         Note over App,DB: ONE transaction
         opt cedant_id = "new"
-            App->>DB: INSERT cedant, or UPDATE cedant SET is_active=1
+            App->>DB: INSERT cedant
         end
         App->>DB: INSERT submission (status_code='ACTIVE', owner = creator)
         App->>DB: INSERT submission_status_event ('ACTIVE')
