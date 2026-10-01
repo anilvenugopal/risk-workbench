@@ -78,10 +78,10 @@
       {% if analyses %}{% include "partials/export_form_fields.html" %}{% endif %}
     </div>
 
-    {# Only the client comes from the submission; data vintage starts empty.
-       The Contract select copies the chosen contract's CRM ID and inception
-       into the two fields (contractPick); both stay editable and the export
-       records what is posted (spec 017 FR-011, P-06). #}
+    {# Client and data vintage come from the submission. The Contract select
+       copies the chosen contract's CRM ID and inception into the two fields
+       (contractPick); both stay editable and the export records what is posted
+       (spec 017 FR-011, P-06). #}
     <div class="wf-fields" x-data="contractPick">
       <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
 

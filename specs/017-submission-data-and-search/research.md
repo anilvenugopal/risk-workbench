@@ -61,6 +61,10 @@
 - Q: Does anything fill a blank treaty year? → No. Note 33 D8 (Cheryl: "Maybe we just leave it blank and force people to fill it in"; Ben: "can do that") reversed the data-vintage fill on the form the day it shipped; the 2026-09-25 session removes the server-side fill from the earliest contract inception as well, since it is the same rule by another route (note 35 O35-3 names the hint). `_default_treaty_year` is deleted; the year is stored as entered.
 - Q: Does the list sort on the matched contract under a contract filter? → Yes; see the session above and R11 (note 35 D2, O35-2).
 
+### Session 2026-09-29 (CIC; reverses note 35 D13)
+
+- Q: Does the export's data vintage pre-fill from the submission? → Yes. CIC says note 35 D13's "default to empty" record was wrong (CIC 2026-09-29). The export form pre-fills its data vintage from `submission.data_vintage`; the field stays editable and required, and an edited value is recorded on the export only (P-06, spec 014 P-15).
+
 ### Session 2026-09-28 (note 35 D14–D17, O35-6; note 33 D11; user 2026-09-25)
 
 - Q: Why did "TY 2607 USFL" not find the EDM "TY USFL 2607" on the call? → `list_edms` and `list_rdms` matched the whole term with one `LIKE`, while the submissions list matches per word through `_word_and_clauses` (D14; Cheryl: two behaviours would be "frustrating"). The library pages now pass `match_words=True`; the global search box keeps the whole-term match (user 2026-09-25).
