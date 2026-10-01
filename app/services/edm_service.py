@@ -406,6 +406,7 @@ class EdmDetail:
     # treaties screen for this datasource — None when RISK_MODELER_BASE_URL is
     # not configured (the template falls back to the plain read-only note).
     rm_treaties_url: str | None = None
+    rm_url: str | None = None
     # Issue #17 backstop surfacing: the failed upload head's specific Risk
     # Modeler message (``latest_import_error``) — set only when status ==
     # 'error'; None when the failure recorded no submit detail.
@@ -548,6 +549,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         analyses=analyses,
         executed_analyses=executed_analyses,
         rm_treaties_url=_rm_datasource_url(row["name"], "treaties"),
+        rm_url=_rm_datasource_url(row["name"], "portfolios"),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),
         breakout_running=breakout.running,
