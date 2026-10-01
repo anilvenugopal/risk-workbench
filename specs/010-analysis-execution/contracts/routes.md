@@ -109,7 +109,8 @@ Row contract (`partials/executed_analysis_row.html`, modeled on
 (`full_name`) with an "RM ↗" link once `irp_app_analysis_id` is backfilled — the RM web
 UI route takes `appAnalysisId`, not the API `analysisId` — portfolio name, template
 name, status chip (derived: latest `irp_job.status`, with `SUBMISSION FAILED` shown as
-"Failed to submit · attempt n/max" and `SUBMISSION RETRYING` treated as in progress)
+"Failed to submit · attempt n/max", `SUBMISSION RETRYING` treated as in progress, and
+a RUNNING job's `irp_job.progress` appended when set, e.g. "Running 45%")
 with the `failure_reason` when failed, and the
 localized submit time. Expanded: the settings grid once `settings_metadata` is
 backfilled; the loss-numbers fragment (below) once results exist. No RDM grouping
@@ -151,7 +152,8 @@ clicked and, on the next `window` focus, POSTs the existing `.../sync` route onc
 
 Replaces the stub body with a read-only table over `irp_job` (newest first, capped):
 type, entity/analysis name, status chip, submitted-by (`inserted_by` → user), submitted
-at, attempts. 3s self-poll on the fragment. No actions.
+at, attempts. The status chip of a RUNNING job appends `irp_job.progress` when it is
+set, e.g. `RUNNING 45%`. 3s self-poll on the fragment. No actions.
 
 ## Portfolio table changes (existing routes)
 

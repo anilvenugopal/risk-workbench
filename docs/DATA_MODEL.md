@@ -468,6 +468,7 @@ erDiagram
     string irp_job_type FK "irp_job_type_kind"
     string irp_id "IRP's integer job id as string; nullable until submit succeeds"
     string status "plain string; RM-mirrored + app-local (see vocabulary)"
+    int progress "nullable; Risk Modeler's top-level progress from the latest status check"
     string completion_summary "Risk Modeler task output summary; nullable"
     string last_submission_payload "JSON; latest submit request"
     string last_submission_response "JSON; RM's response to that submit"

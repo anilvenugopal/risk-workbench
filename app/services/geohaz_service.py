@@ -64,7 +64,9 @@ def read(*, edm_id: Any | None = None,
                    MAX(CASE WHEN status NOT IN ({terminal_in})
                        THEN 1 ELSE 0 END) AS has_live_job,
                    MAX(CASE WHEN status NOT IN ({terminal_in})
-                       THEN status ELSE NULL END) AS live_status
+                       THEN status ELSE NULL END) AS live_status,
+                   MAX(CASE WHEN status = 'RUNNING'
+                       THEN progress ELSE NULL END) AS running_progress
             FROM irp_job
             WHERE irp_job_type = 'geohaz'
             GROUP BY irp_portfolio_id
@@ -88,7 +90,7 @@ def read(*, edm_id: Any | None = None,
         )
         SELECT p.id, p.name, p.exposure_detail,
                COALESCE(j.has_live_job, 0) AS has_live_job,
-               j.live_status,
+               j.live_status, j.running_progress,
                COALESCE(h.has_live_head, 0) AS has_live_head,
                r.request_params, r.completion_summary, r.status AS latest_status,
                r.submitted_at, r.completed_at
@@ -111,8 +113,10 @@ def read(*, edm_id: Any | None = None,
         if row["has_live_head"] and not row["has_live_job"]:
             state = CellState(pid, row["name"], "SUBMITTING", True)
         elif row["has_live_job"]:
-            state = CellState(
-                pid, row["name"], row["live_status"] or "SUBMITTED", True)
+            live_label = row["live_status"] or "SUBMITTED"
+            if live_label == "RUNNING" and row["running_progress"] is not None:
+                live_label = f"RUNNING {row['running_progress']}%"
+            state = CellState(pid, row["name"], live_label, True)
         else:
             state = CellState(pid, row["name"], label, False)
         latest = None
