@@ -306,6 +306,7 @@ def _stub_reads(monkeypatch, *, rdm=..., sync_status=None, analyses=None):
     monkeypatch.setattr(rdm_service, "get_rdm", lambda rdm_id: rdm)
     # No database behind these routes: the stub's own ``submissions`` stand.
     monkeypatch.setattr(rdm_service, "_attach_submissions", lambda kind, rows: None)
+    monkeypatch.setattr(rdm_service, "_import_progress", lambda kind, ids: {})
     monkeypatch.setattr(rdm_service, "latest_backfill_status",
                         lambda rdm_id: sync_status)
     monkeypatch.setattr(analysis_service, "list_broker_analyses",

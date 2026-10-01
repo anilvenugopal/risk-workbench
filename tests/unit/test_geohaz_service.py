@@ -162,7 +162,7 @@ def test_read_shows_live_status_then_stored_hazard_version(iteration2_db):
         irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=live, irp_id="910")
     execute_command(
-        "UPDATE irp_job SET status = 'RUNNING' WHERE id = :id",
+        "UPDATE irp_job SET status = 'RUNNING', progress = 30 WHERE id = :id",
         {"id": live_job}, connection="WORKBENCH")
     finished_job = irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
@@ -200,7 +200,7 @@ def test_read_shows_live_status_then_stored_hazard_version(iteration2_db):
     assert states[submitting].live is True
     assert states[submitted].label == "SUBMITTED"
     assert states[submitted].live is True
-    assert states[live].label == "RUNNING" and states[live].live is True
+    assert states[live].label == "RUNNING 30%" and states[live].live is True
     assert states[succeeded].label == "23.0,25.0"
     assert states[succeeded].live is False
     assert states[failed].label == "23.0" and states[failed].live is False

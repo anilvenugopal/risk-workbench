@@ -23,7 +23,7 @@
       <tr>
         <td>{{ row.type_label or row.irp_job_type }}</td>
         <td>{% if row.entity_name %}{{ row.entity_name }}{% else %}<span class="na">—</span>{% endif %}</td>
-        <td><span class="status-chip status-chip--{{ (row.status or 'unknown')|lower|replace(' ', '-') }}">{{ row.status }}</span></td>
+        <td><span class="status-chip status-chip--{{ (row.status or 'unknown')|lower|replace(' ', '-') }}">{{ row.status }}{% if row.status == 'RUNNING' and row.progress is not none %} {{ row.progress }}%{% endif %}</span></td>
         <td>{% if row.submitted_by %}{{ row.submitted_by }}{% else %}<span class="na">—</span>{% endif %}</td>
         <td>{{ (row.submitted_at | string)[:16] if row.submitted_at else '' }}</td>
         <td>{{ row.attempts }}</td>

@@ -43,6 +43,7 @@ from app.services._common import (
     SubmissionRef,
     _attach_submissions,
     _import_entity,
+    _import_progress,
     _mark_error,
     _mark_importing,
     _replace_source_file,
@@ -100,6 +101,7 @@ class EdmRow:
     # Owning submissions (M:N), oldest-first — populated only by ``list_edms``;
     # defaulted so ``get_edm`` and every existing caller are unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
+    import_progress: int | None = None  # populated only by ``list_edms``
 
 
 def check_name_collision(name: str) -> CollisionCheck:
@@ -333,6 +335,9 @@ def list_edms(*, name: str | None = None, status: str | None = None,
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
     _attach_submissions("edm", result)
+    progress = _import_progress("edm", [r.id for r in result])
+    for row in result:
+        row.import_progress = progress.get(row.id)
     return result
 
 
@@ -384,6 +389,7 @@ class EdmDetail:
     # 'populated' | 'importing' | 'pending' | 'failed' | 'empty' | 'unavailable'
     detail_state: str
     notes: str | None = None
+    import_progress: int | None = None
     # a backfill head (either key) is pending/running — drives the "Syncing…"
     # button state even when the table is already populated
     sync_running: bool = False
@@ -536,6 +542,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         detail_state=_detail_state(row["status"], row["as_of"], portfolios,
                                    job_status),
         notes=row["notes"],
+        import_progress=_import_progress("edm", [eid]).get(_uid(row["id"])),
         sync_running=job_status in ("pending", "running"),
         treaties=treaties,
         analyses=analyses,

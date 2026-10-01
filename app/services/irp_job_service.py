@@ -183,16 +183,19 @@ def list_non_terminal() -> list[dict]:
 
 def update_tracking(conn, *, irp_job_id: Any, status: str,
                     result: dict | None = None,
-                    completion_summary: str | None = None) -> None:
-    """Poller-side: mirror the Risk Modeler status in place (Article 4) and stamp
-    ``last_tracked_at``; on a terminal status also stamp ``completed_at`` and store
-    the completion body. Runs inside the poller's transaction (accepts ``conn``)."""
+                    completion_summary: str | None = None,
+                    progress: int | None = None) -> None:
+    """Poller-side: mirror the Risk Modeler status and progress in place (Article 4)
+    and stamp ``last_tracked_at``; on a terminal status also stamp ``completed_at``
+    and store the completion body. Runs inside the poller's transaction (accepts
+    ``conn``)."""
     now = _utcnow()
     terminal = status in TERMINAL
     conn.execute(text(
         """
         UPDATE irp_job
-        SET status = :s, last_tracked_at = :now, updated_at = :now,
+        SET status = :s, progress = :progress,
+            last_tracked_at = :now, updated_at = :now,
             completed_at = CASE WHEN :terminal = 1 THEN :now ELSE completed_at END,
             completion_summary = CASE WHEN :terminal = 1 THEN :summary
                                       ELSE completion_summary END,
@@ -200,7 +203,8 @@ def update_tracking(conn, *, irp_job_id: Any, status: str,
                                           ELSE last_completion_result END
         WHERE id = :id
         """
-    ), {"s": status, "now": now, "terminal": (1 if terminal else 0),
+    ), {"s": status, "progress": progress, "now": now,
+        "terminal": (1 if terminal else 0),
         "summary": completion_summary,
         "result": _json(result), "id": str(irp_job_id)})
 
@@ -246,10 +250,11 @@ def list_recent(limit: int = RECENT_LIMIT) -> list[dict]:
     """Newest-first ``irp_job`` rows for the read-only job monitor: job type label,
     the most specific linked entity's name (analysis over portfolio over RDM over
     EDM — an ``analysis``-type job has all three of analysis/portfolio/EDM set),
-    status, submitter, submission time, and attempt count. No filters, no writes."""
+    status, progress, submitter, submission time, and attempt count. No filters, no
+    writes."""
     rows = execute(
         """
-        SELECT j.id, j.irp_job_type, k.label AS type_label, j.status,
+        SELECT j.id, j.irp_job_type, k.label AS type_label, j.status, j.progress,
                j.submission_attempt_count AS attempts, j.submitted_at,
                u.display_name AS submitted_by,
                COALESCE(a.name, p.name, r.name, e.name) AS entity_name

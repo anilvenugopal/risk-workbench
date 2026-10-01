@@ -39,7 +39,7 @@
     <div>
     <h1>{{ rdm.name }}
       <span class="status-chip status-chip--{{ (rdm.status or 'unknown')|lower|replace(' ', '-') }}">
-        {{ rdm.status or 'unknown' }}</span>
+        {{ rdm.status or 'unknown' }}{% if rdm.import_progress is not none %} {{ rdm.import_progress }}%{% endif %}</span>
     </h1>
     <div class="detail-meta">
       <span class="mono" title="{{ rdm.source_file_path }}">{{ rdm.source_file_path or '—' }}</span>

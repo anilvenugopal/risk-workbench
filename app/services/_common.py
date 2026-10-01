@@ -265,6 +265,24 @@ def _attach_submissions(kind: str, rows: list) -> None:
         row.submissions = refs.get(row.id, [])
 
 
+def _import_progress(kind: str, entity_ids: list[Any]) -> dict[str, int]:
+    """Risk Modeler progress of each entity's latest import job, keyed by
+    entity id. Only a RUNNING job with a stored progress gets a key."""
+    if not entity_ids:
+        return {}
+    column = f"irp_{kind}_id"
+    in_sql, params = _in_clause(column, [str(e) for e in entity_ids], "e")
+    rows = execute(
+        f"SELECT entity_id, status, progress FROM ("
+        f"SELECT {column} AS entity_id, status, progress, ROW_NUMBER() OVER ("
+        f"PARTITION BY {column} ORDER BY inserted_at DESC, id DESC) AS row_num "
+        f"FROM irp_job WHERE irp_job_type = :job_type AND {in_sql}) j "
+        f"WHERE j.row_num = 1",
+        params | {"job_type": f"import_{kind}"}, connection="WORKBENCH")
+    return {_uid(r["entity_id"]): r["progress"] for r in rows
+            if r["status"] == "RUNNING" and r["progress"] is not None}
+
+
 def _submission_entity_context(
     kind: str, *, submission_id: Any, entity_id: Any,
 ) -> tuple[SubmissionRef, list[SubmissionRef]] | None:
@@ -484,5 +502,6 @@ def _parse_json_dict(raw: Any, what: str) -> dict | None:
 __all__ = ["SubmissionRef", "STORED_RETURN_PERIODS", "CONDENSED_RETURN_PERIODS",
            "_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
            "_snapshot_prune", "_parse_json_dict", "_attach_submissions",
+           "_import_progress",
            "_submission_entity_context", "_import_entity", "_mark_importing",
            "_mark_error", "_retry_import", "_replace_source_file", "_rm_ui_root"]
