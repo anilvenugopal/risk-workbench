@@ -5,16 +5,16 @@ Older findings retain the wheel version they were tested against.
 
 ## Package retirement dependency — confirmed 2026-08-12
 
-The active source is **TestPyPI `irp-integration` 0.4.0**. The lockfile resolves
-the `irp-testpypi` group to 0.4.0. The installed signature is:
+The active source is **PyPI `irp-integration` 0.11.0** (the `irp-pypi` group);
+the `irp-testpypi` group pins 0.11.0rc1. The installed signature is:
 
 ```python
-submit_rdm_import_job(rdm_name, rdm_file_path, exposure_set_name=...)
+submit_rdm_import_job(rdm_name, rdm_file_path, *, edm_name=None, exposure_set_name=None)
 ```
 
 The workbench passes `exposure_set_name=rdm_name`. One RDM import therefore runs
-without an EDM target. Package retirement ports this signature through
-`app/services/irp_gateway.py` and removes every per-EDM RDM apply call.
+without an EDM target. Package retirement is done: `app/services/irp_gateway.py`
+uses this signature and no per-EDM RDM apply call remains.
 
 ---
 
@@ -45,16 +45,15 @@ uniqueness. A convenience that returns the created resource id(s) from the compl
 round-trip and a fragile assumption.
 
 ### 4. A non-blocking ("no-poll") client surface
-Every manager ships `poll_*_to_completion`, and the convenience methods `edm.delete_edm()`,
-`rdm.export_analyses_to_rdm()`, and `import_job.submit_job()` call them **internally** — they block for
-minutes and are forbidden for an Article-11 caller (our poller/workers). We hand-pick `submit_*` +
+Every manager ships `poll_*_to_completion`, and the convenience methods `edm.delete_edm()` and
+`rdm.export_analyses_to_rdm()` call them **internally** (0.11.0; `import_job.submit_job()` no longer
+does) — they block for minutes and are forbidden for an Article-11 caller (our poller/workers). We hand-pick `submit_*` +
 single `get_*` in the gateway to avoid them.
 - **Change:** expose a clearly-separated non-blocking surface (or flag the blocking methods) so the
   constitution is enforced by the library, not by our discipline.
 
 ### 5. Minor
-- `rdm.submit_rdm_import_job` docstring omits `rdm_name` in its Args block (signature is
-  `(rdm_name, edm_name, rdm_file_path)`).
+- ~~`rdm.submit_rdm_import_job` docstring omits `rdm_name` in its Args block~~ — fixed by 0.11.0.
 - Submit-return body key is inconsistent: imports return `request_body`; `submit_rdm_export_job`
   returns `http_request_body`.
 
@@ -119,7 +118,8 @@ detail (the source of geography/currency) has no read path at all.
 **(b) `portfolio.search_accounts_by_portfolio(exposure_id, portfolio_id)` silently truncates.**
 It passes no `limit`/`offset` and RM applies its default page: a 148-account portfolio returned
 exactly **100** rows in the sandbox. Any consumer summing `totalTIV` over its result gets a wrong
-answer with no error. **Change:** add pagination (or a `_paginated` variant) — and even then a
+answer with no error. **Fixed by 0.11.0:** it takes `limit`/`offset`, and
+`search_accounts_by_portfolio_paginated` exists. Even so, a
 248k-account portfolio (usfl_other) would take ~2,500 calls, which is why the workbench chose (c).
 
 **(c) NEW METHOD REQUESTED — the workbench's chosen source for TIV/geography/currency/sub-perils:**
@@ -159,15 +159,15 @@ Behavior:
 
 Known constraints on the workbench side:
 - **Single-server assumption:** `MSSQL_DATABRIDGE_SERVER` must be the server EDMs are imported to
-  (`settings.irp_edm_import_server`, default `"databridge-1"`); `irp_edm.server_name` is not
-  currently populated.
+  (`settings.irp_edm_import_server`, default `"databridge-1"`). `irp_edm.server_name` is written
+  only for EDMs linked from Risk Modeler (`edm_service.adopt_edms`).
 - EDM names are not guaranteed unique in RM (collision is a non-blocking warning) — same-named
   EDMs resolve to the same database.
 
 **STOPGAP SHIPPED (2026-07-28) — the workbench no longer blocks on this method.**
 `irp_gateway.get_edm_exposure_summary(*, edm_name, edm_irp_id)` now computes the summary itself:
-repo-owned set-based scripts (`sql/databridge/portfolio_{list,countries,states,lines_of_business,currencies}.sql`,
-adapted from `IRP/knowledge/sql scripts/`) run through the wheel's **generic**
+repo-owned set-based scripts (`sql/databridge/portfolio_{list,account_total,countries,states,lines_of_business,perils,currencies}.sql`
+and the four `portfolio_*_coverage.sql` scripts, adapted from `IRP/knowledge/sql scripts/`) run through the wheel's **generic**
 `DataBridgeManager.execute_query_from_file(..., database=...)`, against the database resolved from
 RM's `search_edms` `databaseName` (hit matched on `exposureId` — resolves same-named EDMs). Graceful
 absence unchanged (any raise → `summary: null`, cells render "—", job still succeeds).
@@ -181,7 +181,9 @@ The contract above is amended accordingly if/when the bespoke method is still wa
 - `tiv_by_currency` **dropped** — TIV left the page on 8/4 (currency conversion makes the figure
   indefensible); `portfolio_total_tiv.sql` became `portfolio_list.sql`, a plain `portinfo`
   enumeration that still seeds every portfolio into the summary.
-- Resolved shape: `{portfolioId(str): {portfolio_name, countries, states, lines_of_business, currencies}}`.
+- Resolved shape (see `irp_gateway.get_edm_exposure_summary` for the current keys, which add
+  `account_total`, `breakout_values` and `breakout_coverage`):
+  `{portfolioId(str): {portfolio_name, countries, states, lines_of_business, currencies, ...}}`.
   PORTINFOID is still only *assumed* equal to RM's portfolioId — `portfolio_name` remains the
   fallback join key (unchanged).
 
@@ -225,7 +227,11 @@ portfolio linkage (US3). Wheel source unchanged (TestPyPI `0.2.1`).
   extended `backfill_rdm_analyses` as a per-analysis single-item read (looped
   app-side; a single failed read leaves that row's settings blank, never aborts).
 
-### 7. Group marker — NO documented field (confirm in sandbox)
+### 7. Group marker — resolved
+
+The gateway now reads the payload's `isGroup` boolean
+(`_RealGateway.get_analysis_metadata`); the `GROUP` spellings below remain only
+as a fallback for payloads that omit it. The original finding follows.
 
 Nothing in the documented `search_analyses` / `get_analysis_by_id` property
 sets marks an analysis result as a **group** (no `isGroup`; `groupType` appears
@@ -249,7 +255,11 @@ cedants / treaties by analysis result" family) or the EP-metrics configuration.
 **Blocking only for the Portfolio column lighting up with live data** — every
 unresolved pointer renders the normal "— not linked" state.
 
-### 9. Term / PLA / event-rate / rate-vintage fields — undocumented (FR-031 tail)
+### 9. Term / PLA / event-rate / rate-vintage fields — superseded
+
+The workbench no longer reads these fields from the analysis payload. Run
+settings come from `analysis.describe_run` (`irp_gateway.py`). The original
+finding follows.
 
 FR-031 lists long-term-vs-near-term, loss amplification (PLA), event-rate
 scheme, and rate vintage among the settings to show; none has a documented
@@ -275,7 +285,7 @@ The portfolio-breakout iteration consumed these library changes, delivered on br
   because it can no longer prove the page sequence is complete (observed on a
   248,000-account portfolio, spec 005 W-20) — which is why the workbench's breakout
   selection runs as one set-based DataBridge query
-  (`sql/databridge/breakout_{lob,state}_accounts.sql` via `execute_query_from_file`)
+  (`sql/databridge/breakout_{lob,state,country,peril}_accounts.sql` via `execute_query_from_file`)
   instead of REST enumeration.
 - `portfolio.manage_portfolio_accounts(exposure_id, portfolio_id, accounts_to_add=…,
   accounts_to_remove=…)` — PATCH, synchronous HTTP 200, reports `completed`/`total`.
@@ -308,6 +318,5 @@ Owner's `--run-irp` environment; results may turn some of the above into concret
 - `search_analyses` supports the `sourceRdmName` filter field on `/platform/riskdata/v1/analyses`
   (the enumeration D2 depends on).
 - The `search_imported_rdms` name-filter field for the RDM name-collision check (FR-012).
-- `edm.submit_delete_edm_job(exposure_id)` on a non-empty exposure — does it reject, or cascade? (In
-  the workbench flow the RDM analyses are deleted first via fan-in, so the exposure should be empty by
-  EDM-delete time — confirm it doesn't error.)
+- ~~`edm.submit_delete_edm_job(exposure_id)` on a non-empty exposure~~ — no longer applies: no
+  workbench code deletes EDMs.
