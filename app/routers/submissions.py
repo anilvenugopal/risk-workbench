@@ -59,7 +59,7 @@ from app.services import (
 )
 from app.services._common import _parse_int, _uid
 from app.services.analysis_execution_service import ExecutionGateError
-from app.services.cedant_service import Cedant
+from app.services.cedant_service import Cedant, CedantValidationError, NewCedant
 from app.services.submission_service import ContractInput, ContractInvalid
 from app.services.errors import (
     ConcurrencyConflict,
@@ -78,6 +78,9 @@ router = APIRouter()
 # renamed away or closed while the form sat open, or the page is stale.
 _UNKNOWN_LINK_MESSAGE = "That deal was not found — pick the linked deal again."
 _UNKNOWN_CLIENT_MESSAGE = "Choose a client from the list."
+# The Cedant field posts this in place of an id when the analyst typed a new
+# name; the name comes in new_cedant_name (P-06).
+NEW_CEDANT = "new"
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -115,17 +118,24 @@ def _parse_date(value: str | None) -> date | None:
 
 
 def _validate_submission_form(
-    *, name: str, cedant_id: str, cedant_options: list[Cedant], treaty_year: str,
-    data_vintage: str, directory_path: str,
-) -> tuple[dict[str, str], int | None, date | None]:
-    """One message per bad field (CR4), plus the parsed treaty year and data
-    vintage so the caller does not parse twice. An empty dict means valid."""
+    *, name: str, cedant_id: str, new_cedant_name: str, cedant_options: list[Cedant],
+    treaty_year: str, data_vintage: str, directory_path: str,
+) -> tuple[dict[str, str], int | None, date | None, NewCedant | None]:
+    """One message per bad field (CR4), plus the parsed treaty year, data
+    vintage and typed new cedant so the caller does not parse twice. An empty
+    dict means valid."""
     errors: dict[str, str] = {}
     if not name.strip():
         errors["name"] = "Enter a name for this submission."
     elif not name_check.is_valid_name(name.strip()):
         errors["name"] = name_check.name_rule_message("Submission")
-    if cedant_id.strip().lower() not in {cedant.id for cedant in cedant_options}:
+    new_cedant = None
+    if cedant_id.strip() == NEW_CEDANT:
+        try:
+            new_cedant = cedant_service.new_cedant(new_cedant_name)
+        except CedantValidationError as exc:
+            errors["cedant_id"] = str(exc)
+    elif cedant_id.strip().lower() not in {cedant.id for cedant in cedant_options}:
         errors["cedant_id"] = "Pick a cedant from the list."
 
     parsed_treaty_year = _parse_int(treaty_year)
@@ -151,7 +161,7 @@ def _validate_submission_form(
                 "That folder is no longer on the shared drive — browse and pick it "
                 "again.")
 
-    return errors, parsed_treaty_year, parsed_data_vintage
+    return errors, parsed_treaty_year, parsed_data_vintage, new_cedant
 
 
 _CONTRACT_FIELDS = ("crm_id", "treaty_type_code", "inception_date",
@@ -225,6 +235,10 @@ def _form_context(
         "contract_statuses": submission_service.contract_status_kinds(),
         "clients": client_service.list_clients(),
         "cedant_options": _cedant_options(submission),
+        "inactive_cedant_names": [
+            cedant.name for cedant in cedant_service.list_cedants(include_inactive=True)
+            if not cedant.is_active
+            and cedant.id != (submission.cedant_id if submission is not None else None)],
         "form": form,
         "submission": submission,
         "link_target": submission_service.get_submission(links_to),
@@ -1156,6 +1170,7 @@ def create(
     # analyst can be shown. _validate_submission_form owns every message.
     name: str = Form(""),
     cedant_id: str = Form(""),
+    new_cedant_name: str = Form(""),
     client_id: str = Form(""),
     data_vintage: str = Form(""),
     treaty_year: str = Form(""),
@@ -1176,9 +1191,9 @@ def create(
                                    contract_inception, contract_expiration,
                                    contract_status)
     form = {
-        "name": name, "cedant_id": cedant_id, "client_id": client_id,
-        "data_vintage": data_vintage, "treaty_year": treaty_year,
-        "directory_path": directory_path,
+        "name": name, "cedant_id": cedant_id, "new_cedant_name": new_cedant_name,
+        "client_id": client_id, "data_vintage": data_vintage,
+        "treaty_year": treaty_year, "directory_path": directory_path,
         "links_to_submission_id": links_to_submission_id,
         "contract_rows": contract_rows,
     }
@@ -1188,10 +1203,11 @@ def create(
                       nav_key="submissions.all", form=form, submission=None,
                       links_to=links_to)
 
-    field_errors, parsed_treaty_year, parsed_data_vintage = _validate_submission_form(
-        name=name, cedant_id=cedant_id, cedant_options=_cedant_options(None),
-        treaty_year=treaty_year, data_vintage=data_vintage,
-        directory_path=directory_path)
+    field_errors, parsed_treaty_year, parsed_data_vintage, new_cedant = (
+        _validate_submission_form(
+            name=name, cedant_id=cedant_id, new_cedant_name=new_cedant_name,
+            cedant_options=_cedant_options(None), treaty_year=treaty_year,
+            data_vintage=data_vintage, directory_path=directory_path))
     parsed_client_id, client_error = _validate_client(
         client_id, client_service.list_clients())
     if client_error:
@@ -1202,7 +1218,7 @@ def create(
 
     try:
         result = submission_service.create_submission(
-            name=name.strip(), cedant_id=cedant_id.strip(),
+            name=name.strip(), cedant_id=cedant_id.strip(), new_cedant=new_cedant,
             client_id=parsed_client_id, data_vintage=parsed_data_vintage,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
@@ -1461,6 +1477,7 @@ def update(
     # Optional here for the same reason as create() — see the note there.
     name: str = Form(""),
     cedant_id: str = Form(""),
+    new_cedant_name: str = Form(""),
     client_id: str = Form(""),
     data_vintage: str = Form(""),
     treaty_year: str = Form(""),
@@ -1478,9 +1495,9 @@ def update(
         return _not_found(request)
 
     form = {
-        "name": name, "cedant_id": cedant_id, "client_id": client_id,
-        "data_vintage": data_vintage, "treaty_year": treaty_year,
-        "directory_path": directory_path,
+        "name": name, "cedant_id": cedant_id, "new_cedant_name": new_cedant_name,
+        "client_id": client_id, "data_vintage": data_vintage,
+        "treaty_year": treaty_year, "directory_path": directory_path,
         "links_to_submission_id": links_to_submission_id,
     }
     links_to = links_to_submission_id.strip() or None
@@ -1489,10 +1506,11 @@ def update(
                       nav_key="submissions.detail", form=form,
                       submission=submission, links_to=links_to)
 
-    field_errors, parsed_treaty_year, parsed_data_vintage = _validate_submission_form(
-        name=name, cedant_id=cedant_id, cedant_options=_cedant_options(submission),
-        treaty_year=treaty_year, data_vintage=data_vintage,
-        directory_path=directory_path)
+    field_errors, parsed_treaty_year, parsed_data_vintage, new_cedant = (
+        _validate_submission_form(
+            name=name, cedant_id=cedant_id, new_cedant_name=new_cedant_name,
+            cedant_options=_cedant_options(submission), treaty_year=treaty_year,
+            data_vintage=data_vintage, directory_path=directory_path))
     parsed_client_id, client_error = _validate_client(
         client_id, client_service.list_clients())
     if client_error:
@@ -1505,7 +1523,7 @@ def update(
         result = submission_service.update_submission(
             submission_id=submission_id, expected_updated_at=updated_at,
             actor_id=request.state.user.id, confirmed=(confirmed == "1"),
-            name=name.strip(), cedant_id=cedant_id.strip(),
+            name=name.strip(), cedant_id=cedant_id.strip(), new_cedant=new_cedant,
             client_id=parsed_client_id, data_vintage=parsed_data_vintage,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,

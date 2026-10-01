@@ -42,6 +42,7 @@ from app.services._common import (
     _utcnow,
     _word_and_clauses,
 )
+from app.services.cedant_service import NewCedant, save_new_cedant
 from app.services.errors import (
     ConcurrencyConflict,
     SelfLinkError,
@@ -519,7 +520,8 @@ _CONTRACT_INSERT = """
 
 
 def create_submission(
-    *, name: str, cedant_id: Any, data_vintage: Any,
+    *, name: str, cedant_id: Any, new_cedant: NewCedant | None = None,
+    data_vintage: Any,
     treaty_year: int | None = None,
     links_to_submission_id: Any = None, directory_path: str | None = None,
     client_id: int | None = None,
@@ -535,6 +537,9 @@ def create_submission(
     nothing (FR-004). On the write path the submission row, its initial ACTIVE
     status event and its contracts commit in one transaction (R2).
 
+    ``new_cedant``, when given in place of ``cedant_id``, is written in the same
+    transaction (P-06).
+
     ``data_vintage`` is required (P-19); ``treaty_year`` is stored as entered,
     blank included (P-20). ``links_to_submission_id`` is checked before the
     duplicate check, so an id naming no deal is refused without first showing a
@@ -544,6 +549,8 @@ def create_submission(
         raise ValueError("data_vintage is required")
     link_target = _resolve_link_target(links_to_submission_id)
     prepared = _prepare_contracts(contracts)
+    if new_cedant is not None:
+        cedant_id = new_cedant.id
     matches = find_similar(
         name=name, cedant_id=cedant_id,
         contract_terms=[(row["tt"], row["inc"]) for row in prepared],
@@ -569,6 +576,8 @@ def create_submission(
     }
     try:
         with get_connection("WORKBENCH") as conn, conn.begin():
+            if new_cedant is not None:
+                params["cedant"] = save_new_cedant(conn, new_cedant, actor_id=actor)
             conn.execute(text(
                 """
                 INSERT INTO submission
@@ -997,9 +1006,12 @@ def find_similar(
     """Look-alikes: same ``name``, OR same cedant with a contract of the same
     treaty type and inception as one of ``contract_terms`` (FR-004/R4). A deal
     with no contract is compared on its name alone. ``exclude_id`` skips the row
-    being renamed. Never raises."""
+    being renamed. A ``cedant_id`` of ``None`` (a cedant not yet saved) compares
+    the name alone. Never raises."""
     clauses = ["s.name = :name"]
     params: dict[str, Any] = {"name": name, "cedant": str(cedant_id)}
+    if cedant_id is None:
+        contract_terms = ()
     for index, (treaty_type_code, inception_date) in enumerate(contract_terms):
         clauses.append(
             "(s.cedant_id = :cedant AND EXISTS (SELECT 1 FROM contract c "
@@ -1064,12 +1076,15 @@ _MUTABLE_FIELDS = (
 
 def update_submission(
     *, submission_id: Any, expected_updated_at: Any, actor_id: Any,
-    confirmed: bool = False, **fields: Any,
+    confirmed: bool = False, new_cedant: NewCedant | None = None, **fields: Any,
 ) -> UpdateResult:
     """Edit mutable fields, gated by R3 (ACTIVE) + R1 (concurrency) + R9
     (self-link, and a ``links_to_submission_id`` naming no submission) + R4
     (non-blocking duplicate warning on rename). Contracts are edited through
     ``add_contract`` / ``update_contract`` / ``remove_contract``.
+
+    ``new_cedant``, when given in place of ``cedant_id``, is written in the same
+    transaction as the update, so a refused update writes no cedant (P-06).
 
     A ``data_vintage`` of ``None`` is refused (P-19)."""
     sid = str(submission_id)
@@ -1090,6 +1105,8 @@ def update_submission(
     merged["data_vintage"] = _as_date(merged["data_vintage"])
     if merged["data_vintage"] is None:
         raise ValueError("data_vintage is required")
+    if new_cedant is not None:
+        merged["cedant_id"] = new_cedant.id
     contracts = list_contracts(sid)
 
     # Resolve first, self-link second: a submission's own id always exists, so
@@ -1106,34 +1123,37 @@ def update_submission(
     if matches and not confirmed:
         return UpdateResult(updated=False, warnings=matches)
 
-    rows_affected = execute_command(
-        """
-        UPDATE submission
-        SET name = :name, cedant_id = :cedant, client_id = :client,
-            data_vintage = :vintage, treaty_year = :ty,
-            links_to_submission_id = :lt, directory_path = :dir,
-            updated_at = :now, updated_by = :actor
-        WHERE id = :id AND updated_at = :expected
-        """,
-        {
-            "name": merged["name"],
-            "cedant": str(merged["cedant_id"]),
-            "client": merged["client_id"],
-            "vintage": merged["data_vintage"],
-            "ty": merged["treaty_year"],
-            "lt": links_to,
-            "dir": merged["directory_path"],
-            "now": _utcnow(),
-            "actor": str(actor_id),
-            "id": sid,
-            "expected": expected_updated_at,
-        },
-        connection="WORKBENCH",
-    )
-    if rows_affected == 0:
-        raise ConcurrencyConflict(
-            "This deal changed since you opened it — reload and re-apply."
-        )
+    params = {
+        "name": merged["name"],
+        "cedant": str(merged["cedant_id"]),
+        "client": merged["client_id"],
+        "vintage": merged["data_vintage"],
+        "ty": merged["treaty_year"],
+        "lt": links_to,
+        "dir": merged["directory_path"],
+        "now": _utcnow(),
+        "actor": str(actor_id),
+        "id": sid,
+        "expected": expected_updated_at,
+    }
+    # Raising inside the block rolls back a cedant written for this update.
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        if new_cedant is not None:
+            params["cedant"] = save_new_cedant(conn, new_cedant, actor_id=params["actor"])
+        rows_affected = conn.execute(text(
+            """
+            UPDATE submission
+            SET name = :name, cedant_id = :cedant, client_id = :client,
+                data_vintage = :vintage, treaty_year = :ty,
+                links_to_submission_id = :lt, directory_path = :dir,
+                updated_at = :now, updated_by = :actor
+            WHERE id = :id AND updated_at = :expected
+            """
+        ), params).rowcount
+        if rows_affected == 0:
+            raise ConcurrencyConflict(
+                "This deal changed since you opened it — reload and re-apply."
+            )
     return UpdateResult(updated=True)
 
 

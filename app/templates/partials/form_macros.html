@@ -24,8 +24,9 @@
           <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
                @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
             <template x-for="(opt, i) in filteredOptions" :key="i">
-              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
-                      :data-value="opt.value" x-text="opt.label"></button>
+              <button type="button" class="ta__opt"
+                      :class="{ 'is-active': i === activeIndex, 'ta__opt--create': opt.create }"
+                      :data-value="opt.value" :data-create="opt.create" x-text="opt.label"></button>
             </template>
             <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
           </div>
@@ -33,13 +34,20 @@
 
 {# A whole typeahead field: the `.ta` container, the hidden <select> — its
    <option>s are the call body, `attrs` any further <select> attributes — and
-   the controls above. #}
-{% macro typeahead_select(name, attrs={}, required=false, input_class='', search='selectSearch()') %}
-<div class="ta" x-data="{{ search }}" @click.outside="close()">
+   the controls above. `creatable` (the Cedant field only) adds the "Add cedant"
+   menu row: {field, value, inactive} name the hidden input that posts a typed
+   new name, its current value, and the inactive names offered for
+   reactivation. #}
+{% macro typeahead_select(name, attrs={}, required=false, input_class='', search='selectSearch()', creatable=none) %}
+<div class="ta" x-data="{% if creatable %}selectSearch({ creatable: true, inactive: {{ creatable.inactive|tojson|forceescape }} }){% else %}{{ search }}{% endif %}" @click.outside="close()">
   <select class="wf-field__input{{ input_class }}" name="{{ name }}" x-ref="select"{% if required %} required{% endif %}{% for key, value in attrs.items() %} {{ key }}="{{ value }}"{% endfor %}>
     {{ caller() }}
   </select>
   {{ typeahead_controls(required=required) }}
+  {% if creatable %}
+  <input type="hidden" name="{{ creatable.field }}" value="{{ creatable.value }}" x-ref="newName">
+  <div class="wf-field__msg wf-field__hint" x-show="pendingHint" x-text="pendingHint" x-cloak></div>
+  {% endif %}
 </div>
 {% endmacro %}
 

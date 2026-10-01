@@ -832,7 +832,7 @@ def test_create_refuses_a_cedant_id_that_is_not_in_the_list(client):
 
 def test_create_lists_and_accepts_only_active_cedants(client):
     inactive = cedant_id("Retired Re", is_active=False)
-    assert "Retired Re" not in client.get("/submissions/new").text
+    assert ">Retired Re</option>" not in client.get("/submissions/new").text
     res = client.post("/submissions", data={
         **_payload(name="Inactive_cedant"), "cedant_id": inactive})
     assert res.status_code == 422
@@ -851,6 +851,97 @@ def test_edit_keeps_the_deals_own_inactive_cedant(client):
         "updated_at": updated_at})
     assert res.status_code == 303
     assert submission_service.get_submission(sid).name == "Kept_cedant_renamed"
+
+
+def _cedants() -> dict[str, bool]:
+    return {row["name"]: bool(row["is_active"]) for row in execute(
+        "SELECT name, is_active FROM cedant", {}, connection="WORKBENCH")}
+
+
+def _typed_cedant(typed: str, **overrides) -> dict:
+    """The post when the analyst picked the "Add cedant" row for ``typed``."""
+    return {**_payload(**overrides), "cedant_id": "new", "new_cedant_name": typed}
+
+
+def _created_id(res) -> str:
+    assert res.status_code == 303, res.text
+    return res.headers["location"].rsplit("/", 1)[-1]
+
+
+def test_create_offers_adding_a_cedant_and_names_the_inactive_ones(client):
+    cedant_id("Retired Re", is_active=False)
+    body = client.get("/submissions/new").text
+    assert "selectSearch({ creatable: true, inactive: [&#34;Retired Re&#34;] })" in body
+
+
+def test_create_with_a_typed_cedant_writes_the_cedant_with_the_submission(client):
+    sid = _created_id(client.post("/submissions", data=_typed_cedant(
+        "  Lakeshore Farm Bureau ", name="Typed_cedant")))
+    assert submission_service.get_submission(sid).cedant_name == "Lakeshore Farm Bureau"
+    assert _cedants()["Lakeshore Farm Bureau"] is True
+
+
+def test_create_with_an_inactive_cedants_name_reactivates_it(client):
+    retired = cedant_id("Retired Re", is_active=False)
+    sid = _created_id(client.post("/submissions", data=_typed_cedant(
+        "retired re", name="Reactivated_cedant")))
+    assert submission_service.get_submission(sid).cedant_id == retired
+    assert _cedants()["Retired Re"] is True
+    assert "retired re" not in _cedants()
+
+
+def test_create_with_a_name_another_analyst_just_added_uses_that_cedant(client):
+    acme = cedant_id("Acme Re")
+    sid = _created_id(client.post("/submissions", data=_typed_cedant(
+        "ACME RE", name="Raced_cedant")))
+    assert submission_service.get_submission(sid).cedant_id == acme
+    assert "ACME RE" not in _cedants()
+
+
+def test_a_refused_create_writes_no_cedant_and_keeps_the_typed_name(client):
+    res = client.post("/submissions", data=_typed_cedant("Lakeshore", name=""))
+    assert res.status_code == 422
+    assert '<option value="new" selected>Lakeshore</option>' in res.text
+    assert 'name="new_cedant_name" value="Lakeshore"' in res.text
+    assert "Lakeshore" not in _cedants()
+
+
+def test_a_look_alike_warning_writes_no_cedant_until_confirmed(client):
+    client.post("/submissions", data=_payload(name="Twin_deal"))
+    res = client.post("/submissions", data=_typed_cedant("Lakeshore", name="Twin_deal"))
+    assert res.status_code == 200 and "dup-warn" in res.text
+    assert "Lakeshore" not in _cedants()
+    _created_id(client.post("/submissions", data=_typed_cedant(
+        "Lakeshore", name="Twin_deal", confirmed="1")))
+    assert _cedants()["Lakeshore"] is True
+
+
+@pytest.mark.parametrize("typed, message", [
+    ("   ", "Enter a cedant name."),
+    ("x" * 256, "A cedant name is at most 255 characters."),
+])
+def test_create_refuses_a_blank_or_long_typed_cedant(client, typed, message):
+    res = client.post("/submissions", data=_typed_cedant(typed, name="Bad_cedant"))
+    assert res.status_code == 422
+    assert message in res.text
+    assert _count() == 0
+
+
+def test_edit_to_a_typed_cedant_writes_it_with_the_update(client):
+    sid, updated_at = _deal(client, name="Edit_typed_cedant")
+    res = client.post(f"/submissions/{sid}", data={
+        **_typed_cedant("Lakeshore", name="Edit_typed_cedant"), "updated_at": updated_at})
+    assert res.status_code == 303
+    assert submission_service.get_submission(sid).cedant_name == "Lakeshore"
+
+
+def test_a_stale_edit_writes_no_cedant(client):
+    sid, _ = _deal(client, name="Stale_typed_cedant")
+    res = client.post(f"/submissions/{sid}", data={
+        **_typed_cedant("Lakeshore", name="Stale_typed_cedant"),
+        "updated_at": "2000-01-01 00:00:00"})
+    assert res.status_code == 409
+    assert "Lakeshore" not in _cedants()
 
 
 # ── CR8: the "links to" typeahead menu ───────────────────────────────────────

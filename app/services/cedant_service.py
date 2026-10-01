@@ -1,10 +1,12 @@
-"""The admin-maintained cedant list (issue 129). A submission references one
-cedant by id, so a rename shows on every submission."""
+"""The shared cedant list (issue 129). A submission references one cedant by
+id, so a rename shows on every submission."""
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+
+from sqlalchemy import text
 
 from app.services._common import _uid, _utcnow
 from db import execute, execute_command, execute_one, is_unique_violation
@@ -34,21 +36,30 @@ def list_cedants(*, include_inactive: bool) -> list[Cedant]:
             for row in rows]
 
 
-def _checked_name(name: str, exclude_id: str | None = None) -> str:
-    """Trim ``name`` and raise ``CedantValidationError`` unless it is free (P-03, P-04).
-    Names are unique case-insensitively across active and inactive cedants."""
+def _trimmed(name: str) -> str:
     name = name.strip()
     if not name:
         raise CedantValidationError("Enter a cedant name.")
     if len(name) > MAX_NAME_LENGTH:
         raise CedantValidationError(
             f"A cedant name is at most {MAX_NAME_LENGTH} characters.")
-    sql = "SELECT name, is_active FROM cedant WHERE LOWER(name) = LOWER(:name)"
+    return name
+
+
+def _named(name: str, exclude_id: str | None = None) -> dict | None:
+    sql = "SELECT id, name, is_active FROM cedant WHERE LOWER(name) = LOWER(:name)"
     params = {"name": name}
     if exclude_id is not None:
         sql += " AND id <> :id"
         params["id"] = exclude_id
-    taken = execute_one(sql, params, connection="WORKBENCH")
+    return execute_one(sql, params, connection="WORKBENCH")
+
+
+def _checked_name(name: str, exclude_id: str | None = None) -> str:
+    """Trim ``name`` and raise ``CedantValidationError`` unless it is free (P-03, P-04).
+    Names are unique case-insensitively across active and inactive cedants."""
+    name = _trimmed(name)
+    taken = _named(name, exclude_id)
     if taken is None:
         return name
     if taken["is_active"]:
@@ -89,6 +100,46 @@ def rename_cedant(cedant_id: str, name: str, *, actor_id: str) -> None:
         {"name": name, "now": _utcnow(), "actor": actor_id, "id": cedant_id},
         name, exclude_id=cedant_id,
     )
+
+
+@dataclass(frozen=True)
+class NewCedant:
+    """A name typed in the submission form's Cedant field. Nothing is written
+    until the submission saves (P-06): ``save_new_cedant`` runs inside the
+    submission's transaction."""
+    name: str
+    id: str | None  # the cedant that already has this name, if any
+    is_active: bool
+
+
+def new_cedant(name: str) -> NewCedant:
+    """Raise ``CedantValidationError`` for a blank or over-long name. A name an
+    existing cedant has (case ignored) resolves to that cedant: an inactive one
+    is reactivated on save (P-07), and an active one covers another analyst
+    adding the same name since the form loaded."""
+    name = _trimmed(name)
+    row = _named(name)
+    if row is None:
+        return NewCedant(name=name, id=None, is_active=False)
+    return NewCedant(name=row["name"], id=_uid(row["id"]), is_active=bool(row["is_active"]))
+
+
+def save_new_cedant(conn, cedant: NewCedant, *, actor_id: str) -> str:
+    """Insert or reactivate ``cedant`` on the caller's open transaction and
+    return its id."""
+    now = _utcnow()
+    if cedant.id is None:
+        cedant_id = str(uuid.uuid4())
+        conn.execute(text(
+            "INSERT INTO cedant (id, name, inserted_at, updated_at, inserted_by, updated_by) "
+            "VALUES (:id, :name, :now, :now, :actor, :actor)"),
+            {"id": cedant_id, "name": cedant.name, "now": now, "actor": actor_id})
+        return cedant_id
+    if not cedant.is_active:
+        conn.execute(text(
+            "UPDATE cedant SET is_active = 1, updated_at = :now, updated_by = :actor "
+            "WHERE id = :id"), {"now": now, "actor": actor_id, "id": cedant.id})
+    return cedant.id
 
 
 def set_cedant_active(cedant_id: str, active: bool, *, actor_id: str) -> None:
