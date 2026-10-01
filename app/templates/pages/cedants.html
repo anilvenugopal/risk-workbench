@@ -4,7 +4,7 @@
 
 {% block main %}
 <div class="page-pad">
-  <form class="wf-fields" method="post" action="/admin/cedants">
+  <form class="wf-fields" method="post" action="/cedants">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <div class="wf-field">
       <label for="add-name">NEW CEDANT</label>
@@ -27,7 +27,7 @@
       <tr x-data="{ editing: {{ 'true' if renaming else 'false' }} }">
         <td>
           <span x-show="!editing"{% if renaming %} x-cloak{% endif %}>{{ c.name }}</span>
-          <form id="rename-{{ c.id }}" method="post" action="/admin/cedants/{{ c.id }}/rename"
+          <form id="rename-{{ c.id }}" method="post" action="/cedants/{{ c.id }}/rename"
                 x-show="editing"{% if not renaming %} x-cloak{% endif %}>
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
             <input class="wf-field__input" type="text" name="name" maxlength="255" required style="width:100%"
@@ -49,13 +49,13 @@
             <div class="row-actions">
               <button class="btn-sm" type="button" @click="editing = true">Rename</button>
               {% if c.is_active %}
-              <form method="post" action="/admin/cedants/{{ c.id }}/deactivate">
+              <form method="post" action="/cedants/{{ c.id }}/deactivate">
                 <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
                 <button class="btn-sm btn-sm--danger" type="submit"
                         onclick="return confirm({{ ('Deactivate ' ~ c.name ~ '? It leaves the Create picker; submissions that use it keep it.')|tojson|forceescape }})">Deactivate</button>
               </form>
               {% else %}
-              <form method="post" action="/admin/cedants/{{ c.id }}/reactivate">
+              <form method="post" action="/cedants/{{ c.id }}/reactivate">
                 <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
                 <button class="btn-sm btn-sm--primary" type="submit">Reactivate</button>
               </form>

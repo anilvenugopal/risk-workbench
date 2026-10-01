@@ -83,6 +83,7 @@ app.state.templates = templates
 from app.routers import (  # noqa: E402
     admin,
     auth,
+    cedants,
     edms,
     health,
     portfolios,
@@ -100,6 +101,7 @@ from app.routers import (  # noqa: E402
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(cedants.router)
 app.include_router(submissions.router)
 app.include_router(shared_drive.router)
 app.include_router(edms.router)
