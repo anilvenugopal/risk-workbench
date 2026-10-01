@@ -19,8 +19,9 @@ done — the deployment account never needs standing `sudo`.
 
 Requested from infra once per server, not repeated per deployment:
 
-1. Create the application directory (`rhel9-setup.sh` does this). A dedicated
-   service account is still an open item — no script creates one (see Open items).
+1. Create the application directory (`rhel9-setup.sh` does this). Production
+   uses one account to deploy and a second to run the app; no script creates
+   them (see Open items).
 2. Install nginx as a `systemd` service, enabled and running with a
    placeholder/default config — infra owns the unit file
    (`/etc/systemd/system/nginx.service` or the packaged default) and its
@@ -192,9 +193,10 @@ set -a && source infra/.env && set +a
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Production runs this (and the Dramatiq workers, and the poller) as systemd
-units, not a foreground shell command — unit files are not yet written; this
-step proves the app itself starts and serves correctly first.
+This step proves the app itself starts and serves correctly. After it,
+`rhel9-start.sh` starts uvicorn, the Dramatiq workers, the poller, and Valkey
+with `nohup`. Production does not use systemd units for them: the team that
+maintains the Linux server runs `rhel9-start.sh` after every server restart.
 
 ## 7. Deploy the nginx config and reload
 
@@ -289,9 +291,8 @@ command not found` on the remote side) — see
 **Does not yet restart the running application.** The health check at the
 end reports whatever's currently running (if anything) — it does not
 prove the newly-installed code has actually taken effect, since restarting
-uvicorn/the Dramatiq worker/the poller is still a manual step (systemd
-units and the Dramatiq drain-before-restart mechanism are both deliberately
-unbuilt — see Open items).
+uvicorn/the Dramatiq worker/the poller is a manual step: `rhel9-stop.sh`
+before the deploy, `rhel9-start.sh` after it.
 
 ---
 
@@ -311,21 +312,12 @@ new code — an operator still stops the workers (`rhel9-stop.sh`) beforehand
 and starts them again (`rhel9-start.sh`) afterward; the deploy script itself
 still does not stop/start them.
 
-- **systemd unit files** for uvicorn, Dramatiq workers, the poller, and
-  Valkey — not yet written; Steps 5-6 above run them in the
-  foreground/manually as a proof of concept only. Deliberately deferred for
-  the worker specifically (CR-004): converting the worker to systemd ahead of
-  the other three processes would split RHEL9's process model across two
-  supervision styles; systemd conversion is planned for all four processes
-  together, as later, separate work. nginx's privilege problem (Step 7) is
-  resolved in principle by Step 0's one-time infra setup — a pre-authorized
-  `systemctl reload nginx` — but the other four processes need the same
-  treatment: real unit files, owned and started by infra under the service
-  account, not run ad hoc by the deployment account.
-- **Service account**: this runbook uses a personal account as a
-  placeholder. Production needs a dedicated, non-personal service account —
-  get the real name from infra before finalizing any unit file that
-  references one.
+- **Accounts**: this runbook uses `cinreadmd` to both deploy and run the
+  app. Production uses one account to deploy (owns the app directory, holds
+  the deploy SSH key and the two nginx sudoers rules) and a second to run
+  the app (owns `/var/lib/risk-workbench`, runs `rhel9-start.sh` and
+  `rhel9-stop.sh`). Get both names from infra. `rhel9-setup.sh` takes one
+  `DEPLOY_USER` for both today.
 - **Code delivery mechanism**: the push-based script exists
   (`rhel9-ssh-deploy.sh`, sharing `rhel9-app-install.sh`) and is the chosen
   path. Still to confirm with infra: whether the CI/CD runner or a developer

@@ -23,17 +23,18 @@ runtime packages only (`uv export --no-dev`), so it has no pytest or ruff.
 WSL2 Development                          Production (Linux server)
 ─────────────────────────────────         ──────────────────────────────
   nginx          (not needed in dev)       nginx          (systemd)
-  uvicorn        make wsl-app        ≡    uvicorn        (systemd)
-  redis-server   make wsl-start           redis-server   (systemd)
-  dramatiq       make wsl-worker          dramatiq       (systemd)
-  poller         make wsl-poller          poller         (systemd)
+  uvicorn        make wsl-app        ≡    uvicorn        (rhel9-start.sh)
+  redis-server   make wsl-start           valkey-server  (rhel9-start.sh)
+  dramatiq       make wsl-worker          dramatiq       (rhel9-start.sh)
+  poller         make wsl-poller          poller         (rhel9-start.sh)
 
   SQL Server ─── Docker container   ≡    SQL Server ─── separate host
 ```
 
 The same five processes run in development and production. In development they
-are started manually (one terminal each). In production they run as systemd
-services. The commands are identical — only the launcher changes.
+are started manually (one terminal each). In production
+`infra/scripts/rhel9/rhel9-start.sh` starts them with `nohup`; nginx alone is a
+systemd service. The commands are identical — only the launcher changes.
 
 **Redis is durable (AOF) in all environments.** `appendonly yes`,
 `appendfsync everysec`, persisted SSD volume. This ensures acknowledged
