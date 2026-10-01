@@ -67,7 +67,7 @@
 <text x="113" y="190">proxy</text>
 <text x="600" y="238" text-anchor="middle">message</text>
 <text x="327" y="300" text-anchor="end">message</text>
-<text x="455" y="308" text-anchor="middle">bounded reads on the request path</text>
+<text x="455" y="308" text-anchor="middle">Risk Modeler reads on the request path</text>
 </g>
 </svg>
 
@@ -156,7 +156,8 @@
 <li>Reads and writes on <code>rwb_workbench</code> through <code>db.execute()</code>.</li>
 <li>Reading <code>dbo.Client</code> and the historical event lookup, and inserting an export's manifest rows, in the loss database.</li>
 <li>Creating an <code>rwb_job</code> row and sending its Dramatiq message.</li>
-<li>Risk Modeler name searches for the as-you-type name checks (<code>app/services/name_check.py</code>), and the EDM search on the Sync from Risk Modeler page.</li>
+<li>Risk Modeler name searches for the as-you-type name checks (<code>app/services/name_check.py</code>).</li>
+<li>The Sync from Risk Modeler page (<code>/edms/sync</code>). It reads every EDM in the Risk Modeler tenant, so its cost grows with the tenant. See D17 on <a href="09-path-to-production.html#known-debt">page 9</a>.</li>
 <li>One-analysis reads that answer a check the analyst is waiting on, such as the analysis import check (<code>get_analysis_metadata</code>).</li>
 <li>The grouping inspection (<code>grouping.inspect</code>) and analysis delete.</li>
 <li>One single-row DATABRIDGE count, the breakout match count. It must fail open.</li>
