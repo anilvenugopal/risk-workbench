@@ -77,7 +77,7 @@ if [ -z "$QUEUES" ]; then
     exit 1
 fi
 nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 \
-    > /var/lib/risk-workbench/uvicorn.log 2>&1 &
+    >> /var/lib/risk-workbench/uvicorn.log 2>&1 &
 echo $! > "$PID_DIR/uvicorn.pid"
 sleep 2
 if kill -0 "$(cat "$PID_DIR/uvicorn.pid")" 2>/dev/null; then
@@ -92,7 +92,7 @@ echo "=== 4. Starting Dramatiq workers (one process per queue — CR-004) ==="
 while read -r queue; do
     nohup .venv/bin/dramatiq app.workers.entrypoint -Q "$queue" \
         --processes "${RWB_WORKER_PROCESSES:-1}" --threads "${RWB_WORKER_THREADS:-2}" \
-        > "/var/lib/risk-workbench/worker-$queue.log" 2>&1 &
+        >> "/var/lib/risk-workbench/worker-$queue.log" 2>&1 &
     echo $! > "$PID_DIR/worker-$queue.pid"
     echo "  Started $queue (PID $(cat "$PID_DIR/worker-$queue.pid")). Log: /var/lib/risk-workbench/worker-$queue.log"
 done <<< "$QUEUES"
@@ -100,7 +100,7 @@ done <<< "$QUEUES"
 echo ""
 echo "=== 5. Starting poller (background) ==="
 nohup .venv/bin/python -m app.poller.run --loop \
-    > /var/lib/risk-workbench/poller.log 2>&1 &
+    >> /var/lib/risk-workbench/poller.log 2>&1 &
 echo $! > "$PID_DIR/poller.pid"
 echo "  Started (PID $(cat "$PID_DIR/poller.pid")). Log: /var/lib/risk-workbench/poller.log"
 
