@@ -8,8 +8,8 @@ creator becomes its owner.
 name or the cedant — so this flow touches no external system at all. It writes two rows in one
 transaction and returns.
 
-Code: `submissions.create` → `submission_service.create_submission` (which calls
-`find_similar` first); the cedant typeahead is `submission_service.cedant_suggestions`.
+Code: `submissions.create` → `submission_service.create_submission`; the cedant typeahead is
+`submission_service.cedant_suggestions`.
 
 **Classification:** entirely **sync**. No RM call, no `rwb_job`, no worker, no poller.
 
@@ -23,18 +23,6 @@ Code: `submissions.create` → `submission_service.create_submission` (which cal
 **Both commit in one transaction** (R2). That is Article 4 in miniature: `submission.status_code`
 is a *cached* value and `submission_status_event` is the truth, so a submission may never exist
 without its opening event.
-
-## The look-alike check writes nothing
-
-Before either insert, `find_similar` looks for deals matching on **either**:
-
-- the same `name`, **or**
-- the same `(cedant_name, treaty_type_code, inception_date)` triple.
-
-If it finds any and the analyst hasn't confirmed, the service returns `created=False` with the
-matches and **writes nothing**. Re-posting with `confirmed=true` proceeds. Deal identity is
-deliberately **not unique** (FR-004/US5) — genuine look-alikes coexist in this business, so the
-check is a warning, never a constraint.
 
 ## Sequence
 
@@ -55,11 +43,6 @@ sequenceDiagram
         end
 
         User->>App: POST /submissions (CSRF)
-        App->>DB: find_similar — same name OR same (cedant + type + inception)
-        alt look-alikes found AND not confirmed
-            App-->>User: 200 — the form with warnings, NOTHING written
-            User->>App: POST /submissions (confirmed=true)
-        end
         Note over App,DB: ONE transaction
         App->>DB: INSERT submission (status_code='ACTIVE', owner = creator)
         App->>DB: INSERT submission_status_event ('ACTIVE')
