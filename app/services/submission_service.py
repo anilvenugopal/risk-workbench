@@ -36,8 +36,9 @@ from sqlalchemy import text
 from app.services import client_service
 from app.services._common import (
     _escape_like,
-    _import_progress,
+    _import_label,
     _in_clause,
+    _latest_import_jobs,
     _rm_ui_root,
     _uid,
     _utcnow,
@@ -227,7 +228,12 @@ class SubmissionEdm:
     portfolio_count: int
     rm_url: str | None
     notes: str | None = None
-    import_progress: int | None = None
+    job_status: str | None = None
+    job_progress: int | None = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 @dataclass(frozen=True)
@@ -238,7 +244,12 @@ class SubmissionRdm:
     analysis_count: int
     rm_url: str | None
     notes: str | None = None
-    import_progress: int | None = None
+    job_status: str | None = None
+    job_progress: int | None = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 @dataclass(frozen=True)
@@ -246,6 +257,12 @@ class EntityCandidate:
     id: str
     name: str
     status: str | None
+    job_status: str | None = None
+    job_progress: int | None = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 @dataclass(frozen=True)
@@ -713,17 +730,18 @@ def _list_submission_entities(
         f"ORDER BY {order_by}",
         params, connection="WORKBENCH",
     )
-    progress = _import_progress(kind, [row["id"] for row in rows])
-    return [
-        dto(
+    jobs = _latest_import_jobs(kind, [row["id"] for row in rows])
+    entities = []
+    for row in rows:
+        job_status, job_progress = jobs.get(_uid(row["id"]), (None, None))
+        entities.append(dto(
             id=_uid(row["id"]), name=row["name"], status=row["status"],
             rm_url=_risk_modeler_url(row["name"], kind=kind),
             notes=row["notes"],
-            import_progress=progress.get(_uid(row["id"])),
+            job_status=job_status, job_progress=job_progress,
             **{count_alias: int(row[count_alias] or 0)},
-        )
-        for row in rows
-    ]
+        ))
+    return entities
 
 
 def list_submission_edms(
@@ -768,10 +786,16 @@ def _list_entity_candidates(
     )
     rows = execute(sql, params, connection="WORKBENCH")
     has_next = len(rows) > PAGE_SIZE
+    rows = rows[:PAGE_SIZE]
+    jobs = _latest_import_jobs(kind, [row["id"] for row in rows])
+    candidates = []
+    for row in rows:
+        job_status, job_progress = jobs.get(_uid(row["id"]), (None, None))
+        candidates.append(EntityCandidate(
+            id=_uid(row["id"]), name=row["name"], status=row["status"],
+            job_status=job_status, job_progress=job_progress))
     return CandidatePage(
-        rows=[EntityCandidate(id=_uid(row["id"]), name=row["name"],
-                              status=row["status"])
-              for row in rows[:PAGE_SIZE]],
+        rows=candidates,
         page=page,
         has_next=has_next,
     )

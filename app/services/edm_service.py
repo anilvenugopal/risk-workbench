@@ -43,7 +43,8 @@ from app.services._common import (
     SubmissionRef,
     _attach_submissions,
     _import_entity,
-    _import_progress,
+    _import_label,
+    _latest_import_jobs,
     _mark_error,
     _mark_importing,
     _replace_source_file,
@@ -101,7 +102,13 @@ class EdmRow:
     # Owning submissions (M:N), oldest-first — populated only by ``list_edms``;
     # defaulted so ``get_edm`` and every existing caller are unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
-    import_progress: int | None = None  # populated only by ``list_edms``
+    # the latest import job — populated only by ``list_edms``
+    job_status: str | None = None
+    job_progress: int | None = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 def check_name_collision(name: str) -> CollisionCheck:
@@ -335,9 +342,9 @@ def list_edms(*, name: str | None = None, status: str | None = None,
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
     _attach_submissions("edm", result)
-    progress = _import_progress("edm", [r.id for r in result])
+    jobs = _latest_import_jobs("edm", [r.id for r in result])
     for row in result:
-        row.import_progress = progress.get(row.id)
+        row.job_status, row.job_progress = jobs.get(row.id, (None, None))
     return result
 
 
@@ -389,7 +396,8 @@ class EdmDetail:
     # 'populated' | 'importing' | 'pending' | 'failed' | 'empty' | 'unavailable'
     detail_state: str
     notes: str | None = None
-    import_progress: int | None = None
+    job_status: str | None = None
+    job_progress: int | None = None
     # a backfill head (either key) is pending/running — drives the "Syncing…"
     # button state even when the table is already populated
     sync_running: bool = False
@@ -421,6 +429,10 @@ class EdmDetail:
     # The newest terminal breakout job's completion banner
     # (breakout_service.BreakoutBanner) — None when nothing warrants one.
     breakout_banner: Any = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 @dataclass
@@ -528,6 +540,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         p.breakout_flight = breakout.flights.get(p.id)
         p.breakout_errors = breakout.errors.get(p.id, [])
     job_status = latest_backfill_status(eid)
+    import_job_status, import_job_progress = _latest_import_jobs(
+        "edm", [eid]).get(_uid(row["id"]), (None, None))
     detail = EdmDetail(
         id=_uid(row["id"]),
         name=row["name"],
@@ -543,7 +557,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         detail_state=_detail_state(row["status"], row["as_of"], portfolios,
                                    job_status),
         notes=row["notes"],
-        import_progress=_import_progress("edm", [eid]).get(_uid(row["id"])),
+        job_status=import_job_status,
+        job_progress=import_job_progress,
         sync_running=job_status in ("pending", "running"),
         treaties=treaties,
         analyses=analyses,

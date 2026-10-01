@@ -51,7 +51,7 @@
     <div>
     <h1>{{ edm.name }}
       <span class="status-chip status-chip--{{ (edm.status or 'unknown')|lower|replace(' ', '-') }}">
-        {{ edm.status or 'unknown' }}{% if edm.import_progress is not none %} {{ edm.import_progress }}%{% endif %}</span>
+        {{ edm.import_label or edm.status or 'unknown' }}</span>
     </h1>
     {% include "partials/edm_detail_meta.html" %}
     </div>
