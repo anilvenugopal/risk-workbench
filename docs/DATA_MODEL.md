@@ -825,6 +825,7 @@ erDiagram
 
 ## Change log
 
+- **2026-10-01 — Cedant seed (issue #129, revision `0005`).** No schema change. `0005` inserts the names in `db/bootstrap/seed/cedants.xlsx` (the client's list, one column headed `Cedant`) that `cedant` does not already hold, case ignored. `infra/scripts/load_cedants.py` (`make load-cedants`) applies the same rule to a later file; neither renames nor deactivates a cedant.
 - **2026-09-30 — Cedant list (issue #129, revision `0004`).** New `cedant` table (`name` unique via `uq_cedant_name`, `is_active`, audit columns). `submission.cedant_name` is replaced by `cedant_id` (FK, `ix_submission_cedant_id`); the migration creates one cedant per distinct old name. `v_contract` joins `cedant` and still exposes `cedant_name`. Reverses CR-003's "no cedant table".
 - **2026-09-29 — Migration files from now on.** `0001_initial.py` is frozen at the spec 017 merge. Every later `WORKBENCH` schema change ships as a new Alembic revision and is applied with `alembic upgrade head`. No schema change.
 - **2026-09-25 — Spec 017 data vintage required (note 33 D7, note 35 D13).** `submission.data_vintage` becomes `DATE NOT NULL` in `0001_initial.py` before the last rebuild; the export form no longer pre-fills from it. No other schema change.
