@@ -48,10 +48,11 @@
             <input class="wf-field__input" id="{{ kind }}-candidate-query" name="q" value="{{ query }}" placeholder="Search by name">
           </div>
         </form>
+        {# The pager swaps out its own link, so htmx re-fires that GET's after-request on this form with elt set to the form. Only the attach is a POST. #}
         <form method="post" action="/submissions/{{ submission.id }}/{{ entity_plural }}/attach" hx-post="/submissions/{{ submission.id }}/{{ entity_plural }}/attach"
               hx-target="#submission-{{ kind }}-section" hx-swap="outerHTML"
               hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
-              @htmx:after-request="if ($event.detail.elt === $el && $event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()">
+              @htmx:after-request="if ($event.detail.requestConfig.verb === 'post' && $event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()">
           <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
           {% include "partials/submission_entity_candidates.html" %}
           <div class="modal-footer entity-modal-footer">
