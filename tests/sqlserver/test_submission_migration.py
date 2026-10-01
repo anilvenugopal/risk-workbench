@@ -214,7 +214,9 @@ def test_0004_backfills_one_cedant_per_distinct_name(scratch_database):
 
 def test_0005_seeds_the_cedant_file_skipping_names_already_present(scratch_database):
     """Issue 129 P-11: a cedant 0004 created from a submission keeps its
-    spelling, and every other name in the committed file is added."""
+    spelling, and every other name in the committed file is added. The
+    scratch database is shared by the module, so the 0004 test's cedants may
+    already be there."""
     names = read_cedant_names(SEED_FILE)
     run_alembic("upgrade", "0004", scratch_database)
     engine = create_engine(build_sqlalchemy_url(
@@ -223,12 +225,13 @@ def test_0005_seeds_the_cedant_file_skipping_names_already_present(scratch_datab
         with engine.begin() as conn:
             conn.execute(text("INSERT INTO cedant (name) VALUES (:name)"),
                          {"name": names[0].upper()})
+            before = conn.execute(text("SELECT name FROM cedant")).scalars().all()
         run_alembic("upgrade", "0005", scratch_database)
         with engine.connect() as conn:
-            seeded = conn.execute(text("SELECT name FROM cedant")).scalars().all()
+            after = conn.execute(text("SELECT name FROM cedant")).scalars().all()
     finally:
         engine.dispose()
-    assert sorted(seeded) == sorted([names[0].upper(), *names[1:]])
+    assert sorted(after) == sorted([*before, *names[1:]])
 
 
 # ── Fixtures: a throwaway analyst + submission (cleaned up after) ─────────────
