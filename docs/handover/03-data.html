@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3. Data — Risk Analysis Workbench handover</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Index</a> · Previous: <a href="02-application-architecture.html">2. Application architecture</a> · Next: <a href="04-integrations.html">4. Integrations</a></nav>
+
+<h1>3. Data</h1>
+
+<h2 id="databases">The databases</h2>
+
+<p>The app names each database by a connection name. The <code>db/</code> package builds the connection from the env vars <code>MSSQL_&lt;NAME&gt;_SERVER</code>, <code>_PORT</code> (default 1433), <code>_DATABASE</code>, <code>_USER</code>, <code>_PASSWORD</code>, and <code>_AUTH_TYPE</code> (<code>SQL</code> by default, or <code>WINDOWS</code> for Kerberos). The full variable list is on <a href="07-configuration-and-observability.html#env-reference">page 7</a>.</p>
+
+<table>
+<tr><th>Connection</th><th>Database</th><th>What it holds</th><th>Who manages the schema</th><th>How the app reaches it</th></tr>
+<tr><td><code>WORKBENCH</code></td><td><code>rwb_workbench</code> in dev</td><td>All app state: users, submissions, contracts, EDMs, RDMs, portfolios, analyses, templates, jobs, and the Risk Modeler reference data cache.</td><td>Alembic, from <code>alembic/versions/</code></td><td><code>db.execute()</code> and <code>db.get_connection("WORKBENCH")</code></td></tr>
+<tr><td><code>EXPOSURE</code></td><td><code>rwb_exposure</code> in dev</td><td>Nothing yet. It is reserved for exposure data. Only <code>GET /api/health</code> connects to it.</td><td>Created empty by <code>infra/scripts/bootstrap_db.py</code></td><td><code>db/</code> package</td></tr>
+<tr><td><code>LOSS</code></td><td>CIC's <code>CRE_Trial_ELT_Repository</code>; <code>rwb_loss</code> in dev</td><td>CIC's loss tables (<code>dbo.Client</code>, <code>dbo.Data</code>, <code>dbo.RMSELT</code>, <code>dbo.RMS_HistoricalRDS</code>, <code>dbo.Lookup_RMS_HistoricalRDS</code>, <code>dbo.CRMContractStatus</code>) and the Workbench's <code>stage</code> schema for exports.</td><td>CIC owns the <code>dbo</code> tables. A CIC DBA installs the <code>stage</code> schema by hand from <code>db/bootstrap/loss_schema.sql</code>. In dev, <code>infra/scripts/bootstrap_loss.py</code> creates both from <code>db/bootstrap/loss_dev_mirror.sql</code> and <code>loss_schema.sql</code>.</td><td><code>db/</code> package, from the export service and the export workers</td></tr>
+<tr><td><code>DATABRIDGE</code></td><td>Moody's DataBridge SQL Server</td><td>The EDM databases Risk Modeler hosts.</td><td>Moody's. The Workbench never runs DDL against it.</td><td>Only through irp-integration. See <a href="04-integrations.html#databridge">page 4</a>.</td></tr>
+</table>
+
+<p>In dev, all three app databases are on the one <code>sqlserver</code> container. At CIC, the Workbench database will sit on the same SQL Server as <code>CRE_Trial_ELT_Repository</code> (open item O-05 in <a href="../../specs/014-results-export/plan.md">specs/014-results-export/plan.md</a>). The export writes <code>MSSQL_WORKBENCH_DATABASE</code> into <code>dbo.Data.Database</code>, so the name must be final before the first production export.</p>
+
+<p>To confirm: the name of the Workbench database at CIC, and whether an <code>EXPOSURE</code> database is created there at all.</p>
+
+<h2 id="workbench-schema">Workbench schema</h2>
+
+<p>Revision <code>0001</code> creates 44 tables and the view <code>v_contract</code>. Every table and column is described in <a href="../DATA_MODEL.md">docs/DATA_MODEL.md</a>.</p>
+
+<table>
+<tr><th>Area</th><th>Tables</th></tr>
+<tr><td>Users and sign-in</td><td><code>app_user</code>, <code>user_role</code>, <code>user_session</code>, <code>login_attempt</code></td></tr>
+<tr><td>Submissions</td><td><code>submission</code>, <code>contract</code>, <code>submission_status_event</code>, <code>submission_edm</code>, <code>submission_rdm</code>, view <code>v_contract</code></td></tr>
+<tr><td>Risk Modeler entities</td><td><code>irp_edm</code>, <code>irp_rdm</code>, <code>irp_portfolio</code>, <code>breakout_group</code>, <code>irp_treaty</code>, <code>irp_analysis</code>, <code>irp_analysis_group_member</code></td></tr>
+<tr><td>Jobs</td><td><code>irp_job</code>, <code>irp_job_resource</code>, <code>rwb_job</code>, <code>rwb_job_heartbeat</code></td></tr>
+<tr><td>Reference data cache</td><td><code>irp_model_profile</code>, <code>irp_output_profile</code>, <code>irp_event_rate_scheme</code>, <code>irp_currency</code>, <code>irp_currency_scheme</code>, <code>irp_currency_scheme_vintage</code></td></tr>
+<tr><td>Templates</td><td><code>analysis_template</code>, <code>analysis_template_tag</code>, <code>template_suite</code>, <code>template_suite_item</code></td></tr>
+</table>
+
+<p>Each <code>irp_*</code> table stores its Risk Modeler identifier in <code>irp_id</code>. The reference data cache is filled by the <code>sync_irp_metadata</code> worker.</p>
+
+<p>Categorical values are rows in kind tables, each with <code>code</code>, <code>label</code>, and <code>sort_order</code>. There are 14:</p>
+
+<table>
+<tr><th>Kind table</th><th>Seeded codes</th></tr>
+<tr><td><code>role_kind</code></td><td><code>analyst</code>, <code>admin</code> (<code>is_admin=1</code>)</td></tr>
+<tr><td><code>submission_status_kind</code></td><td><code>ACTIVE</code>, <code>COMPLETED</code>, <code>CANCELLED</code></td></tr>
+<tr><td><code>contract_status_kind</code></td><td><code>OPEN</code>, <code>WON</code>, <code>LOST</code></td></tr>
+<tr><td><code>treaty_type_kind</code></td><td>11 codes: <code>aggregate_xol</code>, <code>aggregate_cat_xol</code>, <code>risk_aggregate_xol</code>, <code>per_occurrence_xol</code>, <code>per_occurrence_cat_xol</code>, <code>per_risk_xol</code>, <code>stop_loss</code>, <code>reinstatement_premium_protection</code>, <code>second_third_fourth_event_risk_exposed</code>, <code>top_and_drop</code>, <code>top_and_aggregate</code></td></tr>
+<tr><td><code>breakout_dimension_kind</code></td><td><code>lob</code>, <code>state</code>, <code>country</code>, <code>peril</code>, <code>custom</code></td></tr>
+<tr><td><code>analysis_perspective_kind</code></td><td><code>GR</code>, <code>RL</code>, <code>WX</code>, <code>QS</code>, <code>GU</code></td></tr>
+<tr><td><code>irp_analysis_status_kind</code></td><td><code>pending</code>, <code>ready</code>, <code>error</code></td></tr>
+<tr><td><code>irp_job_type_kind</code></td><td><code>import_edm</code>, <code>import_rdm</code>, <code>geohaz</code>, <code>analysis</code>, <code>grouping</code>, <code>export</code></td></tr>
+<tr><td><code>irp_job_resource_type_kind</code></td><td><code>portfolio</code></td></tr>
+<tr><td><code>rwb_job_type_kind</code></td><td>21 codes: the 20 queue names, plus <code>notify_analyst</code>, which has no worker</td></tr>
+<tr><td><code>rwb_job_status_kind</code></td><td><code>pending</code>, <code>running</code>, <code>succeeded</code>, <code>failed</code>, <code>cancelled</code></td></tr>
+<tr><td><code>rwb_job_requestor_type_kind</code></td><td><code>irp_job</code>, <code>analyst_request</code>, <code>rwb_job</code>, <code>breakout_group</code>, <code>irp_analysis</code></td></tr>
+<tr><td><code>rwb_job_link_type_kind</code></td><td><code>edm</code>, <code>rdm</code>, <code>submission</code>, <code>not_applicable</code></td></tr>
+<tr><td><code>rwb_job_context_type_kind</code></td><td><code>edm</code>, <code>rdm</code>, <code>irp_analysis</code>, <code>portfolio</code>, <code>breakout_group</code>, <code>execution</code>, <code>result_export</code></td></tr>
+</table>
+
+<p>Three status columns are plain text because they copy Risk Modeler's own values: <code>irp_job.status</code>, <code>irp_edm.status</code>, and <code>irp_rdm.status</code>.</p>
+
+<p>How to change a kind table's values is on <a href="07-configuration-and-observability.html#settings-kind-tables">page 7</a>.</p>
+
+<p>Submission status is event-sourced. It is the only event-sourced status.</p>
+<ul>
+<li><code>submission.status_code</code> holds the current value. New submissions start at <code>ACTIVE</code>.</li>
+<li><code>submission_status_event</code> holds every change: <code>submission_id</code>, <code>status_code</code>, <code>reason</code>, <code>at</code>, <code>inserted_by</code>.</li>
+<li><code>set_status()</code> in <code>app/services/submission_service.py</code> writes both in one transaction. It opens <code>get_connection("WORKBENCH")</code>, calls <code>conn.begin()</code>, updates <code>submission</code> with <code>WHERE id = :id AND updated_at = :expected</code>, raises <code>ConcurrencyConflict</code> if no row changed, and inserts the event.</li>
+<li><code>create_submission()</code> in the same file writes the first <code>ACTIVE</code> event with the submission.</li>
+</ul>
+
+<p>Every other status, including <code>contract.contract_status_code</code>, <code>rwb_job.status_code</code>, and <code>irp_analysis.status_code</code>, is updated in place.</p>
+
+<h2 id="data-access">Data access</h2>
+
+<p>All SQL goes through the <code>db/</code> package. It uses SQLAlchemy Core for connection pools only; there is no ORM. The package is described in <a href="../../db/README.md">db/README.md</a>.</p>
+
+<table>
+<tr><th>Function</th><th>Use</th></tr>
+<tr><td><code>db.execute(sql, params=None, connection="WORKBENCH")</code></td><td>The default. Runs SQL with bound <code>:name</code> parameters and returns <code>list[dict]</code>. Every query that touches a user-supplied value uses it.</td></tr>
+<tr><td><code>db.execute_one</code>, <code>db.execute_scalar</code>, <code>db.execute_command</code>, <code>db.execute_procedure</code></td><td>Variants of the same bound-parameter path: one row, one value, one statement that returns a row count, and a stored procedure call.</td></tr>
+<tr><td><code>db.get_connection(name)</code></td><td>A context manager that yields a pooled connection. Use it with <code>conn.begin()</code> when two statements must commit together.</td></tr>
+<tr><td><code>db.register_engine(name, engine)</code></td><td>Replaces the engine for a connection name. The unit tests use it to point <code>WORKBENCH</code> and <code>LOSS</code> at SQLite.</td></tr>
+<tr><td><code>db.elt.upload_parquet</code></td><td>Bulk-inserts a Parquet file. The export worker uses it to load <code>stage.rwb_loss_result_elt_data</code>.</td></tr>
+<tr><td><code>from db.scripts import execute_script_file</code></td><td>The trusted-script path: substitutes <code>{{ param }}</code> into the SQL text, splits on <code>GO</code>, and returns DataFrames. It is not exported from <code>db</code>, so every use is an explicit import. The only caller is <code>infra/scripts/bootstrap_loss.py</code>.</td></tr>
+</table>
+
+<p>All connections share one pool setting: <code>MSSQL_POOL_SIZE</code> (default 5), <code>MSSQL_POOL_MAX_OVERFLOW</code> (default 5), <code>MSSQL_POOL_TIMEOUT</code> (default 30), and <code>MSSQL_POOL_RECYCLE</code> (default 1800 seconds), read in <code>db/connection.py</code>.</p>
+
+<h2 id="migrations">Migrations</h2>
+
+<ul>
+<li>Alembic manages <code>WORKBENCH</code> only. <code>alembic/env.py</code> builds the database URL from the same <code>MSSQL_WORKBENCH_*</code> variables as the app.</li>
+<li><code>alembic/env.py</code> has no model metadata, so <code>--autogenerate</code> does not work. Write <code>upgrade()</code> and <code>downgrade()</code> by hand with <code>op.*</code>.</li>
+<li><code>alembic/versions/0001_initial.py</code> is the base revision. It is frozen; never edit it.</li>
+<li>Revision ids are four-digit numbers. The head is <code>0003</code>, so the next is <code>0004</code>.</li>
+<li>Any kind-table rows a change needs go in the same revision as the table or column that uses them.</li>
+</ul>
+
+<table>
+<tr><th>Revision</th><th>Change</th></tr>
+<tr><td><code>0001</code></td><td>The full schema and every kind-table seed row.</td></tr>
+<tr><td><code>0002</code></td><td>Adds <code>model_profile_irp_id</code>, <code>output_profile_irp_id</code>, and <code>event_rate_scheme_irp_id</code> to <code>analysis_template</code>.</td></tr>
+<tr><td><code>0003</code></td><td>Adds <code>irp_job.progress</code>.</td></tr>
+</table>
+
+<table>
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>uv run alembic revision -m "&lt;what changes&gt;" --rev-id 0004</code></td><td>Creates a new revision file. Runs from any shell; needs no database.</td></tr>
+<tr><td><code>uv run alembic heads</code></td><td>Shows the head revisions. <code>main</code> must have exactly one.</td></tr>
+<tr><td><code>make db-migrate</code> (Docker) or <code>make wsl-db-migrate</code> (WSL2)</td><td>Runs <code>alembic upgrade head</code>.</td></tr>
+</table>
+
+<p><code>tests/iteration1_mirror.py</code> is a SQLite copy of the Workbench schema (<code>ITERATION1_SCHEMA</code> to <code>ITERATION4_SCHEMA</code>) plus the kind-table seed lists (<code>*_SEED</code>). The unit tests build it in memory. A revision that changes a mirrored table or adds a kind-table row must update the mirror in the same commit. <code>tests/sqlserver/test_schema_drift.py</code> compares the mirror's columns with the real schema; it does not check seed rows. <code>tests/loss_mirror.py</code> does the same for the loss database.</p>
+
+<p>The full procedure is under "Schema Changes" in <a href="../../AGENTS.md">AGENTS.md</a>.</p>
+
+<nav><a href="index.html">Index</a> · Previous: <a href="02-application-architecture.html">2. Application architecture</a> · Next: <a href="04-integrations.html">4. Integrations</a></nav>
+</body>
+</html>
