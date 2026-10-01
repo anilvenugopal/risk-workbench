@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>7. Configuration and observability — Risk Analysis Workbench handover</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Index</a> · Previous: <a href="06-development.html">6. Development</a> · Next: <a href="08-deployed-environment.html">8. Deployed environment</a></nav>
+
+<h1>7. Configuration and observability</h1>
+
+<h2 id="user-settings">Settings the functional team will ask about</h2>
+
+<p>Analysts and CIC's modeling leads will ask for changes to the settings below. There are three ways a setting is changed: an env var in <code>infra/.env</code>, a new Alembic revision for a kind table, or the admin screen.</p>
+
+<h3 id="settings-env">a. Changed in infra/.env, then restart</h3>
+
+<p>Every process reads its settings once, at start. After editing <code>infra/.env</code>, restart each process the table names. The processes are uvicorn (the "app"), the Dramatiq workers, and the poller; how to restart them is on <a href="08-deployed-environment.html#runbook">page 8</a>. Restarting all of them is always safe.</p>
+
+<table>
+<tr><th>Setting</th><th>What the user sees</th><th>Default</th><th>Restart</th><th>Example request</th></tr>
+<tr><td><code>DEFAULT_ANALYSIS_CURRENCY_CODE</code>, <code>DEFAULT_ANALYSIS_CURRENCY_SCHEME</code>, <code>DEFAULT_ANALYSIS_CURRENCY_VINTAGE</code></td><td>The currency, currency scheme, and scheme vintage pre-selected in the Run analyses dialog and the grouping dialog. The analyst can still change them. A value missing from the synced reference data pre-selects nothing. The app never moves the vintage forward by itself.</td><td><code>USD</code>, <code>RMS</code>, empty (no vintage pre-selected)</td><td>App</td><td>"Default new analyses to the latest RMS currency vintage."</td></tr>
+<tr><td><code>HAZARD_DATA_VERSION</code></td><td>The hazard data version sent with every GeoHaz lookup. Risk Modeler does not accept "latest", so this must be a real version.</td><td><code>25.0</code></td><td>App</td><td>"Moody's released hazard data 26.0; use it for hazard lookups."</td></tr>
+<tr><td><code>SHARED_DRIVE_ROOT</code></td><td>The folder the EDM and RDM import file browser opens at. The browser cannot go above it. Empty shows "No shared drive is configured". The workers read the chosen file from the same path, so the share must be mounted where the workers run too.</td><td>empty</td><td>App</td><td>"Broker files have moved to a new share."</td></tr>
+<tr><td><code>IRP_EDM_IMPORT_SERVER</code></td><td>The DATABRIDGE server name EDM imports are sent to.</td><td><code>databridge-1</code></td><td>Workers</td><td>"Moody's moved our EDMs to a new DataBridge server."</td></tr>
+<tr><td><code>EXPORT_PERSPECTIVE_CODES</code></td><td>The perspectives the export form offers, in this order, as a comma-separated list. A code is offered only if every selected analysis has results for it; <code>TY</code> only if every selected analysis ran with treaties.</td><td><code>GU,GR,RL,RP,TY</code></td><td>App</td><td>"Take RP off the export form."</td></tr>
+<tr><td><code>EXPORT_ARCHIVE_DIR</code></td><td>Where downloaded export archives are kept permanently, as <code>{export_id}/{irp_analysis_id}/</code>. Must already exist; empty or missing makes every export fail at the stage step. The app never deletes from it.</td><td>empty (<code>.env.example</code>: <code>/workspace/data/export_archive</code>)</td><td>App and workers</td><td>"Keep export archives on the new loss share."</td></tr>
+<tr><td><code>EXPORT_STAGING_DIR</code></td><td>Local disk where archives are unzipped while an export runs; emptied after each analysis. Must already exist; empty or missing makes every export fail at the stage step.</td><td>empty</td><td>Workers</td><td>"Exports fail with 'Staging root (unset)'."</td></tr>
+<tr><td><code>NOTIFY_CHANNELS</code>, <code>NOTIFY_EMAIL_TO</code>, <code>TEAMS_WEBHOOK_URL</code>, <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_FROM</code></td><td>Nothing. No code reads them. Sending notifications needs code; see <a href="04-integrations.html#notifications">page 4</a>. The future email sender is configured with <code>MAIL_TENANT_ID</code>, <code>MAIL_CLIENT_ID</code>, <code>MAIL_CLIENT_SECRET</code>, and <code>MAIL_SENDER_ADDRESS</code>.</td><td>empty</td><td>None</td><td>"Email me when my analyses finish."</td></tr>
+<tr><td><code>IRP_SUBMISSION_MAX_RETRIES</code></td><td>How many times the poller retries an analysis whose submission to Risk Modeler failed. The analyses table shows "Failed to submit · attempt n/max".</td><td><code>3</code></td><td>Poller and app</td><td>"During the Moody's outage our analyses gave up too soon."</td></tr>
+<tr><td><code>IRP_SUBMISSION_RETRY_BASE_SECS</code></td><td>The wait before a retry: this value × 2<sup>attempts so far</sup> seconds after the last failure, so 60, 120, 240 seconds with the default.</td><td><code>60</code></td><td>Poller</td><td>"Retry failed submissions sooner."</td></tr>
+<tr><td><code>IRP_SUBMISSION_RETRY_STALE_SECS</code></td><td>How long a retry can sit at <code>SUBMISSION RETRYING</code> before the poller treats it as abandoned.</td><td><code>300</code></td><td>Poller</td><td>Rarely changed.</td></tr>
+<tr><td><code>UI_POLL_INTERVAL_SECS</code></td><td>How often a page showing a job in progress refreshes that section.</td><td><code>10</code></td><td>App</td><td>"The status column takes too long to update."</td></tr>
+<tr><td><code>POLL_INTERVAL_SECS</code></td><td>How often the poller checks Risk Modeler job status, so how soon a finished job shows as finished.</td><td><code>15</code></td><td>Poller</td><td>"Analyses show Running for a while after Risk Modeler says they finished."</td></tr>
+<tr><td><code>AUTH_MODE</code></td><td>Which sign-in options the login page shows: <code>oidc</code>, <code>password</code>, or <code>both</code>.</td><td><code>both</code> (<code>.env.example</code>: <code>password</code>)</td><td>App</td><td>"Contractors without a Microsoft account need to sign in."</td></tr>
+<tr><td><code>SESSION_IDLE_TIMEOUT_HOURS</code>, <code>SESSION_ABSOLUTE_TIMEOUT_HOURS</code></td><td>How long a user stays signed in when idle, and at most.</td><td><code>8</code>, <code>24</code></td><td>App</td><td>"We get signed out over lunch."</td></tr>
+<tr><td><code>NAME_CHECK_CACHE_TTL_SECS</code></td><td>How long the as-you-type name check reuses its list of Risk Modeler names, so how soon it sees a name created directly in Risk Modeler.</td><td><code>30</code></td><td>App</td><td>Rarely changed.</td></tr>
+<tr><td><code>RISK_MODELER_TENANT_NAME</code>, <code>RISK_MODELER_BASE_URL</code></td><td>Besides signing in to Risk Modeler, the app builds the "open in Risk Modeler" links from them. Empty tenant name hides the links.</td><td>empty</td><td>App, workers, and poller</td><td>"The Risk Modeler links go to the sandbox."</td></tr>
+</table>
+
+<p>To confirm: the production values of <code>SHARED_DRIVE_ROOT</code>, <code>EXPORT_ARCHIVE_DIR</code>, <code>EXPORT_STAGING_DIR</code>, <code>IRP_EDM_IMPORT_SERVER</code>, <code>DEFAULT_ANALYSIS_CURRENCY_VINTAGE</code>, and <code>AUTH_MODE</code>. None is recorded in the repo.</p>
+
+<h3 id="settings-kind-tables">b. Changed by a new Alembic revision</h3>
+
+<p>These value lists are kind tables. There is no admin screen for them. Each change is a new Alembic revision, reviewed and deployed like code.</p>
+
+<ol>
+<li>Create the revision: <code>uv run alembic revision -m "&lt;what changes&gt;" --rev-id &lt;next id&gt;</code>.</li>
+<li>In <code>upgrade()</code>, use <code>op.execute()</code> to <code>INSERT</code> the new row, or <code>UPDATE</code> its <code>label</code> or <code>sort_order</code>. In <code>downgrade()</code>, undo it.</li>
+<li>Add or change the same row in the matching <code>*_SEED</code> list in <code>tests/iteration1_mirror.py</code>.</li>
+<li>Run <code>uv run pytest tests/unit</code>, then deploy. The deploy runs <code>alembic upgrade head</code>.</li>
+</ol>
+
+<p>The full revision rules are on <a href="03-data.html#migrations">page 3</a>.</p>
+
+<table>
+<tr><th>Value list</th><th>Kind table</th><th>Codes today</th><th>What the user sees</th><th>Before changing</th><th>Example request</th></tr>
+<tr><td>Contract status</td><td><code>contract_status_kind</code></td><td><code>OPEN</code>, <code>WON</code>, <code>LOST</code></td><td>The status choices on each contract, and the contract status filters.</td><td>New contracts default to <code>OPEN</code> (<code>submission_service.py</code>), and the "in force as of" filter counts only <code>WON</code> contracts (<code>submission_filters.py</code>); do not remove or recode those two. <code>infra/scripts/bulk_update_contract_status.sql</code> rejects any status not in this table.</td><td>"Add a Declined status."</td></tr>
+<tr><td>Submission status</td><td><code>submission_status_kind</code></td><td><code>ACTIVE</code>, <code>COMPLETED</code>, <code>CANCELLED</code></td><td>The Modeling status of a submission.</td><td>New submissions start at <code>ACTIVE</code>, and only <code>ACTIVE</code> submissions accept new EDMs and RDMs (<code>app/services/_common.py</code>). A label change is safe; a code change needs code changes.</td><td>"Rename Completed to Closed."</td></tr>
+<tr><td>Breakout dimension</td><td><code>breakout_dimension_kind</code></td><td><code>lob</code>, <code>state</code>, <code>country</code>, <code>peril</code>, <code>custom</code></td><td>The breakout options on a portfolio.</td><td>Each dimension needs its own worker (<code>run_breakout_&lt;code&gt;</code>), DATABRIDGE SQL file, and vocabulary in <code>breakout_service.py</code>. A unit test fails if a seeded code has no vocabulary. Only labels can change without code.</td><td>"Call 'Line of business' 'LOB'."</td></tr>
+<tr><td>Analysis perspective</td><td><code>analysis_perspective_kind</code></td><td><code>GR</code>, <code>RL</code>, <code>WX</code>, <code>QS</code>, <code>GU</code></td><td>The perspective toggles in the results views. The results worker requests results for every code in this table.</td><td>A new code must be a perspective code Risk Modeler returns. <code>RL</code> is the default view (the Python constant <code>DEFAULT_PERSPECTIVE</code> in <code>analysis_service.py</code>, not an env var). The export form's list is <code>EXPORT_PERSPECTIVE_CODES</code>, not this table.</td><td>"Show the RP perspective in the results grid."</td></tr>
+<tr><td>Treaty type</td><td><code>treaty_type_kind</code></td><td>CIC's 11 treaty types (list on <a href="03-data.html#workbench-schema">page 3</a>)</td><td>The treaty type choices on each contract.</td><td>Adding a type or changing a label needs no code.</td><td>"Add Quota Share to the treaty types."</td></tr>
+<tr><td>Role</td><td><code>role_kind</code></td><td><code>analyst</code>, <code>admin</code> (<code>is_admin=1</code>)</td><td>The roles an admin can assign.</td><td>Admin functions check <code>is_admin</code>; the Administration rail item checks the role code <code>admin</code> (<code>app/nav/manifest.py</code>). Any role grants analyst access, so a new role with <code>is_admin=0</code> gives analyst access and nothing more. A role that gates a new function needs code.</td><td>"Add a read-only role."</td></tr>
+</table>
+
+<p><code>infra/scripts/seed_db.py</code> also inserts the seed rows of these tables when they are missing. It never changes an existing label, but it puts a deleted row back. Remove a code by updating the rows that use it, not by deleting the code.</p>
+
+<h3 id="settings-admin">c. Changed on the admin screen</h3>
+
+<p>Users with the <code>admin</code> role see Administration in the rail, at <code>/admin/users</code> (<code>app/routers/admin.py</code>). Every action takes effect on the user's next request; no restart.</p>
+
+<table>
+<tr><th>Action</th><th>Route</th><th>What it does</th><th>Example request</th></tr>
+<tr><td>Provision an Entra user</td><td><code>POST /admin/users/provision-oidc</code></td><td>Creates the user by email with a role, before their first sign-in. The first Entra sign-in links the account. Safe to repeat.</td><td>"A new analyst starts Monday."</td></tr>
+<tr><td>Create a password user</td><td><code>GET</code>/<code>POST /admin/users/new</code></td><td>Creates a password account that must change its password at first sign-in. It gets no role; assign one next.</td><td>"A contractor without a Microsoft account needs access."</td></tr>
+<tr><td>Assign a role</td><td><code>POST /admin/users/{id}/assign-role</code></td><td>Adds a role. A user who signed in with Entra before being provisioned waits on the Access pending page until this is done. There is no action to remove a role.</td><td>"I signed in but it says Access pending."</td></tr>
+<tr><td>Reset a password</td><td><code>POST /admin/users/{id}/reset-password</code></td><td>Sets a temporary password and forces a change at next sign-in. It does not check the password rules.</td><td>"I forgot my password."</td></tr>
+<tr><td>Force logout</td><td><code>POST /admin/users/{id}/force-logout</code></td><td>Ends all of the user's sessions.</td><td>"I left myself signed in on a shared machine."</td></tr>
+<tr><td>Deactivate / reactivate</td><td><code>POST /admin/users/{id}/deactivate</code>, <code>/reactivate</code></td><td>Blocks or restores sign-in and ends the user's sessions. An admin cannot deactivate themselves. Users are never deleted.</td><td>"This analyst has left CIC."</td></tr>
+</table>
+
+<p>The same actions, plus creating the first admin, are available from the command line with <code>make wsl-user-setup</code> or <code>infra/scripts/run_user_setup.sh</code>. The steps for each case are in <a href="../USER_PROVISIONING.md">docs/USER_PROVISIONING.md</a>.</p>
+
+<h2 id="env-reference">Environment variable reference</h2>
+
+<p>Every variable in <code>infra/.env.example</code> or <code>app/config.py</code>. The "Read by" column says which code reads it; the "Only in" column flags a variable that is in only one of the two files. Variables already described above are listed by name only.</p>
+
+<table>
+<tr><th>Variable</th><th>Default</th><th>What it controls</th><th>Read by</th><th>Only in</th></tr>
+<tr><td><code>APP_ENV</code></td><td><code>development</code></td><td><code>production</code> sets the cookie <code>secure</code> flag, turns off <code>/docs</code>, and defaults logs to JSON. Seed scripts add dev data only in <code>development</code>.</td><td><code>app/config.py</code>, seed scripts</td><td></td></tr>
+<tr><td><code>APP_DEBUG</code></td><td><code>0</code></td><td><code>1</code> starts uvicorn under debugpy in Docker dev.</td><td><code>infra/scripts/start-all.sh</code></td><td><code>.env.example</code></td></tr>
+<tr><td><code>APP_TITLE</code></td><td><code>Risk Analysis Workbench</code></td><td>The FastAPI app title.</td><td><code>app/main.py</code></td><td><code>config.py</code></td></tr>
+<tr><td><code>APP_VERSION</code></td><td><code>0.1.0</code></td><td>The FastAPI app version string.</td><td><code>app/main.py</code></td><td><code>config.py</code></td></tr>
+<tr><td><code>LOG_LEVEL</code>, <code>LOG_FORMAT</code></td><td><code>INFO</code>, empty</td><td>See <a href="#logging">Logging</a>.</td><td><code>app/logging_setup.py</code></td><td></td></tr>
+<tr><td><code>SESSION_SECRET_KEY</code></td><td>none; required</td><td>Signs the OIDC state cookie and CSRF tokens. The app will not start without it.</td><td><code>app/config.py</code></td><td></td></tr>
+<tr><td><code>AUTH_MODE</code>, <code>SESSION_IDLE_TIMEOUT_HOURS</code>, <code>SESSION_ABSOLUTE_TIMEOUT_HOURS</code></td><td colspan="2">See <a href="#settings-env">section a</a>.</td><td><code>app/config.py</code>; the two timeouts by <code>app/services/auth_service.py</code></td><td>Timeouts: <code>.env.example</code></td></tr>
+<tr><td><code>ENTRA_TENANT_ID</code>, <code>ENTRA_CLIENT_ID</code>, <code>ENTRA_CLIENT_SECRET</code></td><td>empty</td><td>The Entra app registration for sign-in.</td><td><code>app/auth/oidc.py</code></td><td></td></tr>
+<tr><td><code>ENTRA_REDIRECT_URI</code></td><td><code>http://localhost:8000/auth/callback</code></td><td>The callback URL registered in Entra. The post-logout URL is derived from it.</td><td><code>app/auth/oidc.py</code></td><td></td></tr>
+<tr><td><code>ENTRA_ADMIN_OBJECT_ID</code></td><td>none</td><td>Nothing.</td><td>No code</td><td><code>.env.example</code></td></tr>
+<tr><td><code>REDIS_URL</code></td><td><code>redis://127.0.0.1:6379/0</code></td><td>The Dramatiq broker, and the Redis check in <code>/api/health</code>.</td><td><code>app/workers/broker.py</code></td><td></td></tr>
+<tr><td><code>MSSQL_SA_PASSWORD</code></td><td>none</td><td>The <code>sa</code> password of the dev SQL Server container. <code>bootstrap_db.py</code> and <code>reset_db.py</code> connect as <code>sa</code> with it to create and drop databases.</td><td><code>infra/docker-compose.yml</code>, <code>bootstrap_db.py</code>, <code>reset_db.py</code>, the Podman scripts</td><td><code>.env.example</code></td></tr>
+<tr><td><code>MSSQL_WORKBENCH_SERVER</code>, <code>_PORT</code>, <code>_DATABASE</code>, <code>_USER</code>, <code>_PASSWORD</code></td><td>port <code>1433</code></td><td>The <code>WORKBENCH</code> connection. <code>_DATABASE</code> is also written into every export's <code>dbo.Data</code> row.</td><td><code>db/config.py</code>, <code>alembic/env.py</code></td><td><code>.env.example</code></td></tr>
+<tr><td><code>MSSQL_EXPOSURE_*</code> (same five)</td><td>port <code>1433</code></td><td>The <code>EXPOSURE</code> connection; only <code>/api/health</code> uses it.</td><td><code>db/config.py</code></td><td><code>.env.example</code></td></tr>
+<tr><td><code>MSSQL_LOSS_*</code> (same five)</td><td>port <code>1433</code></td><td>The <code>LOSS</code> connection: CIC's loss repository.</td><td><code>db/config.py</code></td><td><code>.env.example</code></td></tr>
+<tr><td><code>MSSQL_DATABRIDGE_SERVER</code>, <code>_PORT</code>, <code>_USER</code>, <code>_PASSWORD</code></td><td>port <code>1433</code></td><td>The DATABRIDGE connection.</td><td>irp-integration</td><td><code>.env.example</code></td></tr>
+<tr><td><code>MSSQL_DATABRIDGE_DATABASE</code></td><td>empty</td><td>Nothing: each DATABRIDGE query names the EDM's own database.</td><td>No code</td><td><code>.env.example</code></td></tr>
+<tr><td><code>MSSQL_&lt;NAME&gt;_AUTH_TYPE</code></td><td><code>SQL</code></td><td><code>WINDOWS</code> uses Kerberos instead of a user and password.</td><td><code>db/config.py</code></td><td>Comment in <code>.env.example</code></td></tr>
+<tr><td><code>MSSQL_DRIVER</code>, <code>MSSQL_TRUST_CERT</code>, <code>MSSQL_ENCRYPT</code>, <code>MSSQL_TIMEOUT</code></td><td><code>ODBC Driver 18 for SQL Server</code>, <code>yes</code>, <code>no</code>, <code>30</code></td><td>ODBC settings for every connection.</td><td><code>db/config.py</code>, irp-integration</td><td><code>.env.example</code></td></tr>
+<tr><td><code>MSSQL_POOL_SIZE</code>, <code>MSSQL_POOL_MAX_OVERFLOW</code>, <code>MSSQL_POOL_TIMEOUT</code>, <code>MSSQL_POOL_RECYCLE</code></td><td><code>5</code>, <code>5</code>, <code>30</code>, <code>1800</code></td><td>The connection pool of every connection, per process.</td><td><code>db/connection.py</code></td><td><code>.env.example</code></td></tr>
+<tr><td><code>MSSQL_SQL_DIR</code></td><td><code>sql</code></td><td>Base folder for relative paths given to <code>execute_script_file</code>.</td><td><code>db/scripts.py</code></td><td><code>.env.example</code></td></tr>
+<tr><td><code>KERBEROS_ENABLED</code>, <code>KRB5_PRINCIPAL</code>, <code>KRB5_KEYTAB</code>, <code>KRB5_PASSWORD</code></td><td><code>false</code>, empty</td><td>Kerberos tickets for <code>WINDOWS</code> connections.</td><td><code>db/kerberos.py</code></td><td><code>.env.example</code></td></tr>
+<tr><td><code>RISK_MODELER_BASE_URL</code>, <code>RISK_MODELER_TENANT_NAME</code></td><td>empty</td><td>Risk Modeler sign-in (see <a href="04-integrations.html#risk-modeler">page 4</a>) and the Risk Modeler links.</td><td>irp-integration, <code>app/config.py</code></td><td></td></tr>
+<tr><td><code>RISK_MODELER_RESOURCE_GROUP_ID</code>, <code>RISK_MODELER_USERNAME</code>, <code>RISK_MODELER_PASSWORD</code>, <code>RISK_MODELER_API_KEY</code></td><td>empty</td><td>Risk Modeler sign-in.</td><td>irp-integration</td><td><code>.env.example</code></td></tr>
+<tr><td><code>HAZARD_DATA_VERSION</code>, <code>SHARED_DRIVE_ROOT</code>, <code>DEFAULT_ANALYSIS_CURRENCY_*</code>, <code>EXPORT_PERSPECTIVE_CODES</code>, <code>EXPORT_ARCHIVE_DIR</code>, <code>EXPORT_STAGING_DIR</code>, <code>IRP_SUBMISSION_*</code>, <code>POLL_INTERVAL_SECS</code>, <code>UI_POLL_INTERVAL_SECS</code></td><td colspan="2">See <a href="#settings-env">section a</a>.</td><td><code>app/config.py</code></td><td></td></tr>
+<tr><td><code>IRP_EDM_IMPORT_SERVER</code>, <code>NAME_CHECK_CACHE_TTL_SECS</code></td><td colspan="2">See <a href="#settings-env">section a</a>.</td><td><code>app/config.py</code></td><td><code>config.py</code></td></tr>
+<tr><td><code>RWB_HEARTBEAT_INTERVAL_SECS</code>, <code>RWB_HEARTBEAT_STALE_SECS</code></td><td><code>30</code>, <code>120</code></td><td>How often a running job writes its heartbeat, and how old a heartbeat must be before the poller resets the job to <code>pending</code>. Keep the stale value several times the interval. The RWB Jobs page uses the stale value to show a job as dead.</td><td>Workers, poller, app</td><td></td></tr>
+<tr><td><code>RWB_WORKER_PROCESSES</code>, <code>RWB_WORKER_THREADS</code></td><td><code>1</code>, <code>2</code></td><td>Processes and threads per queue's worker command.</td><td>The start scripts</td><td><code>.env.example</code></td></tr>
+<tr><td><code>MAIL_TENANT_ID</code>, <code>MAIL_CLIENT_ID</code>, <code>MAIL_CLIENT_SECRET</code>, <code>MAIL_SENDER_ADDRESS</code></td><td>empty</td><td>The Graph email sender. Nothing sends mail yet.</td><td><code>app/notifications/email_sender.py</code></td><td></td></tr>
+<tr><td><code>NOTIFY_CHANNELS</code>, <code>TEAMS_WEBHOOK_URL</code>, <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_FROM</code>, <code>NOTIFY_EMAIL_TO</code></td><td>empty; <code>SMTP_PORT=25</code></td><td>Nothing.</td><td>No code</td><td><code>.env.example</code></td></tr>
+</table>
+
+<p>Variables read by the RHEL9 deploy scripts rather than the app are on <a href="08-deployed-environment.html#deployment">page 8</a>.</p>
+
+<h2 id="logging">Logging</h2>
+
+<ul>
+<li>All three processes configure logging with <code>setup_logging()</code> in <code>app/logging_setup.py</code>: uvicorn in <code>app/main.py</code>, each worker in <code>app/workers/entrypoint.py</code>, and the poller in <code>app/poller/run.py</code>.</li>
+<li>Every log line, including uvicorn, Dramatiq, and SQLAlchemy lines, goes to stderr through one handler.</li>
+<li><code>LOG_LEVEL</code> sets the level: <code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, or <code>ERROR</code> (default <code>INFO</code>).</li>
+<li><code>LOG_FORMAT</code> sets the format: <code>console</code> for readable lines, <code>json</code> for one JSON object per line, or empty to pick by <code>APP_ENV</code> (<code>json</code> in production, <code>console</code> otherwise).</li>
+</ul>
+
+<p><code>app/log_context.py</code> adds context fields to every line in a chain of work:</p>
+<ul>
+<li>Each HTTP request gets a <code>correlation_id</code>, taken from an incoming <code>X-Request-ID</code> header or newly generated, and sent back in the <code>X-Request-ID</code> response header. The request middleware writes one access line per request with method, path, status, and duration; <code>/static/</code> is skipped.</li>
+<li>A worker job adds <code>rwb_job_id</code>, <code>rwb_job_type</code>, and <code>worker_id</code>.</li>
+<li>The poller adds <code>irp_job_id</code>.</li>
+<li><code>rwb_job.correlation_id</code> and <code>irp_job.correlation_id</code> store the id of the request that started the work, so you can search all three processes' logs for one id to follow an analyst's click through its jobs.</li>
+</ul>
+
+<p>Where each process writes its log:</p>
+<table>
+<tr><th>Process</th><th>Docker dev (inside <code>linux-box</code>)</th><th>WSL2 dev</th><th>RHEL9</th></tr>
+<tr><td>uvicorn</td><td>Container output: <code>make logs</code></td><td>The terminal running <code>make wsl-app</code></td><td><code>/var/lib/risk-workbench/uvicorn.log</code></td></tr>
+<tr><td>Worker for queue <i>q</i></td><td><code>/workspace/.dev-logs/worker-<i>q</i>.log</code></td><td><code>.dev-logs/worker-<i>q</i>.log</code> (with <code>make wsl-workers</code>), or the terminal (with <code>make wsl-worker</code>)</td><td><code>/var/lib/risk-workbench/worker-<i>q</i>.log</code></td></tr>
+<tr><td>Poller</td><td><code>/workspace/.dev-logs/poller.log</code></td><td>The terminal running <code>make wsl-poller</code></td><td><code>/var/lib/risk-workbench/poller.log</code></td></tr>
+<tr><td>Redis / Valkey</td><td><code>/workspace/.dev-logs/redis.log</code></td><td><code>/tmp/rwb-redis.log</code></td><td><code>/var/lib/risk-workbench/valkey/valkey.log</code></td></tr>
+<tr><td>nginx</td><td>Container output</td><td>Not used</td><td>The system nginx log locations; <code>site.conf</code> sets none</td></tr>
+</table>
+
+<p>On RHEL9, <code>rhel9-start.sh</code> truncates each log file when it starts the process, and nothing rotates the logs. Copy a log before restarting if you need it. <code>infra/scripts/rhel9/rhel9-logs-worker.sh &lt;queue&gt;</code> and <code>rhel9-logs-poller.sh</code> follow a log.</p>
+
+<h2 id="health">Health and monitoring</h2>
+
+<table>
+<tr><th>Check</th><th>What it tells you</th></tr>
+<tr><td><code>GET /api/health</code></td><td>JSON with <code>db_workbench</code>, <code>db_exposure</code>, <code>db_loss</code> (each <code>ok</code> or an error), <code>redis</code>, and <code>env</code>. No sign-in needed. It always returns HTTP 200 and <code>"status": "ok"</code>, even when a check fails, so read the individual fields. It does not check the workers, the poller, Risk Modeler, or DATABRIDGE.</td></tr>
+<tr><td><code>make wsl-worker-health</code>; <code>infra/scripts/rhel9/rhel9-worker-health.sh [--queue q]</code></td><td>For every queue, whether its PID file points at a live process, and a separate process scan. Exits 0 if any queue is alive, 1 if none is.</td></tr>
+<tr><td><code>infra/scripts/rhel9/rhel9-drain-check.sh</code></td><td>Waits until no <code>rwb_job</code> row is <code>pending</code> or <code>running</code>. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
+<tr><td>Workflows → RWB Jobs, <code>/workflows/rwb-jobs</code></td><td>The 50 most recent <code>rwb_job</code> rows, filterable by submission, owner (defaults to you), job type, and status. A <code>running</code> row with no recent heartbeat shows as dead ("worker stopped heartbeating"). Cancel works on <code>pending</code>, <code>failed</code>, or dead rows; Resubmit works on <code>failed</code> rows and reuses the same row. A live <code>running</code> job cannot be stopped from the page. Any signed-in user can use it.</td></tr>
+<tr><td>Workflows → IRP Jobs, <code>/workflows/irp-jobs</code></td><td>The 50 most recent <code>irp_job</code> rows: type, entity, Risk Modeler status, progress, submitter, attempts. Read-only.</td></tr>
+</table>
+
+<p>The Active, Review Queue, and Exceptions pages under Workflows are empty placeholders.</p>
+
+<p>There is no alerting. Nothing pages anyone when a worker dies or exports fail.</p>
+
+<p>To confirm: what CIC uses to monitor servers, and whether it should poll <code>/api/health</code> or the worker health script.</p>
+
+<nav><a href="index.html">Index</a> · Previous: <a href="06-development.html">6. Development</a> · Next: <a href="08-deployed-environment.html">8. Deployed environment</a></nav>
+</body>
+</html>
