@@ -499,7 +499,8 @@ document.addEventListener('alpine:init', () => {
     },
     pick(opt) {
       if (!opt) return;
-      if (opt.dataset.create !== undefined) {
+      // Alpine renders data-create="" on every row, not only the create row.
+      if (opt.dataset.create) {
         this.stage(opt.dataset.create);
       } else {
         this.select.value = opt.dataset.value;
