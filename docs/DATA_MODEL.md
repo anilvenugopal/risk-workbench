@@ -11,12 +11,12 @@ All database access goes through the `db/` package. App code calls `get_connecti
 | Named connection | Database | Managed by |
 |---|---|---|
 | `WORKBENCH` | Workbench metamodel (this schema) | Alembic + app |
-| `EXPOSURE` | Exposure repository | App — `db/bootstrap/exposure_schema.sql` |
+| `EXPOSURE` | Exposure repository | Created empty by `infra/scripts/bootstrap_db.py`; no tables yet |
 | `LOSS` | CIC's loss repository `CRE_Trial_ELT_Repository` (dev mirror `rwb_loss`) | CIC owns the database and its five `dbo` tables. The Workbench's `stage` schema (`db/bootstrap/loss_schema.sql`) is installed by a CIC DBA by hand; the app never runs DDL against it. Schema: `specs/014-results-export/data-model.md` §4 |
-| `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — read-only; app code never sends SQL (reads go through irp-integration methods, worker-side, plus the one bounded single-row point-of-action check permitted on the request path; constitution Art. 11 v3.2.0); never DDL |
+| `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — read-only; app code never opens a connection to it (the Workbench's own SQL files in `sql/databridge/` run through irp-integration's `databridge.execute_query_from_file`, worker-side, plus the one bounded single-row point-of-action check permitted on the request path; constitution Art. 11 v3.2.0); never DDL |
 
 - **Pooling:** `MSSQL_POOL_SIZE` (default 5), `MSSQL_POOL_MAX_OVERFLOW` (default 5), `MSSQL_POOL_RECYCLE` (default 1800s). For 30 concurrent users: `POOL_SIZE=10`, `MAX_OVERFLOW=20`.
-- **`WORKBENCH` migrations:** `alembic/versions/0001_initial.py` is the base revision, frozen when spec 017 merged (2026-09-29). Every later schema change is a new Alembic revision applied with `alembic upgrade head` (`make db-migrate`); the process is in `AGENTS.md`, Schema Changes. `EXPOSURE` is bootstrapped by an idempotent SQL script. `LOSS` in dev is `make bootstrap-loss` (`infra/scripts/bootstrap_loss.py`): `loss_dev_mirror.sql` recreates CIC's five loss tables and `dbo.CRMContractStatus` (the CRM status table the January bulk update reads, spec 017 FR-023), `loss_schema.sql` installs the `stage` schema, then `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` are seeded. Neither is under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
+- **`WORKBENCH` migrations:** `alembic/versions/0001_initial.py` is the base revision, frozen when spec 017 merged (2026-09-29). Every later schema change is a new Alembic revision applied with `alembic upgrade head` (`make db-migrate`); the process is in `AGENTS.md`, Schema Changes. `EXPOSURE` is created empty by `infra/scripts/bootstrap_db.py`; no script creates tables in it. `LOSS` in dev is `make bootstrap-loss` (`infra/scripts/bootstrap_loss.py`): `loss_dev_mirror.sql` recreates CIC's five loss tables and `dbo.CRMContractStatus` (the CRM status table the January bulk update reads, spec 017 FR-023), `loss_schema.sql` installs the `stage` schema, then `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS` are seeded. Neither is under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
 - **Redis:** `REDIS_URL` (default `redis://localhost:6379/0`). Dramatiq broker; stateless.
 
 ---
@@ -25,7 +25,7 @@ All database access goes through the `db/` package. App code calls `get_connecti
 
 - **Kind tables** (`*_kind`) hold categorical values: `code` (PK), `label`, `sort_order`, optional `icon`/`color`/`is_active`. Categorical columns are FKs to kind tables — never DB enums. External-mirror status columns are the exception (see below).
 - **No row-level security.** There is no `customer_id` scoping key, no `apply_scope()`, no per-row access model. Every authenticated analyst can read every submission and everything under it. `submission.assigned_analyst_id` is a soft owner for the "my submissions" filter, not an access gate.
-- **Audit fields.** Entity tables carry `inserted_at`, `updated_at`, `inserted_by` (FK → `app_user`, nullable for system rows), `updated_by` (FK → `app_user`, nullable). Kind tables, junction/event/append-only tables carry `inserted_at` (and `inserted_by` where a user is responsible) only.
+- **Audit fields.** Entity tables carry `inserted_at`, `updated_at`, `inserted_by` (FK → `app_user`, nullable for system rows), `updated_by` (FK → `app_user`, nullable). Kind tables (except `breakout_dimension_kind`), junction/event/append-only tables carry `inserted_at` (and `inserted_by` where a user is responsible) only.
 - **Optimistic concurrency.** On analyst-editable rows (chiefly `submission`), `updated_at` is the version marker: updates write `WHERE id = :id AND updated_at = :read_value`; rowcount 0 → reject and surface the conflict. Append-only inserts and single-threaded machinery are exempt.
 - **Naming.** Singular `snake_case` tables; `id` UUID surrogate PK unless noted; `*_code` FK → matching `*_kind`; `*_id` FK → entity. Every `irp_*` table's own Risk Modeler identifier column is `irp_id`.
 - **`as_of`** (nullable datetime) on every `irp_*` entity and reference-cache table signals when the row was last confirmed against Risk Modeler. UI trust signal only. `analysis_result_meta` is the exception — results are immutable, so no drift to signal.
@@ -45,9 +45,12 @@ erDiagram
   app_user {
     uniqueidentifier id PK
     string entra_oid "nullable; UNIQUE when set"
-    string email
+    string email "UNIQUE"
     string display_name
+    string password_hash "nullable; password accounts only"
+    bool must_change_password
     bool is_active
+    datetime last_login_at "nullable"
     datetime inserted_at
     datetime updated_at
   }
@@ -240,7 +243,7 @@ erDiagram
     uniqueidentifier id PK
     uniqueidentifier edm_id FK
     string name "portfolio name in IRP"
-    int irp_id "nullable; written synchronously (create returns 201)"
+    string irp_id "NVARCHAR(64), nullable; written synchronously (create returns 201)"
     string exposure_detail "nullable JSON snapshot: RM metrics + DataBridge summary (spec 004)"
     uniqueidentifier source_portfolio_id FK "nullable; breakout lineage — the IMMEDIATE source portfolio (spec 005)"
     string breakout_dimension_code FK "nullable; breakout_dimension_kind"
@@ -276,7 +279,8 @@ erDiagram
     uniqueidentifier id PK
     uniqueidentifier edm_id FK "the EDM this treaty belongs to"
     string name "treaty name in IRP"
-    int irp_id "nullable; backfilled once created in IRP (treatyId)"
+    string irp_id "NVARCHAR(64), nullable; backfilled once created in IRP (treatyId)"
+    string attributes "nullable JSON; full treaty attribute set for the treaty view and .xlsx export"
     datetime as_of "nullable"
     datetime deleted_at "nullable"
     datetime inserted_at
@@ -468,6 +472,7 @@ erDiagram
     string irp_job_type FK "irp_job_type_kind"
     string irp_id "IRP's integer job id as string; nullable until submit succeeds"
     string status "plain string; RM-mirrored + app-local (see vocabulary)"
+    string correlation_id "nullable; log-trace id inherited from the submitting rwb_job"
     int progress "nullable; Risk Modeler's top-level progress from the latest status check"
     string completion_summary "Risk Modeler task output summary; nullable"
     string last_submission_payload "JSON; latest submit request"
@@ -491,7 +496,7 @@ erDiagram
     datetime inserted_at
   }
   irp_job_type_kind {
-    string code PK "import_edm / import_rdm / delete_edm / geohaz / analysis / grouping / export"
+    string code PK "import_edm / import_rdm / geohaz / analysis / grouping / export"
     string label
     int sort_order
     datetime inserted_at
@@ -506,6 +511,10 @@ erDiagram
     uniqueidentifier id PK
     string requestor_type FK "rwb_job_requestor_type_kind"
     uniqueidentifier requestor_id "id of the trigger; no DB FK (target varies by type)"
+    string link_type FK "rwb_job_link_type_kind"
+    uniqueidentifier link_id "nullable; the EDM, RDM or submission the job concerns"
+    string context_type FK "nullable; rwb_job_context_type_kind"
+    uniqueidentifier context_id "nullable; the row the job acts on"
     string rwb_job_type FK "rwb_job_type_kind"
     string status_code FK "rwb_job_status_kind"
     string input_data "JSON; the work order"
@@ -513,6 +522,7 @@ erDiagram
     string error_detail "nullable; set on failure"
     int attempt_count "default 0"
     string claimed_by "nullable; worker_id"
+    string correlation_id "nullable; log-trace id of the request or chain that caused the job"
     datetime submitted_at "nullable"
     datetime completed_at "nullable"
     datetime inserted_at
@@ -521,7 +531,7 @@ erDiagram
     uniqueidentifier updated_by FK "nullable"
   }
   rwb_job_requestor_type_kind {
-    string code PK "irp_job / analyst_request / rwb_job / breakout_group"
+    string code PK "irp_job / analyst_request / rwb_job / breakout_group / irp_analysis"
     string label
     int sort_order
     datetime inserted_at
@@ -538,7 +548,7 @@ erDiagram
     datetime heartbeat_at "stamped every RWB_HEARTBEAT_INTERVAL_SECS"
   }
   rwb_job_status_kind {
-    string code PK "pending / running / succeeded / failed"
+    string code PK "pending / running / succeeded / failed / cancelled"
     string label
     int sort_order
     datetime inserted_at
@@ -736,6 +746,8 @@ erDiagram
 | Table | Purpose |
 |---|---|
 | `app_user` | Provisioned user (Entra OID or dev stub). |
+| `user_session` | Server-side session; the `rwb_session` cookie holds its id. |
+| `login_attempt` | One row per sign-in attempt. |
 | `role_kind` / `user_role` | Role vocabulary and assignment. |
 | `audit_log` | Who did what, when — **DEFERRED**. |
 | `submission` | The deal and top-level entity. `name` is a non-unique label; `id` is the key. |
@@ -756,6 +768,7 @@ erDiagram
 | `irp_analysis` | Analysis/group. `edm_id`/`rdm_id`/`submission_id` all nullable, CHECK ≥1; own rows set `edm_id`, broker rows set `rdm_id` and use (`rdm_id`, `irp_id`), group rows and imported analyses set `submission_id`. |
 | `irp_analysis_group_member` | Group ↔ member analysis M:N join (composite PK); written once by `submit_grouping`. |
 | `irp_analysis_status_kind` | `pending` / `ready` / `error`. |
+| `analysis_perspective_kind` | Financial perspectives the results views offer: `GR`/`RL`/`WX`/`QS`/`GU`. |
 | `analysis_template` | Saved analysis-job config (global). |
 | `analysis_template_tag` | Tags on a template (junction). |
 | `template_suite` / `template_suite_item` | Named unordered set of templates (P-08). |
@@ -763,10 +776,11 @@ erDiagram
 | `irp_job_type_kind` | `import_edm`/`import_rdm`/`geohaz`/`analysis`/`grouping`/`export`. |
 | `irp_job_resource` / `irp_job_resource_type_kind` | Typed `(resource_type, resource_uri)` submit payload. |
 | `rwb_job` | App-side queued work; decoupled from `irp_job`. |
-| `rwb_job_requestor_type_kind` | `irp_job`/`analyst_request`/`rwb_job`/`breakout_group`. |
+| `rwb_job_requestor_type_kind` | `irp_job`/`analyst_request`/`rwb_job`/`breakout_group`/`irp_analysis`. |
 | `rwb_job_type_kind` | Work-type vocabulary (§8). |
 | `rwb_job_heartbeat` | Per-job progress heartbeat (one row per job). |
-| `rwb_job_status_kind` | `pending`/`running`/`succeeded`/`failed`. |
+| `rwb_job_status_kind` | `pending`/`running`/`succeeded`/`failed`/`cancelled`. |
+| `rwb_job_link_type_kind` | `edm`/`rdm`/`submission`/`not_applicable`. |
 | `rwb_job_context_type_kind` | `edm`/`rdm`/`irp_analysis`/`portfolio`/`breakout_group`/`execution`/`result_export` (§8). |
 | `irp_model_profile` / `irp_output_profile` / `irp_event_rate_scheme` / `irp_currency` / `irp_currency_scheme` / `irp_currency_scheme_vintage` | IRP reference cache (§10). |
 | `validation_run` … `validation_result_category_kind` | Phase A validation — **DEFERRED**. |
@@ -782,13 +796,14 @@ erDiagram
 | `treaty_type_kind` | CIC's eleven modeling treaty types (spec 017 FR-012): `aggregate_xol`, `aggregate_cat_xol`, `risk_aggregate_xol`, `per_occurrence_xol`, `per_occurrence_cat_xol`, `per_risk_xol`, `stop_loss`, `reinstatement_premium_protection`, `second_third_fourth_event_risk_exposed`, `top_and_drop`, `top_and_aggregate`. |
 | `contract_status_kind` | `OPEN`, `WON`, `LOST` (spec 017). |
 | `irp_analysis_status_kind` | `pending`, `ready`, `error`. |
-| `irp_job_type_kind` | `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`. |
+| `irp_job_type_kind` | `import_edm`, `import_rdm`, `geohaz`, `analysis`, `grouping`, `export`. |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
-| `rwb_job_requestor_type_kind` | `irp_job`, `analyst_request`, `rwb_job`, `breakout_group`. |
-| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `backfill_edm_detail`, `run_geohaz`, `run_breakout_lob`, `run_breakout_state`, `run_breakout_country`, `run_breakout_peril`, `run_breakout_custom`, `execute_analysis_batch`, `finalize_analysis`, `sync_irp_metadata`, `retrieve_analysis_results`, `notify_analyst`, `submit_grouping`, `submit_results_export`, `stage_results_export`, `load_results_export`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2. `backfill_edm_detail` added by spec 004; `run_geohaz` added by spec 007; the `run_breakout_*` codes added by spec 005 — one per dimension so the idempotent-enqueue key gives each dimension its own live-job slot per portfolio; `sync_irp_metadata` added by spec 009; `execute_analysis_batch`/`finalize_analysis` added by spec 010; `submit_grouping` added by spec 012; the three `*_results_export` codes added by spec 014, which dropped `download_export_file` and `push_results_to_loss_repo`.) |
+| `rwb_job_requestor_type_kind` | `irp_job`, `analyst_request`, `rwb_job`, `breakout_group`, `irp_analysis`. |
+| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `backfill_edm_detail`, `run_geohaz`, `run_breakout_lob`, `run_breakout_state`, `run_breakout_country`, `run_breakout_peril`, `run_breakout_custom`, `execute_analysis_batch`, `finalize_analysis`, `sync_irp_metadata`, `retrieve_analysis_results`, `notify_analyst`, `submit_grouping`, `submit_results_export`, `stage_results_export`, `load_results_export`, `dummy_wait`, `dummy_fail`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2. `backfill_edm_detail` added by spec 004; `run_geohaz` added by spec 007; the `run_breakout_*` codes added by spec 005 — one per dimension so the idempotent-enqueue key gives each dimension its own live-job slot per portfolio; `sync_irp_metadata` added by spec 009; `execute_analysis_batch`/`finalize_analysis` added by spec 010; `submit_grouping` added by spec 012; the three `*_results_export` codes added by spec 014, which dropped `download_export_file` and `push_results_to_loss_repo`.) |
 | `breakout_dimension_kind` | `lob` (Line of business), `state` (Geography - State), `country` (Geography - Country), `peril` (Peril), `custom` (Custom group — the grouping lineage code) — spec 005. |
-| `rwb_job_status_kind` | `pending`, `running`, `succeeded`, `failed`. |
-| `delivery_kind` | `file`, `sql`. |
+| `rwb_job_status_kind` | `pending`, `running`, `succeeded`, `failed`, `cancelled`. |
+| `rwb_job_link_type_kind` | `edm`, `rdm`, `submission`, `not_applicable`. |
+| `analysis_perspective_kind` | `GR` (Gross), `RL` (Pre-Cat Net), `WX` (Working Excess), `QS` (Quota Share), `GU` (Ground Up). |
 | `validation_run_status_kind` *(deferred)* | `running`, `complete`, `error`. |
 | `validation_result_category_kind` *(deferred)* | `quality`, `consistency`, `completeness`, `summary`. |
 
@@ -799,7 +814,7 @@ erDiagram
 ## 14. Open decisions
 
 - Confirm `role_kind` codes with the team.
-- Exposure repository schema — defined in this project (`db/bootstrap/exposure_schema.sql`); columns coordinated with the reporting/downstream teams. (The loss repository is CIC's; only the `stage` schema is ours, §1.)
+- Exposure repository schema — not defined yet; `rwb_exposure` has no tables. Columns to be coordinated with the reporting/downstream teams. (The loss repository is CIC's; only the `stage` schema is ours, §1.)
 - `irp_job_resource` multiplicity — one-per-job (`portfolio` only today) or genuinely multi-resource?
 - **`irp_analysis.edm_id` is nullable.** Standalone RDM import creates broker
   analyses with `rdm_id` set and `edm_id` null. Enumeration filters
