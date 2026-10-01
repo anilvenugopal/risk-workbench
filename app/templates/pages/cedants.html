@@ -42,7 +42,9 @@
       <tr x-data="{ editing: {{ 'true' if renaming else 'false' }} }">
         <td>
           <span x-show="!editing"{% if renaming %} x-cloak{% endif %}>{{ c.name }}</span>
-          <form id="rename-{{ c.id }}" method="post" action="/cedants/{{ c.id }}/rename"
+          {# No id: htmx settling restores a swapped-in element's style by id, which
+             drops x-show's display:none after a search. #}
+          <form x-ref="rename" method="post" action="/cedants/{{ c.id }}/rename"
                 x-show="editing"{% if not renaming %} x-cloak{% endif %}>
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
             <input class="wf-field__input" type="text" name="name" maxlength="255" required style="width:100%"
@@ -57,7 +59,7 @@
           <template x-if="editing">
             <div class="row-actions">
               <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
-              <button class="btn-sm btn-sm--primary" type="submit" form="rename-{{ c.id }}">Save</button>
+              <button class="btn-sm btn-sm--primary" type="button" @click="$refs.rename.requestSubmit()">Save</button>
             </div>
           </template>
           <template x-if="!editing">
