@@ -14,20 +14,21 @@ from app.services.cedant_service import CedantValidationError
 router = APIRouter(prefix="/cedants")
 
 
-def _cedants_page(request: Request, *, status_code: int = 200, **errors):
+def _cedants_page(request: Request, *, q: str = "", status_code: int = 200, **errors):
     from app.nav import get_nav_context
     current_user = request.state.user
     return request.app.state.templates.TemplateResponse(request, "pages/cedants.html", {
         "current_user": current_user,
         "nav": get_nav_context(current_user, "submissions.cedants"),
-        "cedants": cedant_service.list_cedants(include_inactive=True),
+        "cedants": cedant_service.list_cedants(include_inactive=True, name=q),
+        "q": q,
         **errors,
     }, status_code=status_code)
 
 
 @router.get("", response_class=HTMLResponse)
-def cedant_list(request: Request):
-    return _cedants_page(request)
+def cedant_list(request: Request, q: str = ""):
+    return _cedants_page(request, q=q)
 
 
 @router.post("")

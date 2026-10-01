@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import text
 
-from app.services._common import _uid, _utcnow
+from app.services._common import _uid, _utcnow, _word_and_clauses
 from db import execute, execute_command, execute_one, is_unique_violation
 
 MAX_NAME_LENGTH = 255
@@ -25,12 +25,16 @@ class Cedant:
     is_active: bool
 
 
-def list_cedants(*, include_inactive: bool) -> list[Cedant]:
+def list_cedants(*, include_inactive: bool, name: str = "") -> list[Cedant]:
+    """``name`` keeps the cedants whose name contains every word of it, any order."""
+    where, params = _word_and_clauses(name, ("name",), "n")
+    if not include_inactive:
+        where.append("is_active = 1")
     rows = execute(
         "SELECT id, name, is_active FROM cedant"
-        + ("" if include_inactive else " WHERE is_active = 1")
+        + (" WHERE " + " AND ".join(where) if where else "")
         + " ORDER BY name",
-        {}, connection="WORKBENCH",
+        params, connection="WORKBENCH",
     )
     return [Cedant(id=_uid(row["id"]), name=row["name"], is_active=bool(row["is_active"]))
             for row in rows]

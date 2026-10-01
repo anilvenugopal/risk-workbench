@@ -63,6 +63,22 @@ def test_the_empty_list_says_so(client):
     assert "No cedants yet." in client.get("/cedants").text
 
 
+def test_search_keeps_names_containing_every_word_in_any_order(client):
+    cedant_id("American Family Mutual")
+    cedant_id("American Re")
+    cedant_id("Family_Re", is_active=False)
+
+    body = client.get("/cedants", params={"q": "fam american"}).text
+    assert "American Family Mutual" in body
+    assert "American Re" not in body and "Family_Re" not in body
+    assert 'value="fam american"' in body
+
+    body = client.get("/cedants", params={"q": "y_r"}).text
+    assert "Family_Re" in body and "American Family Mutual" not in body
+
+    assert 'No cedants match "zurich"' in client.get("/cedants", params={"q": "zurich"}).text
+
+
 def test_add_trims_the_name_and_refuses_a_case_insensitive_duplicate(client):
     assert _post(client, "/cedants", name="  Acme Re  ").status_code == 303
     assert _names() == {"Acme Re": True}

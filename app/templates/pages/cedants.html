@@ -19,7 +19,22 @@
 
   {% if rename_error %}<div class="form-banner form-banner--error">{{ rename_error }}</div>{% endif %}
 
-  <table class="mk-table">
+  {# GET, no CSRF — applied as you type; hx-select swaps only #cedants-live so the
+     search field keeps focus. #}
+  <form class="filters" method="get" action="/cedants"
+        hx-get="/cedants" hx-trigger="input delay:300ms, submit"
+        hx-target="#cedants-live" hx-select="#cedants-live" hx-swap="outerHTML"
+        hx-push-url="true">
+    <div class="filters__row">
+      <label>Search
+        <input class="wf-field__input" type="text" name="q" placeholder="name…"
+               value="{{ q }}" autocomplete="off">
+      </label>
+    </div>
+    <button type="submit" hidden>Search</button>
+  </form>
+
+  <table id="cedants-live" class="mk-table">
     <thead><tr><th>Name</th><th>Status</th><th class="col-actions"></th></tr></thead>
     <tbody>
       {% for c in cedants %}
@@ -65,7 +80,7 @@
         </div></td>
       </tr>
       {% else %}
-      <tr><td colspan="3" class="empty">No cedants yet. Add the first one above.</td></tr>
+      <tr><td colspan="3" class="empty">{% if q %}No cedants match "{{ q }}".{% else %}No cedants yet. Add the first one above.{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
