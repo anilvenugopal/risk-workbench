@@ -7,9 +7,8 @@ Prerequisite: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) completed — git,
 Python 3.14, ODBC Driver 18, Redis/Valkey, nginx, gcc/g++/make, rsync all
 installed.
 
-Placeholders below (`cinreadmd`, `/rms`) stand in for whatever
-account and path infra actually assigns — substitute the real values when
-deploying for real.
+The account `cinreadmd` and the app directory `/rms` used below are the
+values on the deployed server.
 
 Steps 1-7 need no elevated privileges once the one-time infra setup below is
 done — the deployment account never needs standing `sudo`.

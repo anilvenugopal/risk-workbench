@@ -8,10 +8,10 @@ deploying to it. For explanations and troubleshooting, see
 [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) — this file only lists commands
 in order.
 
-Placeholders throughout: `cinreadmd` (the account name), `172.19.253.47`
-(the RHEL9 box's IP — find it fresh each session, see below),
-`/rms` (the app directory). A real production server's
-account name and IP are infra's to assign — substitute those when known.
+`cinreadmd` (the account) and `/rms` (the app directory) are the values on
+the deployed server. `172.19.253.47` is the WSL2 address of the RHEL9 test
+VM (find it fresh each session, see below); the deployed environment does
+not use it, so substitute the server's own address.
 
 ---
 
