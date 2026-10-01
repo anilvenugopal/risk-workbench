@@ -19,6 +19,7 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from db import execute, execute_command, execute_scalar, get_connection
+from db.cedant_seed import SEED_FILE, read_cedant_names
 from db.config import build_sqlalchemy_url, get_connection_config
 from db.errors import SQLServerQueryError
 from tests.sqlserver.scratch import run_alembic
@@ -209,6 +210,25 @@ def test_0004_backfills_one_cedant_per_distinct_name(scratch_database):
         engine.dispose()
     assert cedants == ["Acme Re", "Acme Reinsurance"]
     assert {str(sid).lower(): name for sid, name in after.items()} == before
+
+
+def test_0005_seeds_the_cedant_file_skipping_names_already_present(scratch_database):
+    """Issue 129 P-11: a cedant 0004 created from a submission keeps its
+    spelling, and every other name in the committed file is added."""
+    names = read_cedant_names(SEED_FILE)
+    run_alembic("upgrade", "0004", scratch_database)
+    engine = create_engine(build_sqlalchemy_url(
+        get_connection_config("WORKBENCH"), database=scratch_database))
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO cedant (name) VALUES (:name)"),
+                         {"name": names[0].upper()})
+        run_alembic("upgrade", "0005", scratch_database)
+        with engine.connect() as conn:
+            seeded = conn.execute(text("SELECT name FROM cedant")).scalars().all()
+    finally:
+        engine.dispose()
+    assert sorted(seeded) == sorted([names[0].upper(), *names[1:]])
 
 
 # ── Fixtures: a throwaway analyst + submission (cleaned up after) ─────────────
