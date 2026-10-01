@@ -120,6 +120,11 @@ does not create databases; it applies the Workbench Alembic migrations and
 verifies `pyodbc` can see `ODBC Driver 18 for SQL Server` and that
 `app.config` imports cleanly.
 
+Revision `0005` loads the cedant list from `db/bootstrap/seed/cedants.xlsx`
+once. When the client sends a new list, replace that file and run
+`cd /rms && .venv/bin/python infra/scripts/load_cedants.py`; it adds only the
+names not already in the `cedant` table.
+
 ### One-time rebuild of a database built before the 0001 freeze
 
 Until spec 017 merged (2026-09-29), `alembic/versions/0001_initial.py` was
