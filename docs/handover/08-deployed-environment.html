@@ -85,7 +85,9 @@
 
 <h2 id="outbound">Outbound connections</h2>
 
-<p>The app server opens these connections. Each connection's host is set in <code>infra/.env</code> unless its setting says otherwise; each SQL Server port is in the matching <code>MSSQL_&lt;NAME&gt;_PORT</code>. The Risk Modeler and DATABRIDGE hosts below are the values in the development <code>infra/.env</code>.</p>
+<p>Every row below needs a firewall rule that lets the app server reach that host and port. Getting the firewall requests created, approved, and carried out was the biggest blocker in the first deployment. Any new server, for production or a lower environment (B11 on <a href="09-path-to-production.html#blockers">page 9</a>), needs the same rules, so raise the requests as soon as the server's IP address is known.</p>
+
+<p>Each connection's host is set in <code>infra/.env</code> unless its setting says otherwise; each SQL Server port is in the matching <code>MSSQL_&lt;NAME&gt;_PORT</code>. The Risk Modeler and DATABRIDGE hosts below are the values in the development <code>infra/.env</code>.</p>
 
 <table>
 <tr><th>Destination</th><th>Host and setting</th><th>Port</th><th>Opened by</th><th>Needed</th></tr>
@@ -93,12 +95,14 @@
 <tr><td>Loss repository (CIC SQL Server)</td><td>The same server as the Workbench database<br>Setting: <code>MSSQL_LOSS_SERVER</code></td><td>1433</td><td>uvicorn (the client list from <code>dbo.Client</code>, <code>/health</code>), workers (exports)</td><td>Now</td></tr>
 <tr><td>Risk Modeler API</td><td><code>api-euw1.rms-ppe.com</code><br>Setting: <code>RISK_MODELER_BASE_URL</code>. Bearer sign-in uses the same host.</td><td>443</td><td>uvicorn, workers, poller</td><td>Now</td></tr>
 <tr><td>Risk Modeler S3 tenant</td><td>To fill in<br>Setting: None. Risk Modeler returns a presigned S3 URL for each upload and export download.</td><td>443</td><td>workers</td><td>Now</td></tr>
-<tr><td>DATABRIDGE SQL Server (Moody's)</td><td><code>467d5f3e13599b70a8f60bcb2808f105.eih.rms-ppe.com</code><br>Setting: <code>MSSQL_DATABRIDGE_SERVER</code></td><td>1433</td><td>uvicorn (the breakout match count), workers (breakout account selection)</td><td>Now</td></tr>
+<tr><td>DATABRIDGE SQL Server (Moody's)</td><td><code>467d5f3e13599b70a8f60bcb2808f105.eih.rms-ppe.com</code><br>Setting: <code>MSSQL_DATABRIDGE_SERVER</code></td><td>1433</td><td>uvicorn (the breakout match count), workers (breakout account selection)</td><td>Now. Also needs the Data Bridge IP allowlist entry below.</td></tr>
 <tr><td>Python package index</td><td><code>pypi.org</code> and <code>files.pythonhosted.org</code> today; CIC's Artifactory later<br>Setting: None today. <code>PIP_INDEX_URL</code> or <code>/etc/pip.conf</code> once Artifactory exists.</td><td>443</td><td><code>rhel9-app-install.sh</code></td><td>At install. Blocked today (B3 on <a href="09-path-to-production.html#blockers">page 9</a>).</td></tr>
 <tr><td>Microsoft Entra ID</td><td><code>login.microsoftonline.com</code><br>Setting: <code>ENTRA_TENANT_ID</code></td><td>443</td><td>uvicorn (MSAL token exchange). Analysts' browsers are also redirected there.</td><td>Once OIDC sign-in is set up (B7)</td></tr>
 <tr><td>Microsoft Graph</td><td><code>graph.microsoft.com</code> and <code>login.microsoftonline.com</code><br>Setting: <code>MAIL_*</code></td><td>443</td><td>Only <code>infra/scripts/mail_smoke_test.py</code> today</td><td>Once email notifications are built</td></tr>
 <tr><td>Kerberos KDC</td><td>To fill in<br>Setting: <code>KERBEROS_ENABLED</code>, <code>KRB5_*</code>, <code>MSSQL_&lt;NAME&gt;_AUTH_TYPE=WINDOWS</code></td><td>88</td><td>Any process whose SQL Server connection uses Windows authentication</td><td>Once a connection uses Windows authentication</td></tr>
 </table>
+
+<p>Data Bridge accepts connections only from IP addresses on its allowlist. Besides the firewall rule, the public IP address that the app server's requests to Data Bridge come from must be added to the Data Bridge allowlist. A new server, or a change to the network address CIC's outbound traffic uses, needs a new entry.</p>
 
 <p>Valkey listens on <code>127.0.0.1:6379</code> on the app server and needs no outbound rule. The shared drive is mounted by the operating system, so the app opens no connection to it; the account that runs the app (<code>cinreadmd</code>) has the read access the app needs.</p>
 
