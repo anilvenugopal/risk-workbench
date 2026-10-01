@@ -367,10 +367,10 @@ def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str
 )
 def contextual_detail_analyses_rows(
     request: Request, submission_id: str, edm_id: str,
-    section_hash: Annotated[str, Form(alias="hash")] = "",
+    analyses_hash: Annotated[str, Form(alias="hash")] = "",
     live: Annotated[str, Form()] = "",
 ):
-    return _analyses_rows(request, edm_id, section_hash, live, submission_id)
+    return _analyses_rows(request, edm_id, analyses_hash, live, submission_id)
 
 
 @router.post("/submissions/{submission_id}/edms/{edm_id}/analyses/delete")
@@ -628,6 +628,7 @@ async def execute_submit(request: Request, edm_id: str):
 
 
 _ANALYSES_STATUS_FILTERS = ("failed", "in_progress", "ready")
+_ANALYSES_SECTION_ID = "edm-executed-analyses"
 
 
 def _analyses_status_filter(request: Request) -> str:
@@ -645,7 +646,7 @@ def _analyses_gone_notice(submission_id: str | None) -> HTMLResponse:
     message = ("This EDM is no longer related to the submission." if submission_id
                else "This EDM no longer exists.")
     return HTMLResponse(
-        '<details class="sec" open id="edm-executed-analyses">'
+        f'<details class="sec" open id="{_ANALYSES_SECTION_ID}">'
         '<summary><span class="sec__title">Analyses</span></summary>'
         f'<div class="state-box state-box--warn">{escape(message)}'
         '</div></details>')
@@ -675,29 +676,25 @@ def _analyses_section_context(request: Request, edm_id: str,
             "execution_id": execution_id,
             "execution_live": analysis_service.execution_batch_is_live(
                 execution_id),
-            "section_id": "edm-executed-analyses",
+            "section_id": _ANALYSES_SECTION_ID,
             "analyses_table_url": base}
 
 
 def _analyses_section_partial(request: Request, edm_id: str,
                               *, submission_id: str | None = None):
-    """The merged Analyses section's own fragment (analyses_merged_section.html)
-    — its polling unit, separate from the rest of the detail body (T-11
-    refinement) so an in-flight execution never re-swaps rows the analyst has
-    expanded elsewhere on the page."""
     ctx = _analyses_section_context(request, edm_id, submission_id)
     if ctx is None:
         return _analyses_gone_notice(submission_id)
     return _partial(request, "partials/analyses_merged_section.html", ctx)
 
 
-def _analyses_rows(request: Request, edm_id: str, section_hash: str, live: str,
+def _analyses_rows(request: Request, edm_id: str, analyses_hash: str, live: str,
                    submission_id: str | None = None):
     ctx = _analyses_section_context(request, edm_id, submission_id)
     if ctx is None:
         return retarget_section(_analyses_gone_notice(submission_id),
-                                "edm-executed-analyses")
-    return analysis_rows_response(request, ctx, section_hash, live)
+                                _ANALYSES_SECTION_ID)
+    return analysis_rows_response(request, ctx, analyses_hash, live)
 
 
 @router.get("/edms/{edm_id}/analyses", response_class=HTMLResponse)
@@ -710,12 +707,12 @@ def detail_analyses(request: Request, edm_id: str):
 @router.post("/edms/{edm_id}/analyses/rows", response_class=HTMLResponse)
 def detail_analyses_rows(
     request: Request, edm_id: str,
-    section_hash: Annotated[str, Form(alias="hash")] = "",
+    analyses_hash: Annotated[str, Form(alias="hash")] = "",
     live: Annotated[str, Form()] = "",
 ):
     """The Analyses section's poll. No writes, no Risk Modeler call
     (Article 11)."""
-    return _analyses_rows(request, edm_id, section_hash, live)
+    return _analyses_rows(request, edm_id, analyses_hash, live)
 
 
 @router.get("/edms/{edm_id}/analyses/compare", response_class=HTMLResponse)

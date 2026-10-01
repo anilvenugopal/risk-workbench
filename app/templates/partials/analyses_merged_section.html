@@ -1,15 +1,12 @@
-{# Self-poll contract:
-   ``analyses-changed`` (the delete POST) refetches the section. The poll is
-   analyses_poller.html: while any run or retrieval is live, an RDM capture is
-   running, or the named execution batch is still in flight, it posts the live
-   row ids to ``/rows`` and swaps only those rows. It replaces the section when
-   the set of rows changes. The poller sits outside the rows block so an
-   execution polls before its first analysis row exists. The status filter,
-   ``execution_id`` and sort ride the poll URL so a replace never resets them.
-   ``execution-submitted`` is handled in app.js, not here: it carries the
-   execution id this section polls on. app.js restores expanded rows and ticked
-   checkboxes across a full replace via data-restore-open;
-   data-analyses-section scopes the selection helpers. #}
+{# Self-poll contract: ``analyses-changed`` (the delete POST) refetches the
+   section. While anything is live, analyses_poller.html posts the shown live
+   row ids to ``/rows``, which swaps those rows, or the whole section once its
+   set of rows changes. The poller sits outside the rows block so an execution
+   polls before its first row exists; the status filter, ``execution_id`` and
+   sort ride its URL. ``execution-submitted`` is handled in app.js: it carries
+   the execution id this section polls on. data-restore-open lets app.js keep
+   expanded rows and ticks across swaps; data-analyses-section scopes the
+   selection helpers. #}
 {# One click-to-sort header cell (note 27 D6, copying the 8/9 D15 pattern).
    A <button>, not the <a> the two submissions copies use: the target here is an
    HTML fragment, so an href would be a broken ctrl-click destination, and an

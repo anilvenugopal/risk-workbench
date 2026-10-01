@@ -330,6 +330,7 @@ def _entity_sort_links(
 
 
 _ANALYSES_STATUS_FILTERS = ("failed", "in_progress", "ready")
+_RESULTS_SECTION_ID = "submission-analyses"
 
 
 def _results_status_filter(request: Request) -> str:
@@ -396,7 +397,7 @@ def _results_section_context(request: Request, submission_id: str,
         "groups": _results_groups(submission_id),
         "source_submission": submission,
         "show_edm": True,
-        "section_id": "submission-analyses",
+        "section_id": _RESULTS_SECTION_ID,
         "section_title": "Results",
         "analyses_table_url": f"/submissions/{submission_id}/analyses",
         "rdm_analyses_prefix": f"/submissions/{submission_id}/rdms",
@@ -419,7 +420,7 @@ def _results_gone() -> HTMLResponse:
     # Submission hard-gone mid-poll: a terminal notice with no trigger
     # ends polling (the EDM section's precedent).
     return HTMLResponse(
-        '<details class="sec" open id="submission-analyses">'
+        f'<details class="sec" open id="{_RESULTS_SECTION_ID}">'
         '<summary><span class="sec__title">Results</span></summary>'
         '<div class="state-box state-box--warn">This submission no longer '
         'exists.</div></details>')
@@ -438,17 +439,17 @@ def submission_analyses(request: Request, submission_id: str):
              response_class=HTMLResponse)
 def submission_analyses_rows(
     request: Request, submission_id: str,
-    section_hash: Annotated[str, Form(alias="hash")] = "",
+    analyses_hash: Annotated[str, Form(alias="hash")] = "",
     live: Annotated[str, Form()] = "",
 ):
     """The Results section's poll. No writes, no Risk Modeler call
     (Article 11)."""
     submission = submission_service.get_submission(submission_id)
     if submission is None:
-        return retarget_section(_results_gone(), "submission-analyses")
+        return retarget_section(_results_gone(), _RESULTS_SECTION_ID)
     return analysis_rows_response(
         request, _results_section_context(request, submission_id, submission),
-        section_hash, live)
+        analyses_hash, live)
 
 
 @router.get("/submissions/{submission_id}/rdms/{rdm_id}/analyses",

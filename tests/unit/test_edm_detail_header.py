@@ -40,7 +40,7 @@ def _client() -> TestClient:
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
-    templates.env.globals["analyses_hash"] = analysis_service.section_hash
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(edms.router)
@@ -301,7 +301,7 @@ def test_analyses_section_polls_its_live_rows_not_itself(monkeypatch):
 
 def _post_rows(section, **data):
     return _client().post("/edms/edm-1/analyses/rows", data={
-        "hash": analysis_service.section_hash(section.executed_analyses,
+        "hash": analysis_service.analyses_hash(section.executed_analyses,
                                               section.rdms),
         "live": "analysis-1", **data})
 

@@ -15,14 +15,14 @@ def retarget_section(response: Response, section_id: str) -> Response:
     return response
 
 
-def analysis_rows_response(request: Request, ctx: dict, section_hash: str,
+def analysis_rows_response(request: Request, ctx: dict, analyses_hash: str,
                            live: str) -> Response:
     """The tracked rows, each swapped in place, while the section's set of rows
     is unchanged; the whole section once it has changed."""
     ctx = {"current_user": request.state.user, **ctx}
     templates = request.app.state.templates
-    if section_hash != analysis_service.section_hash(ctx["analyses"],
-                                                     ctx["groups"]):
+    if analyses_hash != analysis_service.analyses_hash(ctx["analyses"],
+                                                       ctx["groups"]):
         return retarget_section(
             templates.TemplateResponse(
                 request, "partials/analyses_merged_section.html", ctx),

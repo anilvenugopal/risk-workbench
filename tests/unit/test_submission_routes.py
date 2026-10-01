@@ -70,7 +70,7 @@ def client(iteration2_db) -> TestClient:
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
-    templates.env.globals["analyses_hash"] = analysis_service.section_hash
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(submissions.router)
@@ -1666,11 +1666,11 @@ def test_results_rows_poll_swaps_rows_or_replaces_the_section(client):
         "VALUES (:id, :edm, 'CRE_Running_v25', 'CRE_Running_v25', 'pending')",
         {"id": running, "edm": edm_id}, connection="WORKBENCH")
     html = client.get(f"/submissions/{submission_id}/analyses").text
-    section_hash = re.search(r'"hash": "([0-9a-f]+)"', html).group(1)
+    analyses_hash = re.search(r'"hash": "([0-9a-f]+)"', html).group(1)
     assert f'hx-post="/submissions/{submission_id}/analyses/rows"' in html
 
     rows = client.post(f"/submissions/{submission_id}/analyses/rows",
-                       data={"hash": section_hash, "live": running})
+                       data={"hash": analyses_hash, "live": running})
     assert f'id="analysis-row-{running}" hx-swap-oob="innerHTML"' in rows.text
     assert rows.text.count("hx-swap-oob=\"innerHTML\"") == 1
     assert "data-analyses-section" not in rows.text

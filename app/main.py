@@ -73,7 +73,7 @@ templates.env.globals["ui_poll_interval_secs"] = settings.ui_poll_interval_secs
 templates.env.globals["default_perspective"] = analysis_service.DEFAULT_PERSPECTIVE
 templates.env.globals["default_perspective_label"] = (
     analysis_service.DEFAULT_PERSPECTIVE_LABEL)
-templates.env.globals["analyses_hash"] = analysis_service.section_hash
+templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
 # Breakout values are stored as the EDM's own filter values; peril's are numeric
 # codes, so every template that shows one runs it through this filter.
 templates.env.filters["breakout_display"] = breakout_service.display_value

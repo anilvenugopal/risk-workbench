@@ -49,7 +49,7 @@ def make_client(iteration2_db, loss_db) -> TestClient:
     templates.env.globals["default_perspective"] = analysis_service.DEFAULT_PERSPECTIVE
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
-    templates.env.globals["analyses_hash"] = analysis_service.section_hash
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(submissions.router)

@@ -485,9 +485,8 @@ def sort_analyses(rows: list, sort: str, descending: bool) -> list:
     return present + missing
 
 
-def section_hash(analyses: list, groups: list) -> str:
-    """Names the Analyses section's set of rows. The poll replaces the whole
-    section only when this changes; otherwise it swaps the live rows alone."""
+def analyses_hash(analyses: list, groups: list) -> str:
+    """Names the Analyses section's set of rows."""
     key = repr((sorted(str(a.id) for a in analyses),
                 sorted((str(g.rdm_id), g.analysis_count) for g in groups)))
     return hashlib.sha1(key.encode()).hexdigest()[:16]
@@ -1203,5 +1202,5 @@ __all__ = [
     "list_comparison_pairs", "list_edm_analyses",
     "list_executed_analyses", "list_results_columns",
     "list_submission_executed_analyses",
-    "list_submission_rdms", "list_submission_rdm_analyses", "section_hash",
+    "list_submission_rdms", "list_submission_rdm_analyses", "analyses_hash",
 ]
