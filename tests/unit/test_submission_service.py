@@ -31,7 +31,6 @@ from app.services.submission_service import (
     add_contract,
     cedant_suggestions,
     create_submission,
-    find_similar,
     get_status_history,
     get_submission,
     list_contracts,
@@ -59,23 +58,18 @@ STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
 
 
 def _mk(db, *, owner=None, name="TY2604_AmericanFamily", cedant="American Family",
-        tt="per_risk_xol", inc=date(2026, 4, 1), ty=2026, confirmed=True,
+        tt="per_risk_xol", inc=date(2026, 4, 1), ty=2026,
         crm=None, contracts=None):
-    # confirmed=True by default: test setup must always create its baseline row,
-    # even when a look-alike already exists in a shared dev DB (an unconfirmed
-    # create would short-circuit with a warning and write nothing). Tests that
-    # specifically exercise the duplicate-warning path pass confirmed=False.
     # One contract by default, carrying ``tt`` and ``inc``; ``contracts=[]`` makes
     # a deal with none. The CRM ID is unique per call (FR-003: one CRM ID names
     # one contract across the Workbench) unless the test names it.
     if contracts is None:
         crm = crm or f"CRM-{uuid.uuid4().hex[:6]}"
         contracts = [ContractInput(crm_id=crm, treaty_type_code=tt, inception_date=inc)]
-    res = create_submission(
+    return create_submission(
         name=name, cedant_name=cedant, treaty_year=ty, contracts=contracts,
-        data_vintage="2026-06-30", actor_id=owner or db.user_a, confirmed=confirmed,
+        data_vintage="2026-06-30", actor_id=owner or db.user_a,
     )
-    return res
 
 
 def _add(db, sid, crm, *, tt="per_risk_xol", inc=date(2026, 4, 1), exp=None,
@@ -113,16 +107,15 @@ def _day(value):
 # ── US1: create / get / cedant autocomplete ──────────────────────────────────
 
 def test_create_writes_submission_and_initial_active_event(iteration1_db):
-    res = _mk(iteration1_db)
-    assert res.created is True and res.submission_id
-    sub = get_submission(res.submission_id)
+    sid = _mk(iteration1_db)
+    sub = get_submission(sid)
     assert sub is not None
     assert sub.status_code == "ACTIVE"
     assert sub.assigned_analyst_id == iteration1_db.user_a
     [contract] = sub.contracts
     assert contract.treaty_type_label == "Per Risk XOL"  # kind join populated
     assert contract.contract_status_label == "Open"
-    history = get_status_history(res.submission_id)
+    history = get_status_history(sid)
     assert len(history) == 1 and history[0].status_code == "ACTIVE"
 
 
@@ -132,13 +125,13 @@ def test_get_submission_unknown_id_returns_none(iteration1_db):
 
 def test_get_submission_has_no_access_restriction(iteration1_db):
     # Owned by B, still fully readable (no row-level security, FR-019).
-    sid = _mk(iteration1_db, owner=iteration1_db.user_b).submission_id
+    sid = _mk(iteration1_db, owner=iteration1_db.user_b)
     assert get_submission(sid).assigned_analyst_id == iteration1_db.user_b
 
 
 def test_submission_entities_use_direct_associations_and_stored_counts(iteration2_db):
-    first = _mk(iteration2_db, name="First").submission_id
-    second = _mk(iteration2_db, name="Second", cedant="Second Re").submission_id
+    first = _mk(iteration2_db, name="First")
+    second = _mk(iteration2_db, name="Second", cedant="Second Re")
     edm_id = str(uuid.uuid4())
     rdm_id = str(uuid.uuid4())
     execute_command(
@@ -177,7 +170,7 @@ def test_submission_entities_use_direct_associations_and_stored_counts(iteration
 
 
 def test_submission_entity_tables_sort_by_name_status_and_count(iteration2_db):
-    submission_id = _mk(iteration2_db, name="Sorted entities").submission_id
+    submission_id = _mk(iteration2_db, name="Sorted entities")
     edm_ids = [str(uuid.uuid4()) for _ in range(3)]
     for edm_id, name, status in zip(
         edm_ids, ("BravoEDM", "AlphaEDM", "CharlieEDM"),
@@ -255,7 +248,7 @@ def test_submission_entity_table_order_uses_unique_columns(
 def test_submission_import_creates_entity_association_and_provenance(
     iteration2_db, fake_irp, drive,
 ):
-    submission_id = _mk(iteration2_db, name="Import target").submission_id
+    submission_id = _mk(iteration2_db, name="Import target")
 
     edm = edm_service.import_edm(
         name="Imported_EDM", source_file_path=str(drive / "edm1.bak"),
@@ -292,7 +285,7 @@ def test_submission_import_creates_entity_association_and_provenance(
 
 
 def test_add_existing_candidates_exclude_related_and_deleted_entities(iteration2_db):
-    submission_id = _mk(iteration2_db, name="Candidate target").submission_id
+    submission_id = _mk(iteration2_db, name="Candidate target")
     available = str(uuid.uuid4())
     related = str(uuid.uuid4())
     deleted = str(uuid.uuid4())
@@ -317,7 +310,7 @@ def test_add_existing_candidates_exclude_related_and_deleted_entities(iteration2
 
 
 def test_add_existing_candidates_are_paginated(iteration2_db):
-    submission_id = _mk(iteration2_db, name="Candidate pages").submission_id
+    submission_id = _mk(iteration2_db, name="Candidate pages")
     for index in range(svc.PAGE_SIZE + 1):
         execute_command(
             "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, 'ready')",
@@ -335,7 +328,7 @@ def test_add_existing_candidates_are_paginated(iteration2_db):
 
 
 def test_attach_existing_keeps_valid_selections_when_others_are_stale(iteration2_db):
-    submission_id = _mk(iteration2_db, name="Attach target").submission_id
+    submission_id = _mk(iteration2_db, name="Attach target")
     valid = str(uuid.uuid4())
     already_related = str(uuid.uuid4())
     missing = str(uuid.uuid4())
@@ -360,8 +353,8 @@ def test_attach_existing_keeps_valid_selections_when_others_are_stale(iteration2
 
 
 def test_detach_removes_only_the_selected_submission_association(iteration2_db):
-    first = _mk(iteration2_db, name="Detach first").submission_id
-    second = _mk(iteration2_db, name="Detach second", cedant="Second Re").submission_id
+    first = _mk(iteration2_db, name="Detach first")
+    second = _mk(iteration2_db, name="Detach second", cedant="Second Re")
     edm_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO irp_edm (id, name, status) VALUES (:id, 'SharedDetach', 'ready')",
@@ -383,7 +376,7 @@ def test_detach_removes_only_the_selected_submission_association(iteration2_db):
 
 
 def test_closed_submission_rejects_association_writes(iteration2_db, drive):
-    submission_id = _mk(iteration2_db, name="Closed associations").submission_id
+    submission_id = _mk(iteration2_db, name="Closed associations")
     edm_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO irp_edm (id, name, status) VALUES (:id, 'ClosedEDM', 'ready')",
@@ -408,7 +401,7 @@ def test_cedant_suggestions_distinct_and_sorted(iteration1_db):
     _mk(iteration1_db, name="A", cedant="Acme Mutual", tt="per_occurrence_cat_xol",
         inc=date(2026, 1, 1))
     _mk(iteration1_db, name="B", cedant="Acme Mutual", tt="aggregate_xol",
-        inc=date(2026, 2, 1))   # same cedant, distinct attrs (no dup warning)
+        inc=date(2026, 2, 1))
     _mk(iteration1_db, name="C", cedant="Acadia Re", tt="per_occurrence_cat_xol",
         inc=date(2026, 3, 1))
     _mk(iteration1_db, name="D", cedant="Beta Insurance", tt="stop_loss",
@@ -463,9 +456,9 @@ def test_suggestions_cap_the_row_count_in_the_query(iteration1_db):
 
 def test_list_owner_predicate_is_not_an_access_gate(iteration1_db):
     a1 = _mk(iteration1_db, owner=iteration1_db.user_a, name="A1",
-             cedant="Acme", inc=date(2026, 1, 1)).submission_id
+             cedant="Acme", inc=date(2026, 1, 1))
     b1 = _mk(iteration1_db, owner=iteration1_db.user_b, name="B1",
-             cedant="Beta", inc=date(2026, 2, 1)).submission_id
+             cedant="Beta", inc=date(2026, 2, 1))
     # Owner filter is scoped to the (throwaway) owner, so exact-match is safe:
     # nothing else in the DB is owned by this freshly-created analyst.
     mine = {r.id for r in list_submissions(owner_ids=[iteration1_db.user_a]).rows}
@@ -505,9 +498,9 @@ def test_list_search_by_name_ands_every_word(iteration1_db):
     search box is name-only — cedant has its own field."""
     a = iteration1_db.user_a
     amfam = _mk(iteration1_db, owner=a, name="American Family Renewal",
-                cedant="American Family Mutual", inc=date(2026, 5, 1)).submission_id
+                cedant="American Family Mutual", inc=date(2026, 5, 1))
     ammod = _mk(iteration1_db, owner=a, name="American Modern Renewal",
-                cedant="American Modern", inc=date(2026, 6, 1)).submission_id
+                cedant="American Modern", inc=date(2026, 6, 1))
     assert {r.id for r in list_submissions(
         owner_ids=[a], name="american family").rows} == {amfam}
     assert {r.id for r in list_submissions(
@@ -521,7 +514,7 @@ def test_list_cedant_filter_matches_part_of_the_name(iteration1_db):
     a fragment, in whatever case. Exact equality returned nothing for "fam"."""
     a = iteration1_db.user_a
     sid = _mk(iteration1_db, owner=a, name="Cedant partial",
-              cedant="American Family Mutual").submission_id
+              cedant="American Family Mutual")
     assert {r.id for r in list_submissions(owner_ids=[a], cedant_name="fam").rows} == {sid}
     assert {r.id for r in list_submissions(
         owner_ids=[a], cedant_name="american mutual").rows} == {sid}
@@ -532,8 +525,8 @@ def test_list_filter_by_owner_id(iteration1_db):
     display name stay apart."""
     a, b = iteration1_db.user_a, iteration1_db.user_b
     tag = uuid.uuid4().hex[:8]
-    mine = _mk(iteration1_db, owner=a, name=f"Owned {tag} A").submission_id
-    theirs = _mk(iteration1_db, owner=b, name=f"Owned {tag} B").submission_id
+    mine = _mk(iteration1_db, owner=a, name=f"Owned {tag} A")
+    theirs = _mk(iteration1_db, owner=b, name=f"Owned {tag} B")
     execute_command(
         "UPDATE app_user SET display_name = 'Chris Doyle' WHERE id IN (:a, :b)",
         {"a": str(a), "b": str(b)}, connection="WORKBENCH")
@@ -555,8 +548,8 @@ def test_list_filter_by_crm_ids_matches_whole_ids(iteration1_db):
     """P-10: exact, case-insensitive, trimmed; OR within the filter; a deal with
     two matching CRM IDs is still one row (EXISTS, not a join)."""
     a = iteration1_db.user_a
-    tagged = _mk(iteration1_db, owner=a, name="Tagged deal", contracts=[]).submission_id
-    other = _mk(iteration1_db, owner=a, name="Other deal", contracts=[]).submission_id
+    tagged = _mk(iteration1_db, owner=a, name="Tagged deal", contracts=[])
+    other = _mk(iteration1_db, owner=a, name="Other deal", contracts=[])
     _mk(iteration1_db, owner=a, name="Untagged deal", contracts=[])
     _add(iteration1_db, tagged, "CRM-12345")
     _add(iteration1_db, tagged, "CRM-4418")
@@ -578,8 +571,8 @@ def test_list_rows_summarise_their_contracts(iteration1_db):
     distinct treaty types in kind order; a deal with no contract keeps the
     defaults."""
     a = iteration1_db.user_a
-    tagged = _mk(iteration1_db, owner=a, name="Has contracts", contracts=[]).submission_id
-    bare = _mk(iteration1_db, owner=a, name="No contracts", contracts=[]).submission_id
+    tagged = _mk(iteration1_db, owner=a, name="Has contracts", contracts=[])
+    bare = _mk(iteration1_db, owner=a, name="No contracts", contracts=[])
     _add(iteration1_db, tagged, "CRM-1", tt="stop_loss", inc=date(2026, 1, 1),
          status="WON")
     _bump()  # distinct inserted_at, so "oldest first" is deterministic here
@@ -601,7 +594,7 @@ def test_list_rows_show_the_contract_that_matched_the_search(iteration1_db):
     (P-18), first-entered first, so a search for one CRM ID reads that CRM ID
     with no "+N more"."""
     a = iteration1_db.user_a
-    deal = _mk(iteration1_db, owner=a, name="Layered", contracts=[]).submission_id
+    deal = _mk(iteration1_db, owner=a, name="Layered", contracts=[])
     _add(iteration1_db, deal, "CRM-A", tt="per_risk_xol", inc=date(2026, 1, 1),
          status="WON")
     _bump()
@@ -630,9 +623,9 @@ def test_list_rows_show_the_contract_that_matched_the_search(iteration1_db):
 
 def test_list_filter_by_status(iteration1_db):
     a = iteration1_db.user_a
-    active = _mk(iteration1_db, owner=a, name="Still active").submission_id
+    active = _mk(iteration1_db, owner=a, name="Still active")
     done = _mk(iteration1_db, owner=a, name="Wrapped up",
-               inc=date(2026, 7, 1)).submission_id
+               inc=date(2026, 7, 1))
     set_status(submission_id=done, modeling_status="COMPLETED", reason="delivered",
                  expected_updated_at=_marker(done), actor_id=a)
     assert [r.id for r in list_submissions(
@@ -643,7 +636,7 @@ def test_list_filter_by_status(iteration1_db):
 
 def test_list_search_treats_a_wildcard_as_a_literal(iteration1_db):
     a = iteration1_db.user_a
-    literal = _mk(iteration1_db, owner=a, name="100% quota share").submission_id
+    literal = _mk(iteration1_db, owner=a, name="100% quota share")
     _mk(iteration1_db, owner=a, name="100 quota share", inc=date(2026, 7, 1))
     assert [r.id for r in list_submissions(owner_ids=[a], name="100%").rows] == [literal]
 
@@ -652,9 +645,8 @@ def test_list_returns_one_page_at_a_time(iteration1_db):
     """Every read is capped at PAGE_SIZE, so ``_attach_contracts`` can never bind more
     ids than SQL Server accepts in one statement (2,100 bound parameters).
 
-    Distinct cedants keep each create's look-alike check empty, and one shared
-    inception date leaves the name as the only sort key, so the two pages are in a
-    known order."""
+    One shared inception date leaves the name as the only sort key, so the two
+    pages are in a known order."""
     a = iteration1_db.user_a
     tag = uuid.uuid4().hex[:8]
     for i in range(svc.PAGE_SIZE + 2):
@@ -677,7 +669,7 @@ def test_list_returns_one_page_at_a_time(iteration1_db):
 def test_list_page_below_one_reads_the_first_page(iteration1_db):
     """A hand-typed ?page=0 must not reach the query as a negative offset."""
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, owner=a, name="Only deal").submission_id
+    sid = _mk(iteration1_db, owner=a, name="Only deal")
     for page in (0, -5):
         result = list_submissions(owner_ids=[a], page=page)
         assert result.page == 1 and [r.id for r in result.rows] == [sid]
@@ -696,7 +688,7 @@ def _four_mixed_deals(db):
             ("Agg 2025", "aggregate_xol", 2025),
             ("Stop 2027", "stop_loss", 2027)):
         made[name] = _mk(db, owner=a, name=name, cedant=name, tt=treaty_type,
-                         inc=date(year, 4, 1), ty=year).submission_id
+                         inc=date(year, 4, 1), ty=year)
     return a, made
 
 
@@ -738,9 +730,9 @@ def test_list_filters_on_several_statuses(iteration1_db):
 
 def test_list_filters_on_several_owners(iteration1_db):
     a, b = iteration1_db.user_a, iteration1_db.user_b
-    mine = _mk(iteration1_db, owner=a, name="Mine", cedant="Mine Re").submission_id
+    mine = _mk(iteration1_db, owner=a, name="Mine", cedant="Mine Re")
     theirs = _mk(iteration1_db, owner=b, name="Theirs",
-                 cedant="Theirs Re").submission_id
+                 cedant="Theirs Re")
     assert {r.id for r in list_submissions(owner_ids=[a, b]).rows} == {mine, theirs}
     # An id that is not a UUID binds NULL and matches nothing, without taking the
     # other owner's deals down with it.
@@ -801,7 +793,7 @@ def test_list_orders_on_the_first_entered_contract_inception(iteration1_db):
     today, so ahead of last year's renewals and behind next year's."""
     a = iteration1_db.user_a
     layered = _mk(iteration1_db, owner=a, name="Layered", cedant="L Re",
-                  inc=date(2025, 1, 1)).submission_id
+                  inc=date(2025, 1, 1))
     _bump()  # CRM-2 has to read as the later contract, not the tiebreak's pick
     _add(iteration1_db, layered, "CRM-2", inc=date(2027, 1, 1))
     _mk(iteration1_db, owner=a, name="Next year", cedant="N Re", inc=date(2026, 12, 1))
@@ -821,10 +813,10 @@ def test_list_orders_on_the_matched_contract_inception_under_a_filter(iteration1
     ahead of Early."""
     a = iteration1_db.user_a
     early = _mk(iteration1_db, owner=a, name="Early", cedant="E Re",
-                inc=date(2026, 1, 1)).submission_id
+                inc=date(2026, 1, 1))
     _add(iteration1_db, early, "CRM-E2", inc=date(2027, 6, 1), status="WON")
     late = _mk(iteration1_db, owner=a, name="Late", cedant="L Re",
-               inc=date(2026, 6, 1)).submission_id
+               inc=date(2026, 6, 1))
     _add(iteration1_db, late, "CRM-L2", inc=date(2027, 1, 1), status="WON")
     # Two inserts can share a clock tick, and the tiebreak is then the random
     # id; stamp the second contract of each deal as the later one.
@@ -861,7 +853,7 @@ def test_status_kinds_lists_every_status_in_display_order(iteration1_db):
 
 
 def test_reassign_owner_moves_my_view(iteration1_db):
-    sid = _mk(iteration1_db, owner=iteration1_db.user_a).submission_id
+    sid = _mk(iteration1_db, owner=iteration1_db.user_a)
     reassign_owner(submission_id=sid, new_owner_id=iteration1_db.user_b,
                    expected_updated_at=_marker(sid), actor_id=iteration1_db.user_a)
     assert get_submission(sid).assigned_analyst_id == iteration1_db.user_b
@@ -873,7 +865,7 @@ def test_reassign_owner_moves_my_view(iteration1_db):
 
 
 def test_reassign_owner_stale_marker_conflicts(iteration1_db):
-    sid = _mk(iteration1_db).submission_id
+    sid = _mk(iteration1_db)
     with pytest.raises(ConcurrencyConflict):
         reassign_owner(submission_id=sid, new_owner_id=iteration1_db.user_b,
                        expected_updated_at=STALE, actor_id=iteration1_db.user_a)
@@ -883,7 +875,7 @@ def test_reassign_owner_stale_marker_conflicts(iteration1_db):
 
 def test_status_transitions_reopen_and_history(iteration1_db):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db).submission_id  # event 1: ACTIVE
+    sid = _mk(iteration1_db)  # event 1: ACTIVE
     _bump(); set_status(submission_id=sid, modeling_status="COMPLETED", reason="done",
                           expected_updated_at=_marker(sid), actor_id=a)
     assert get_submission(sid).status_code == "COMPLETED"
@@ -902,7 +894,7 @@ def test_status_transitions_reopen_and_history(iteration1_db):
 
 
 def test_same_status_is_a_recorded_no_op(iteration1_db):
-    sid = _mk(iteration1_db).submission_id
+    sid = _mk(iteration1_db)
     _bump(); set_status(submission_id=sid, modeling_status="ACTIVE", reason=None,
                           expected_updated_at=_marker(sid), actor_id=iteration1_db.user_a)
     assert get_submission(sid).status_code == "ACTIVE"
@@ -911,7 +903,7 @@ def test_same_status_is_a_recorded_no_op(iteration1_db):
 
 def test_read_only_gate_blocks_mutations_when_closed(iteration1_db):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db).submission_id
+    sid = _mk(iteration1_db)
     set_status(submission_id=sid, modeling_status="COMPLETED", reason=None,
                  expected_updated_at=_marker(sid), actor_id=a)
     with pytest.raises(SubmissionClosed):
@@ -936,7 +928,7 @@ def _row(crm, tt="per_risk_xol", inc=date(2027, 1, 1), exp=None, status="OPEN"):
 
 
 def test_create_with_no_contract_leaves_treaty_year_blank(iteration1_db):
-    sid = _mk(iteration1_db, contracts=[], ty=None).submission_id
+    sid = _mk(iteration1_db, contracts=[], ty=None)
     sub = get_submission(sid)
     assert sub.contracts == [] and sub.treaty_year is None
     assert sub.client_id is None and _day(sub.data_vintage) == "2026-06-30"
@@ -947,23 +939,23 @@ def test_create_and_update_refuse_a_blank_data_vintage(iteration1_db):
     a = iteration1_db.user_a
     with pytest.raises(ValueError, match="data_vintage"):
         create_submission(name="No vintage", cedant_name="V Re", data_vintage=None,
-                          actor_id=a, confirmed=True)
+                          actor_id=a)
     assert list_submissions(owner_ids=[a], name="No vintage").rows == []
-    sid = _mk(iteration1_db, owner=a, name="Has vintage").submission_id
+    sid = _mk(iteration1_db, owner=a, name="Has vintage")
     with pytest.raises(ValueError, match="data_vintage"):
         update_submission(submission_id=sid, expected_updated_at=_marker(sid),
-                          actor_id=a, confirmed=True, data_vintage=None)
+                          actor_id=a, data_vintage=None)
     assert _day(get_submission(sid).data_vintage) == "2026-06-30"
 
 
 def test_create_writes_every_contract_row_in_one_transaction(iteration1_db):
-    res = create_submission(
+    sid = create_submission(
         name="TY2701_Allstate", cedant_name="Allstate", data_vintage="2026-06-30",
         contracts=[_row("A-1", "per_occurrence_cat_xol"),
                    _row("A-2", "aggregate_xol"),
                    _row("A-3", "top_and_drop", exp=date(2029, 12, 31), status="WON")],
-        actor_id=iteration1_db.user_a, confirmed=True)
-    sub = get_submission(res.submission_id)
+        actor_id=iteration1_db.user_a)
+    sub = get_submission(sid)
     assert [c.crm_id for c in sub.contracts] == ["A-1", "A-2", "A-3"]
     assert [_day(c.expiration_date) for c in sub.contracts] == [
         "2027-12-31", "2027-12-31", "2029-12-31"]          # blank → inception + 1y − 1d
@@ -984,7 +976,7 @@ def test_create_refuses_a_bad_contract_row_and_writes_nothing(
         iteration1_db, rows, index, message):
     with pytest.raises(ContractInvalid) as raised:
         create_submission(name="Refused", cedant_name="R Re", contracts=rows,
-                          data_vintage="2026-06-30", actor_id=iteration1_db.user_a, confirmed=True)
+                          data_vintage="2026-06-30", actor_id=iteration1_db.user_a)
     assert raised.value.index == index and str(raised.value) == message
     assert raised.value.owner is None
     assert list_submissions(owner_ids=[iteration1_db.user_a], name="Refused").rows == []
@@ -993,11 +985,11 @@ def test_create_refuses_a_bad_contract_row_and_writes_nothing(
 def test_create_refuses_a_crm_id_that_is_a_contract_on_another_deal(iteration1_db):
     """FR-003 (note 33 D12-D14): the refusal names the row and the owning deal,
     whatever the case and whitespace of the typed value."""
-    owner = _mk(iteration1_db, name="Owner deal", crm="X-1").submission_id
+    owner = _mk(iteration1_db, name="Owner deal", crm="X-1")
     with pytest.raises(ContractInvalid) as raised:
         create_submission(name="Second", cedant_name="S Re",
                           contracts=[_row("X-9"), _row(" x-1 ")],
-                          data_vintage="2026-06-30", actor_id=iteration1_db.user_a, confirmed=True)
+                          data_vintage="2026-06-30", actor_id=iteration1_db.user_a)
     assert raised.value.index == 1
     assert str(raised.value) == "x-1 is already a contract on"
     assert raised.value.owner == ContractOwner(owner, "Owner deal")
@@ -1007,8 +999,8 @@ def test_create_refuses_a_crm_id_that_is_a_contract_on_another_deal(iteration1_d
 def test_add_and_edit_refuse_a_crm_id_another_deal_holds_but_a_row_keeps_its_own(
         iteration1_db):
     a = iteration1_db.user_a
-    owner = _mk(iteration1_db, name="Owner deal", crm="X-1").submission_id
-    sid = _mk(iteration1_db, name="Second", crm="Y-1").submission_id
+    owner = _mk(iteration1_db, name="Owner deal", crm="X-1")
+    sid = _mk(iteration1_db, name="Second", crm="Y-1")
     with pytest.raises(ContractInvalid) as raised:
         _add(iteration1_db, sid, "X-1")
     assert raised.value.owner == ContractOwner(owner, "Owner deal")
@@ -1036,7 +1028,7 @@ def test_add_and_edit_refuse_a_crm_id_another_deal_holds_but_a_row_keeps_its_own
 def test_a_crm_id_on_a_closed_deal_still_blocks(iteration1_db, modeling_status):
     """Note 33 decision 3: the owner's Modeling status never frees its CRM IDs."""
     a = iteration1_db.user_a
-    owner = _mk(iteration1_db, name="Closed deal", crm="Z-1").submission_id
+    owner = _mk(iteration1_db, name="Closed deal", crm="Z-1")
     set_status(submission_id=owner, modeling_status=modeling_status, reason="done",
                  expected_updated_at=_marker(owner), actor_id=a)
     with pytest.raises(ContractInvalid) as raised:
@@ -1049,7 +1041,7 @@ def test_the_crm_id_index_refuses_a_case_variant_written_around_the_service(
     """``uq_contract_crm_id`` is the race catch behind the service lookup; the
     SQLite mirror's ``COLLATE NOCASE`` index must collide like SQL Server's
     case-insensitive default collation does."""
-    sid = _mk(iteration1_db, crm="abc").submission_id
+    sid = _mk(iteration1_db, crm="abc")
     with pytest.raises(SQLServerQueryError) as raised:
         execute_command(
             svc._CONTRACT_INSERT,
@@ -1062,13 +1054,13 @@ def test_the_crm_id_index_refuses_a_case_variant_written_around_the_service(
 
 
 def test_expiration_default_handles_a_leap_day(iteration1_db):
-    sid = _mk(iteration1_db, inc=date(2024, 2, 29)).submission_id
+    sid = _mk(iteration1_db, inc=date(2024, 2, 29))
     assert _day(get_submission(sid).contracts[0].expiration_date) == "2025-02-28"
 
 
 def test_add_update_and_remove_a_contract(iteration1_db):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, contracts=[]).submission_id
+    sid = _mk(iteration1_db, contracts=[])
     cid = _add(iteration1_db, sid, "T-100")
     _bump()
     _add(iteration1_db, sid, "T-200", tt="stop_loss")
@@ -1091,7 +1083,7 @@ def test_add_update_and_remove_a_contract(iteration1_db):
 
 def test_add_and_update_refuse_a_duplicate_crm_id_on_the_deal(iteration1_db):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, contracts=[]).submission_id
+    sid = _mk(iteration1_db, contracts=[])
     _add(iteration1_db, sid, "T-100")
     second = _add(iteration1_db, sid, "T-200")
     with pytest.raises(ContractInvalid):
@@ -1110,7 +1102,7 @@ def test_add_and_update_refuse_a_duplicate_crm_id_on_the_deal(iteration1_db):
 def test_contract_attribute_writes_are_gated_on_active_but_status_is_not(
         iteration1_db):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, contracts=[]).submission_id
+    sid = _mk(iteration1_db, contracts=[])
     cid = _add(iteration1_db, sid, "T-100")
     set_status(submission_id=sid, modeling_status="COMPLETED", reason=None,
                  expected_updated_at=_marker(sid), actor_id=a)
@@ -1132,7 +1124,7 @@ def test_contract_attribute_writes_are_gated_on_active_but_status_is_not(
 def test_contract_status_stale_marker_conflicts_and_unknown_code_is_refused(
         iteration1_db):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, crm="CRM-1").submission_id
+    sid = _mk(iteration1_db, crm="CRM-1")
     cid = _contract(sid, "CRM-1").id
     with pytest.raises(ConcurrencyConflict):
         set_contract_status(submission_id=sid, contract_id=cid, to_status="WON",
@@ -1149,7 +1141,7 @@ def test_contract_status_stale_marker_conflicts_and_unknown_code_is_refused(
 def test_one_deal_holds_contracts_in_different_statuses(iteration1_db):
     """Note 32 D17: eight CRM IDs on one modeling package, some bound, some lost."""
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, contracts=[]).submission_id
+    sid = _mk(iteration1_db, contracts=[])
     for crm in ("A-1", "A-2", "A-3"):
         _add(iteration1_db, sid, crm)
         _bump()  # distinct inserted_at, so the rows read back in entry order
@@ -1163,8 +1155,8 @@ def test_one_deal_holds_contracts_in_different_statuses(iteration1_db):
 
 def test_contract_writes_under_another_deal_are_refused(iteration1_db):
     a = iteration1_db.user_a
-    deal_a = _mk(iteration1_db, name="Deal A", crm="A-1").submission_id
-    deal_b = _mk(iteration1_db, name="Deal B", crm="B-1").submission_id
+    deal_a = _mk(iteration1_db, name="Deal A", crm="A-1")
+    deal_b = _mk(iteration1_db, name="Deal B", crm="B-1")
     b1 = _contract(deal_b, "B-1")
     with pytest.raises(LookupError):
         update_contract(submission_id=deal_a, contract_id=b1.id, actor_id=a,
@@ -1180,67 +1172,11 @@ def test_contract_writes_under_another_deal_are_refused(iteration1_db):
         _add(iteration1_db, uuid.uuid4(), "C-1")
 
 
-# ── US5: non-unique identity / duplicate warning / edit guards ────────────────
-
-def test_find_similar_name_and_attribute_arms(iteration1_db):
-    first = _mk(iteration1_db, name="TY2604_Acme", cedant="Acme Mutual",
-                tt="per_occurrence_cat_xol", inc=date(2026, 4, 1)).submission_id
-    # find_similar is a global dedup lookup with no owner scope; assert our
-    # planted row's presence/absence rather than exact result sets, so unrelated
-    # look-alikes already in a shared dev DB don't fail the test.
-    # name-match arm (different cedant, different contracts)
-    by_name = find_similar(name="TY2604_Acme", cedant_name="Zzz",
-                           contract_terms=[("stop_loss", date(2030, 1, 1))])
-    assert first in {r.id for r in by_name}
-    # attribute-match arm (different name): same cedant with a contract of the
-    # same treaty type and inception as one of the posted rows
-    by_attr = find_similar(
-        name="Totally Different", cedant_name="Acme Mutual",
-        contract_terms=[("stop_loss", date(2030, 1, 1)),
-                        ("per_occurrence_cat_xol", date(2026, 4, 1))])
-    assert first in {r.id for r in by_attr}
-    # same cedant, no contract posted → name alone decides
-    assert first not in {r.id for r in find_similar(
-        name="Totally Different", cedant_name="Acme Mutual")}
-    # genuinely new deal → our row is not a look-alike
-    assert first not in {r.id for r in find_similar(
-        name="Brand New", cedant_name="Nobody Re",
-        contract_terms=[("stop_loss", date(2031, 1, 1))])}
-    # exclude_id skips the row being renamed
-    assert first not in {r.id for r in find_similar(
-        name="TY2604_Acme", cedant_name="Acme Mutual",
-        contract_terms=[("per_occurrence_cat_xol", date(2026, 4, 1))],
-        exclude_id=first)}
-
-
-def test_create_duplicate_warns_then_confirms(iteration1_db):
-    first = _mk(iteration1_db, name="TY2604_Acme").submission_id
-    res = _mk(iteration1_db, name="TY2604_Acme", confirmed=False)  # unconfirmed dup
-    assert res.created is False and res.submission_id is None
-    assert first in {w.id for w in res.warnings}  # our row flagged as a look-alike
-    res2 = _mk(iteration1_db, name="TY2604_Acme", confirmed=True)
-    assert res2.created is True and res2.submission_id
-
-
-def test_update_rename_warns_then_confirms(iteration1_db):
-    a = iteration1_db.user_a
-    first = _mk(iteration1_db, name="Alpha", cedant="C1", tt="per_occurrence_cat_xol",
-                inc=date(2026, 1, 1)).submission_id
-    second = _mk(iteration1_db, name="Beta", cedant="C2", tt="stop_loss",
-                 inc=date(2026, 2, 1)).submission_id
-    # rename second → Alpha collides with first (name arm)
-    r = update_submission(submission_id=second, expected_updated_at=_marker(second),
-                          actor_id=a, name="Alpha")
-    assert r.updated is False and first in {w.id for w in r.warnings}
-    r2 = update_submission(submission_id=second, expected_updated_at=_marker(second),
-                           actor_id=a, confirmed=True, name="Alpha")
-    assert r2.updated is True
-    assert get_submission(second).name == "Alpha"
-
+# ── US5: non-unique identity / edit guards ────────────────
 
 def test_update_self_link_rejected(iteration1_db):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db).submission_id
+    sid = _mk(iteration1_db)
     with pytest.raises(SelfLinkError):
         update_submission(submission_id=sid, expected_updated_at=_marker(sid),
                           actor_id=a, links_to_submission_id=sid)
@@ -1253,8 +1189,7 @@ def test_create_with_an_unknown_link_target_is_rejected(iteration1_db, link_valu
     with pytest.raises(UnknownLinkError):
         create_submission(
             name="Stale link", cedant_name="American Family",
-            links_to_submission_id=link_value, data_vintage="2026-06-30", actor_id=iteration1_db.user_a,
-            confirmed=True)
+            links_to_submission_id=link_value, data_vintage="2026-06-30", actor_id=iteration1_db.user_a)
     # Scoped to this test's throwaway owner, so the assertion is "the deal was not
     # written" rather than "a page of the list is the same length".
     assert list_submissions(
@@ -1264,7 +1199,7 @@ def test_create_with_an_unknown_link_target_is_rejected(iteration1_db, link_valu
 @pytest.mark.parametrize("link_value", [str(uuid.uuid4()), "not-a-uuid"])
 def test_update_to_an_unknown_link_target_is_rejected(iteration1_db, link_value):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, name="Keeps its link").submission_id
+    sid = _mk(iteration1_db, name="Keeps its link")
     with pytest.raises(UnknownLinkError):
         update_submission(submission_id=sid, expected_updated_at=_marker(sid),
                           actor_id=a, links_to_submission_id=link_value)
@@ -1275,12 +1210,12 @@ def test_link_target_is_kept_across_an_edit_that_never_mentions_it(iteration1_db
     # The merged value is re-checked on every update, so an untouched link must
     # still pass — the check reads the target, it does not require it to be resent.
     a = iteration1_db.user_a
-    target = _mk(iteration1_db, name="Last year", inc=date(2025, 4, 1)).submission_id
-    sid = _mk(iteration1_db, name="This year").submission_id
+    target = _mk(iteration1_db, name="Last year", inc=date(2025, 4, 1))
+    sid = _mk(iteration1_db, name="This year")
     update_submission(submission_id=sid, expected_updated_at=_marker(sid),
-                      actor_id=a, confirmed=True, links_to_submission_id=target)
+                      actor_id=a, links_to_submission_id=target)
     update_submission(submission_id=sid, expected_updated_at=_marker(sid),
-                      actor_id=a, confirmed=True, name="This year, renamed")
+                      actor_id=a, name="This year, renamed")
     assert get_submission(sid).links_to_submission_id == target
 
 
@@ -1290,7 +1225,7 @@ def test_blank_treaty_year_stays_blank(iteration1_db):
     sid = create_submission(
         name="No year given", cedant_name="Y Re", treaty_year=None,
         contracts=[_row("A-1", inc=date(2027, 1, 1)), _row("A-2", inc=date(2026, 7, 1))],
-        data_vintage="2026-06-30", actor_id=iteration1_db.user_a, confirmed=True).submission_id
+        data_vintage="2026-06-30", actor_id=iteration1_db.user_a)
     assert get_submission(sid).treaty_year is None
 
 
@@ -1299,19 +1234,19 @@ def test_entered_treaty_year_survives_create_and_update(iteration1_db):
     # entered value must never be replaced by the derived one (CR5).
     a = iteration1_db.user_a
     sid = _mk(iteration1_db, name="Dec incept", inc=date(2026, 12, 15),
-              ty=2027).submission_id
+              ty=2027)
     assert get_submission(sid).treaty_year == 2027
     update_submission(submission_id=sid, expected_updated_at=_marker(sid),
-                      actor_id=a, confirmed=True, treaty_year=2027, directory_path="/x")
+                      actor_id=a, treaty_year=2027, directory_path="/x")
     assert get_submission(sid).treaty_year == 2027
 
 
 def test_clearing_treaty_year_on_update_leaves_it_blank(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db, name="Cleared year", inc=date(2026, 4, 1),
-              ty=2030).submission_id
+              ty=2030)
     update_submission(submission_id=sid, expected_updated_at=_marker(sid),
-                      actor_id=a, confirmed=True, treaty_year=None)
+                      actor_id=a, treaty_year=None)
     assert get_submission(sid).treaty_year is None
 
 
@@ -1320,9 +1255,9 @@ def test_clearing_treaty_year_on_update_leaves_it_blank(iteration1_db):
 def test_search_for_link_ands_every_term(iteration1_db):
     # CR2: "There must be 1000 companies that have American in the name."
     amfam = _mk(iteration1_db, name="TY2506_AmericanFamily",
-                cedant="American Family Mutual", inc=date(2025, 6, 1)).submission_id
+                cedant="American Family Mutual", inc=date(2025, 6, 1))
     amnat = _mk(iteration1_db, name="TY2501_AmericanNational",
-                cedant="American National", inc=date(2025, 1, 1)).submission_id
+                cedant="American National", inc=date(2025, 1, 1))
     found = {row.id for row in search_submissions_for_link("american fam")}
     assert amfam in found and amnat not in found
     both = {row.id for row in search_submissions_for_link("american")}
@@ -1331,7 +1266,7 @@ def test_search_for_link_ands_every_term(iteration1_db):
 
 def test_search_for_link_matches_every_word_however_many(iteration1_db):
     sid = _mk(iteration1_db, name="American Family Renewal",
-              cedant="American Family Mutual", inc=date(2026, 4, 1)).submission_id
+              cedant="American Family Mutual", inc=date(2026, 4, 1))
     matching = ["american", "family", "renewal", "mutual", "am", "fam", "ren"]
     assert sid in {r.id for r in search_submissions_for_link(" ".join(matching))}
     # The word past the ones that match still narrows the search — a term is never
@@ -1343,14 +1278,14 @@ def test_search_for_link_matches_every_word_however_many(iteration1_db):
 
 def test_search_for_link_matches_name_or_cedant(iteration1_db):
     sid = _mk(iteration1_db, name="Opaque code 9912",
-              cedant="Zenith Mutual", inc=date(2026, 2, 1)).submission_id
+              cedant="Zenith Mutual", inc=date(2026, 2, 1))
     assert sid in {r.id for r in search_submissions_for_link("9912")}
     assert sid in {r.id for r in search_submissions_for_link("zenith")}
 
 
 def test_search_for_link_excludes_the_submission_being_edited(iteration1_db):
     sid = _mk(iteration1_db, name="Sole Match Deal",
-              cedant="Solo Re", inc=date(2026, 3, 1)).submission_id
+              cedant="Solo Re", inc=date(2026, 3, 1))
     assert sid in {r.id for r in search_submissions_for_link("Sole Match")}
     assert search_submissions_for_link("Sole Match", exclude_id=sid) == []
 
@@ -1365,14 +1300,14 @@ def test_search_for_link_empty_term_returns_nothing(iteration1_db):
 
 def test_search_global_matches_name_or_cedant(iteration1_db):
     sid = _mk(iteration1_db, name="Coastal Re HO 2026",
-              cedant="Coastal Re", inc=date(2026, 1, 1)).submission_id
+              cedant="Coastal Re", inc=date(2026, 1, 1))
     assert sid in {r.id for r in search_submissions_global("coastal")}
     assert sid in {r.id for r in search_submissions_global("HO 2026")}
 
 
 def test_search_global_matches_tagged_crm_id(iteration1_db):
     sid = _mk(iteration1_db, name="Zenith Mutual 2026",
-              cedant="Zenith Mutual", inc=date(2026, 1, 1), crm="CRM-9912").submission_id
+              cedant="Zenith Mutual", inc=date(2026, 1, 1), crm="CRM-9912")
     assert sid in {r.id for r in search_submissions_global("9912")}
 
 
@@ -1384,10 +1319,10 @@ def test_search_global_empty_term_returns_nothing(iteration1_db):
 
 def test_update_stale_marker_conflicts(iteration1_db):
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, name="Unique Deal").submission_id
+    sid = _mk(iteration1_db, name="Unique Deal")
     with pytest.raises(ConcurrencyConflict):
         update_submission(submission_id=sid, expected_updated_at=STALE,
-                          actor_id=a, confirmed=True, directory_path="/staging/x")
+                          actor_id=a, directory_path="/staging/x")
 
 
 # ── spec 017 Phase 2: kind reads, Submission status default, the view ────────
@@ -1410,8 +1345,8 @@ def test_contract_status_kinds_reads_the_three_codes(iteration1_db):
 def test_view_emits_one_row_per_contract_and_none_for_a_deal_without(iteration1_db):
     a = iteration1_db.user_a
     tagged = _mk(iteration1_db, owner=a, name="Tagged", contracts=[],
-                 ty=2026).submission_id
-    bare = _mk(iteration1_db, owner=a, name="Bare", contracts=[]).submission_id
+                 ty=2026)
+    bare = _mk(iteration1_db, owner=a, name="Bare", contracts=[])
     _add(iteration1_db, tagged, "T-100", status="WON")
     _add(iteration1_db, tagged, "T-200", tt="stop_loss", inc=date(2026, 7, 1))
     # Scoped to this test's two deals: the view is global, and a shared dev DB
@@ -1458,7 +1393,7 @@ def test_filter_clauses_prefix_every_parameter_and_group_the_contract_ones(
 
 def test_list_filters_on_contract_status(iteration1_db):
     a = iteration1_db.user_a
-    won = _mk(iteration1_db, owner=a, name="Won", crm="W-1").submission_id
+    won = _mk(iteration1_db, owner=a, name="Won", crm="W-1")
     _mk(iteration1_db, owner=a, name="Open", inc=date(2026, 7, 1))
     set_contract_status(submission_id=won, contract_id=_contract(won, "W-1").id,
                         to_status="WON", expected_updated_at=_contract(won, "W-1").updated_at,
@@ -1473,7 +1408,7 @@ def test_contract_level_filters_are_met_by_one_contract_together(iteration1_db):
     """P-18: a Won Aggregate XOL beside an Open Per Risk XOL does not
     satisfy "Per Risk XOL + Won"."""
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, owner=a, name="Mixed", contracts=[]).submission_id
+    sid = _mk(iteration1_db, owner=a, name="Mixed", contracts=[])
     _add(iteration1_db, sid, "A-1", tt="aggregate_xol", status="WON")
     _add(iteration1_db, sid, "A-2", tt="per_risk_xol")
     def names(**kw):
@@ -1489,18 +1424,17 @@ def test_contract_level_filters_are_met_by_one_contract_together(iteration1_db):
 
 def test_client_id_is_stored_updated_and_filtered(iteration1_db, loss_clients):
     a = iteration1_db.user_a
-    res = create_submission(
-        name="With client", cedant_name="C", client_id=27, data_vintage="2026-06-30", actor_id=a, confirmed=True)
-    bare = _mk(iteration1_db, owner=a, name="Bare", inc=date(2026, 7, 1)).submission_id
-    sub = get_submission(res.submission_id)
+    sid = create_submission(
+        name="With client", cedant_name="C", client_id=27, data_vintage="2026-06-30", actor_id=a)
+    bare = _mk(iteration1_db, owner=a, name="Bare", inc=date(2026, 7, 1))
+    sub = get_submission(sid)
     assert sub.client_id == 27 and sub.client_name == "Travelers Corporate Cat"
     assert sub.client_display == "27 - Travelers Corporate Cat"
-    assert [r.id for r in list_submissions(owner_ids=[a], client_ids=[27]).rows] == [
-        res.submission_id]
+    assert [r.id for r in list_submissions(owner_ids=[a], client_ids=[27]).rows] == [sid]
     assert list_submissions(owner_ids=[a], client_ids=["x"]).rows == []
-    update_submission(submission_id=res.submission_id, expected_updated_at=_marker(
-        res.submission_id), actor_id=a, client_id=None)
-    assert get_submission(res.submission_id).client_id is None
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                      actor_id=a, client_id=None)
+    assert get_submission(sid).client_id is None
     assert get_submission(bare).client_display is None
 
 
@@ -1514,7 +1448,7 @@ def _in_force(db, as_of):
 def test_in_force_bounds_are_inclusive_and_a_deal_without_a_contract_never_qualifies(
         iteration1_db):
     a = iteration1_db.user_a
-    bounded = _mk(iteration1_db, owner=a, name="Bounded", contracts=[]).submission_id
+    bounded = _mk(iteration1_db, owner=a, name="Bounded", contracts=[])
     _add(iteration1_db, bounded, "T-1", inc=date(2026, 1, 1), exp=date(2026, 12, 31),
          status="WON")
     _mk(iteration1_db, owner=a, name="No contract", cedant="Other", contracts=[])
@@ -1528,7 +1462,7 @@ def test_in_force_is_decided_per_contract(iteration1_db):
     """Note 32 D17: one contract bound and one lost on the same modeling package;
     the deal is in force on the bound one alone, and on its dates alone."""
     a = iteration1_db.user_a
-    sid = _mk(iteration1_db, owner=a, name="Layered", contracts=[]).submission_id
+    sid = _mk(iteration1_db, owner=a, name="Layered", contracts=[])
     _add(iteration1_db, sid, "Annual", inc=date(2026, 1, 1), exp=date(2026, 12, 31),
          status="LOST")
     _add(iteration1_db, sid, "Three-year", inc=date(2026, 1, 1), exp=date(2028, 12, 31),
@@ -1546,7 +1480,7 @@ def test_in_force_is_decided_per_contract(iteration1_db):
 def test_in_force_needs_won(iteration1_db):
     a = iteration1_db.user_a
     for name, status in (("Lost", "LOST"), ("Open", "OPEN"), ("Won", "WON")):
-        sid = _mk(iteration1_db, owner=a, name=name, cedant=name, contracts=[]).submission_id
+        sid = _mk(iteration1_db, owner=a, name=name, cedant=name, contracts=[])
         _add(iteration1_db, sid, f"T-{status}", inc=date(2026, 1, 1),
              exp=date(2026, 12, 31), status=status)
     assert _in_force(iteration1_db, date(2026, 6, 1)) == {"Won"}

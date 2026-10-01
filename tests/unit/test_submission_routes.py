@@ -789,7 +789,7 @@ def test_treaty_year_outside_the_allowed_range_is_rejected(client, bad_year):
     assert _count() == 0
 
 
-# ── Create: redirect, CSRF, duplicate warning ────────────────────────────────
+# ── Create: redirect, CSRF ───────────────────────────────────────────────────
 
 def test_valid_create_redirects_to_the_new_deal(client):
     res = client.post("/submissions", data=_payload())
@@ -804,16 +804,6 @@ def test_bad_csrf_token_writes_nothing(client):
     assert res.status_code == 303
     assert res.headers["location"] == "/submissions/new"
     assert _count() == 0
-
-
-def test_look_alike_creates_only_after_confirming(client):
-    client.post("/submissions", data=_payload())
-    res = client.post("/submissions", data=_payload())
-    assert res.status_code == 200 and "dup-warn" in res.text
-    assert _count() == 1
-    confirmed = client.post("/submissions", data=_payload(confirmed="1"))
-    assert confirmed.status_code == 303
-    assert _count() == 2
 
 
 # ── CR7/CR8: the two typeahead menus ─────────────────────────────────────────
@@ -949,7 +939,7 @@ def test_editing_to_an_unknown_link_target_is_rejected(client, link_value):
     submission = submission_service.get_submission(sid)
     edit = client.post(f"/submissions/{sid}", data=_payload(
         name="Keeps_its_link", links_to_submission_id=link_value,
-        updated_at=str(submission.updated_at), confirmed="1"))
+        updated_at=str(submission.updated_at)))
     assert edit.status_code == 422
     assert "That deal was not found" in edit.text
     assert execute(
@@ -970,7 +960,7 @@ def test_editing_a_deal_to_link_to_itself_is_rejected(client):
     submission = submission_service.get_submission(sid)
     edit = client.post(f"/submissions/{sid}", data=_payload(
         name="Self_linker", links_to_submission_id=sid,
-        updated_at=str(submission.updated_at), confirmed="1"))
+        updated_at=str(submission.updated_at)))
     assert edit.status_code == 422
     assert "A submission cannot link to itself." in edit.text
     assert execute(
@@ -986,7 +976,7 @@ def _mk_owned_by_b(client, name: str) -> None:
     submission_service.create_submission(
         name=name, cedant_name="Beta Re", treaty_year=2026,
         contracts=[ContractInput("B-1", "aggregate_xol", date(2026, 3, 1))],
-        data_vintage="2026-06-30", actor_id=client.db.user_b, confirmed=True)
+        data_vintage="2026-06-30", actor_id=client.db.user_b)
 
 
 def _two_american_deals(client) -> None:
@@ -1128,8 +1118,7 @@ def test_empty_my_deals_offers_to_clear_rather_than_reading_as_empty(client):
 # ── List: the #sub-list fragment and the pager ───────────────────────────────
 
 def _fill_a_page_and_a_bit(client, extra: int = 2) -> None:
-    """PAGE_SIZE + ``extra`` deals, each with its own name and cedant so no create
-    trips the look-alike warning."""
+    """PAGE_SIZE + ``extra`` deals, each with its own name and cedant."""
     for i in range(submission_service.PAGE_SIZE + extra):
         client.post("/submissions", data=_payload(
             name=f"Paged_deal_{i:03d}", cedant_name=f"Paged cedant {i:03d}"))
@@ -1666,8 +1655,7 @@ def test_submission_rdm_lazy_rows_read_merged_columns(client):
     assert ">Finished</span>" in html
     assert "Portfolio" not in html        # FR-020
 
-    other = client.post("/submissions",
-                        data=_payload(name="Other_deal", confirmed="1"))
+    other = client.post("/submissions", data=_payload(name="Other_deal"))
     other_id = other.headers["location"].rsplit("/", 1)[-1]
     assert client.get(
         f"/submissions/{other_id}/rdms/{rdm_id}/analyses").status_code == 404
@@ -2068,7 +2056,7 @@ def test_create_refuses_a_crm_id_another_deal_holds_and_links_that_deal(client):
 
 def test_contract_add_and_edit_refuse_a_crm_id_another_deal_holds_and_link_it(client):
     owner, _ = _deal(client, name="Owner_deal", crm_ids="A-1")
-    sid, _ = _deal(client, name="Second_deal", crm_ids="B-1", confirmed="1")
+    sid, _ = _deal(client, name="Second_deal", crm_ids="B-1")
     added = client.post(
         f"/submissions/{sid}/contracts", headers=_HX,
         data={"crm_id": " a-1 ", "treaty_type_code": "stop_loss",
@@ -2279,7 +2267,7 @@ def test_contract_delete_post_removes_the_row_and_its_dates(client):
 
 def test_contract_posts_on_another_deal_are_not_found(client):
     deal_a, _ = _deal(client, name="Deal_A", crm_ids="A-1")
-    deal_b, _ = _deal(client, name="Deal_B", crm_ids="B-1", confirmed="1")
+    deal_b, _ = _deal(client, name="Deal_B", crm_ids="B-1")
     b1 = _contract(deal_b, "B-1")
     deleted = client.post(f"/submissions/{deal_a}/contracts/{b1.id}/delete",
                           headers=_HX, data={"csrf_token": _csrf()})

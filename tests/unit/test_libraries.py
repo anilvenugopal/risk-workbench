@@ -330,7 +330,7 @@ def _deal(*, name, owner, contract_status="OPEN", crm_ids=("C-1",),
             crm_id=crm_id, treaty_type_code="per_risk_xol",
             inception_date=date(2026, 1, 1), expiration_date=expiration,
             contract_status_code=contract_status) for crm_id in crm_ids],
-        data_vintage="2026-06-30", actor_id=owner, confirmed=True).submission_id
+        data_vintage="2026-06-30", actor_id=owner)
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
