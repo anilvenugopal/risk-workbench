@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6. Development — Risk Analysis Workbench handover</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Index</a> · Previous: <a href="05-codebase.html">5. Codebase</a> · Next: <a href="07-configuration-and-observability.html">7. Configuration and observability</a></nav>
+
+<h1>6. Development</h1>
+
+<h2 id="local-setup">Local setup</h2>
+
+<p>There are two ways to run the Workbench locally. Both read <code>infra/.env</code>, which you create by copying <code>infra/.env.example</code>.</p>
+
+<table>
+<tr><th></th><th>Full Docker stack</th><th>WSL2 native</th></tr>
+<tr><td>Use when</td><td>Working on Windows without WSL2</td><td>Day-to-day development in WSL2</td></tr>
+<tr><td>Runs in Docker</td><td>Two Compose services in <code>infra/docker-compose.yml</code>: <code>linux-box</code> (nginx, uvicorn, Redis, one worker per queue, poller) and <code>sqlserver</code> (SQL Server 2022)</td><td><code>sqlserver</code> only</td></tr>
+<tr><td>Runs natively</td><td>Nothing</td><td>uvicorn, Redis, workers, and poller, each from its own <code>make</code> target</td></tr>
+<tr><td>Start</td><td><code>make start</code>, then open <code>http://localhost</code></td><td><code>make wsl-start</code>, then <code>make wsl-app</code>, <code>make wsl-workers</code>, <code>make wsl-poller</code>; open <code>http://localhost:8000</code></td></tr>
+<tr><td>First time</td>After the stack is up: in <code>make shell</code>, <code>python scripts/bootstrap_db.py</code>; then <code>make db-migrate</code>; then in <code>make shell</code>, <code>python scripts/seed_db.py</code> and <code>python scripts/bootstrap_loss.py</code> (see the warning below)<td>Install uv, ODBC Driver 18, and Redis, then <code>make wsl-setup</code>, <code>make wsl-db-seed</code>, <code>make wsl-bootstrap-loss</code></td></tr>
+<tr><td>How the database host is set</td><td><code>MSSQL_*_SERVER=sqlserver</code> from <code>infra/.env</code></td><td><code>infra/scripts/wsl-env.sh</code> overrides the three servers to <code>localhost</code>; leave <code>infra/.env</code> unchanged</td></tr>
+<tr><td>Logs</td><td>Inside the container: <code>/workspace/.dev-logs/</code>; uvicorn to <code>make logs</code></td><td><code>.dev-logs/</code> in the repo; Redis to <code>/tmp/rwb-redis.log</code></td></tr>
+</table>
+
+<p>Step-by-step setup is in <a href="../SCAFFOLDING.md">docs/SCAFFOLDING.md</a> (WSL2) and <a href="../DEVELOPER_PLAYBOOK.md">docs/DEVELOPER_PLAYBOOK.md</a> (Docker, VS Code, and debugging). To debug with breakpoints in Docker, set <code>APP_DEBUG=1</code> in <code>infra/.env</code> and run <code>make start</code>; uvicorn then waits for a debugger on port 5678.</p>
+
+<h2 id="make-targets">Make targets and scripts</h2>
+
+<p><code>make help</code> lists every target. The ones used most:</p>
+
+<table>
+<tr><th>Docker</th><th>WSL2</th><th>What it does</th></tr>
+<tr><td><code>make start</code> / <code>make stop</code></td><td><code>make wsl-start</code> / <code>make wsl-stop</code></td><td>Start or stop the stack. In WSL2 these handle only SQL Server and Redis.</td></tr>
+<tr><td></td><td><code>make wsl-app</code></td><td>uvicorn with live reload on port 8000.</td></tr>
+<tr><td></td><td><code>make wsl-workers</code> / <code>make wsl-workers-stop</code></td><td>Start or stop every queue's worker in the background.</td></tr>
+<tr><td></td><td><code>make wsl-worker QUEUE=&lt;name&gt;</code></td><td>One queue's worker in the foreground. <code>make wsl-worker-list</code> lists the names.</td></tr>
+<tr><td></td><td><code>make wsl-poller</code></td><td>The poller in the foreground.</td></tr>
+<tr><td><code>make logs</code>, <code>make logs-worker QUEUE=&lt;name&gt;</code>, <code>make logs-poller</code></td><td><code>make wsl-worker-logs [QUEUE=&lt;name&gt;]</code></td><td>Follow logs.</td></tr>
+<tr><td></td><td><code>make wsl-worker-health</code></td><td>Which queue workers are alive.</td></tr>
+<tr><td><code>make shell</code></td><td></td><td>A bash shell inside <code>linux-box</code>.</td></tr>
+<tr><td><code>make db-bootstrap</code></td><td><code>make wsl-db-bootstrap</code></td><td>Create <code>rwb_workbench</code>, <code>rwb_exposure</code>, and <code>rwb_loss</code> if missing.</td></tr>
+<tr><td><code>make db-migrate</code></td><td><code>make wsl-db-migrate</code></td><td><code>alembic upgrade head</code>.</td></tr>
+<tr><td></td><td><code>make wsl-db-seed</code></td>Seed the kind tables (safe to re-run) and, when <code>APP_ENV=development</code>, the dev admin <code>admin@example.com</code>.</td></tr>
+<tr><td><code>make bootstrap-loss</code></td><td><code>make wsl-bootstrap-loss</code></td><td>Create CIC's tables and the <code>stage</code> schema in <code>rwb_loss</code>, and seed <code>dbo.Client</code> and the historical event lookup.</td></tr>
+<tr><td><code>make db-rebuild</code></td><td><code>make wsl-db-rebuild</code></td><td>Destructive: drop the three databases, migrate, seed, and bootstrap the loss database. Asks for <code>yes</code>.</td></tr>
+<tr><td><code>make seed-demo</code></td><td><code>make wsl-seed-demo</code></td><td>Demo submissions and contracts for the search screens.</td></tr>
+<tr><td></td><td><code>make wsl-user-setup</code></td><td>The interactive user CLI.</td></tr>
+<tr><td><code>make test</code>, <code>make test-sql</code></td><td><code>make wsl-test</code>, <code>make wsl-test-sql</code></td><td>The unit and SQL Server test tiers.</td></tr>
+<tr><td><code>make lint</code>, <code>make format</code></td><td></td><td>ruff.</td></tr>
+<tr><td colspan="2"><code>make irp-pypi</code>, <code>irp-testpypi</code>, <code>irp-local</code>, <code>irp-status</code></td><td>Switch or show the irp-integration source. See <a href="04-integrations.html#risk-modeler">page 4</a>.</td></tr>
+</table>
+
+<p>Warning: the Docker targets <code>db-bootstrap</code>, <code>db-rebuild</code>, <code>bootstrap-loss</code>, <code>bootstrap-loss-reset</code>, and <code>seed-demo</code> run <code>python infra/scripts/...</code> inside <code>linux-box</code>. The container mounts <code>infra/scripts/</code> at <code>/workspace/scripts</code> and has no <code>/workspace/infra</code>, so by path these targets fail. This was traced in the Makefile and <code>docker-compose.yml</code>, not run. Until it is fixed, run the script from <code>make shell</code>, for example <code>python scripts/bootstrap_db.py</code>.</p>
+
+<p>Scripts in <code>infra/scripts/</code>:</p>
+<table>
+<tr><th>Script</th><th>What it does</th></tr>
+<tr><td><code>start-all.sh</code>, <code>stop-all.sh</code></td><td>Start or stop every process inside <code>linux-box</code>. <code>start-all.sh</code> is the container's entry point.</td></tr>
+<tr><td><code>wsl-env.sh</code></td><td>Sourced by the WSL2 targets: exports <code>infra/.env</code> and points the database servers at <code>localhost</code>.</td></tr>
+<tr><td><code>wsl-setup.sh</code>, <code>wsl-start.sh</code></td><td>First-time WSL2 setup, and starting SQL Server and Redis.</td></tr>
+<tr><td><code>wsl-workers.sh</code>, <code>wsl-worker-logs.sh</code>, <code>wsl-worker-health.sh</code></td><td>Background workers, their logs, and their health in WSL2.</td></tr>
+<tr><td><code>check-port.sh</code></td><td>Shows which process holds a port.</td></tr>
+<tr><td><code>bootstrap_db.py</code>, <code>reset_db.py</code>, <code>seed_db.py</code></td><td>Create, drop and recreate, and seed the app databases.</td></tr>
+<tr><td><code>bootstrap_loss.py</code></td><td>Set up <code>rwb_loss</code>. Refuses to run unless <code>MSSQL_LOSS_DATABASE=rwb_loss</code>, so it cannot touch CIC's database. <code>--reset-stage</code> drops the <code>stage</code> tables first.</td></tr>
+<tr><td><code>seed_demo_submissions.py</code></td><td>Demo data for the search screens.</td></tr>
+<tr><td><code>user_setup.py</code>, <code>run_user_setup.sh</code></td><td>The user CLI (<code>provision</code>, <code>create</code>, <code>reset</code>, <code>list</code>) and its wrapper.</td></tr>
+<tr><td><code>bulk_update_contract_status.sql</code></td><td>The script CIC runs to update <code>contract.contract_status_code</code> from <code>dbo.CRMContractStatus</code>.</td></tr>
+<tr><td><code>sweep-export-archives.sh</code></td><td>Deletes old export archives. See <a href="08-deployed-environment.html#runbook">page 8</a>.</td></tr>
+<tr><td><code>mail_smoke_test.py</code></td><td>Sends one test email through Graph.</td></tr>
+<tr><td><code>generate-requirements.sh</code></td><td>Regenerates <code>requirements.txt</code>, or checks it with <code>--check</code>.</td></tr>
+<tr><td><code>patches/</code></td>Six SQL patches that added the CR-04c <code>rwb_job</code> link and context columns to databases created before those columns existed. Revision <code>0001</code> now includes them; a new database does not need the patches.</td></tr>
+<tr><td><code>rhel9/</code></td><td>Server setup, deploy, start, stop, and health scripts. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
+</table>
+
+<h2 id="dependencies">Dependencies</h2>
+
+<ul>
+<li>Python 3.12 or later (<code>requires-python</code> in <code>pyproject.toml</code>). The Docker image uses Python 3.12 on Debian 12 with ODBC Driver 18.</li>
+<li><code>pyproject.toml</code> lists the runtime packages. Dependency groups add <code>dev</code> (pytest, pytest-asyncio, pytest-cov, httpx, ruff, debugpy) and one group per irp-integration source (<code>irp-pypi</code>, <code>irp-testpypi</code>, <code>irp-local</code>). <code>default-groups</code> selects <code>dev</code> and <code>irp-pypi</code>.</li>
+<li><code>uv.lock</code> pins every resolved version. Install with <code>uv sync</code>; CI uses <code>uv sync --frozen</code>.</li>
+<li>Upgrade one package at a time with <code>uv sync --upgrade-package &lt;name&gt;</code>.</li>
+<li>uv is a developer tool only. The RHEL9 server has no uv.</li>
+</ul>
+
+<p><code>requirements.txt</code> is generated from <code>uv.lock</code> for the server:</p>
+<ol>
+<li><code>bash infra/scripts/generate-requirements.sh</code> runs <code>uv export --frozen --no-dev</code> and writes <code>requirements.txt</code>: hashed pins, no dev tools, first line <code>-e .</code>.</li>
+<li>Commit it with the dependency change. <code>bash infra/scripts/generate-requirements.sh --check</code> fails if it is out of date. CI does not run the check.</li>
+<li>On the server, <code>infra/scripts/rhel9/rhel9-app-install.sh</code> removes the <code>-e .</code> line and runs <code>pip install --require-hashes</code>, then installs the project itself.</li>
+</ol>
+
+<h2 id="ai-tooling">AI tooling</h2>
+
+<p>The project was built with Claude Code and SpecKit. Neither is needed to run or change the code.</p>
+<ul>
+<li><a href="../../AGENTS.md">AGENTS.md</a> holds the instructions every coding agent follows. <code>CLAUDE.md</code> points Claude Code to it.</li>
+<li><code>.claude/settings.json</code> sets <code>includeCoAuthoredBy: false</code>, so Claude Code adds no attribution to commits.</li>
+<li><code>.claude/skills/</code> holds the SpecKit commands. <code>.specify/</code> holds SpecKit's templates, scripts, and the constitution.</li>
+<li><code>docs/agents/issue-tracker.md</code> says issues live in GitHub Issues and are handled with the <code>gh</code> CLI. <code>docs/agents/domain.md</code> describes the optional <code>CONTEXT.md</code> and <code>docs/adr/</code>, which do not exist yet.</li>
+</ul>
+
+<table>
+<tr><th>Command</th><th>What it does</th><th>Files it writes</th></tr>
+<tr><td><code>/speckit-specify</code></td><td>Writes a feature specification from a description</td><td><code>specs/&lt;feature&gt;/spec.md</code></td></tr>
+<tr><td><code>/speckit-clarify</code></td><td>Asks up to five questions about gaps in the spec and records the answers</td><td><code>spec.md</code></td></tr>
+<tr><td><code>/speckit-plan</code></td><td>Writes the technical plan and design files</td><td><code>plan.md</code>, <code>research.md</code>, <code>data-model.md</code>, <code>contracts/</code>, <code>quickstart.md</code></td></tr>
+<tr><td><code>/speckit-tasks</code></td><td>Breaks the plan into ordered tasks</td><td><code>tasks.md</code></td></tr>
+<tr><td><code>/speckit-analyze</code></td><td>Checks <code>spec.md</code>, <code>plan.md</code>, and <code>tasks.md</code> for consistency and constitution violations; changes nothing</td><td>none</td></tr>
+<tr><td><code>/speckit-checklist</code></td><td>Writes a requirements checklist for the feature</td><td><code>checklists/</code></td></tr>
+<tr><td><code>/speckit-implement</code></td><td>Carries out the tasks in <code>tasks.md</code></td><td>Code, and the task checkboxes in <code>tasks.md</code></td></tr>
+<tr><td><code>/speckit-converge</code></td><td>Compares the code with the spec, plan, and tasks, and adds any unbuilt work as tasks</td><td><code>tasks.md</code></td></tr>
+<tr><td><code>/speckit-taskstoissues</code></td><td>Turns tasks into GitHub issues</td><td>GitHub issues</td></tr>
+<tr><td><code>/speckit-constitution</code></td><td>Amends the constitution</td><td><code>.specify/memory/constitution.md</code></td></tr>
+<tr><td><code>/speckit-agent-context-update</code></td><td>Refreshes SpecKit's managed section in the agent context files</td><td>Agent context files</td></tr>
+</table>
+
+<p>What each SpecKit file owns, and the caps on spec and plan length, are in the "Specification Workflow" section of <a href="../../AGENTS.md">AGENTS.md</a>.</p>
+
+<h2 id="decision-history">Decision history</h2>
+
+<p>To find out why something works the way it does, look in this order:</p>
+<table>
+<tr><th>Where</th><th>What it records</th></tr>
+<tr><td><code>specs/&lt;feature&gt;/spec.md</code> and <code>plan.md</code></td><td>The decision tables: <code>P-nn</code> product decisions, <code>T-nn</code> technical decisions, <code>O-nn</code> open items, each with a status.</td></tr>
+<tr><td><code>specs/&lt;feature&gt;/research.md</code></td><td>Evidence, spikes, and rejected alternatives for that feature.</td></tr>
+<tr><td><code>docs/design_session_notes/</code></td><td>Numbered notes from each design session with CIC (01 to 35). Decisions are tagged <code>D&lt;n&gt;</code> and open items <code>O&lt;note&gt;-&lt;n&gt;</code>; specs cite them as "note 32 D17".</td></tr>
+<tr><td><code>docs/CR/</code></td><td>Change requests that changed the architecture. <code>completed/</code> holds CR-01 (the <code>rwb_job</code> queue), CR-02 (no workflow engine), and CR-03 (the submission model). CR-04 split the workers into one queue per job type.</td></tr>
+<tr><td><code>.specify/memory/constitution.md</code></td><td>The Sync Impact Report at the top lists each amendment and why.</td></tr>
+<tr><td>GitHub Issues</td><td>Bugs and small features. Spec 101 has no <code>spec.md</code>; issue #101 is its spec.</td></tr>
+<tr><td><code>git log</code>, <code>git blame</code></td><td>Commit bodies say why a change was made.</td></tr>
+</table>
+
+<p><code>docs/sequence_diagrams/</code> holds sequence diagrams for the main flows, and <code>docs/sequence_diagrams/FACT_CHECK_REPORT.md</code> records how they were checked.</p>
+
+<h2 id="ui-workflow">UI workflow</h2>
+
+<ul>
+<li>For a screen with new layout, build a rendered HTML preview first and get it approved, then build the Jinja2 template and route.</li>
+<li>Start the preview by copying <code>docs/ui_previews/_scaffold.html</code>, which inlines the app's real design tokens and components. Reuse the app's existing classes; show the empty and error states as well as the normal one.</li>
+<li>Skip the preview for copy changes or a field added to an existing component.</li>
+<li>Build one user story at a time, end to end, then stop so the approver can click through the running feature.</li>
+</ul>
+
+<p>The full rules are in <a href="../UI_WORKFLOW.md">docs/UI_WORKFLOW.md</a>; the previews already made are in <a href="../ui_previews/README.md">docs/ui_previews/</a>.</p>
+
+<nav><a href="index.html">Index</a> · Previous: <a href="05-codebase.html">5. Codebase</a> · Next: <a href="07-configuration-and-observability.html">7. Configuration and observability</a></nav>
+</body>
+</html>
