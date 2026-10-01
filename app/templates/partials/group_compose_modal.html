@@ -10,7 +10,7 @@
    The submit's 422 lands in #group-submit-errors. #}
 {% from "partials/currency_block.html" import currency_block with context %}
 {% import "partials/form_macros.html" as forms %}
-<div class="modal-overlay" @click.self="document.getElementById('group-modal').replaceChildren()">
+<div class="modal-overlay">
   <div class="modal-card modal-card--wide modal-card--group" role="dialog" aria-modal="true" aria-labelledby="group-modal-title"
        {% if not blocking %}x-data="groupComposeModal()"{% endif %}>
     <div class="modal-header">

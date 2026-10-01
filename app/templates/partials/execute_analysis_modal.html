@@ -1,5 +1,5 @@
 {% from "partials/currency_block.html" import currency_block with context %}
-<div class="modal-overlay" @click.self="document.getElementById('execute-modal').replaceChildren()">
+<div class="modal-overlay">
   <div class="modal-card submission-entity-modal" role="dialog" aria-modal="true" aria-labelledby="execute-modal-title"
        {% if not blocking %}x-data="executeModal()" data-kind="{{ kind }}"{% endif %}>
     <div class="modal-header">
