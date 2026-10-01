@@ -40,7 +40,7 @@ def user_list(request: Request):
         {},
         connection="WORKBENCH",
     )
-    nav = get_nav_context(current_user, "admin.users")
+    nav = get_nav_context(current_user, "admin")
     return _templates(request).TemplateResponse(request, "admin/users.html", {
         "current_user": current_user,
         "nav": nav,
@@ -56,7 +56,7 @@ def new_user_form(request: Request):
     if redirect:
         return redirect
     from app.nav import get_nav_context
-    nav = get_nav_context(current_user, "admin.users")
+    nav = get_nav_context(current_user, "admin")
     all_roles = execute(
         "SELECT code, label FROM role_kind ORDER BY sort_order",
         {},
@@ -91,7 +91,7 @@ def create_user(
     errors = validate_password_requirements(password)
     if errors:
         from app.nav import get_nav_context
-        nav = get_nav_context(current_user, "admin.users")
+        nav = get_nav_context(current_user, "admin")
         return _templates(request).TemplateResponse(request, "admin/user_detail.html", {
             "current_user": current_user,
             "nav": nav,
@@ -141,7 +141,7 @@ def user_detail(request: Request, user_id: str):
         {},
         connection="WORKBENCH",
     )
-    nav = get_nav_context(current_user, "admin.users")
+    nav = get_nav_context(current_user, "admin")
     return _templates(request).TemplateResponse(request, "admin/user_detail.html", {
         "current_user": current_user,
         "nav": nav,
