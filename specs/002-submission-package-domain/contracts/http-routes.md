@@ -74,6 +74,20 @@ FR-017's *edit* is served by remove + add: tags render as read-only chips, so th
 
 ---
 
+## Cedants (FR-006a)
+
+Nav `submissions.cedants`. Every POST checks the CSRF token and, on success or a bad token, redirects to `/cedants` with a 303.
+
+| Method | Path | Purpose | Errors |
+|---|---|---|---|
+| GET | `/cedants?q=` | Cedant list with each cedant's submission count; `q` keeps the names containing every word of it, any order | — |
+| POST | `/cedants` | Add a cedant (`name`) | 422 + the message under the add field (blank, over 255 characters, or a name another cedant has, case ignored) |
+| POST | `/cedants/{id}/rename` | Rename a cedant (`name`) | 422 + the message under that row's field, same rules as add |
+| POST | `/cedants/{id}/delete` | Delete one cedant | 409 + a message naming the cedant, kept because a submission uses it |
+| POST | `/cedants/delete` | Delete the checked cedants (`cedant_ids`, repeated) | 409 + a message naming the cedants kept; the others are deleted |
+
+---
+
 ## Packages (structure only — mostly deferred)
 
 Per FR-028, **no analyst-facing package UI is built this iteration.** The submission-detail view may *read-only list* any attached packages (via `package_service.get_packages_for_submission`) as a placeholder, but there are **no** package create/sync/delete routes, no shared-drive browse, and no package cards — those are Iteration 2. Package structure is exercised this iteration through the `package_service` data-access functions and their tests, not HTTP.

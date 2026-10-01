@@ -1,6 +1,6 @@
 # Contract — Data-Access Layer (Repository)
 
-The **primary interface** this iteration exposes (FR-029; US6 is explicitly developer-facing). These are functions (not classes, matching `app/services/auth_service.py`) living in `app/services/submission_service.py` and `app/services/package_service.py`. Every function persists through the `db/` safe bound-parameter path; the one transactional write (status change / create) uses `db.get_connection("WORKBENCH")` + explicit `conn.begin()`. Signatures below are the contract; types are illustrative Python.
+The **primary interface** this iteration exposes (FR-029; US6 is explicitly developer-facing). These are functions (not classes, matching `app/services/auth_service.py`) living in `app/services/submission_service.py`, `app/services/cedant_service.py` and `app/services/package_service.py`. Every function persists through the `db/` safe bound-parameter path; the one transactional write (status change / create) uses `db.get_connection("WORKBENCH")` + explicit `conn.begin()`. Signatures below are the contract; types are illustrative Python.
 
 Shared typed errors (raised by the service layer, mapped to HTTP by the router):
 - `SubmissionClosed` — a mutation was attempted on a non-ACTIVE submission (R3 / FR-015) → HTTP 409/redirect with message.
@@ -134,6 +134,37 @@ def list_crm_ids(submission_id: UUID) -> list[CrmTag]: ...
 validation (FR-018). Re-adding a tag the deal already carries is a case-insensitive
 no-op that returns the existing tag id. FR-017's *edit* is served by remove + add
 (chips are read-only, issue #16) — the former edit_crm_id is gone."""
+```
+
+---
+
+## `cedant_service`
+
+`CedantValidationError` — a blank cedant name, one over 255 characters, or one another cedant has, case ignored (FR-006a) → HTTP 422 under the field.
+
+```python
+def list_cedants(*, name: str = "") -> list[Cedant]:
+    """Every cedant with its submission_count, ordered by name. `name` keeps the
+    cedants whose name contains every word of it, any order."""
+
+def add_cedant(name: str, *, actor_id: UUID) -> str:
+    """Trim and insert; return the new id. Raises CedantValidationError."""
+
+def rename_cedant(cedant_id: UUID, name: str, *, actor_id: UUID) -> None:
+    """Trim and rename; every submission using the cedant shows the new name.
+    Raises CedantValidationError."""
+
+def new_cedant(name: str) -> NewCedant:
+    """Check a name typed in the submission form's Cedant field without writing
+    it. A name an existing cedant has (case ignored) resolves to that cedant.
+    Raises CedantValidationError for a blank or over-long name."""
+
+def save_new_cedant(conn, cedant: NewCedant, *, actor_id: UUID) -> str:
+    """Insert `cedant` on the caller's open transaction unless it already
+    exists, and return its id (FR-006: written with the submission)."""
+
+def delete_cedants(cedant_ids: list[UUID]) -> list[str]:
+    """Delete each cedant no submission uses; return the names of the ones kept."""
 ```
 
 ---
