@@ -36,6 +36,7 @@ from sqlalchemy import text
 from app.services import client_service
 from app.services._common import (
     _escape_like,
+    _import_progress,
     _in_clause,
     _rm_ui_root,
     _uid,
@@ -228,6 +229,7 @@ class SubmissionEdm:
     portfolio_count: int
     rm_url: str | None
     notes: str | None = None
+    import_progress: int | None = None
 
 
 @dataclass(frozen=True)
@@ -238,6 +240,7 @@ class SubmissionRdm:
     analysis_count: int
     rm_url: str | None
     notes: str | None = None
+    import_progress: int | None = None
 
 
 @dataclass(frozen=True)
@@ -723,11 +726,13 @@ def _list_submission_entities(
         f"ORDER BY {order_by}",
         params, connection="WORKBENCH",
     )
+    progress = _import_progress(kind, [row["id"] for row in rows])
     return [
         dto(
             id=_uid(row["id"]), name=row["name"], status=row["status"],
             rm_url=_risk_modeler_url(row["name"], kind=kind),
             notes=row["notes"],
+            import_progress=progress.get(_uid(row["id"])),
             **{count_alias: int(row[count_alias] or 0)},
         )
         for row in rows

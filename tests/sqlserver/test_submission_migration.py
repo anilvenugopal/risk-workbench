@@ -178,10 +178,10 @@ class TestSubmissionMigration:
         ) == 1
 
 
-def test_0003_backfills_one_cedant_per_distinct_name(scratch_database):
+def test_0004_backfills_one_cedant_per_distinct_name(scratch_database):
     """Issue 129: spelling variants stay separate cedants, and every
     submission keeps the name it had."""
-    run_alembic("upgrade", "0002", scratch_database)
+    run_alembic("upgrade", "0003", scratch_database)
     engine = create_engine(build_sqlalchemy_url(
         get_connection_config("WORKBENCH"), database=scratch_database))
     uid = str(uuid.uuid4())
@@ -198,7 +198,7 @@ def test_0003_backfills_one_cedant_per_distinct_name(scratch_database):
                     "cedant_name, data_vintage) "
                     "VALUES (:id, :uid, 'Deal', :cedant, '2026-06-30')"),
                     {"id": sid, "uid": uid, "cedant": name})
-        run_alembic("upgrade", "0003", scratch_database)
+        run_alembic("upgrade", "0004", scratch_database)
         with engine.connect() as conn:
             cedants = conn.execute(text(
                 "SELECT name FROM cedant ORDER BY name")).scalars().all()

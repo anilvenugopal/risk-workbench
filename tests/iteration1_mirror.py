@@ -50,7 +50,7 @@ ITERATION1_SCHEMA = [
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     "CREATE UNIQUE INDEX uq_contract_crm_id ON contract (crm_id COLLATE NOCASE)",
-    # Same text as alembic/versions/0003_cedant.py: SQLite runs it unchanged.
+    # Same text as alembic/versions/0004_cedant.py: SQLite runs it unchanged.
     """CREATE VIEW v_contract AS
 SELECT s.id            AS submission_id,
        s.name          AS submission_name,
@@ -149,7 +149,7 @@ ITERATION2_SCHEMA = [
         id TEXT PRIMARY KEY, requested_from_submission_id TEXT,
         irp_edm_id TEXT, irp_rdm_id TEXT, irp_portfolio_id TEXT, irp_analysis_id TEXT,
         export_id TEXT,
-        irp_job_type TEXT, irp_id TEXT, status TEXT, correlation_id TEXT,
+        irp_job_type TEXT, irp_id TEXT, status TEXT, progress INTEGER, correlation_id TEXT,
         request_params TEXT, completion_summary TEXT,
         last_submission_payload TEXT, last_submission_response TEXT,
         last_completion_result TEXT,

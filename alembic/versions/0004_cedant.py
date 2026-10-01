@@ -1,7 +1,7 @@
 """Submissions reference a cedant from a shared list (issue 129).
 
-Revision ID: 0003
-Revises: 0002
+Revision ID: 0004
+Revises: 0003
 Create Date: 2026-09-30
 
 The backfill creates one cedant per distinct submission.cedant_name. Spelling
@@ -15,8 +15,8 @@ from sqlalchemy.dialects.mssql import DATETIME2
 
 from alembic import op
 
-revision: str = "0003"
-down_revision = "0002"
+revision: str = "0004"
+down_revision = "0003"
 branch_labels = None
 depends_on = None
 

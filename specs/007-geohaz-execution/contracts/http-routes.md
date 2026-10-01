@@ -33,7 +33,8 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
   not live — keeps the row's selection checkbox in sync with eligibility),
   and an `hx-swap-oob` most-recent-lookup details section.
 - The status cell shows the in-line status for a non-terminal job or the
-  stored raw `hazardVersion` otherwise (data-model §4).
+  stored raw `hazardVersion` otherwise (data-model §4). A RUNNING job appends
+  `irp_job.progress` when it is set, e.g. `RUNNING 30%`.
 - Self-terminating poll: the fragment carries
   `hx-get … hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"` **only
   while** the portfolio has a non-terminal lookup; on terminal render the

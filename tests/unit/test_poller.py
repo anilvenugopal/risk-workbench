@@ -224,3 +224,41 @@ def test_every_status_check_logged_at_debug(iteration2_db, fake_irp, drive, capl
     assert len(checks) == 1
     assert any("tracking 1 in-flight irp_job(s)" in r.getMessage()
                for r in caplog.records)
+
+
+# ── issue 132: Risk Modeler's top-level progress on every status check ───────────
+
+def _progress(irp_id: str):
+    return execute_one("SELECT status, progress FROM irp_job WHERE irp_id=:i",
+                       {"i": irp_id}, connection="WORKBENCH")
+
+
+def test_running_progress_is_stored_and_overwritten(iteration2_db, fake_irp, drive):
+    _, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+    fake_irp.run(irp_id)
+    fake_irp.results[irp_id] = {"status": "RUNNING", "progress": 20}
+    poller.poll_once()
+    assert _progress(irp_id)["progress"] == 20
+    fake_irp.results[irp_id] = {"status": "RUNNING", "progress": 60}
+    poller.poll_once()
+    assert _progress(irp_id)["progress"] == 60
+
+
+def test_missing_or_non_integer_progress_is_stored_as_null(
+        iteration2_db, fake_irp, drive):
+    _, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+    fake_irp.run(irp_id)
+    for body in (None, {"status": "RUNNING"}, {"status": "RUNNING", "progress": "20"},
+                 {"status": "RUNNING", "progress": True}):
+        fake_irp.results[irp_id] = {"status": "RUNNING", "progress": 20}
+        poller.poll_once()
+        fake_irp.results[irp_id] = body
+        poller.poll_once()
+        assert _progress(irp_id) == {"status": "RUNNING", "progress": None}, body
+
+
+def test_terminal_progress_is_stored(iteration2_db, fake_irp, drive):
+    _, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+    fake_irp.finish(irp_id, {"status": "FINISHED", "progress": 100})
+    poller.poll_once()
+    assert _progress(irp_id) == {"status": "FINISHED", "progress": 100}

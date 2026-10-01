@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Breakout Button Placement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Tokens inlined from app/static/css/tokens.css via docs/ui_previews/_scaffold.html.
+   Layout: the EDM portfolio table (edm_portfolios_section.html) rendered three
+   ways in a shell narrower than the table so the pinned columns and the
+   horizontal scroll behave as they do in the app. */
+:root{
+  color-scheme: light;
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0;
+  --c-green-700:#1E6B45; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --color-brand:var(--c-navy-700); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --color-warning:var(--c-amber-700); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+  --color-positive:var(--c-green-700); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px;
+  --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --dur-fast:120ms;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3,p{margin:0}
+.wrap{max-width:1100px;margin:0 auto;padding-block:var(--space-7);padding-inline:var(--space-6)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--text-secondary);margin-top:var(--space-1);max-width:65ch}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-2)}
+.opt{display:flex;align-items:baseline;gap:var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-3)}
+.opt h2{font-size:var(--fs-title);font-weight:var(--fw-semibold)}
+.opt p{color:var(--text-secondary);font-size:var(--fs-label);max-width:70ch}
+.note{font-size:var(--fs-caption);color:var(--text-tertiary);margin-top:var(--space-2);max-width:80ch}
+.controls{display:flex;gap:var(--space-4);align-items:center;font-size:var(--fs-label);color:var(--text-secondary);margin-top:var(--space-4);flex-wrap:wrap}
+.controls label{display:inline-flex;align-items:center;gap:var(--space-2);cursor:pointer}
+.tag{display:inline-flex;align-items:center;padding:1px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid var(--color-positive-border);background:var(--color-positive-wash);color:var(--color-positive)}
+.tag--warn{border-color:var(--color-warning-border);background:var(--color-warning-wash);color:var(--color-warning)}
+
+/* ── details.css rules the table depends on (copied, not invented) ─────── */
+.dtable-shell{overflow:auto;container-type:inline-size;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);box-shadow:var(--shadow-sm)}
+.dtable{width:100%;font-size:var(--fs-label)}
+.dtable__head,.drow>summary{display:grid;grid-template-columns:var(--cols);align-items:center}
+.dtable__head{position:sticky;top:0;z-index:6;background:var(--surface-recessed);border-bottom:1px solid var(--border-default)}
+.dtable__head>span{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);padding:var(--space-2) var(--space-3);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtable__head>span.l{text-align:left}
+.drow{border-bottom:1px solid var(--border-faint)}
+.drow:last-child{border-bottom:none}
+.drow>summary{list-style:none;cursor:pointer}
+.drow>summary::-webkit-details-marker{display:none}
+.drow>summary:hover{background:var(--surface-recessed)}
+.drow>summary>span{padding:var(--space-2) var(--space-3);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drow>summary>span.l{text-align:left}
+.dtable__head>:first-child,.drow>summary>:first-child{position:sticky;left:0;z-index:1;background:var(--surface-panel);box-shadow:1px 0 0 var(--border-default)}
+.dtable__head>:first-child{z-index:7;background:var(--surface-recessed)}
+.drow>summary:hover>:first-child{background:var(--surface-recessed)}
+.dtable--selectable{--pick-w:42px}
+.dtable--selectable .dtable__head>:nth-child(2),.dtable--selectable .drow>summary>:nth-child(2){position:sticky;left:var(--pick-w);z-index:1;background:var(--surface-panel);box-shadow:1px 0 0 var(--border-default)}
+.dtable--selectable .dtable__head>:nth-child(2){z-index:7;background:var(--surface-recessed)}
+.dtable--selectable .drow>summary:hover>:nth-child(2){background:var(--surface-recessed)}
+.dtable--selectable .drow[open]>summary>:nth-child(2){background:var(--color-brand-faint)}
+.dtable--wrapname .drow>summary>:nth-child(2){white-space:normal}
+.dtable--wrapname .dt-title{white-space:normal;overflow:visible;overflow-wrap:anywhere}
+.geohaz-pick{display:flex;justify-content:center;align-items:center}
+.geohaz-pick input{margin:0}
+.dt-name{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.dt-caret{color:var(--text-tertiary);font-size:10px;transition:transform var(--dur-fast) ease;flex:none}
+.drow[open]>summary .dt-caret{transform:rotate(90deg)}
+.drow[open]>summary,.drow[open]>summary>:first-child{background:var(--color-brand-faint)}
+.dt-namecol{display:flex;flex-direction:column;min-width:0}
+.dt-title{font-weight:var(--fw-semibold);color:var(--text-primary);line-height:1.2;overflow:hidden;text-overflow:ellipsis}
+.dt-sub{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-regular)}
+.dt-subline{display:flex;align-items:center;gap:var(--space-1);min-width:0}
+.dt-frommark{flex:none;font-size:var(--fs-caption);line-height:1;color:var(--text-tertiary)}
+.dt-geo-sub{display:inline;font-size:var(--fs-caption);color:var(--text-tertiary)}
+.na{color:var(--text-disabled)}
+.bo-spinner{width:14px;height:14px;flex:none;border:2px solid var(--color-brand-border);border-top-color:var(--color-brand);border-radius:50%;animation:bo-spin .7s linear infinite;display:inline-block;vertical-align:-2px;margin-right:var(--space-2)}
+@keyframes bo-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.bo-spinner{animation:none}}
+.bo-btn{margin-left:auto;flex:none;height:22px;padding:0 var(--space-2);border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-panel);color:var(--text-secondary);font-size:var(--fs-caption);font-weight:var(--fw-medium);cursor:pointer;font-family:inherit}
+.bo-btn:hover{border-color:var(--color-brand);color:var(--color-brand)}
+.bo-btn:focus-visible{outline:2px solid var(--color-brand);outline-offset:1px}
+.bo-inline{margin-left:auto;flex:none;display:inline-flex;align-items:center;font-size:var(--fs-caption);color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.hz{font-size:var(--fs-caption);color:var(--text-tertiary)}
+/* expanded panel */
+.drow__body{padding:var(--space-3) var(--space-4) var(--space-4) calc(42px + var(--space-4));background:var(--surface-recessed);border-top:1px solid var(--border-faint);position:sticky;left:0;width:100cqw;max-width:100%}
+.drow-lists{display:grid;grid-template-columns:max-content 1fr;gap:var(--space-1) var(--space-4);margin:0;font-size:var(--fs-label)}
+.drow-lists div{display:contents}
+.drow-lists dt{color:var(--text-tertiary);font-size:var(--fs-caption);text-transform:uppercase;letter-spacing:.04em;font-weight:var(--fw-medium);padding-top:2px}
+.drow-lists dd{margin:0}
+
+/* ── Option A: trailing actions column, pinned to the right edge ──────── */
+.dtable--actions .dtable__head>:last-child,.dtable--actions .drow>summary>:last-child{position:sticky;right:0;z-index:1;background:var(--surface-panel);box-shadow:-1px 0 0 var(--border-default);text-align:right;overflow:visible}
+.dtable--actions .dtable__head>:last-child{z-index:7;background:var(--surface-recessed)}
+.dtable--actions .drow>summary:hover>:last-child{background:var(--surface-recessed)}
+.dtable--actions .drow[open]>summary>:last-child{background:var(--color-brand-faint)}
+.dtable--actions .bo-btn,.dtable--actions .bo-inline{margin-left:0}
+.dtable--actions.unpinned .dtable__head>:last-child,.dtable--actions.unpinned .drow>summary>:last-child{position:static;box-shadow:none}
+
+/* ── Option B: button in the subline under the name ───────────────────── */
+.dtable--subline .dt-subline{gap:var(--space-2);flex-wrap:wrap;row-gap:var(--space-1);margin-top:2px}
+.dtable--subline .bo-btn,.dtable--subline .bo-inline{margin-left:0}
+
+body.edm-not-ready .bo-btn,body.edm-not-ready .bo-inline{display:none}
+body.edm-not-ready .dtable--actions .col-actions{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">Breakout button placement</div>
+  <p class="sub">Issue #134 wants the full portfolio name readable in the EDM portfolio table. The branch wraps the name, but the "Break out" button still shares the 230px name track. Three renders below: the branch as it stands, then the two candidate homes for the button. Rows expand on click. Scroll each table sideways to see how the pinned columns behave.</p>
+
+  <div class="controls">
+    <label><input type="checkbox" id="edm-ready" checked> EDM ready (shows the button and the in-flight counter)</label>
+    <label><input type="checkbox" id="pin-actions" checked> Option A: pin the actions column to the right edge</label>
+  </div>
+
+  <!-- ── 0. current branch ────────────────────────────────────────────── -->
+  <div class="eyebrow">Reference</div>
+  <div class="opt">
+    <h2>Current branch</h2>
+    <p>Name wraps, but the button stays in the name cell. The name gets roughly 110px of width and a 40-character breakout name runs to three or four lines.</p>
+  </div>
+  <div class="dtable-shell">
+    <div class="dtable dtable--selectable dtable--wrapname" style="--cols:var(--pick-w) 230px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px 130px;min-width:1357px">
+      <div class="dtable__head">
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select all"></span>
+        <span class="l">Portfolio</span>
+        <span>Locations</span><span>Accounts</span><span>Policies</span>
+        <span class="l">Perils</span><span class="l">Lines of business</span><span class="l">Countries</span>
+        <span class="l">States</span><span class="l">Currency</span><span class="l">Hazard Version</span>
+      </div>
+      <details class="drow"><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select"></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Northeast Commercial Property Renewal 26</span>
+            <span class="dt-subline"><span class="dt-sub">Portfolio #4821</span></span></span>
+          <button class="bo-btn" type="button">Break out</button></span></span>
+        <span>184,302</span><span>2,117</span><span>2,940</span>
+        <span class="l">WS, EQ, FL</span><span class="l">Commercial, Industrial, Municipal <span class="dt-geo-sub">+2 more</span></span>
+        <span class="l">US</span><span class="l">14 states</span><span class="l">USD</span><span class="l hz">3.2 · Sep 14</span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Northeast Commercial Property Renewal 26</dd></div></dl></div></details>
+      <details class="drow"><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select"></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Northeast Commercial Property Rene - FL</span>
+            <span class="dt-subline"><span class="dt-frommark">↳</span><span class="dt-sub">Portfolio #4833</span></span></span>
+          <button class="bo-btn" type="button">Break out</button></span></span>
+        <span>41,880</span><span>512</span><span>690</span>
+        <span class="l">WS, FL</span><span class="l">Commercial, Industrial</span>
+        <span class="l">US</span><span class="l">FL</span><span class="l">USD</span><span class="l hz">3.2 · Sep 14</span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Northeast Commercial Property Rene - FL</dd></div><div><dt>Base portfolio</dt><dd>Northeast Commercial Property Renewal 26</dd></div><div><dt>Breakout criteria</dt><dd>State IN (FL)</dd></div></dl></div></details>
+      <details class="drow"><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select" disabled></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Northeast Commercial Property Rene - TX</span>
+            <span class="dt-subline"><span class="dt-frommark">↳</span><span class="dt-sub">Portfolio #4834</span></span></span>
+          <span class="bo-inline"><span class="bo-spinner"></span>3 of 12</span></span></span>
+        <span>38,104</span><span>460</span><span>602</span>
+        <span class="l">WS, EQ</span><span class="l">Commercial</span>
+        <span class="l">US</span><span class="l">TX</span><span class="l">USD</span><span class="l hz"><span class="na">—</span></span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Northeast Commercial Property Rene - TX</dd></div></dl></div></details>
+      <details class="drow"><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select"></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Marine Cargo 2026</span>
+            <span class="dt-subline"><span class="dt-sub">Portfolio #4790</span></span></span>
+          <button class="bo-btn" type="button">Break out</button></span></span>
+        <span>9,210</span><span>88</span><span>131</span>
+        <span class="l">WS</span><span class="l">Marine</span>
+        <span class="l">multi-country <span class="dt-geo-sub">(6)</span></span><span class="l"><span class="na">—</span></span><span class="l">USD, EUR, GBP</span><span class="l hz">3.2 · Sep 14</span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Marine Cargo 2026</dd></div></dl></div></details>
+    </div>
+  </div>
+
+  <!-- ── A. trailing actions column ───────────────────────────────────── -->
+  <div class="eyebrow">Option A</div>
+  <div class="opt">
+    <h2>Actions column at the end</h2>
+    <p>The name cell holds only caret, name and subline, so the name wraps at the full track. The button and the in-flight counter move to a 96px column after Hazard Version. The table is 1357px wide and scrolls in most windows, so an unpinned trailing column is off screen until the analyst scrolls right; the pinned variant keeps it visible the way the name column is pinned left.</p>
+  </div>
+  <div class="dtable-shell">
+    <div class="dtable dtable--selectable dtable--wrapname dtable--actions" id="table-a" style="--cols:var(--pick-w) 230px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px 130px 96px;min-width:1453px">
+      <div class="dtable__head">
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select all"></span>
+        <span class="l">Portfolio</span>
+        <span>Locations</span><span>Accounts</span><span>Policies</span>
+        <span class="l">Perils</span><span class="l">Lines of business</span><span class="l">Countries</span>
+        <span class="l">States</span><span class="l">Currency</span><span class="l">Hazard Version</span>
+        <span class="col-actions"></span>
+      </div>
+      <details class="drow" open><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select"></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Northeast Commercial Property Renewal 26</span>
+            <span class="dt-subline"><span class="dt-sub">Portfolio #4821</span></span></span></span></span>
+        <span>184,302</span><span>2,117</span><span>2,940</span>
+        <span class="l">WS, EQ, FL</span><span class="l">Commercial, Industrial, Municipal <span class="dt-geo-sub">+2 more</span></span>
+        <span class="l">US</span><span class="l">14 states</span><span class="l">USD</span><span class="l hz">3.2 · Sep 14</span>
+        <span class="col-actions"><button class="bo-btn" type="button">Break out</button></span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Northeast Commercial Property Renewal 26</dd></div><div><dt>Lines of business</dt><dd>Commercial, Industrial, Municipal, Agricultural, Hospitality</dd></div><div><dt>States</dt><dd>CT, DE, MA, MD, ME, NH, NJ, NY, PA, RI, VA, VT, WV, DC</dd></div></dl></div></details>
+      <details class="drow"><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select"></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Northeast Commercial Property Rene - FL</span>
+            <span class="dt-subline"><span class="dt-frommark">↳</span><span class="dt-sub">Portfolio #4833</span></span></span></span></span>
+        <span>41,880</span><span>512</span><span>690</span>
+        <span class="l">WS, FL</span><span class="l">Commercial, Industrial</span>
+        <span class="l">US</span><span class="l">FL</span><span class="l">USD</span><span class="l hz">3.2 · Sep 14</span>
+        <span class="col-actions"><button class="bo-btn" type="button">Break out</button></span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Northeast Commercial Property Rene - FL</dd></div><div><dt>Base portfolio</dt><dd>Northeast Commercial Property Renewal 26</dd></div><div><dt>Breakout criteria</dt><dd>State IN (FL)</dd></div></dl></div></details>
+      <details class="drow"><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select" disabled></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Northeast Commercial Property Rene - TX</span>
+            <span class="dt-subline"><span class="dt-frommark">↳</span><span class="dt-sub">Portfolio #4834</span></span></span></span></span>
+        <span>38,104</span><span>460</span><span>602</span>
+        <span class="l">WS, EQ</span><span class="l">Commercial</span>
+        <span class="l">US</span><span class="l">TX</span><span class="l">USD</span><span class="l hz"><span class="na">—</span></span>
+        <span class="col-actions"><span class="bo-inline"><span class="bo-spinner"></span>3 of 12</span></span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Northeast Commercial Property Rene - TX</dd></div></dl></div></details>
+      <details class="drow"><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select"></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Marine Cargo 2026</span>
+            <span class="dt-subline"><span class="dt-sub">Portfolio #4790</span></span></span></span></span>
+        <span>9,210</span><span>88</span><span>131</span>
+        <span class="l">WS</span><span class="l">Marine</span>
+        <span class="l">multi-country <span class="dt-geo-sub">(6)</span></span><span class="l"><span class="na">—</span></span><span class="l">USD, EUR, GBP</span><span class="l hz">3.2 · Sep 14</span>
+        <span class="col-actions"><button class="bo-btn" type="button">Break out</button></span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Marine Cargo 2026</dd></div></dl></div></details>
+    </div>
+  </div>
+  <p class="note">When the EDM is not ready the column renders empty rather than disappearing, so the grid tracks stay identical across EDM states. Untick "EDM ready" above to see it.</p>
+
+  <!-- ── B. subline ───────────────────────────────────────────────────── -->
+  <div class="eyebrow">Option B</div>
+  <div class="opt">
+    <h2>Button in the subline</h2>
+    <p>Same column layout as today. The button sits under the name, after the breakout arrow and the Risk Modeler id, in the subline that already exists. The name wraps at the full track. Every row is two lines tall whether or not it has a button, so the table does not grow.</p>
+  </div>
+  <div class="dtable-shell">
+    <div class="dtable dtable--selectable dtable--wrapname dtable--subline" style="--cols:var(--pick-w) 230px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px 130px;min-width:1357px">
+      <div class="dtable__head">
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select all"></span>
+        <span class="l">Portfolio</span>
+        <span>Locations</span><span>Accounts</span><span>Policies</span>
+        <span class="l">Perils</span><span class="l">Lines of business</span><span class="l">Countries</span>
+        <span class="l">States</span><span class="l">Currency</span><span class="l">Hazard Version</span>
+      </div>
+      <details class="drow" open><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select"></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Northeast Commercial Property Renewal 26</span>
+            <span class="dt-subline"><span class="dt-sub">Portfolio #4821</span><button class="bo-btn" type="button">Break out</button></span></span></span></span>
+        <span>184,302</span><span>2,117</span><span>2,940</span>
+        <span class="l">WS, EQ, FL</span><span class="l">Commercial, Industrial, Municipal <span class="dt-geo-sub">+2 more</span></span>
+        <span class="l">US</span><span class="l">14 states</span><span class="l">USD</span><span class="l hz">3.2 · Sep 14</span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Northeast Commercial Property Renewal 26</dd></div><div><dt>Lines of business</dt><dd>Commercial, Industrial, Municipal, Agricultural, Hospitality</dd></div><div><dt>States</dt><dd>CT, DE, MA, MD, ME, NH, NJ, NY, PA, RI, VA, VT, WV, DC</dd></div></dl></div></details>
+      <details class="drow"><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select"></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Northeast Commercial Property Rene - FL</span>
+            <span class="dt-subline"><span class="dt-frommark">↳</span><span class="dt-sub">Portfolio #4833</span><button class="bo-btn" type="button">Break out</button></span></span></span></span>
+        <span>41,880</span><span>512</span><span>690</span>
+        <span class="l">WS, FL</span><span class="l">Commercial, Industrial</span>
+        <span class="l">US</span><span class="l">FL</span><span class="l">USD</span><span class="l hz">3.2 · Sep 14</span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Northeast Commercial Property Rene - FL</dd></div><div><dt>Base portfolio</dt><dd>Northeast Commercial Property Renewal 26</dd></div><div><dt>Breakout criteria</dt><dd>State IN (FL)</dd></div></dl></div></details>
+      <details class="drow"><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select" disabled></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Northeast Commercial Property Rene - TX</span>
+            <span class="dt-subline"><span class="dt-frommark">↳</span><span class="dt-sub">Portfolio #4834</span><span class="bo-inline"><span class="bo-spinner"></span>3 of 12</span></span></span></span></span>
+        <span>38,104</span><span>460</span><span>602</span>
+        <span class="l">WS, EQ</span><span class="l">Commercial</span>
+        <span class="l">US</span><span class="l">TX</span><span class="l">USD</span><span class="l hz"><span class="na">—</span></span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Northeast Commercial Property Rene - TX</dd></div></dl></div></details>
+      <details class="drow"><summary>
+        <span class="geohaz-pick"><input type="checkbox" aria-label="Select"></span>
+        <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+          <span class="dt-namecol"><span class="dt-title">Marine Cargo 2026</span>
+            <span class="dt-subline"><span class="dt-sub">Portfolio #4790</span><button class="bo-btn" type="button">Break out</button></span></span></span></span>
+        <span>9,210</span><span>88</span><span>131</span>
+        <span class="l">WS</span><span class="l">Marine</span>
+        <span class="l">multi-country <span class="dt-geo-sub">(6)</span></span><span class="l"><span class="na">—</span></span><span class="l">USD, EUR, GBP</span><span class="l hz">3.2 · Sep 14</span>
+      </summary><div class="drow__body"><dl class="drow-lists"><div><dt>Portfolio</dt><dd>Marine Cargo 2026</dd></div></dl></div></details>
+    </div>
+  </div>
+  <p class="note">The "3 of 12" in-flight counter takes the button's slot in the subline while a breakout runs. When the EDM is not ready the subline holds only the arrow and the id, as it does today.</p>
+
+</div>
+<script>
+  document.querySelectorAll('.bo-btn').forEach(function (b) {
+    b.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); });
+  });
+  document.getElementById('edm-ready').addEventListener('change', function (e) {
+    document.body.classList.toggle('edm-not-ready', !e.target.checked);
+  });
+  document.getElementById('pin-actions').addEventListener('change', function (e) {
+    document.getElementById('table-a').classList.toggle('unpinned', !e.target.checked);
+  });
+</script>
+</body>
+</html>

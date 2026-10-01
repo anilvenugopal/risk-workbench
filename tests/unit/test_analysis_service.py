@@ -98,15 +98,16 @@ def _broker(*, rdm_id: str, edm_id: str, irp_id: str) -> str:
               name="Broker analysis", status_code="ready")
 
 
-def _job(*, analysis_id: str, status: str, attempts: int = 0, inserted_at=None) -> str:
+def _job(*, analysis_id: str, status: str, attempts: int = 0, inserted_at=None,
+         progress: int | None = None) -> str:
     row_id = str(uuid.uuid4())
     now = inserted_at or _utcnow()
     execute_command(
-        "INSERT INTO irp_job (id, irp_analysis_id, irp_job_type, status, "
+        "INSERT INTO irp_job (id, irp_analysis_id, irp_job_type, status, progress, "
         "submission_attempt_count, inserted_at, updated_at) VALUES "
-        "(:id, :aid, 'analysis', :status, :attempts, :now, :now)",
-        {"id": row_id, "aid": analysis_id, "status": status, "attempts": attempts,
-         "now": now}, connection="WORKBENCH")
+        "(:id, :aid, 'analysis', :status, :progress, :attempts, :now, :now)",
+        {"id": row_id, "aid": analysis_id, "status": status, "progress": progress,
+         "attempts": attempts, "now": now}, connection="WORKBENCH")
     return row_id
 
 
@@ -233,6 +234,18 @@ def test_queued_and_running_are_live_importing(iteration2_db):
     for row in rows.values():
         assert row.status_chip == "importing"
         assert row.is_live is True
+
+
+def test_running_label_shows_progress_only_while_running(iteration2_db):
+    edm = _edm()
+    running = _executed(edm_id=edm, status_code="pending")
+    _job(analysis_id=running, status="RUNNING", progress=45)
+    queued = _executed(edm_id=edm, status_code="pending")
+    _job(analysis_id=queued, status="QUEUED", progress=10)
+
+    rows = {a.id: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
+    assert rows[running.lower()].status_label == "Running 45%"
+    assert rows[queued.lower()].status_label == "Queued"
 
 
 def test_finished_reads_ready_and_not_live_once_results_stored(iteration2_db):

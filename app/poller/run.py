@@ -382,6 +382,10 @@ def _track_irp_jobs() -> None:
                     except Exception:
                         logger.exception("terminal resolver failed for irp_job=%s",
                                          job["id"])
+            # bool is an int subclass; RM sends a plain integer or nothing.
+            progress = (result.result or {}).get("progress")
+            if type(progress) is not int:
+                progress = None
             try:
                 with get_connection("WORKBENCH") as conn:
                     with conn.begin():
@@ -393,6 +397,7 @@ def _track_irp_jobs() -> None:
                         irp_job_service.update_tracking(
                             conn, irp_job_id=job["id"], status=result.status,
                             result=result.result, completion_summary=summary,
+                            progress=progress,
                         )
                         if result.status in irp_job_service.TERMINAL:
                             handler = _TERMINAL_HANDLERS.get(job["irp_job_type"])

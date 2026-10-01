@@ -309,6 +309,7 @@ class ExecutedAnalysis:
     resolved: ResolvedDetails = field(default_factory=ResolvedDetails)
     irp_job_id: str | None = None       # latest linked irp_job
     job_status: str | None = None       # latest irp_job.status; None before submit
+    job_progress: int | None = None     # latest irp_job.progress
     submission_attempt_count: int = 0
     is_group: bool = False              # spec 012 — Engine cell reads "Group"
     # Pulled in by Risk Modeler id (#101): no irp_job, so run_state reads off
@@ -370,6 +371,8 @@ class ExecutedAnalysis:
         if self.run_state == "submit_failed":
             return (f"Failed to submit · attempt {self.submission_attempt_count}/"
                     f"{settings.irp_submission_max_retries}")
+        if self.job_status == "RUNNING" and self.job_progress is not None:
+            return f"Running {self.job_progress}%"
         return self.job_status.capitalize()
 
     @property
@@ -599,7 +602,7 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
 # label and the submission attempt count. Joined by both own-executed reads.
 _LATEST_JOB_JOIN = """
     LEFT JOIN (
-        SELECT id, irp_analysis_id, status, submission_attempt_count,
+        SELECT id, irp_analysis_id, status, progress, submission_attempt_count,
                ROW_NUMBER() OVER (
                    PARTITION BY irp_analysis_id
                    ORDER BY inserted_at DESC, id DESC
@@ -615,7 +618,7 @@ _EXECUTED_SELECT = f"""
            a.loss_results, a.submitted_settings,
            p.name AS portfolio_name, t.name AS template_name,
            u.display_name AS run_by,
-           j.id AS irp_job_id, j.status AS job_status,
+           j.id AS irp_job_id, j.status AS job_status, j.progress AS job_progress,
            j.submission_attempt_count
     FROM irp_analysis a
     LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
@@ -667,7 +670,7 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
             rm_url=_rm_analysis_url(irp_app_analysis_id), settings=parsed,
             display=_to_display(parsed), resolved=_resolved_view(parsed),
             irp_job_id=(_uid(r["irp_job_id"]) if r["irp_job_id"] else None),
-            job_status=r["job_status"],
+            job_status=r["job_status"], job_progress=r["job_progress"],
             submission_attempt_count=int(r["submission_attempt_count"] or 0),
             is_group=bool(r.get("is_group")),
             imported=r.get("imported_at") is not None,
@@ -689,7 +692,7 @@ _SUBMISSION_EXECUTED_SELECT = f"""
            NULL AS imported_at,
            p.name AS portfolio_name, t.name AS template_name,
            e.name AS edm_name, u.display_name AS run_by,
-           j.id AS irp_job_id, j.status AS job_status,
+           j.id AS irp_job_id, j.status AS job_status, j.progress AS job_progress,
            j.submission_attempt_count
     FROM irp_analysis a
     JOIN submission_edm se ON se.edm_id = a.edm_id
@@ -707,7 +710,7 @@ _SUBMISSION_EXECUTED_SELECT = f"""
            a.imported_at,
            NULL AS portfolio_name, NULL AS template_name,
            NULL AS edm_name, u.display_name AS run_by,
-           j.id AS irp_job_id, j.status AS job_status,
+           j.id AS irp_job_id, j.status AS job_status, j.progress AS job_progress,
            j.submission_attempt_count
     FROM irp_analysis a
     LEFT JOIN app_user u ON u.id = a.inserted_by

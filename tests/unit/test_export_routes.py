@@ -129,7 +129,7 @@ def test_form_preselects_the_only_contract_and_the_submission_client(client, dea
     assert 'data-crm-id="T-100" data-inception="2027-01-01"\n                  selected>' in page.text
     assert 'name="treaty_incept" required x-ref="incept"\n               value="2027-01-01"' in page.text
     assert 'name="crm_id" maxlength="30" x-ref="crm"\n               value="T-100"' in page.text
-    assert 'name="data_vintage" required\n               value=""' in page.text
+    assert 'name="data_vintage" required\n               value="2026-06-30"' in page.text
     assert '<option value="2" selected>2 - Retired</option>' in page.text
 
 
