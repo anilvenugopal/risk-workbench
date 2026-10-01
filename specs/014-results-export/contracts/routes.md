@@ -68,8 +68,8 @@ Triggered by `hx-get` on the analysis list (`hx-trigger="change"`,
 - One optional text input `data_name[<analysis_id>]` (max 150) per selected
   analysis, labelled with the analysis name (O-07).
 - When a perspective is chosen: each cart row shows that analysis's AAL at
-  that perspective, formatted by `analysis_service.fmt_loss`, with the stored
-  number in `title` (spec P-20).
+  that perspective, rounded to the ones place with thousands separators
+  (`4,123,457`), with the stored number in `title` (spec P-20).
 - When a perspective is chosen: the exported marks. Each selected analysis
   with a manifest row for that perspective, requested from this or any other
   submission, is warned about — the newest such export's `requested_at`,
