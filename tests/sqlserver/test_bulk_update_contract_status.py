@@ -88,12 +88,11 @@ def deal() -> SimpleNamespace:
     execute_command("INSERT INTO cedant (id, name) VALUES (:id, :name)",
                     {"id": cedant_id, "name": f"Bulk Test Cedant {tag}"},
                     connection="WORKBENCH")
-    created = svc.create_submission(
+    submission_id = svc.create_submission(
         name=f"Bulk update {tag}", cedant_id=cedant_id, treaty_year=2027,
         contracts=[svc.ContractInput(crm_a, "per_risk_xol", date(2027, 1, 1)),
                    svc.ContractInput(crm_b, "aggregate_xol", date(2027, 1, 1))],
-        data_vintage="2026-06-30", actor_id=actor, confirmed=True)
-    submission_id = str(created.submission_id)
+        data_vintage="2026-06-30", actor_id=actor)
     yield SimpleNamespace(submission_id=submission_id, crm_a=crm_a, crm_b=crm_b, tag=tag)
     with get_connection("LOSS") as conn, conn.begin():
         conn.execute(text("DELETE FROM dbo.CRMContractStatus"))

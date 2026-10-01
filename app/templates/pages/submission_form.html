@@ -24,10 +24,6 @@
   </div>
   {% endif %}
 
-  {% if warnings %}
-    {% include "partials/dup_warning.html" %}
-  {% endif %}
-
   {# `contractRows` owns the contract editor below. #}
   <form method="post" action="{{ action }}" x-data="contractRows">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
@@ -244,11 +240,6 @@
       <button class="btn-sm btn-sm--primary" type="submit">
         {{ 'Save changes' if mode == 'edit' else 'Create submission' }}
       </button>
-      {% if warnings %}
-      <button class="btn-sm" type="submit" name="confirmed" value="1">
-        {{ 'Save anyway' if mode == 'edit' else 'Create anyway' }}
-      </button>
-      {% endif %}
     </div>
   </form>
 </div>

@@ -8,10 +8,9 @@ creator becomes its owner.
 name or the cedant — so this flow touches no external system at all. It writes two rows in one
 transaction (three when the analyst typed a new cedant) and returns.
 
-Code: `submissions.create` → `submission_service.create_submission` (which calls
-`find_similar` first). The Cedant field filters the active cedants already rendered into
-the form (`selectSearch` in `app.js`); a typed new name is resolved by
-`cedant_service.new_cedant` and written by `cedant_service.save_new_cedant`.
+Code: `submissions.create` → `submission_service.create_submission`. The Cedant field filters
+the active cedants already rendered into the form (`selectSearch` in `app.js`); a typed new name
+is resolved by `cedant_service.new_cedant` and written by `cedant_service.save_new_cedant`.
 
 **Classification:** entirely **sync**. No RM call, no `rwb_job`, no worker, no poller.
 
@@ -26,19 +25,6 @@ the form (`selectSearch` in `app.js`); a typed new name is resolved by
 **All commit in one transaction** (R2), so a refused or abandoned form writes no cedant. That is Article 4 in miniature: `submission.status_code`
 is a *cached* value and `submission_status_event` is the truth, so a submission may never exist
 without its opening event.
-
-## The look-alike check writes nothing
-
-Before either insert, `find_similar` looks for deals matching on **either**:
-
-- the same `name`, **or**
-- the same `(cedant_id, treaty_type_code, inception_date)` triple. A cedant not yet saved
-  has no deals, so a deal with a typed new cedant is compared on its name alone.
-
-If it finds any and the analyst hasn't confirmed, the service returns `created=False` with the
-matches and **writes nothing**. Re-posting with `confirmed=true` proceeds. Deal identity is
-deliberately **not unique** (FR-004/US5) — genuine look-alikes coexist in this business, so the
-check is a warning, never a constraint.
 
 ## Sequence
 
@@ -55,11 +41,6 @@ sequenceDiagram
         Note over User,App: the Cedant field filters the rendered active cedants in the browser;<br/>a name matching none is staged as cedant_id="new" + new_cedant_name
 
         User->>App: POST /submissions (CSRF)
-        App->>DB: find_similar — same name OR same (cedant + type + inception)
-        alt look-alikes found AND not confirmed
-            App-->>User: 200 — the form with warnings, NOTHING written
-            User->>App: POST /submissions (confirmed=true)
-        end
         Note over App,DB: ONE transaction
         opt cedant_id = "new"
             App->>DB: INSERT cedant, or UPDATE cedant SET is_active=1

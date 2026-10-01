@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._analysis_delete import delete_analyses_response
+from app.routers._analysis_rows import analysis_rows_response, retarget_section
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import save_notes
 from app.routers._list_filters import library_filters, picker_options
@@ -267,7 +268,7 @@ def _detail(request: Request, edm_id: str, status_code: int = 200):
                        {"status_code": 404, "title": "Not found",
                         "detail": "That EDM does not exist."}, status_code=404)
     # Rendered by the page shell (not the polled #edm-detail body, which would
-    # wipe it on the first 3s swap): the import was saved fail-open because the
+    # wipe it on the first poll swap): the import was saved fail-open because the
     # name-collision check couldn't reach Risk Modeler.
     return _render(request, "pages/edm_detail.html",
                    {"edm": edm,
@@ -358,6 +359,18 @@ def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str
     polling fragment. No writes, no Risk Modeler call (Article 11)."""
     return _analyses_section_partial(request, edm_id,
                                      submission_id=submission_id)
+
+
+@router.post(
+    "/submissions/{submission_id}/edms/{edm_id}/analyses/rows",
+    response_class=HTMLResponse,
+)
+def contextual_detail_analyses_rows(
+    request: Request, submission_id: str, edm_id: str,
+    analyses_hash: Annotated[str, Form(alias="hash")] = "",
+    live: Annotated[str, Form()] = "",
+):
+    return _analyses_rows(request, edm_id, analyses_hash, live, submission_id)
 
 
 @router.post("/submissions/{submission_id}/edms/{edm_id}/analyses/delete")
@@ -615,6 +628,7 @@ async def execute_submit(request: Request, edm_id: str):
 
 
 _ANALYSES_STATUS_FILTERS = ("failed", "in_progress", "ready")
+_ANALYSES_SECTION_ID = "edm-executed-analyses"
 
 
 def _analyses_status_filter(request: Request) -> str:
@@ -624,48 +638,63 @@ def _analyses_status_filter(request: Request) -> str:
     return status if status in _ANALYSES_STATUS_FILTERS else ""
 
 
-def _analyses_gone_notice(message: str) -> HTMLResponse:
+def _analyses_gone_notice(submission_id: str | None) -> HTMLResponse:
     """The Analyses section with nothing left to poll. Not
-    ``analyses_merged_section.html``: that template always emits the ``hx-get``
-    and ``hx-trigger`` the 3s poll runs on, and this notice must omit them so the
-    poll stops instead of refetching a section that no longer resolves."""
+    ``analyses_merged_section.html``: that template renders the poller while a
+    row is live, and this notice must omit it so the poll stops instead of
+    refetching a section that no longer resolves."""
+    message = ("This EDM is no longer related to the submission." if submission_id
+               else "This EDM no longer exists.")
     return HTMLResponse(
-        '<details class="sec" open id="edm-executed-analyses">'
+        f'<details class="sec" open id="{_ANALYSES_SECTION_ID}">'
         '<summary><span class="sec__title">Analyses</span></summary>'
         f'<div class="state-box state-box--warn">{escape(message)}'
         '</div></details>')
 
 
-def _analyses_section_partial(request: Request, edm_id: str,
-                              *, submission_id: str | None = None):
-    """The merged Analyses section's own fragment (analyses_merged_section.html)
-    — its polling unit, separate from the rest of the detail body (T-11
-    refinement) so an in-flight execution never re-swaps rows the analyst has
-    expanded elsewhere on the page. With ``submission_id`` the fragment polls and
-    deletes against its submission-scoped URL and renders the submission's RDM
-    group rows; the plain library page has neither."""
+def _analyses_section_context(request: Request, edm_id: str,
+                              submission_id: str | None = None) -> dict | None:
+    """The merged Analyses section's context, or None once the EDM (or its
+    relation to ``submission_id``) is gone. With ``submission_id`` the section
+    polls and deletes against its submission-scoped URL and renders the
+    submission's RDM group rows; the plain library page has neither."""
     section = edm_service.get_edm_analyses(edm_id=edm_id,
                                            submission_id=submission_id)
     if section is None:
-        return _analyses_gone_notice(
-            "This EDM is no longer related to the submission." if submission_id
-            else "This EDM no longer exists.")
+        return None
     execution_id = (request.query_params.get("execution_id") or "").strip() or None
     base = f"/edms/{edm_id}/analyses" if submission_id is None else (
         f"/submissions/{submission_id}/edms/{edm_id}/analyses")
     sort, descending = analysis_service.sort_from_query(request.query_params)
-    return _partial(request, "partials/analyses_merged_section.html",
-                    {"edm": section, "groups": section.rdms,
-                     "source_submission": section.submission,
-                     "analyses": analysis_service.sort_analyses(
-                         section.executed_analyses, sort, descending),
-                     "sort": sort,
-                     "sort_desc": descending,
-                     "status_filter": _analyses_status_filter(request),
-                     "execution_id": execution_id,
-                     "execution_live": analysis_service.execution_batch_is_live(
-                         execution_id),
-                     "analyses_table_url": base})
+    return {"edm": section, "groups": section.rdms,
+            "source_submission": section.submission,
+            "analyses": analysis_service.sort_analyses(
+                section.executed_analyses, sort, descending),
+            "sort": sort,
+            "sort_desc": descending,
+            "status_filter": _analyses_status_filter(request),
+            "execution_id": execution_id,
+            "execution_live": analysis_service.execution_batch_is_live(
+                execution_id),
+            "section_id": _ANALYSES_SECTION_ID,
+            "analyses_table_url": base}
+
+
+def _analyses_section_partial(request: Request, edm_id: str,
+                              *, submission_id: str | None = None):
+    ctx = _analyses_section_context(request, edm_id, submission_id)
+    if ctx is None:
+        return _analyses_gone_notice(submission_id)
+    return _partial(request, "partials/analyses_merged_section.html", ctx)
+
+
+def _analyses_rows(request: Request, edm_id: str, analyses_hash: str, live: str,
+                   submission_id: str | None = None):
+    ctx = _analyses_section_context(request, edm_id, submission_id)
+    if ctx is None:
+        return retarget_section(_analyses_gone_notice(submission_id),
+                                _ANALYSES_SECTION_ID)
+    return analysis_rows_response(request, ctx, analyses_hash, live)
 
 
 @router.get("/edms/{edm_id}/analyses", response_class=HTMLResponse)
@@ -673,6 +702,17 @@ def detail_analyses(request: Request, edm_id: str):
     """Read-only Analyses-table fragment for HTMX polling. No writes, no Risk
     Modeler call (Article 11)."""
     return _analyses_section_partial(request, edm_id)
+
+
+@router.post("/edms/{edm_id}/analyses/rows", response_class=HTMLResponse)
+def detail_analyses_rows(
+    request: Request, edm_id: str,
+    analyses_hash: Annotated[str, Form(alias="hash")] = "",
+    live: Annotated[str, Form()] = "",
+):
+    """The Analyses section's poll. No writes, no Risk Modeler call
+    (Article 11)."""
+    return _analyses_rows(request, edm_id, analyses_hash, live)
 
 
 @router.get("/edms/{edm_id}/analyses/compare", response_class=HTMLResponse)
@@ -776,13 +816,13 @@ def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
     edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
         # EDM hard-gone mid-poll: return a terminal notice with no trigger,
-        # so the every-3s poll ends instead of returning a repeating 404.
+        # so the poll ends instead of returning a repeating 404.
         return HTMLResponse(
             '<div class="page-pad" id="edm-detail">'
             '<div class="state-box state-box--warn">This EDM no longer exists.'
             '</div></div>')
     if poll and edm.sync_running and edm.detail_state == "populated":
-        # A populated page mid-sync: swapping the body every 3s would collapse
+        # A populated page mid-sync: swapping the body on every poll would collapse
         # every <details> the analyst opened and — because #edm-detail is the
         # page's scrolling element — scroll them back to the top. 204 → htmx
         # swaps nothing and the poll keeps ticking; the first post-sync poll
@@ -795,7 +835,7 @@ def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
 
 @router.get("/edms/{edm_id}/body", response_class=HTMLResponse)
 def detail_body(request: Request, edm_id: str):
-    """Read-only body render for HTMX polling. The template emits the ``every 3s``
+    """Read-only body render for HTMX polling. The template emits the poll
     trigger only while the backfill head is in flight (``sync_running``) or the
     import itself still is, so the page updates on its own when the rwb job lands —
     and polling stops once the work is terminal. A populated page mid-sync gets a
@@ -811,11 +851,11 @@ def portfolios_section(request: Request, edm_id: str,
 
     A breakout changes only that section — the completion banner, the source
     row's ``N of M`` counter, the generated rows, the per-row failure lines —
-    so the section polls this route every 3s instead of the whole body: the
+    so the section polls this route instead of the whole body: the
     body wrapper ``#edm-detail`` is the page's scrolling element, and replacing
     it scrolled the analyst back to the top every cycle. The response also
     OOB-swaps the header meta line and the rollup strip, the two places outside
-    the section that carry a portfolio count. The template emits the ``every 3s``
+    the section that carry a portfolio count. The template emits the poll
     trigger only while the breakout episode is live (the run itself, or its
     FR-013 follow-up backfill filling figures in), so polling self-terminates.
 
@@ -829,7 +869,7 @@ def portfolios_section(request: Request, edm_id: str,
     edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
         # EDM hard-gone mid-poll: a terminal notice with no trigger, so the
-        # every-3s poll ends instead of 404-looping (the body-poll precedent).
+        # poll ends instead of 404-looping (the body-poll precedent).
         return HTMLResponse(
             '<details class="sec" open id="edm-portfolios">'
             '<summary><span class="sec__title">Portfolios</span></summary>'

@@ -1,0 +1,8 @@
+{# The Analyses section's poll (see analyses_merged_section.html). It inherits
+   the section as its hx-target, so app.js's restore hooks run on every poll.
+   With nothing live it renders no trigger, and the poll stops. #}
+{% set live = execution_live|default(false) or poll_ids
+     or groups|selectattr('sync_running')|list|length > 0 %}
+<span id="{{ section_id }}-poller" hidden{% if oob %} hx-swap-oob="true"{% endif %}
+  {%- if live %} hx-post="{{ rows_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s" hx-swap="none"
+  hx-vals='{{ {"hash": analyses_hash(analyses, groups), "live": poll_ids|join(",")}|tojson }}'{% endif %}></span>

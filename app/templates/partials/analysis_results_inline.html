@@ -2,7 +2,7 @@
    table's Engine column carries it, and a collapsed value is never restated
    here. #}
 {%- import 'partials/analysis_row_macros.html' as row -%}
-{# The id keeps +N more open across the grid's 3s poll: app.js restores every
+{# The id keeps +N more open across the grid's poll: app.js restores every
    details[id] after a swap. #}
 {%- macro capped_list(entries, id) -%}
 {%- set cap = 5 -%}

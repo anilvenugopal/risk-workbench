@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     # non-terminal irp_job per pass; never poll_*_to_completion.
     poll_interval_secs: int = 15
 
+    # How often a page re-requests a section while it shows a job in progress.
+    # Every self-polling template's hx-trigger reads it; the backend poller does
+    # not (poll_interval_secs).
+    ui_poll_interval_secs: int = 10
+
     # Submit-side retry ceiling for the submission_retry batch (FR-029), and the
     # exponential-backoff base it uses: eligible when
     # now > completed_at + irp_submission_retry_base_secs * 2**attempts.

@@ -15,6 +15,7 @@ code when Risk Modeler sends one, the display name otherwise.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -324,7 +325,7 @@ class ExecutedAnalysis:
 
     @property
     def is_live(self) -> bool:
-        """Drives the EDM page's 3s self-poll: still moving toward a terminal
+        """Drives the EDM page's self-poll: still moving toward a terminal
         outcome. ``pending`` is the only in-flight run status — every write that
         leaves it is terminal. A ready run whose retrieval is still pending
         keeps polling so the loss numbers land with no analyst action; a failed
@@ -485,6 +486,13 @@ def sort_analyses(rows: list, sort: str, descending: bool) -> list:
         (present if (key(row) or "").strip() else missing).append(row)
     present.sort(key=lambda a: key(a).strip().casefold(), reverse=descending)
     return present + missing
+
+
+def analyses_hash(analyses: list, groups: list) -> str:
+    """Names the Analyses section's set of rows."""
+    key = repr((sorted(str(a.id) for a in analyses),
+                sorted((str(g.rdm_id), g.analysis_count) for g in groups)))
+    return hashlib.sha1(key.encode()).hexdigest()[:16]
 
 
 # One row per (RDM×EDM) handle.
@@ -1197,5 +1205,5 @@ __all__ = [
     "list_comparison_pairs", "list_edm_analyses",
     "list_executed_analyses", "list_results_columns",
     "list_submission_executed_analyses",
-    "list_submission_rdms", "list_submission_rdm_analyses",
+    "list_submission_rdms", "list_submission_rdm_analyses", "analyses_hash",
 ]

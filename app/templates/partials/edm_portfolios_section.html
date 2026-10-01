@@ -8,10 +8,10 @@
 
    Live unit (T-11, 2026-08-05): while a breakout episode is underway — the run
    itself, or its follow-up backfill_edm_detail filling figures in — THIS
-   section polls itself every 3s and swaps itself. The whole-body poll answers
+   section polls itself and swaps itself. The whole-body poll answers
    204 meanwhile (app/routers/edms.py), because #edm-detail is the page's
    scrolling element: replacing it threw the analyst back to the top of the page
-   every 3 seconds. The poll response additionally OOB-swaps the header meta
+   on every poll. The poll response additionally OOB-swaps the header meta
    line — the one place outside this section that carries a portfolio count.
    app.js reapplies the open/closed state of every <details>
    here after the swap, so an expanded row stays expanded. #}
@@ -28,7 +28,7 @@
      or (edm.breakout_banner and edm.breakout_banner.filling_in) %}
 <details class="sec" open id="edm-portfolios"
   {%- if bo_live %}
-  hx-get="{{ section_url }}" hx-trigger="every 3s"
+  hx-get="{{ section_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <summary>

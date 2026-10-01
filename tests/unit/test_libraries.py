@@ -243,6 +243,7 @@ def _render_table(*, statuses, filters=None, progress=None):
     # The app's own env (autoescape on) — that is what turns the poll URL's query
     # separator into `&amp;` (valid HTML, htmx reads it back as `&`).
     env = Jinja2Templates(directory=TEMPLATE_DIRS).env
+    env.globals["ui_poll_interval_secs"] = 3
     filter_values = {"q": "", "status": "", **(filters or {})}
     live = any(s in edm_service.TRANSIENT_STATUSES for s in statuses)
     html = env.get_template("partials/library_table.html").render(
@@ -332,7 +333,7 @@ def _deal(*, name, owner, contract_status="OPEN", crm_ids=("C-1",),
             crm_id=crm_id, treaty_type_code="per_risk_xol",
             inception_date=date(2026, 1, 1), expiration_date=expiration,
             contract_status_code=contract_status) for crm_id in crm_ids],
-        data_vintage="2026-06-30", actor_id=owner, confirmed=True).submission_id
+        data_vintage="2026-06-30", actor_id=owner)
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])

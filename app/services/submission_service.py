@@ -87,7 +87,7 @@ ENTITY_TABLE_SORT_STARTS_DESCENDING = {
 
 @dataclass
 class SubmissionRow:
-    """One master-list / look-alike row. The contract summary (``crm_ids``,
+    """One submission row. The contract summary (``crm_ids``,
     ``treaty_type_labels``, ``inception_date``) is filled for the master list
     only (see ``_attach_contracts``); every other reader leaves it empty."""
     id: str
@@ -206,19 +206,6 @@ class StatusEvent:
     at: Any
     inserted_by: str | None
     inserted_by_name: str | None
-
-
-@dataclass
-class CreateResult:
-    created: bool
-    submission_id: str | None = None
-    warnings: list[SubmissionRow] = field(default_factory=list)
-
-
-@dataclass
-class UpdateResult:
-    updated: bool
-    warnings: list[SubmissionRow] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -430,16 +417,15 @@ def _submission_rows(
     limit: int | None = None, offset: int = 0,
     order_by: str | None = None,
 ) -> list[SubmissionRow]:
-    """Run the shared row query: the master list, the look-alike check and the "links
-    to" typeahead all select the same columns, and differ only in their predicates.
+    """Run the shared row query: the master list, the "links to" typeahead and global
+    search all select the same columns, and differ only in their predicates.
 
     ``order_by`` is interpolated SQL, never a bound value: pass ``SORT_COLUMNS``
     text, never a query-string value.
 
-    ``exclude_id`` drops one submission from the results — the deal being renamed, or
-    the one being edited so it cannot be offered as its own link. A value that is not
-    a UUID excludes nothing rather than reaching the ``uniqueidentifier`` comparison
-    (see ``_as_uuid``)."""
+    ``exclude_id`` drops one submission from the results — the one being edited, so it
+    cannot be offered as its own link. A value that is not a UUID excludes nothing
+    rather than reaching the ``uniqueidentifier`` comparison (see ``_as_uuid``)."""
     if order_by is None:
         order_by = _order_by(DEFAULT_SORT, descending=True)
     excluded = _as_uuid(exclude_id) if exclude_id is not None else None
@@ -529,37 +515,25 @@ def create_submission(
     links_to_submission_id: Any = None, directory_path: str | None = None,
     client_id: int | None = None,
     contracts: Sequence[ContractInput] = (),
-    actor_id: Any, confirmed: bool = False,
-) -> CreateResult:
+    actor_id: Any,
+) -> str:
     """Create an ACTIVE submission owned by ``actor_id`` with zero or more
-    contracts (FR-004, P-16).
+    contracts (FR-004, P-16) and return its id.
 
     Every contract row is validated before anything is written
-    (``_prepare_contracts``); then the duplicate check runs: unconfirmed
-    look-alikes short-circuit with ``created=False`` and warnings, writing
-    nothing (FR-004). On the write path the submission row, its initial ACTIVE
-    status event and its contracts commit in one transaction (R2).
+    (``_prepare_contracts``). The submission row, its initial ACTIVE status
+    event and its contracts commit in one transaction (R2).
 
     ``new_cedant``, when given in place of ``cedant_id``, is written in the same
     transaction (P-06).
 
     ``data_vintage`` is required (P-19); ``treaty_year`` is stored as entered,
-    blank included (P-20). ``links_to_submission_id`` is checked before the
-    duplicate check, so an id naming no deal is refused without first showing a
-    look-alike warning."""
+    blank included (P-20)."""
     vintage = _as_date(data_vintage)
     if vintage is None:
         raise ValueError("data_vintage is required")
     link_target = _resolve_link_target(links_to_submission_id)
     prepared = _prepare_contracts(contracts)
-    if new_cedant is not None:
-        cedant_id = new_cedant.id
-    matches = find_similar(
-        name=name, cedant_id=cedant_id,
-        contract_terms=[(row["tt"], row["inc"]) for row in prepared],
-    )
-    if matches and not confirmed:
-        return CreateResult(created=False, warnings=matches)
 
     sid = str(uuid.uuid4())
     now = _utcnow()
@@ -608,7 +582,7 @@ def create_submission(
                     "now": now + timedelta(microseconds=index), "actor": actor})
     except Exception as exc:
         _raise_taken_or_original(exc, prepared)
-    return CreateResult(created=True, submission_id=sid)
+    return sid
 
 
 def _raise_taken_or_original(
@@ -1004,30 +978,6 @@ def contract_status_kinds() -> list[tuple[str, str]]:
     return _kinds("contract_status_kind")
 
 
-def find_similar(
-    *, name: str, cedant_id: Any,
-    contract_terms: Sequence[tuple[str, Any]] = (), exclude_id: Any = None,
-) -> list[SubmissionRow]:
-    """Look-alikes: same ``name``, OR same cedant with a contract of the same
-    treaty type and inception as one of ``contract_terms`` (FR-004/R4). A deal
-    with no contract is compared on its name alone. ``exclude_id`` skips the row
-    being renamed. A ``cedant_id`` of ``None`` (a cedant not yet saved) compares
-    the name alone. Never raises."""
-    clauses = ["s.name = :name"]
-    params: dict[str, Any] = {"name": name, "cedant": str(cedant_id)}
-    if cedant_id is None:
-        contract_terms = ()
-    for index, (treaty_type_code, inception_date) in enumerate(contract_terms):
-        clauses.append(
-            "(s.cedant_id = :cedant AND EXISTS (SELECT 1 FROM contract c "
-            f"WHERE c.submission_id = s.id AND c.treaty_type_code = :tt{index} "
-            f"AND c.inception_date = :inc{index}))")
-        params[f"tt{index}"] = treaty_type_code
-        params[f"inc{index}"] = _as_date(inception_date)
-    return _submission_rows(
-        ["(" + " OR ".join(clauses) + ")"], params, exclude_id=exclude_id)
-
-
 # Both typeahead searches ignore a term this short. `%a%` matches most of the
 # submission table, and a leading wildcard cannot seek an index, so a
 # one-character term buys a scan of every submission for a menu the analyst
@@ -1081,12 +1031,12 @@ _MUTABLE_FIELDS = (
 
 def update_submission(
     *, submission_id: Any, expected_updated_at: Any, actor_id: Any,
-    confirmed: bool = False, new_cedant: NewCedant | None = None, **fields: Any,
-) -> UpdateResult:
+    new_cedant: NewCedant | None = None, **fields: Any,
+) -> None:
     """Edit mutable fields, gated by R3 (ACTIVE) + R1 (concurrency) + R9
-    (self-link, and a ``links_to_submission_id`` naming no submission) + R4
-    (non-blocking duplicate warning on rename). Contracts are edited through
-    ``add_contract`` / ``update_contract`` / ``remove_contract``.
+    (self-link, and a ``links_to_submission_id`` naming no submission).
+    Contracts are edited through ``add_contract`` / ``update_contract`` /
+    ``remove_contract``.
 
     ``new_cedant``, when given in place of ``cedant_id``, is written in the same
     transaction as the update, so a refused update writes no cedant (P-06).
@@ -1110,23 +1060,12 @@ def update_submission(
     merged["data_vintage"] = _as_date(merged["data_vintage"])
     if merged["data_vintage"] is None:
         raise ValueError("data_vintage is required")
-    if new_cedant is not None:
-        merged["cedant_id"] = new_cedant.id
-    contracts = list_contracts(sid)
 
     # Resolve first, self-link second: a submission's own id always exists, so
     # linking to itself must report SelfLinkError, not "not found".
     links_to = _resolve_link_target(merged["links_to_submission_id"])
     if links_to is not None and links_to == _uid(sid):
         raise SelfLinkError("A submission cannot link to itself.")
-
-    matches = find_similar(
-        name=merged["name"], cedant_id=merged["cedant_id"],
-        contract_terms=[(c.treaty_type_code, c.inception_date) for c in contracts],
-        exclude_id=sid,
-    )
-    if matches and not confirmed:
-        return UpdateResult(updated=False, warnings=matches)
 
     params = {
         "name": merged["name"],
@@ -1159,7 +1098,6 @@ def update_submission(
             raise ConcurrencyConflict(
                 "This deal changed since you opened it — reload and re-apply."
             )
-    return UpdateResult(updated=True)
 
 
 def reassign_owner(

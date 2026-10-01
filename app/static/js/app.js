@@ -876,9 +876,10 @@ document.addEventListener('alpine:init', () => {
   // spec 011 US3) — counts ticked rows for the summary line and the Delete
   // button, which disables whenever a broker row (data-broker) is ticked; the
   // boxes themselves are read straight off the DOM by hx-include at click
-  // time. init() recounts after each 3s swap (the swap hook below restores the
-  // ticks by value); the MutationObserver recounts when an RDM group lazy-loads
-  // its broker rows, which fires no change event.
+  // time. init() recounts after each full section swap (the swap hook below
+  // restores the ticks by value); the MutationObserver recounts when an RDM
+  // group lazy-loads its broker rows or the poll swaps a finished row's
+  // checkbox in, neither of which fires a change event.
   Alpine.data('analysisPicks', () => ({
     count: 0,
     total: 0,
@@ -1487,8 +1488,8 @@ document.addEventListener('click', (e) => {
 });
 
 // The checked ids travel in tick order — kept per section by a document-level
-// listener, because Alpine's analysisPicks is re-instantiated by every 3s poll
-// swap. Boxes ticked by select-all fire no per-box change event and append in
+// listener, because Alpine's analysisPicks is re-instantiated by every full
+// section swap. Boxes ticked by select-all fire no per-box change event and append in
 // DOM order at submit. After the new tab opens, the originating selection
 // resets; one bubbling change event makes analysisPicks recount.
 const analysisPickOrder = new Map();

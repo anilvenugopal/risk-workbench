@@ -66,10 +66,12 @@ def client(iteration2_db) -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     templates.env.globals["default_perspective"] = (
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(submissions.router)
@@ -792,7 +794,7 @@ def test_treaty_year_outside_the_allowed_range_is_rejected(client, bad_year):
     assert _count() == 0
 
 
-# ── Create: redirect, CSRF, duplicate warning ────────────────────────────────
+# ── Create: redirect, CSRF ───────────────────────────────────────────────────
 
 def test_valid_create_redirects_to_the_new_deal(client):
     res = client.post("/submissions", data=_payload())
@@ -807,16 +809,6 @@ def test_bad_csrf_token_writes_nothing(client):
     assert res.status_code == 303
     assert res.headers["location"] == "/submissions/new"
     assert _count() == 0
-
-
-def test_look_alike_creates_only_after_confirming(client):
-    client.post("/submissions", data=_payload())
-    res = client.post("/submissions", data=_payload())
-    assert res.status_code == 200 and "dup-warn" in res.text
-    assert _count() == 1
-    confirmed = client.post("/submissions", data=_payload(confirmed="1"))
-    assert confirmed.status_code == 303
-    assert _count() == 2
 
 
 # ── The cedant picker ────────────────────────────────────────────────────────
@@ -904,16 +896,6 @@ def test_a_refused_create_writes_no_cedant_and_keeps_the_typed_name(client):
     assert '<option value="new" selected>Lakeshore</option>' in res.text
     assert 'name="new_cedant_name" value="Lakeshore"' in res.text
     assert "Lakeshore" not in _cedants()
-
-
-def test_a_look_alike_warning_writes_no_cedant_until_confirmed(client):
-    client.post("/submissions", data=_payload(name="Twin_deal"))
-    res = client.post("/submissions", data=_typed_cedant("Lakeshore", name="Twin_deal"))
-    assert res.status_code == 200 and "dup-warn" in res.text
-    assert "Lakeshore" not in _cedants()
-    _created_id(client.post("/submissions", data=_typed_cedant(
-        "Lakeshore", name="Twin_deal", confirmed="1")))
-    assert _cedants()["Lakeshore"] is True
 
 
 @pytest.mark.parametrize("typed, message", [
@@ -1057,7 +1039,7 @@ def test_editing_to_an_unknown_link_target_is_rejected(client, link_value):
     submission = submission_service.get_submission(sid)
     edit = client.post(f"/submissions/{sid}", data=_payload(
         name="Keeps_its_link", links_to_submission_id=link_value,
-        updated_at=str(submission.updated_at), confirmed="1"))
+        updated_at=str(submission.updated_at)))
     assert edit.status_code == 422
     assert "That deal was not found" in edit.text
     assert execute(
@@ -1078,7 +1060,7 @@ def test_editing_a_deal_to_link_to_itself_is_rejected(client):
     submission = submission_service.get_submission(sid)
     edit = client.post(f"/submissions/{sid}", data=_payload(
         name="Self_linker", links_to_submission_id=sid,
-        updated_at=str(submission.updated_at), confirmed="1"))
+        updated_at=str(submission.updated_at)))
     assert edit.status_code == 422
     assert "A submission cannot link to itself." in edit.text
     assert execute(
@@ -1094,7 +1076,7 @@ def _mk_owned_by_b(client, name: str) -> None:
     submission_service.create_submission(
         name=name, cedant_id=cedant_id("Beta Re"), treaty_year=2026,
         contracts=[ContractInput("B-1", "aggregate_xol", date(2026, 3, 1))],
-        data_vintage="2026-06-30", actor_id=client.db.user_b, confirmed=True)
+        data_vintage="2026-06-30", actor_id=client.db.user_b)
 
 
 def _two_american_deals(client) -> None:
@@ -1247,8 +1229,7 @@ def test_empty_my_deals_offers_to_clear_rather_than_reading_as_empty(client):
 # ── List: the #sub-list fragment and the pager ───────────────────────────────
 
 def _fill_a_page_and_a_bit(client, extra: int = 2) -> None:
-    """PAGE_SIZE + ``extra`` deals, each with its own name and cedant so no create
-    trips the look-alike warning."""
+    """PAGE_SIZE + ``extra`` deals, each with its own name and cedant."""
     for i in range(submission_service.PAGE_SIZE + extra):
         client.post("/submissions", data=_payload(
             name=f"Paged_deal_{i:03d}", cedant_name=f"Paged cedant {i:03d}"))
@@ -1769,6 +1750,39 @@ def test_results_fragment_status_filter_rides_the_poll_url(client):
     assert "sort=" not in html.split("hx-target=\"this\"")[0]
 
 
+def test_results_rows_poll_swaps_rows_or_replaces_the_section(client):
+    submission_id, edm_id, _ = _seed_results_data(client)
+    running = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code) "
+        "VALUES (:id, :edm, 'CRE_Running_v25', 'CRE_Running_v25', 'pending')",
+        {"id": running, "edm": edm_id}, connection="WORKBENCH")
+    html = client.get(f"/submissions/{submission_id}/analyses").text
+    analyses_hash = re.search(r'"hash": "([0-9a-f]+)"', html).group(1)
+    assert f'hx-post="/submissions/{submission_id}/analyses/rows"' in html
+
+    rows = client.post(f"/submissions/{submission_id}/analyses/rows",
+                       data={"hash": analyses_hash, "live": running})
+    assert f'id="analysis-row-{running}" hx-swap-oob="innerHTML"' in rows.text
+    assert rows.text.count("hx-swap-oob=\"innerHTML\"") == 1
+    assert "data-analyses-section" not in rows.text
+
+    replaced = client.post(f"/submissions/{submission_id}/analyses/rows",
+                           data={"hash": "stale", "live": running})
+    assert replaced.headers["HX-Retarget"] == "#submission-analyses"
+    assert replaced.headers["HX-Reswap"] == "outerHTML"
+    assert "data-analyses-section" in replaced.text
+
+
+def test_results_rows_poll_ends_when_the_submission_is_gone(client):
+    response = client.post(f"/submissions/{uuid.uuid4()}/analyses/rows",
+                           data={"hash": "any", "live": ""})
+
+    assert response.headers["HX-Retarget"] == "#submission-analyses"
+    assert "This submission no longer exists." in response.text
+    assert "hx-trigger" not in response.text
+
+
 def test_submission_rdm_lazy_rows_read_merged_columns(client):
     submission_id, _, rdm_id = _seed_results_data(client)
 
@@ -1779,8 +1793,7 @@ def test_submission_rdm_lazy_rows_read_merged_columns(client):
     assert ">Finished</span>" in html
     assert "Portfolio" not in html        # FR-020
 
-    other = client.post("/submissions",
-                        data=_payload(name="Other_deal", confirmed="1"))
+    other = client.post("/submissions", data=_payload(name="Other_deal"))
     other_id = other.headers["location"].rsplit("/", 1)[-1]
     assert client.get(
         f"/submissions/{other_id}/rdms/{rdm_id}/analyses").status_code == 404
@@ -2181,7 +2194,7 @@ def test_create_refuses_a_crm_id_another_deal_holds_and_links_that_deal(client):
 
 def test_contract_add_and_edit_refuse_a_crm_id_another_deal_holds_and_link_it(client):
     owner, _ = _deal(client, name="Owner_deal", crm_ids="A-1")
-    sid, _ = _deal(client, name="Second_deal", crm_ids="B-1", confirmed="1")
+    sid, _ = _deal(client, name="Second_deal", crm_ids="B-1")
     added = client.post(
         f"/submissions/{sid}/contracts", headers=_HX,
         data={"crm_id": " a-1 ", "treaty_type_code": "stop_loss",
@@ -2392,7 +2405,7 @@ def test_contract_delete_post_removes_the_row_and_its_dates(client):
 
 def test_contract_posts_on_another_deal_are_not_found(client):
     deal_a, _ = _deal(client, name="Deal_A", crm_ids="A-1")
-    deal_b, _ = _deal(client, name="Deal_B", crm_ids="B-1", confirmed="1")
+    deal_b, _ = _deal(client, name="Deal_B", crm_ids="B-1")
     b1 = _contract(deal_b, "B-1")
     deleted = client.post(f"/submissions/{deal_a}/contracts/{b1.id}/delete",
                           headers=_HX, data={"csrf_token": _csrf()})
