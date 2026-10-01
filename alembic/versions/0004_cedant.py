@@ -5,7 +5,8 @@ Revises: 0003
 Create Date: 2026-09-30
 
 The backfill creates one cedant per distinct submission.cedant_name. Spelling
-variants stay separate cedants; an analyst deactivates the unwanted one.
+variants stay separate cedants; an analyst moves the submissions off the
+unwanted one and deletes it.
 """
 
 from __future__ import annotations
@@ -36,7 +37,6 @@ def upgrade() -> None:
         "cedant",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("name", sa.NVARCHAR(255), nullable=False),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default="1"),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("updated_at", DATETIME2, nullable=False,

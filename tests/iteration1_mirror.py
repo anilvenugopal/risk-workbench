@@ -31,7 +31,7 @@ ITERATION1_SCHEMA = [
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
     """CREATE TABLE cedant (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1,
+        id TEXT PRIMARY KEY, name TEXT NOT NULL,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     "CREATE UNIQUE INDEX uq_cedant_name ON cedant (name COLLATE NOCASE)",

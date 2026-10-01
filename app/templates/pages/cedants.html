@@ -17,10 +17,11 @@
     </div>
   </form>
 
-  {% if rename_error %}<div class="form-banner form-banner--error">{{ rename_error }}</div>{% endif %}
+  {% if rename_error or delete_error %}<div class="form-banner form-banner--error">{{ rename_error or delete_error }}</div>{% endif %}
 
   {# GET, no CSRF — applied as you type; hx-select swaps only #cedants-live so the
-     search field keeps focus. #}
+     search field keeps focus. A search clears the ticks, so Delete selected only
+     deletes cedants the analyst can see. #}
   <form class="filters" method="get" action="/cedants"
         hx-get="/cedants" hx-trigger="input delay:300ms, submit"
         hx-target="#cedants-live" hx-select="#cedants-live" hx-swap="outerHTML"
@@ -34,57 +35,68 @@
     <button type="submit" hidden>Search</button>
   </form>
 
-  <table id="cedants-live" class="mk-table">
-    <thead><tr><th>Name</th><th>Status</th><th class="col-actions"></th></tr></thead>
-    <tbody>
-      {% for c in cedants %}
-      {% set renaming = rename_error and rename_id == c.id %}
-      <tr x-data="{ editing: {{ 'true' if renaming else 'false' }} }">
-        <td>
-          <span x-show="!editing"{% if renaming %} x-cloak{% endif %}>{{ c.name }}</span>
-          {# No id: htmx settling restores a swapped-in element's style by id, which
-             drops x-show's display:none after a search. #}
-          <form x-ref="rename" method="post" action="/cedants/{{ c.id }}/rename"
-                x-show="editing"{% if not renaming %} x-cloak{% endif %}>
-            <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-            <input class="wf-field__input" type="text" name="name" maxlength="255" required style="width:100%"
-                   value="{{ rename_value if renaming else c.name }}"{% if renaming %} aria-invalid="true" autofocus{% endif %}>
-          </form>
-        </td>
-        <td>
-          {% if c.is_active %}<span class="badge badge--positive">active</span>
-          {% else %}<span class="badge badge--negative">inactive</span>{% endif %}
-        </td>
-        <td class="col-actions"><div class="row-actions">
-          <template x-if="editing">
-            <div class="row-actions">
-              <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
-              <button class="btn-sm btn-sm--primary" type="button" @click="$refs.rename.requestSubmit()">Save</button>
-            </div>
-          </template>
-          <template x-if="!editing">
-            <div class="row-actions">
-              <button class="btn-sm" type="button" @click="editing = true">Rename</button>
-              {% if c.is_active %}
-              <form method="post" action="/cedants/{{ c.id }}/deactivate">
-                <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-                <button class="btn-sm btn-sm--danger" type="submit"
-                        onclick="return confirm({{ ('Deactivate ' ~ c.name ~ '? It leaves the Create picker; submissions that use it keep it.')|tojson|forceescape }})">Deactivate</button>
-              </form>
-              {% else %}
-              <form method="post" action="/cedants/{{ c.id }}/reactivate">
-                <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-                <button class="btn-sm btn-sm--primary" type="submit">Reactivate</button>
-              </form>
-              {% endif %}
-            </div>
-          </template>
-        </div></td>
-      </tr>
-      {% else %}
-      <tr><td colspan="3" class="empty">{% if q %}No cedants match "{{ q }}".{% else %}No cedants yet. Add the first one above.{% endif %}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {# The checkboxes post with form="cedants-delete": the rows hold their own rename
+     and delete forms, which cannot nest inside it. #}
+  <div id="cedants-live" x-data="checkPicks({ name: 'cedant_ids' })" @change="onChange()">
+    <form id="cedants-delete" class="lib-intro" method="post" action="/cedants/delete">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm btn-sm--danger" type="submit" :disabled="!count"
+              @click="if (!confirm(`Delete ${count} cedant${count == 1 ? '' : 's'}?`)) $event.preventDefault()"
+              x-text="count ? `Delete ${count} selected` : 'Delete selected'">Delete selected</button>
+      <span class="wf-field__hint">A cedant that submissions use cannot be deleted.</span>
+    </form>
+
+    <table class="mk-table sync-table">
+      <thead><tr>
+        <th class="sync-pick"><input type="checkbox" x-ref="selectAll" title="Select all"
+                                     :disabled="!total" @click.stop="all($event.target.checked)"></th>
+        <th>Name</th><th class="sync-num">Submissions</th><th class="col-actions"></th>
+      </tr></thead>
+      <tbody>
+        {% for c in cedants %}
+        {% set renaming = rename_error and rename_id == c.id %}
+        {% set in_use = ('Used by ' ~ c.submission_count ~ ' submission' ~ ('' if c.submission_count == 1 else 's')) if c.submission_count else '' %}
+        <tr x-data="{ editing: {{ 'true' if renaming else 'false' }} }">
+          <td class="sync-pick">
+            <input type="checkbox" name="cedant_ids" value="{{ c.id }}" form="cedants-delete"
+                   aria-label="Select {{ c.name }}"{% if in_use %} disabled title="{{ in_use }}"{% endif %}>
+          </td>
+          <td>
+            <span x-show="!editing"{% if renaming %} x-cloak{% endif %}>{{ c.name }}</span>
+            {# No id: htmx settling restores a swapped-in element's style by id, which
+               drops x-show's display:none after a search. #}
+            <form x-ref="rename" method="post" action="/cedants/{{ c.id }}/rename"
+                  x-show="editing"{% if not renaming %} x-cloak{% endif %}>
+              <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+              <input class="wf-field__input" type="text" name="name" maxlength="255" required style="width:100%"
+                     value="{{ rename_value if renaming else c.name }}"{% if renaming %} aria-invalid="true" autofocus{% endif %}>
+            </form>
+          </td>
+          <td class="sync-num">{{ c.submission_count }}</td>
+          <td class="col-actions"><div class="row-actions">
+            <template x-if="editing">
+              <div class="row-actions">
+                <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
+                <button class="btn-sm btn-sm--primary" type="button" @click="$refs.rename.requestSubmit()">Save</button>
+              </div>
+            </template>
+            <template x-if="!editing">
+              <div class="row-actions">
+                <button class="btn-sm" type="button" @click="editing = true">Rename</button>
+                <form method="post" action="/cedants/{{ c.id }}/delete">
+                  <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+                  <button class="btn-sm btn-sm--danger" type="submit"
+                          {% if in_use %}disabled title="{{ in_use }}"{% else %}onclick="return confirm({{ ('Delete ' ~ c.name ~ '?')|tojson|forceescape }})"{% endif %}>Delete</button>
+                </form>
+              </div>
+            </template>
+          </div></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">{% if q %}No cedants match "{{ q }}".{% else %}No cedants yet. Add the first one above.{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

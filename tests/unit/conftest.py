@@ -64,14 +64,13 @@ def edm_with_portfolios(count: int = 2) -> tuple[str, list[str]]:
     return edm_id, portfolio_ids
 
 
-def cedant_id(name: str = "Test Cedant", *, is_active: bool = True) -> str:
+def cedant_id(name: str = "Test Cedant") -> str:
     """The id of the cedant named ``name``, inserting it on first use."""
     existing = execute_scalar("SELECT id FROM cedant WHERE name = :name",
                               {"name": name}, connection="WORKBENCH")
     if existing is not None:
         return str(existing).lower()
     new_id = str(uuid.uuid4())
-    execute_command("INSERT INTO cedant (id, name, is_active) VALUES (:id, :name, :active)",
-                    {"id": new_id, "name": name, "active": int(is_active)},
-                    connection="WORKBENCH")
+    execute_command("INSERT INTO cedant (id, name) VALUES (:id, :name)",
+                    {"id": new_id, "name": name}, connection="WORKBENCH")
     return new_id

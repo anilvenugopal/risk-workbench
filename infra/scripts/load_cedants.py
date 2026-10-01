@@ -4,7 +4,7 @@ The file has one column headed ``Cedant`` (issue 129). The default is the
 committed db/bootstrap/seed/cedants.xlsx, which revision 0005 loads once; run
 this after the client sends a new list. A name already in the table (case
 ignored) is skipped, so a second run inserts nothing, and no cedant is renamed
-or deactivated.
+or deleted.
 
 Run via Makefile: make load-cedants (Docker) or make wsl-load-cedants (WSL2),
 with FILE=path/to/cedants.xlsx for a file other than the committed one.

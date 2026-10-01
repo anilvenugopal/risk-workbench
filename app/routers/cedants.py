@@ -1,8 +1,9 @@
 """The cedant list at /cedants (issue 129). Every logged-in role maintains it
-(P-09). No delete: submissions reference a cedant by id, so a cedant leaves the
-Create picker by deactivation (P-03)."""
+(P-09). A cedant a submission uses cannot be deleted."""
 
 from __future__ import annotations
+
+from typing import Annotated
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -20,7 +21,7 @@ def _cedants_page(request: Request, *, q: str = "", status_code: int = 200, **er
     return request.app.state.templates.TemplateResponse(request, "pages/cedants.html", {
         "current_user": current_user,
         "nav": get_nav_context(current_user, "submissions.cedants"),
-        "cedants": cedant_service.list_cedants(include_inactive=True, name=q),
+        "cedants": cedant_service.list_cedants(name=q),
         "q": q,
         **errors,
     }, status_code=status_code)
@@ -55,17 +56,22 @@ def rename_cedant(request: Request, cedant_id: str, name: str = Form(""),
     return RedirectResponse("/cedants", status_code=303)
 
 
-@router.post("/{cedant_id}/deactivate")
-def deactivate_cedant(request: Request, cedant_id: str, csrf_token: str = Form(...)):
-    return _set_cedant_active(request, cedant_id, False, csrf_token)
+@router.post("/delete")
+def delete_cedants(request: Request, csrf_token: str = Form(...),
+                   cedant_ids: Annotated[list[str], Form()] = []):
+    return _delete(request, cedant_ids, csrf_token)
 
 
-@router.post("/{cedant_id}/reactivate")
-def reactivate_cedant(request: Request, cedant_id: str, csrf_token: str = Form(...)):
-    return _set_cedant_active(request, cedant_id, True, csrf_token)
+@router.post("/{cedant_id}/delete")
+def delete_cedant(request: Request, cedant_id: str, csrf_token: str = Form(...)):
+    return _delete(request, [cedant_id], csrf_token)
 
 
-def _set_cedant_active(request: Request, cedant_id: str, active: bool, csrf_token: str):
-    if validate_csrf_token(csrf_token):
-        cedant_service.set_cedant_active(cedant_id, active, actor_id=request.state.user.id)
+def _delete(request: Request, cedant_ids: list[str], csrf_token: str):
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse("/cedants", status_code=303)
+    kept = cedant_service.delete_cedants(cedant_ids)
+    if kept:
+        return _cedants_page(request, status_code=409, delete_error=(
+            "Not deleted, because submissions use them: " + ", ".join(kept) + "."))
     return RedirectResponse("/cedants", status_code=303)

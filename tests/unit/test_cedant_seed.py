@@ -36,18 +36,16 @@ def test_read_names_the_row_of_a_name_longer_than_255_characters(tmp_path):
 
 
 def test_load_inserts_only_names_not_in_the_table(iteration2_db):
-    cedant_id("Acme Re", is_active=False)
+    cedant_id("Acme Re")
 
     with get_connection("WORKBENCH") as conn, conn.begin():
         first = load_cedant_names(conn, ["ACME RE", "Beta Mutual"])
     with get_connection("WORKBENCH") as conn, conn.begin():
         second = load_cedant_names(conn, ["ACME RE", "Beta Mutual"])
 
-    rows = execute("SELECT name, is_active FROM cedant ORDER BY name", {},
-                   connection="WORKBENCH")
+    rows = execute("SELECT name FROM cedant ORDER BY name", {}, connection="WORKBENCH")
     assert (first, second) == (1, 0)
-    assert [(r["name"], bool(r["is_active"])) for r in rows] == [
-        ("Acme Re", False), ("Beta Mutual", True)]
+    assert [r["name"] for r in rows] == ["Acme Re", "Beta Mutual"]
 
 
 def test_the_committed_seed_file_reads():

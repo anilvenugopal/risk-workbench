@@ -45,16 +45,14 @@
         {% endif %}
       </div>
 
-      {# On Edit the list keeps the deal's own cedant even when it is inactive (P-02).
-         A typed new name posts as cedant_id "new" plus new_cedant_name, and the
+      {# A typed new name posts as cedant_id "new" plus new_cedant_name, and the
          cedant is written when the submission saves (P-06). #}
       <div class="wf-field">
         <label>CEDANT <span class="wf-field__req" title="Required">*</span></label>
         {% call forms.typeahead_select('cedant_id', required=true,
                                        input_class=(' wf-field__input--error' if field_errors.cedant_id else ''),
                                        creatable={'field': 'new_cedant_name',
-                                                  'value': form.new_cedant_name or '',
-                                                  'inactive': inactive_cedant_names}) %}
+                                                  'value': form.new_cedant_name or ''}) %}
           <option value="">Search cedants…</option>
           {% if form.cedant_id == 'new' %}
           <option value="new" selected>{{ form.new_cedant_name }}</option>

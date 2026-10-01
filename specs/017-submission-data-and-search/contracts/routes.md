@@ -30,7 +30,7 @@ Active.
 | Field | Name | Rules |
 |---|---|---|
 | Name | `name` | required (unchanged) |
-| Cedant | `cedant_id`, `new_cedant_name` | required; one of the active cedants, or on Edit the submission's own cedant even when inactive; any other id → 422 "Pick a cedant from the list." `cedant_id` = `new` with a trimmed, non-blank `new_cedant_name` of at most 255 characters adds that cedant (or reactivates the inactive cedant with that name, case ignored) in the submission's transaction; a blank or longer name → 422 (issue #129) |
+| Cedant | `cedant_id`, `new_cedant_name` | required; one of the cedants; any other id → 422 "Pick a cedant from the list." `cedant_id` = `new` with a trimmed, non-blank `new_cedant_name` of at most 255 characters adds that cedant (or picks the cedant that already has that name, case ignored) in the submission's transaction; a blank or longer name → 422 (issue #129) |
 | Client ID | `client_id` | optional; options from `client_service.list_clients()` as `"ID - name"`; disabled with "Client list unavailable — the submission saves without one" when the list is `None` |
 | Data vintage | `data_vintage` | required ISO date; a blank one is refused with "Enter a data vintage." |
 | Treaty year | `treaty_year` | optional; nothing fills it |
@@ -58,7 +58,7 @@ Every multi-value parameter caps at 20 values; over the cap the page returns
 | Param | Type | Label | Applies to | Level | Semantics |
 |---|---|---|---|---|---|
 | `q` | text | Name | all three | submission / entity | unchanged |
-| `cedant` | multi | Cedant | all three | submission | `cedant_id IN`; the picker lists every cedant, inactive ones labelled "(inactive)" |
+| `cedant` | multi | Cedant | all three | submission | `cedant_id IN`; the picker lists every cedant |
 | `owner` | multi | Owner | all three | submission | unchanged defaults |
 | `client` | multi | Client ID | all three | submission | `client_id IN`; NULL never matches |
 | `treaty_year` | multi | Treaty year | all three | submission | `treaty_year IN` |

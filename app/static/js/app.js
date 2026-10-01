@@ -396,12 +396,11 @@ document.addEventListener('alpine:init', () => {
     // only filters, so without that row an analyst cannot undo a selection —
     // emptying the input and leaving restores the committed label via close().
     clearable: config.clearable === true,
-    // The Cedant field passes { creatable: true, inactive: [names] }: a typed
-    // name that matches no option gets a last menu row that stages it — as the
-    // <select>'s "new" option plus the hidden new_cedant_name input — and the
-    // server writes the cedant when the submission saves (P-06, P-07).
+    // The Cedant field passes { creatable: true }: a typed name that matches no
+    // option gets a last menu row that stages it — as the <select>'s "new"
+    // option plus the hidden new_cedant_name input — and the server writes the
+    // cedant when the submission saves (P-06).
     creatable: config.creatable === true,
-    inactive: config.inactive || [],
     pendingHint: '',
     options: [],
     init() {
@@ -418,15 +417,8 @@ document.addEventListener('alpine:init', () => {
       if (!this.creatable || this.options.some((o) => o.label.toLowerCase() === term)) {
         return matches;
       }
-      const inactive = this.inactiveNamed(term);
-      const name = inactive || this.query.trim();
-      return [...matches, {
-        value: '', create: name,
-        label: inactive ? `Reactivate “${name}”` : `Add cedant “${name}”`,
-      }];
-    },
-    inactiveNamed(name) {
-      return this.inactive.find((n) => n.toLowerCase() === name.toLowerCase());
+      const name = this.query.trim();
+      return [...matches, { value: '', create: name, label: `Add cedant “${name}”` }];
     },
     get placeholder() {
       const blank = this.select.querySelector('option[value=""]');
@@ -447,10 +439,7 @@ document.addEventListener('alpine:init', () => {
       this.query = current && current.value ? current.textContent.trim() : '';
       if (this.creatable) {
         const staged = this.select.value === 'new' ? this.$refs.newName.value : '';
-        this.pendingHint = !staged ? ''
-          : this.inactiveNamed(staged)
-            ? 'Inactive cedant — reactivated when you save this submission.'
-            : 'New cedant — added when you save this submission.';
+        this.pendingHint = staged ? 'New cedant — added when you save this submission.' : '';
       }
       this.isOpen = false;
       this.activeIndex = -1;

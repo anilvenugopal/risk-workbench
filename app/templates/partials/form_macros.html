@@ -35,11 +35,10 @@
 {# A whole typeahead field: the `.ta` container, the hidden <select> — its
    <option>s are the call body, `attrs` any further <select> attributes — and
    the controls above. `creatable` (the Cedant field only) adds the "Add cedant"
-   menu row: {field, value, inactive} name the hidden input that posts a typed
-   new name, its current value, and the inactive names offered for
-   reactivation. #}
+   menu row: {field, value} name the hidden input that posts a typed new name
+   and its current value. #}
 {% macro typeahead_select(name, attrs={}, required=false, input_class='', search='selectSearch()', creatable=none) %}
-<div class="ta" x-data="{% if creatable %}selectSearch({ creatable: true, inactive: {{ creatable.inactive|tojson|forceescape }} }){% else %}{{ search }}{% endif %}" @click.outside="close()">
+<div class="ta" x-data="{% if creatable %}selectSearch({ creatable: true }){% else %}{{ search }}{% endif %}" @click.outside="close()">
   <select class="wf-field__input{{ input_class }}" name="{{ name }}" x-ref="select"{% if required %} required{% endif %}{% for key, value in attrs.items() %} {{ key }}="{{ value }}"{% endfor %}>
     {{ caller() }}
   </select>

@@ -108,17 +108,15 @@ def parse_list_filters(query_params, *, multi_keys, text_keys) -> ListFilters:
 
 
 def picker_options() -> dict[str, Any]:
-    """The option lists behind the shared filter pickers: owners, cedants
-    (inactive ones too, so an old deal stays findable), treaty types, contract
-    statuses and repository clients (``None`` when the repository is
-    unreachable, so the picker renders disabled)."""
+    """The option lists behind the shared filter pickers: owners, cedants,
+    treaty types, contract statuses and repository clients (``None`` when the
+    repository is unreachable, so the picker renders disabled)."""
     clients = client_service.list_clients()
     return {
         "owner_options": [(analyst["id"], analyst["display_name"])
                           for analyst in auth_service.list_active_analysts()],
-        "cedant_options": [
-            (cedant.id, cedant.name if cedant.is_active else f"{cedant.name} (inactive)")
-            for cedant in cedant_service.list_cedants(include_inactive=True)],
+        "cedant_options": [(cedant.id, cedant.name)
+                           for cedant in cedant_service.list_cedants()],
         "treaty_types": submission_service.treaty_type_kinds(),
         "contract_statuses": submission_service.contract_status_kinds(),
         "client_options": (None if clients is None

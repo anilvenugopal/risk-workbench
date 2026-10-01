@@ -3,6 +3,8 @@ cedant_service against the fixture SQLite engine."""
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
@@ -12,6 +14,7 @@ from starlette.testclient import TestClient
 from app.auth.csrf import generate_csrf_token
 from app.services import cedant_service
 from app.services.auth_service import CurrentUser
+from db import execute_command
 from tests.unit.conftest import cedant_id
 
 
@@ -45,18 +48,23 @@ def _post(client: TestClient, path: str, **form):
     return client.post(path, data={"csrf_token": generate_csrf_token(), **form})
 
 
-def _names() -> dict[str, bool]:
-    return {c.name: c.is_active for c in cedant_service.list_cedants(include_inactive=True)}
+def _names() -> set[str]:
+    return {c.name for c in cedant_service.list_cedants()}
+
+
+def _use(cedant: str) -> None:
+    execute_command("INSERT INTO submission (id, name, cedant_id) VALUES (:id, 'Deal', :c)",
+                    {"id": str(uuid.uuid4()), "c": cedant}, connection="WORKBENCH")
 
 
 def test_the_page_lists_cedants_under_the_submissions_sidebar(client):
     cedant_id("Acme Re")
-    cedant_id("Heritage Casualty", is_active=False)
+    _use(cedant_id("Heritage Casualty"))
     body = client.get("/cedants").text
     assert 'href="/submissions">List</a>' in body
     assert 'href="/cedants">Cedants</a>' in body
     assert "Acme Re" in body and "Heritage Casualty" in body
-    assert "/reactivate" in body
+    assert body.count('disabled title="Used by 1 submission"') == 2
 
 
 def test_the_empty_list_says_so(client):
@@ -66,7 +74,7 @@ def test_the_empty_list_says_so(client):
 def test_search_keeps_names_containing_every_word_in_any_order(client):
     cedant_id("American Family Mutual")
     cedant_id("American Re")
-    cedant_id("Family_Re", is_active=False)
+    cedant_id("Family_Re")
 
     body = client.get("/cedants", params={"q": "fam american"}).text
     assert "American Family Mutual" in body
@@ -81,20 +89,13 @@ def test_search_keeps_names_containing_every_word_in_any_order(client):
 
 def test_add_trims_the_name_and_refuses_a_case_insensitive_duplicate(client):
     assert _post(client, "/cedants", name="  Acme Re  ").status_code == 303
-    assert _names() == {"Acme Re": True}
+    assert _names() == {"Acme Re"}
 
     response = _post(client, "/cedants", name="ACME RE")
     assert response.status_code == 422
     assert "A cedant named &#34;Acme Re&#34; already exists." in response.text
     assert 'value="ACME RE"' in response.text
-    assert _names() == {"Acme Re": True}
-
-
-def test_adding_an_inactive_cedants_name_says_to_reactivate_it(client):
-    cedant_id("Heritage Casualty", is_active=False)
-    response = _post(client, "/cedants", name="heritage casualty")
-    assert response.status_code == 422
-    assert "exists but is inactive — reactivate it instead." in response.text
+    assert _names() == {"Acme Re"}
 
 
 @pytest.mark.parametrize("name, message", [
@@ -105,7 +106,7 @@ def test_add_refuses_a_blank_or_long_name(client, name, message):
     response = _post(client, "/cedants", name=name)
     assert response.status_code == 422
     assert message in response.text
-    assert _names() == {}
+    assert _names() == set()
 
 
 def test_rename_shows_the_new_name_and_refuses_a_taken_one(client):
@@ -114,34 +115,44 @@ def test_rename_shows_the_new_name_and_refuses_a_taken_one(client):
 
     assert _post(client, f"/cedants/{acme}/rename",
                  name="Acme Reinsurance").status_code == 303
-    assert _names() == {"Acme Reinsurance": True, "Northfield Mutual": True}
+    assert _names() == {"Acme Reinsurance", "Northfield Mutual"}
 
     response = _post(client, f"/cedants/{acme}/rename", name="northfield mutual")
     assert response.status_code == 422
     assert "A cedant named &#34;Northfield Mutual&#34; already exists." in response.text
     assert 'value="northfield mutual"' in response.text
-    assert _names() == {"Acme Reinsurance": True, "Northfield Mutual": True}
+    assert _names() == {"Acme Reinsurance", "Northfield Mutual"}
 
 
 def test_rename_to_its_own_name_in_another_case_is_allowed(client):
     acme = cedant_id("Acme Re")
     assert _post(client, f"/cedants/{acme}/rename", name="ACME Re").status_code == 303
-    assert _names() == {"ACME Re": True}
+    assert _names() == {"ACME Re"}
 
 
-def test_deactivate_leaves_the_create_picker_and_reactivate_restores_it(client):
-    from app.routers.submissions import _cedant_options
-
+def test_delete_removes_a_cedant_no_submission_uses(client):
     acme = cedant_id("Acme Re")
-    assert _post(client, f"/cedants/{acme}/deactivate").status_code == 303
-    assert _names() == {"Acme Re": False}
-    assert [c.id for c in _cedant_options(None)] == []
+    cedant_id("Northfield Mutual")
+    assert _post(client, f"/cedants/{acme}/delete").status_code == 303
+    assert _names() == {"Northfield Mutual"}
 
-    assert _post(client, f"/cedants/{acme}/reactivate").status_code == 303
-    assert [c.id for c in _cedant_options(None)] == [acme]
+
+def test_delete_selected_keeps_and_names_the_cedants_submissions_use(client):
+    picked = [cedant_id("Acme Re"), cedant_id("Northfield Mutual"), cedant_id("Zenith Re")]
+    _use(picked[1])
+    _use(picked[2])
+    cedant_id("Unpicked Re")
+
+    response = _post(client, "/cedants/delete", cedant_ids=picked)
+    assert response.status_code == 409
+    assert ("Not deleted, because submissions use them: Northfield Mutual, Zenith Re."
+            in response.text)
+    assert _names() == {"Northfield Mutual", "Unpicked Re", "Zenith Re"}
+
+    assert _post(client, "/cedants/delete").status_code == 303
 
 
 def test_a_bad_csrf_token_writes_nothing(client):
     response = client.post("/cedants", data={"csrf_token": "bad", "name": "Acme Re"})
     assert response.status_code == 303
-    assert _names() == {}
+    assert _names() == set()

@@ -822,32 +822,15 @@ def test_create_refuses_a_cedant_id_that_is_not_in_the_list(client):
     assert _count() == 0
 
 
-def test_create_lists_and_accepts_only_active_cedants(client):
-    inactive = cedant_id("Retired Re", is_active=False)
-    assert ">Retired Re</option>" not in client.get("/submissions/new").text
-    res = client.post("/submissions", data={
-        **_payload(name="Inactive_cedant"), "cedant_id": inactive})
-    assert res.status_code == 422
-    assert "Pick a cedant from the list." in res.text
-
-
-def test_edit_keeps_the_deals_own_inactive_cedant(client):
-    """P-02: deactivating a cedant does not force every deal using it to change."""
-    sid, updated_at = _deal(client, name="Kept_cedant", cedant_name="Fading Re")
-    execute_command("UPDATE cedant SET is_active = 0 WHERE id = :id",
-                    {"id": cedant_id("Fading Re")}, connection="WORKBENCH")
+def test_edit_selects_the_deals_own_cedant(client):
+    sid, _ = _deal(client, name="Kept_cedant", cedant_name="Fading Re")
     body = client.get(f"/submissions/{sid}/edit").text
     assert f'value="{cedant_id("Fading Re")}" selected>Fading Re' in body
-    res = client.post(f"/submissions/{sid}", data={
-        **_payload(name="Kept_cedant_renamed", cedant_name="Fading Re"),
-        "updated_at": updated_at})
-    assert res.status_code == 303
-    assert submission_service.get_submission(sid).name == "Kept_cedant_renamed"
 
 
-def _cedants() -> dict[str, bool]:
-    return {row["name"]: bool(row["is_active"]) for row in execute(
-        "SELECT name, is_active FROM cedant", {}, connection="WORKBENCH")}
+def _cedants() -> set[str]:
+    return {row["name"] for row in execute(
+        "SELECT name FROM cedant", {}, connection="WORKBENCH")}
 
 
 def _typed_cedant(typed: str, **overrides) -> dict:
@@ -860,26 +843,15 @@ def _created_id(res) -> str:
     return res.headers["location"].rsplit("/", 1)[-1]
 
 
-def test_create_offers_adding_a_cedant_and_names_the_inactive_ones(client):
-    cedant_id("Retired Re", is_active=False)
-    body = client.get("/submissions/new").text
-    assert "selectSearch({ creatable: true, inactive: [&#34;Retired Re&#34;] })" in body
+def test_create_offers_adding_a_cedant(client):
+    assert "selectSearch({ creatable: true })" in client.get("/submissions/new").text
 
 
 def test_create_with_a_typed_cedant_writes_the_cedant_with_the_submission(client):
     sid = _created_id(client.post("/submissions", data=_typed_cedant(
         "  Lakeshore Farm Bureau ", name="Typed_cedant")))
     assert submission_service.get_submission(sid).cedant_name == "Lakeshore Farm Bureau"
-    assert _cedants()["Lakeshore Farm Bureau"] is True
-
-
-def test_create_with_an_inactive_cedants_name_reactivates_it(client):
-    retired = cedant_id("Retired Re", is_active=False)
-    sid = _created_id(client.post("/submissions", data=_typed_cedant(
-        "retired re", name="Reactivated_cedant")))
-    assert submission_service.get_submission(sid).cedant_id == retired
-    assert _cedants()["Retired Re"] is True
-    assert "retired re" not in _cedants()
+    assert "Lakeshore Farm Bureau" in _cedants()
 
 
 def test_create_with_a_name_another_analyst_just_added_uses_that_cedant(client):
@@ -1088,14 +1060,11 @@ def _two_american_deals(client) -> None:
         inception_date="2025-01-01"))
 
 
-def test_list_cedant_picker_narrows_and_labels_inactive_cedants(client):
+def test_list_cedant_picker_narrows(client):
     _two_american_deals(client)
-    execute_command("UPDATE cedant SET is_active = 0 WHERE id = :id",
-                    {"id": cedant_id("American National")}, connection="WORKBENCH")
     body = client.get(f"/submissions?cedant={cedant_id('American National')}").text
     assert "TY2501_AmericanNational" in body
     assert "TY2506_AmericanFamily" not in body
-    assert 'data-label="American National (inactive)"' in body
 
 
 def test_list_search_narrows_by_name(client):

@@ -57,7 +57,7 @@ from app.services import (
 )
 from app.services._common import _parse_int, _uid
 from app.services.analysis_execution_service import ExecutionGateError
-from app.services.cedant_service import Cedant, CedantValidationError, NewCedant
+from app.services.cedant_service import CedantValidationError, NewCedant
 from app.services.submission_service import ContractInput, ContractInvalid
 from app.services.errors import (
     ConcurrencyConflict,
@@ -116,7 +116,7 @@ def _parse_date(value: str | None) -> date | None:
 
 
 def _validate_submission_form(
-    *, name: str, cedant_id: str, new_cedant_name: str, cedant_options: list[Cedant],
+    *, name: str, cedant_id: str, new_cedant_name: str,
     treaty_year: str, data_vintage: str, directory_path: str,
 ) -> tuple[dict[str, str], int | None, date | None, NewCedant | None]:
     """One message per bad field (CR4), plus the parsed treaty year, data
@@ -133,7 +133,8 @@ def _validate_submission_form(
             new_cedant = cedant_service.new_cedant(new_cedant_name)
         except CedantValidationError as exc:
             errors["cedant_id"] = str(exc)
-    elif cedant_id.strip().lower() not in {cedant.id for cedant in cedant_options}:
+    elif cedant_id.strip().lower() not in {
+            cedant.id for cedant in cedant_service.list_cedants()}:
         errors["cedant_id"] = "Pick a cedant from the list."
 
     parsed_treaty_year = _parse_int(treaty_year)
@@ -210,14 +211,6 @@ def _error_banner(field_errors: dict[str, str], action: str) -> list[str]:
     return [f"{subject} attention before this deal can be {action}."]
 
 
-def _cedant_options(submission) -> list[Cedant]:
-    """The active cedants, plus the submission's own cedant on Edit even when it
-    is inactive (P-02)."""
-    own = submission.cedant_id if submission is not None else None
-    return [cedant for cedant in cedant_service.list_cedants(include_inactive=True)
-            if cedant.is_active or cedant.id == own]
-
-
 def _form_context(
     *, mode: str, form: dict, submission, links_to: str | None = None,
     errors: list[str] | None = None, field_errors: dict[str, str] | None = None,
@@ -232,11 +225,7 @@ def _form_context(
         "treaty_types": submission_service.treaty_type_kinds(),
         "contract_statuses": submission_service.contract_status_kinds(),
         "clients": client_service.list_clients(),
-        "cedant_options": _cedant_options(submission),
-        "inactive_cedant_names": [
-            cedant.name for cedant in cedant_service.list_cedants(include_inactive=True)
-            if not cedant.is_active
-            and cedant.id != (submission.cedant_id if submission is not None else None)],
+        "cedant_options": cedant_service.list_cedants(),
         "form": form,
         "submission": submission,
         "link_target": submission_service.get_submission(links_to),
@@ -1223,7 +1212,7 @@ def create(
     field_errors, parsed_treaty_year, parsed_data_vintage, new_cedant = (
         _validate_submission_form(
             name=name, cedant_id=cedant_id, new_cedant_name=new_cedant_name,
-            cedant_options=_cedant_options(None), treaty_year=treaty_year,
+            treaty_year=treaty_year,
             data_vintage=data_vintage, directory_path=directory_path))
     parsed_client_id, client_error = _validate_client(
         client_id, client_service.list_clients())
@@ -1520,7 +1509,7 @@ def update(
     field_errors, parsed_treaty_year, parsed_data_vintage, new_cedant = (
         _validate_submission_form(
             name=name, cedant_id=cedant_id, new_cedant_name=new_cedant_name,
-            cedant_options=_cedant_options(submission), treaty_year=treaty_year,
+            treaty_year=treaty_year,
             data_vintage=data_vintage, directory_path=directory_path))
     parsed_client_id, client_error = _validate_client(
         client_id, client_service.list_clients())

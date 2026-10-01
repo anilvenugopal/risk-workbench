@@ -46,9 +46,9 @@ def read_cedant_names(path: Path) -> list[str]:
 
 
 def load_cedant_names(conn, names: list[str]) -> int:
-    """Insert each name not already in ``cedant`` (case ignored) as an active
-    cedant on the caller's transaction; return how many were inserted. Never
-    renames or reactivates an existing cedant."""
+    """Insert each name not already in ``cedant`` (case ignored) on the
+    caller's transaction; return how many were inserted. Never renames an
+    existing cedant."""
     existing = {name.lower() for name in conn.execute(
         text("SELECT name FROM cedant")).scalars()}
     now = datetime.now(UTC).replace(tzinfo=None)
@@ -56,6 +56,6 @@ def load_cedant_names(conn, names: list[str]) -> int:
             for name in names if name.lower() not in existing]
     if rows:
         conn.execute(text(
-            "INSERT INTO cedant (id, name, is_active, inserted_at, updated_at) "
-            "VALUES (:id, :name, 1, :now, :now)"), rows)
+            "INSERT INTO cedant (id, name, inserted_at, updated_at) "
+            "VALUES (:id, :name, :now, :now)"), rows)
     return len(rows)
