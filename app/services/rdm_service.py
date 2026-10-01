@@ -13,6 +13,7 @@ from app.services._common import (
     SubmissionRef,
     _attach_submissions,
     _import_entity,
+    _import_progress,
     _mark_error,
     _mark_importing,
     _replace_source_file,
@@ -57,6 +58,8 @@ class RdmRow:
     # Last-synced trust signal (FR-052, spec 004 US3) — stamped by the
     # backfill_rdm_analyses worker when the analysis capture lands.
     as_of: Any = None
+    # populated by ``list_rdms`` and ``get_rdm_detail``
+    import_progress: int | None = None
 
 
 def check_name_collision(name: str) -> CollisionCheck:
@@ -116,6 +119,9 @@ def list_rdms(*, name: str | None = None, status: str | None = None,
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
     _attach_submissions("rdm", result)
+    progress = _import_progress("rdm", [r.id for r in result])
+    for row in result:
+        row.import_progress = progress.get(row.id)
     return result
 
 
@@ -250,6 +256,7 @@ def get_rdm_detail(rdm_id: Any) -> dict | None:
     if rdm is None:
         return None
     _attach_submissions("rdm", [rdm])
+    rdm.import_progress = _import_progress("rdm", [rdm.id]).get(rdm.id)
     sync_status = latest_backfill_status(rdm_id)
     return {"rdm": rdm,
             "analyses": analysis_service.list_broker_analyses(rdm_id=rdm_id),
