@@ -19,6 +19,10 @@ td {
   vertical-align: top;
 }
 
+td code {
+  overflow-wrap: anywhere;
+}
+
 svg.diagram {
   display: block;
   width: 100%;
