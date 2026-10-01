@@ -221,7 +221,7 @@ def execute_analysis_batch(rwb_job_id: str) -> None:
 def _fail_analysis(analysis_id: str, reason: str) -> runtime.JobResult:
     """End the analysis at ``error`` alongside the failed ``rwb_job``. Its
     ``irp_job`` already reads FINISHED, so leaving ``pending`` would keep the EDM
-    page's 3s poll running for a row that is never coming back."""
+    page's poll running for a row that is never coming back."""
     execute_command(
         "UPDATE irp_analysis SET status_code = 'error', failure_reason = :r, "
         "updated_at = :now WHERE id = :id",

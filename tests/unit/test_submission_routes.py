@@ -65,10 +65,12 @@ def client(iteration2_db) -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     templates.env.globals["default_perspective"] = (
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(submissions.router)
@@ -1654,6 +1656,39 @@ def test_results_fragment_status_filter_rides_the_poll_url(client):
     assert "Acme Broker RDM" in html  # broker groups are unaffected by it
     # the default order stays out of the poll URL (note 27 D6)
     assert "sort=" not in html.split("hx-target=\"this\"")[0]
+
+
+def test_results_rows_poll_swaps_rows_or_replaces_the_section(client):
+    submission_id, edm_id, _ = _seed_results_data(client)
+    running = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code) "
+        "VALUES (:id, :edm, 'CRE_Running_v25', 'CRE_Running_v25', 'pending')",
+        {"id": running, "edm": edm_id}, connection="WORKBENCH")
+    html = client.get(f"/submissions/{submission_id}/analyses").text
+    analyses_hash = re.search(r'"hash": "([0-9a-f]+)"', html).group(1)
+    assert f'hx-post="/submissions/{submission_id}/analyses/rows"' in html
+
+    rows = client.post(f"/submissions/{submission_id}/analyses/rows",
+                       data={"hash": analyses_hash, "live": running})
+    assert f'id="analysis-row-{running}" hx-swap-oob="innerHTML"' in rows.text
+    assert rows.text.count("hx-swap-oob=\"innerHTML\"") == 1
+    assert "data-analyses-section" not in rows.text
+
+    replaced = client.post(f"/submissions/{submission_id}/analyses/rows",
+                           data={"hash": "stale", "live": running})
+    assert replaced.headers["HX-Retarget"] == "#submission-analyses"
+    assert replaced.headers["HX-Reswap"] == "outerHTML"
+    assert "data-analyses-section" in replaced.text
+
+
+def test_results_rows_poll_ends_when_the_submission_is_gone(client):
+    response = client.post(f"/submissions/{uuid.uuid4()}/analyses/rows",
+                           data={"hash": "any", "live": ""})
+
+    assert response.headers["HX-Retarget"] == "#submission-analyses"
+    assert "This submission no longer exists." in response.text
+    assert "hx-trigger" not in response.text
 
 
 def test_submission_rdm_lazy_rows_read_merged_columns(client):

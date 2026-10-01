@@ -77,7 +77,7 @@ def _breakout_started(request: Request, edm_id: str, count: int):
     submission id, so a body render drops ``source_submission`` and erases the
     submission breadcrumbs, the EDM picker, and the Broker analyses section
     from the contextual page. The section is also all a breakout changes
-    (T-11), and it comes back with its own ``every 3s`` trigger live because
+    (T-11), and it comes back with its own poll trigger live because
     the enqueue just made ``breakout_running`` true."""
     edm = edm_service.get_edm_detail(edm_id)
     response = _partial(request, "partials/edm_portfolios_live.html",
@@ -97,7 +97,7 @@ def breakout_modal(request: Request, edm_id: str, portfolio_id: str):
     """The preview modal (FR-001/FR-006/FR-007): gate + plan + overlap from the
     stored summary. ``?dimension=`` selects the chooser tab; ``?mode=custom``
     opens the grouping pane (FR-018). Fetched into ``#breakout-modal-mount`` —
-    OUTSIDE the self-polling ``#edm-detail`` wrapper, so the 3-second poll
+    OUTSIDE the self-polling ``#edm-detail`` wrapper, so the poll
     never removes an open modal. GET, no CSRF, no writes, no Risk Modeler call
     (Article 11)."""
     return _modal(request, edm_id, portfolio_id,

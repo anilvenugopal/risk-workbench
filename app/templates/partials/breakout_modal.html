@@ -1,7 +1,7 @@
 {# Breakout modal (spec 005 — FR-001/FR-006/FR-007/FR-006c; custom grouping
    FR-018–021 — preview docs/ui_previews/breakout_modal.html). Fetched into
    #breakout-modal-mount on the EDM detail page — OUTSIDE the self-polling
-   #edm-detail wrapper, so the 3-second poll never removes an open modal
+   #edm-detail wrapper, so the poll never removes an open modal
    (package_modal precedent). The mount carries the hx-on::before-swap handler
    that lets the 404/409 fragments swap in. One stored-summary snapshot per
    render: switching dimension or mode re-fetches this fragment; the confirm

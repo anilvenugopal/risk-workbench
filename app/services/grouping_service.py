@@ -450,7 +450,7 @@ def request_grouping(*, submission_id: Any, submission_name: str,
 
 def grouping_request_is_live(grouping_request_id: Any | None) -> bool:
     """Whether the named ``submit_grouping`` head is still pending/running —
-    keeps the merged grid's 3s poll alive between the compose POST and the
+    keeps the merged grid's poll alive between the compose POST and the
     worker's claim (the group row does not exist yet, so nothing else reads as
     live). The id rides the section's poll URL, exactly as ``execution_id``
     does for the analysis batch."""

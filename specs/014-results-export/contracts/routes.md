@@ -133,7 +133,7 @@ GET /submissions/{submission_id}/exports
 
 Renders `partials/exports_section.html`, loaded into the submission detail
 page below the analyses section (`hx-get` on load, and `hx-trigger="every
-10s"` while any row is not terminal). One `.drow-static` row per analysis of
+{UI_POLL_INTERVAL_SECS}s"` while any row is not terminal). One `.drow-static` row per analysis of
 every export whose `requested_from_submission_id` is this submission (spec
 P-16), newest export first (data-model.md §7 `ExportAnalysisDetail`), in
 column order: export ordinal (`#1` newest), analysis name, origin, status,

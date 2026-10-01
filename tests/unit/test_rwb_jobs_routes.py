@@ -61,6 +61,7 @@ def _make_app(user=None):
     app = FastAPI()
     templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     app.state.templates = templates
 
     app.add_middleware(_InjectUser, user=user or _fake_user())
