@@ -8,12 +8,9 @@ analyst may load and act on any submission (Article 6 / FR-019).
 Service errors are mapped to HTTP here:
   SubmissionClosed / ConcurrencyConflict → 409 banner (input preserved)
   SelfLinkError / UnknownLinkError       → 422
-  duplicate look-alikes (unconfirmed)    → non-blocking dup-warning partial
 
 Field-level validation returns 422 with a ``field_errors`` dict the form renders
-under the offending input, plus a one-line summary banner (CR4). The unconfirmed
-duplicate warning is the one re-render that stays 200: nothing the analyst typed
-is wrong.
+under the offending input, plus a one-line summary banner (CR4).
 """
 
 from __future__ import annotations
@@ -204,12 +201,12 @@ def _error_banner(field_errors: dict[str, str], action: str) -> list[str]:
 def _form_context(
     *, mode: str, form: dict, submission, links_to: str | None = None,
     errors: list[str] | None = None, field_errors: dict[str, str] | None = None,
-    field_owners: dict | None = None, warnings: list | None = None,
+    field_owners: dict | None = None,
 ) -> dict:
-    """The render context for ``pages/submission_form.html``. ``errors``,
-    ``field_errors`` and ``warnings`` are three same-shaped collections the
-    template treats differently, so they are keyword-only. ``field_owners``
-    holds the ``ContractOwner`` a contract row's error links to."""
+    """The render context for ``pages/submission_form.html``. ``errors`` and
+    ``field_errors`` are two same-shaped collections the template treats
+    differently, so they are keyword-only. ``field_owners`` holds the
+    ``ContractOwner`` a contract row's error links to."""
     return {
         "mode": mode,
         "treaty_types": submission_service.treaty_type_kinds(),
@@ -221,7 +218,6 @@ def _form_context(
         "errors": errors or [],
         "field_errors": field_errors or {},
         "field_owners": field_owners or {},
-        "warnings": warnings or [],
         "min_suggest_term": submission_service.MIN_SUGGEST_TERM,
         "min_treaty_year": MIN_TREATY_YEAR,
         "max_treaty_year": MAX_TREATY_YEAR,
@@ -231,14 +227,13 @@ def _form_context(
 def _reshow_form(
     request: Request, *, mode: str, nav_key: str, form: dict, submission,
     links_to: str | None, errors=None, field_errors=None, field_owners=None,
-    warnings=None, status_code: int = 200,
+    status_code: int = 200,
 ):
     return _render(
         request, "pages/submission_form.html", nav_key,
         _form_context(mode=mode, form=form, submission=submission,
                       links_to=links_to, errors=errors,
-                      field_errors=field_errors, field_owners=field_owners,
-                      warnings=warnings),
+                      field_errors=field_errors, field_owners=field_owners),
         status_code=status_code)
 
 
@@ -1195,7 +1190,6 @@ def create(
     contract_inception: Annotated[list[str], Form()] = [],
     contract_expiration: Annotated[list[str], Form()] = [],
     contract_status: Annotated[list[str], Form()] = [],
-    confirmed: str = Form(""),
     csrf_token: str = Form(...),
 ):
     if not validate_csrf_token(csrf_token):
@@ -1229,14 +1223,14 @@ def create(
                        field_errors=field_errors, status_code=422)
 
     try:
-        result = submission_service.create_submission(
+        submission_id = submission_service.create_submission(
             name=name.strip(), cedant_name=cedant_name.strip(),
             client_id=parsed_client_id, data_vintage=parsed_data_vintage,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
             contracts=[_contract_input(row) for row in contract_rows],
             links_to_submission_id=links_to,
-            actor_id=request.state.user.id, confirmed=(confirmed == "1"),
+            actor_id=request.state.user.id,
         )
     except ContractInvalid as exc:
         # The message sits under the row it names (US1 acceptance 3).
@@ -1248,12 +1242,7 @@ def create(
     except UnknownLinkError:
         return _reshow(field_errors={
             "links_to_submission_id": _UNKNOWN_LINK_MESSAGE}, status_code=422)
-    if not result.created:
-        # Non-blocking look-alike warning (FR-004): re-render form + dup list.
-        # 200, not 422 — nothing the analyst typed is wrong, and "create anyway"
-        # is one click away.
-        return _reshow(warnings=result.warnings)
-    return RedirectResponse(f"/submissions/{result.submission_id}", status_code=303)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 
 # ── Detail ─────────────────────────────────────────────────────────────────────
@@ -1495,7 +1484,6 @@ def update(
     directory_path: str = Form(""),
     links_to_submission_id: str = Form(""),
     updated_at: str = Form(...),
-    confirmed: str = Form(""),
     csrf_token: str = Form(...),
 ):
     if not validate_csrf_token(csrf_token):
@@ -1529,9 +1517,9 @@ def update(
                        field_errors=field_errors, status_code=422)
 
     try:
-        result = submission_service.update_submission(
+        submission_service.update_submission(
             submission_id=submission_id, expected_updated_at=updated_at,
-            actor_id=request.state.user.id, confirmed=(confirmed == "1"),
+            actor_id=request.state.user.id,
             name=name.strip(), cedant_name=cedant_name.strip(),
             client_id=parsed_client_id, data_vintage=parsed_data_vintage,
             treaty_year=parsed_treaty_year,
@@ -1552,9 +1540,6 @@ def update(
         return _reshow(
             errors=["This deal changed since you opened it — reload and re-apply."],
             status_code=409)
-
-    if not result.updated:
-        return _reshow(warnings=result.warnings)  # non-blocking dup warning
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 

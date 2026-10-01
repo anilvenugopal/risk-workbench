@@ -221,17 +221,17 @@ def main(argv: list[str] | None = None) -> int:
         owners = _analyst_ids()
         for plan in plans:
             actor = owners[plan.owner_index]
-            result = submission_service.create_submission(
+            submission_id = submission_service.create_submission(
                 name=plan.name, cedant_name=plan.cedant_name,
                 treaty_year=plan.treaty_year, client_id=plan.client_id,
                 data_vintage=plan.data_vintage, contracts=plan.contracts,
-                actor_id=actor, confirmed=True,
+                actor_id=actor,
             )
             contracts_written += len(plan.contracts)
             if plan.modeling_status != submission_service.ACTIVE:
-                submission = submission_service.get_submission(result.submission_id)
+                submission = submission_service.get_submission(submission_id)
                 submission_service.set_status(
-                    submission_id=result.submission_id,
+                    submission_id=submission_id,
                     modeling_status=plan.modeling_status, reason="Demo data",
                     expected_updated_at=submission.updated_at, actor_id=actor,
                 )

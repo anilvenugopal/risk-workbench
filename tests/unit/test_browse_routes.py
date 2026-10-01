@@ -110,5 +110,4 @@ def _submission(directory_path: str | None, iteration1_db) -> str:
     from app.services import submission_service
     return submission_service.create_submission(
         name="TY2604_Zephyr", cedant_name="Zephyr Mutual",
-        directory_path=directory_path, data_vintage="2026-06-30", actor_id=iteration1_db.user_a,
-        confirmed=True).submission_id
+        directory_path=directory_path, data_vintage="2026-06-30", actor_id=iteration1_db.user_a)
