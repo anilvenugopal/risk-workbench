@@ -1,11 +1,11 @@
-"""Submissions reference a cedant from an admin-maintained list (issue 129).
+"""Submissions reference a cedant from a shared list (issue 129).
 
 Revision ID: 0003
 Revises: 0002
 Create Date: 2026-09-30
 
 The backfill creates one cedant per distinct submission.cedant_name. Spelling
-variants stay separate cedants; an admin deactivates the unwanted one.
+variants stay separate cedants; an analyst deactivates the unwanted one.
 """
 
 from __future__ import annotations

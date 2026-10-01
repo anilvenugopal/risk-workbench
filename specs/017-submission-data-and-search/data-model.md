@@ -14,7 +14,7 @@ references: [plan.md](plan.md) T-01 … T-14.
 | Modeling status | `submission.status_code` → `submission_status_kind`; history in `submission_status_event` | `ACTIVE`, `COMPLETED`, `CANCELLED` (unchanged) |
 | Contract status | `contract.contract_status_code` → `contract_status_kind` | `WON`, `LOST`, `OPEN` |
 | Contract, CRM ID | `contract` (one row per CRM ID) | |
-| Cedant | `submission.cedant_id` → `cedant.name` | picked from the admin-maintained cedant list (issue #129) |
+| Cedant | `submission.cedant_id` → `cedant.name` | picked from the shared cedant list (issue #129) |
 | Client ID | `submission.client_id` | `dbo.Client.ClientID` in `rwb_loss`; no FK |
 | Data vintage | `submission.data_vintage` | date, required |
 | Cedant (treaty grid column) | `irp_treaty.attributes` → `cedant` | Risk Modeler's treaty attribute (unchanged) |

@@ -38,7 +38,7 @@ Derived from **DATA_MODEL.md §4–§5** (the schema source of truth) and constr
 | `id` | Uuid | PK | app-generated `uuid4()` |
 | `assigned_analyst_id` | Uuid | not null | FK → `app_user.id`; **soft owner** (drives "My Submissions" only — never an access gate, Article 6 / FR-005/FR-019) |
 | `name` | NVARCHAR(255) | not null | naming-convention label, e.g. `TY2604_AmericanFamily`; **NOT unique** (FR-002/FR-003) — `id` is the key |
-| `cedant_id` | UNIQUEIDENTIFIER | not null, FK → `cedant.id` | picked from the admin-maintained cedant list (FR-006, issue #129) |
+| `cedant_id` | UNIQUEIDENTIFIER | not null, FK → `cedant.id` | picked from, or added to, the shared cedant list (FR-006, issue #129) |
 | `treaty_type_code` | NVARCHAR(50) | not null | FK → `treaty_type_kind.code` (FR-008) |
 | `inception_date` | DATE | not null | primary filter (FR-021) |
 | `treaty_year` | INT | null | parsed from `TY{yy}`; renewal-year grouping (R10) |

@@ -232,11 +232,11 @@ IDE-style, three zones:
 | Rail item | Sidebar children |
 |---|---|
 | Home (dashboard) | — |
-| Submissions | List |
+| Submissions | List, Cedants |
 | Jobs | IRP Jobs, RWB Jobs, Exceptions |
 | Results | Results, Loss Repository |
 | Moody's IRP | Sync Metadata, EDM Library, RDM Library |
-| Administration | Users, Cedants, Settings |
+| Administration | Users, Settings |
 
 ### 4.6 Icons
 
@@ -442,7 +442,7 @@ Ownership is a plain list filter: `WHERE assigned_analyst_id = current_user.id`.
 
 ### 6.3 Admin maintenance
 
-Admin rail destination maintains users, role assignments and the cedant list (there is no customer-access grant to manage). Building it early makes role-gating testable end-to-end immediately.
+Admin rail destination maintains users and role assignments (there is no customer-access grant to manage). The cedant list is not an admin function: every analyst maintains it (§7.2). Building it early makes role-gating testable end-to-end immediately.
 
 ---
 
@@ -456,7 +456,7 @@ Admin rail destination maintains users, role assignments and the cedant list (th
 
 The analyst's unit of work. Fields (schema: DATA_MODEL.md §4):
 - `id` (surrogate UUID — the real key), `name` — the naming-convention label (e.g. `TY2604_AmericanFamily`), a human label that is **not unique** (§7.2b)
-- `cedant_id` — FK to the admin-maintained `cedant` list, primary filter; the form picks from the active cedants, so one cedant has one spelling and a rename shows on every submission (issue #129, reversing CR-003 O3). A cedant is not an access scope (§6)
+- `cedant_id` — FK to the shared `cedant` list, primary filter; the form picks from the active cedants, so one cedant has one spelling and a rename shows on every submission (issue #129, reversing CR-003 O3). A name that matches no cedant can be added from the form, and the cedant is written only when the submission saves. Any analyst maintains the list at `/cedants`. A cedant is not an access scope (§6)
 - `client_id` — nullable; CIC's repository client (`rwb_loss` `dbo.Client`, no FK across databases), shown as "ID - name" (spec 017 P-04, P-05)
 - `data_vintage` — required; the in-force as-of date of the EDM data, one per submission by convention, shown on the deal card; the export form's own data vintage starts empty (spec 017 P-19, note 32 D23, note 35 D13)
 - `treaty_year` — nullable; entered by hand, nothing fills a blank one (spec 017 P-20, note 33 D8), for renewal-year grouping
@@ -1558,7 +1558,7 @@ touched.
 
 ### Locked decisions
 
-- **2026-09-30 — Cedant list (issue #129).** The cedant becomes an admin-maintained `cedant` table that `submission.cedant_id` references, reversing CR-003 O3. Free text let one cedant collect several spellings. Names are unique case-insensitively; cedants are deactivated, never deleted; Edit keeps a submission's inactive cedant. Admins maintain the list at `/admin/cedants`. §6.3, §7.2, DATA_MODEL §4.
+- **2026-09-30 — Cedant list (issue #129).** The cedant becomes a shared `cedant` table that `submission.cedant_id` references, reversing CR-003 O3. Free text let one cedant collect several spellings. Names are unique case-insensitively; cedants are deactivated, never deleted; Edit keeps a submission's inactive cedant. Any analyst maintains the list at `/cedants` (Submissions sidebar) and can add a cedant from the submission form, written when the submission saves. §4.5, §6.3, §7.2, DATA_MODEL §4.
 - **2026-09-29 — Migration files from now on.** The spec 017 merge froze `alembic/versions/0001_initial.py` as the base revision. Every later `WORKBENCH` schema change is a new Alembic revision applied with `alembic upgrade head` (§21.0). The Rebuild / Refresh / Skip prompt is retired; `make db-rebuild` remains a dev-only reset that replays every revision.
 - **2026-08-28 — Design session 22: viewing/comparison signed off; the grouping defect; the client table reverses to read-only; Parquet replaces the paginated API; event type via reference data APIs.**
   - **Viewing and comparison signed off (D1–D9)** — the first client acceptance of the results layer; one change request (right-justify return periods, D5). RL + OEP defaults, uncapped viewing, 5-pair comparison cap, selection-order base, cross-currency block, clipboard in ones at full precision — all confirmed. Closes 19 O19-8/O19-9; confirms 20 O20-6/O20-8 (§16.2, FR §7).

@@ -44,7 +44,7 @@ An analyst receives a new broker submission and records it in the workbench as a
 1. **Given** an authenticated analyst, **When** they create a submission with a name, cedant, treaty type, and inception date, **Then** the submission is saved, assigned to that analyst as owner, given a status of ACTIVE, and shown on its detail view with the entered attributes.
 2. **Given** a new submission form, **When** the analyst leaves treaty year, directory path, and renewal link blank, **Then** the submission is still created (those fields are optional).
 3. **Given** an existing submission, **When** the analyst sets a renewal link to the expiring submission, **Then** the link is stored and the expiring submission is identified on the detail view.
-4. **Given** the analyst is filling in the cedant, **When** they type part of a name, **Then** the field narrows the admin-maintained list of active cedants and the analyst picks one; a name that is not on the list cannot be saved (issue #129).
+4. **Given** the analyst is filling in the cedant, **When** they type part of a name, **Then** the field narrows the shared list of active cedants and the analyst picks one; a name that matches none can be added from the field, and the cedant is written only when the submission saves (issue #129).
 
 ---
 
@@ -156,7 +156,7 @@ The system can represent a **package**: a bundle of one or more EDM and/or RDM m
 - **FR-004**: On create or rename, the system MUST perform a **non-blocking** "a similar deal already exists" check — triggered when another submission shares the same **name**, **or** the same combination of **cedant + treaty type + inception date** — and warn the analyst, while always allowing them to proceed.
 - **FR-005**: The system MUST record the creating analyst as the submission's owner (a soft owner for filtering only — see FR-020).
 - **FR-005a**: The system MUST allow any analyst to reassign a submission's owner after creation (a deal handoff). Reassignment changes only which analyst's "My Submissions" view the deal appears in; it never changes who may view or act on it.
-- **FR-006**: The system MUST make the analyst pick the cedant from the admin-maintained `cedant` list with a keyboard-navigable typeahead that matches anywhere in the name. Create offers the active cedants; Edit also offers the submission's own cedant when it is inactive. The submission stores the cedant's id, so a rename shows on every submission (issue #129).
+- **FR-006**: The system MUST make the analyst pick the cedant from the shared `cedant` list with a keyboard-navigable typeahead that matches anywhere in the name. Create offers the active cedants; Edit also offers the submission's own cedant when it is inactive. A typed name that matches no cedant offers "Add cedant", and one matching an inactive cedant offers "Reactivate"; either is written in the same transaction as the submission. The submission stores the cedant's id, so a rename shows on every submission (issue #129).
 - **FR-007**: The system MUST allow a submission to link to another submission ("links to", CR8 — a related deal, not necessarily a renewal), MUST let the analyst pick that submission by name rather than by id, and MUST prevent a submission from linking to itself.
 - **FR-008**: The system MUST treat treaty type as a controlled value drawn from a maintained list of treaty-type kinds (see FR-030).
 - **FR-009**: The system MUST present submissions in a master-detail layout: a filterable list plus a detail view showing the submission's attributes.
