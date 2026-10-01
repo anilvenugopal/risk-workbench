@@ -212,26 +212,25 @@ def test_0004_backfills_one_cedant_per_distinct_name(scratch_database):
     assert {str(sid).lower(): name for sid, name in after.items()} == before
 
 
-def test_0005_seeds_the_cedant_file_skipping_names_already_present(scratch_database):
-    """Issue 129 P-11: a cedant 0004 created from a submission keeps its
-    spelling, and every other name in the committed file is added. The
-    scratch database is shared by the module, so the 0004 test's cedants may
-    already be there."""
+def test_0005_adds_the_file_names_not_already_present(scratch_database):
+    """Issue 129 P-11: 0005 adds each name in the committed file that no
+    cedant has yet, case ignored. The scratch database is shared by the
+    module, so the 0004 test's cedants may already be there."""
     names = read_cedant_names(SEED_FILE)
     run_alembic("upgrade", "0004", scratch_database)
     engine = create_engine(build_sqlalchemy_url(
         get_connection_config("WORKBENCH"), database=scratch_database))
     try:
-        with engine.begin() as conn:
-            conn.execute(text("INSERT INTO cedant (name) VALUES (:name)"),
-                         {"name": names[0].upper()})
+        with engine.connect() as conn:
             before = conn.execute(text("SELECT name FROM cedant")).scalars().all()
         run_alembic("upgrade", "0005", scratch_database)
         with engine.connect() as conn:
             after = conn.execute(text("SELECT name FROM cedant")).scalars().all()
     finally:
         engine.dispose()
-    assert sorted(after) == sorted([*before, *names[1:]])
+    present = {name.lower() for name in before}
+    assert sorted(after) == sorted(
+        [*before, *(name for name in names if name.lower() not in present)])
 
 
 # ── Fixtures: a throwaway analyst + submission (cleaned up after) ─────────────

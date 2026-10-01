@@ -121,7 +121,9 @@ verifies `pyodbc` can see `ODBC Driver 18 for SQL Server` and that
 `app.config` imports cleanly.
 
 Revision `0005` loads the cedant list from `db/bootstrap/seed/cedants.xlsx`
-once. When the client sends a new list, replace that file and run
+once. The committed file holds only its `Cedant` header until the client's
+list arrives, so `0005` adds no cedants. When the client sends a list, replace
+that file and run
 `cd /rms && .venv/bin/python infra/scripts/load_cedants.py`; it adds only the
 names not already in the `cedant` table.
 
