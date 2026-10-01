@@ -103,17 +103,17 @@
 <ol>
 <li>A route, a worker, or the poller inserts it as <code>pending</code> and sends a Dramatiq message.</li>
 <li>A worker claims it with <code>UPDATE ... SET status_code='running' WHERE status_code='pending'</code> and stamps <code>claimed_by</code> with <code>hostname:pid</code>.</li>
-<li>While the job runs, a thread writes <code>rwb_job_heartbeat.heartbeat_at</code> every <code>RWB_HEARTBEAT_INTERVAL_SECS</code> (default 30).</li>
+<li>While the job runs, a thread writes <code>rwb_job_heartbeat.heartbeat_at</code> every <code>RWB_HEARTBEAT_INTERVAL_SECS</code>.</li>
 <li>The worker sets <code>succeeded</code> or <code>failed</code>, with <code>error_detail</code> on failure. Dramatiq never retries an actor (<code>max_retries=0</code>).</li>
 </ol>
 
-<p>Each poller pass, every <code>POLL_INTERVAL_SECS</code> (default 15), runs five steps in order:</p>
+<p>Each poller pass, every <code>POLL_INTERVAL_SECS</code>, runs five steps in order. The defaults of every setting named here are on <a href="07-configuration-and-observability.html#env-reference">page 7</a>.</p>
 <ol>
 <li>For each in-flight <code>irp_job</code>, one status call to Risk Modeler. On a terminal status it updates the entity and enqueues the next <code>rwb_job</code> (for example <code>finalize_analysis</code> after an analysis, <code>stage_results_export</code> after an export).</li>
-<li>Reconciler: resets <code>running</code> rows whose heartbeat is older than <code>RWB_HEARTBEAT_STALE_SECS</code> (default 120) back to <code>pending</code>.</li>
+<li>Reconciler: resets <code>running</code> rows whose heartbeat is older than <code>RWB_HEARTBEAT_STALE_SECS</code> back to <code>pending</code>.</li>
 <li>Sends a Dramatiq message for every <code>pending</code> row, which recovers a lost message.</li>
-<li>Returns <code>SUBMISSION RETRYING</code> rows untouched for <code>IRP_SUBMISSION_RETRY_STALE_SECS</code> (default 300) to <code>SUBMISSION FAILED</code>.</li>
-<li>Submission retry: resubmits the newest <code>SUBMISSION FAILED</code> analysis job of each analysis, after <code>IRP_SUBMISSION_RETRY_BASE_SECS × 2<sup>attempts</sup></code> seconds, up to <code>IRP_SUBMISSION_MAX_RETRIES</code> attempts (defaults 60 and 3). Only <code>analysis</code> jobs are retried. When attempts run out, the analysis is set to <code>error</code>.</li>
+<li>Returns <code>SUBMISSION RETRYING</code> rows untouched for <code>IRP_SUBMISSION_RETRY_STALE_SECS</code> to <code>SUBMISSION FAILED</code>.</li>
+<li>Submission retry: resubmits the newest <code>SUBMISSION FAILED</code> analysis job of each analysis, after <code>IRP_SUBMISSION_RETRY_BASE_SECS × 2<sup>attempts</sup></code> seconds, up to <code>IRP_SUBMISSION_MAX_RETRIES</code> attempts. Only <code>analysis</code> jobs are retried. When attempts run out, the analysis is set to <code>error</code>.</li>
 </ol>
 
 <p>A job that looks stuck is one of three cases:</p>

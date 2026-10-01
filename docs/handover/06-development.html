@@ -23,8 +23,9 @@
 <tr><td>Start</td><td><code>make start</code>, then open <code>http://localhost</code></td><td><code>make wsl-start</code>, then <code>make wsl-app</code>, <code>make wsl-workers</code>, <code>make wsl-poller</code>; open <code>http://localhost:8000</code></td></tr>
 <tr><td>First time</td>After the stack is up: in <code>make shell</code>, <code>python scripts/bootstrap_db.py</code>; then <code>make db-migrate</code>; then in <code>make shell</code>, <code>python scripts/seed_db.py</code> and <code>python scripts/bootstrap_loss.py</code> (see the warning below)<td>Install uv, ODBC Driver 18, and Redis, then <code>make wsl-setup</code>, <code>make wsl-db-seed</code>, <code>make wsl-bootstrap-loss</code></td></tr>
 <tr><td>How the database host is set</td><td><code>MSSQL_*_SERVER=sqlserver</code> from <code>infra/.env</code></td><td><code>infra/scripts/wsl-env.sh</code> overrides the three servers to <code>localhost</code>; leave <code>infra/.env</code> unchanged</td></tr>
-<tr><td>Logs</td><td>Inside the container: <code>/workspace/.dev-logs/</code>; uvicorn to <code>make logs</code></td><td><code>.dev-logs/</code> in the repo; Redis to <code>/tmp/rwb-redis.log</code></td></tr>
 </table>
+
+<p>Where each process logs in each setup is on <a href="07-configuration-and-observability.html#logging">page 7</a>.</p>
 
 <p>Step-by-step setup is in <a href="../SCAFFOLDING.md">docs/SCAFFOLDING.md</a> (WSL2) and <a href="../DEVELOPER_PLAYBOOK.md">docs/DEVELOPER_PLAYBOOK.md</a> (Docker, VS Code, and debugging). To debug with breakpoints in Docker, set <code>APP_DEBUG=1</code> in <code>infra/.env</code> and run <code>make start</code>; uvicorn then waits for a debugger on port 5678.</p>
 
@@ -81,7 +82,7 @@
 <ul>
 <li>Python 3.12 or later (<code>requires-python</code> in <code>pyproject.toml</code>). The Docker image uses Python 3.12 on Debian 12 with ODBC Driver 18.</li>
 <li><code>pyproject.toml</code> lists the runtime packages. Dependency groups add <code>dev</code> (pytest, pytest-asyncio, pytest-cov, httpx, ruff, debugpy) and one group per irp-integration source (<code>irp-pypi</code>, <code>irp-testpypi</code>, <code>irp-local</code>). <code>default-groups</code> selects <code>dev</code> and <code>irp-pypi</code>.</li>
-<li><code>uv.lock</code> pins every resolved version. Install with <code>uv sync</code>; CI uses <code>uv sync --frozen</code>.</li>
+<li><code>uv.lock</code> pins every resolved version. Install with <code>uv sync</code>.</li>
 <li>Upgrade one package at a time with <code>uv sync --upgrade-package &lt;name&gt;</code>.</li>
 <li>uv is a developer tool only. The RHEL9 server has no uv.</li>
 </ul>

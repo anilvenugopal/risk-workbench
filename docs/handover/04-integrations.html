@@ -113,7 +113,7 @@
 <ul>
 <li>The <code>rwb_session</code> cookie holds only a random 64-character session id.</li>
 <li>The session itself is a <code>user_session</code> row.</li>
-<li>Sessions expire after <code>SESSION_IDLE_TIMEOUT_HOURS</code> idle (default 8) or <code>SESSION_ABSOLUTE_TIMEOUT_HOURS</code> in total (default 24).</li>
+<li>Sessions expire after <code>SESSION_IDLE_TIMEOUT_HOURS</code> idle or <code>SESSION_ABSOLUTE_TIMEOUT_HOURS</code> in total (<a href="07-configuration-and-observability.html#settings-env">page 7</a>).</li>
 <li>Roles and <code>is_active</code> are read from the database on every request.</li>
 <li>Every state-changing form carries a <code>csrf_token</code> signed with <code>SESSION_SECRET_KEY</code>.</li>
 </ul>
@@ -134,7 +134,7 @@
 <ul>
 <li><code>app/notifications/email_sender.py</code> can send an HTML email through Microsoft Graph as <code>MAIL_SENDER_ADDRESS</code>, using its own Entra app registration (<code>MAIL_TENANT_ID</code>, <code>MAIL_CLIENT_ID</code>, <code>MAIL_CLIENT_SECRET</code>).</li>
 <li>No worker, poller, or route calls it. The only caller is <code>infra/scripts/mail_smoke_test.py</code>, which sends one test email.</li>
-<li>There is no Teams, SMTP, or desktop notification code. <code>NOTIFY_CHANNELS</code>, <code>NOTIFY_EMAIL_TO</code>, <code>TEAMS_WEBHOOK_URL</code>, and the <code>SMTP_*</code> keys in <code>infra/.env.example</code> are read by no code.</li>
+<li>There is no Teams, SMTP, or desktop notification code. The notification keys in <code>infra/.env.example</code> do nothing; they are listed on <a href="07-configuration-and-observability.html#settings-env">page 7</a>.</li>
 </ul>
 
 <p>Mailbox and Graph setup, and the planned call sites, are in <a href="../EMAIL_NOTIFICATIONS.md">docs/EMAIL_NOTIFICATIONS.md</a>.</p>

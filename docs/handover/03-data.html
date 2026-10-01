@@ -91,7 +91,7 @@
 <tr><td><code>from db.scripts import execute_script_file</code></td><td>The trusted-script path: substitutes <code>{{ param }}</code> into the SQL text, splits on <code>GO</code>, and returns DataFrames. It is not exported from <code>db</code>, so every use is an explicit import. The only caller is <code>infra/scripts/bootstrap_loss.py</code>.</td></tr>
 </table>
 
-<p>All connections share one pool setting: <code>MSSQL_POOL_SIZE</code> (default 5), <code>MSSQL_POOL_MAX_OVERFLOW</code> (default 5), <code>MSSQL_POOL_TIMEOUT</code> (default 30), and <code>MSSQL_POOL_RECYCLE</code> (default 1800 seconds), read in <code>db/connection.py</code>.</p>
+<p>All connections share one pool setting, <code>MSSQL_POOL_SIZE</code> and its siblings, read in <code>db/connection.py</code>; there are no per-connection pool settings. Defaults are on <a href="07-configuration-and-observability.html#env-reference">page 7</a>.</p>
 
 <h2 id="migrations">Migrations</h2>
 

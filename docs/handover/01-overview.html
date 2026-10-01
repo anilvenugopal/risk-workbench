@@ -21,8 +21,6 @@
 <li><code>admin</code>: everything an analyst can do, plus user administration and creating, editing, and deleting analysis templates and template suites.</li>
 </ul>
 
-<p>Every authenticated user sees every submission. There is no row-level security.</p>
-
 <p>The round trip for one submission:</p>
 <table>
 <tr><th>Step</th><th>What the analyst does</th><th>What the Workbench does</th></tr>
@@ -53,7 +51,7 @@
 <tr><td>GeoHaz</td><td>Hazard lookup on a portfolio. It is optional and does not re-geocode. Every launch sends the hazard data version in <code>HAZARD_DATA_VERSION</code>.</td><td><code>irp_job</code> with type <code>geohaz</code></td></tr>
 <tr><td>Treaty / TY</td><td>A treaty is a reinsurance treaty stored in an EDM. TY is the treaty-level export: one loaded data set per treaty. TY is an output level, not a financial perspective.</td><td><code>irp_treaty</code>; <code>TY</code> in <code>app/config.py</code></td></tr>
 <tr><td>Event rate scheme</td><td>A Risk Modeler set of event rates that an analysis uses. Required for DLM model profiles, optional for HD. Templates reference it by its Risk Modeler id, because scheme names repeat across peril and region.</td><td><code>irp_event_rate_scheme</code>; <code>analysis_template.event_rate_scheme_irp_id</code></td></tr>
-<tr><td>Export</td><td>Loading the event loss table of one or more finished analyses, at one perspective (GU, GR, RL, RP, or TY), into CIC's loss repository.</td><td><code>stage.rwb_loss_result_manifest</code> in the loss database</td></tr>
+<tr><td>Export</td><td>Loading the event loss table of one or more finished analyses, at one perspective (for example GU, gross, or TY), into CIC's loss repository.</td><td><code>stage.rwb_loss_result_manifest</code> in the loss database</td></tr>
 <tr><td>Loss repository</td><td>CIC's SQL Server database of loss sets, <code>CRE_Trial_ELT_Repository</code>. The Workbench writes to it only through its own <code>stage</code> schema. The dev copy is <code>rwb_loss</code>.</td><td>See <a href="03-data.html#databases">page 3</a></td></tr>
 </table>
 

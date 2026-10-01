@@ -70,7 +70,7 @@
 <li>The SQL Server tier fails from a Windows host shell even when SQL Server is up, because the ODBC driver and <code>MSSQL_*</code> variables live in <code>linux-box</code> or the WSL2 shell. If <code>tests/sqlserver/test_connectivity.py</code> fails, the environment is wrong, not the code.</li>
 </ul>
 
-<p>Unit tests use SQLite. The <code>iteration1_db</code> and <code>iteration2_db</code> fixtures in <code>tests/conftest.py</code> build the schema from <code>tests/iteration1_mirror.py</code> in memory, seed the kind tables, and call <code>register_engine("WORKBENCH", engine)</code>. The <code>loss_db</code> fixture does the same for <code>LOSS</code> from <code>tests/loss_mirror.py</code>. No unit test needs Redis or Risk Modeler: the Dramatiq sender is not wired, and the gateway is replaced with a fake.</p>
+<p>Unit tests use SQLite. The <code>iteration1_db</code> and <code>iteration2_db</code> fixtures in <code>tests/conftest.py</code> build the schema from <code>tests/iteration1_mirror.py</code> in memory, seed the kind tables, and call <code>register_engine("WORKBENCH", engine)</code>. The <code>loss_db</code> fixture does the same for <code>LOSS</code> from <code>tests/loss_mirror.py</code>. No unit test needs Redis or Risk Modeler: no Dramatiq sender is configured, and the gateway is replaced with a fake.</p>
 
 <p><code>tests/unit/test_architecture_guards.py</code> enforces several constitution rules by reading the source: no <code>poll_*_to_completion</code> calls, no gateway calls from routers, no DATABRIDGE read on the request path, and SQL only through <code>db/</code> in the export modules.</p>
 
@@ -92,7 +92,6 @@
 <li>Comments explain constraints the code cannot show. They do not narrate the code or record its history; history goes in the feature's <code>research.md</code>.</li>
 <li>Write plainly: name the real table, route, or file; lead with the answer; keep descriptions proportional to the change. The section lists banned words.</li>
 <li>Commit subjects are at most 72 characters; the body says why. No AI attribution lines in commits or pull requests.</li>
-<li>Every <code>rwb_workbench</code> schema change is a new Alembic revision. Never edit <code>0001_initial.py</code>.</li>
 <li>Do not start, stop, or rebuild the developer's containers from an agent.</li>
 <li>Show a rendered HTML preview before building a screen with new layout, and build one user story at a time. See <a href="06-development.html#ui-workflow">page 6</a>.</li>
 </ul>
