@@ -23,7 +23,7 @@
 <tr><td><code>DATABRIDGE</code></td><td>Moody's DataBridge SQL Server</td><td>The EDM databases Risk Modeler hosts.</td><td>Moody's. The Workbench never runs DDL against it.</td><td>Only through irp-integration. See <a href="04-integrations.html#databridge">page 4</a>.</td></tr>
 </table>
 
-<p>In dev, all three app databases are on the one <code>sqlserver</code> container. At CIC, the Workbench database will sit on the same SQL Server as the loss repository (open item O-05 in <a href="../../specs/014-results-export/plan.md">specs/014-results-export/plan.md</a>). The export writes <code>MSSQL_WORKBENCH_DATABASE</code> into <code>dbo.Data.Database</code>, so the name must be final before the first production export.</p>
+<p>In dev, all three app databases are on the one <code>sqlserver</code> container. At CIC, the Workbench database will sit on the same SQL Server as the loss repository (O-05 in <a href="../../specs/014-results-export/plan.md">specs/014-results-export/plan.md</a>). The export writes <code>MSSQL_WORKBENCH_DATABASE</code> into <code>dbo.Data.Database</code>, so the name must be final before the first production export.</p>
 
 <p>To confirm: the name of the Workbench database at CIC, and whether an <code>EXPOSURE</code> database is created there at all.</p>
 
