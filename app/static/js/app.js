@@ -227,7 +227,6 @@ document.addEventListener('alpine:init', () => {
     onCheckError(e) {
       if (ncFailOpen(e)) this.onSwap();
     },
-    // The submission's Add EDM/RDM modal stays open after an import (#131).
     onImported() {
       const name = this.$refs.name;
       this.queued = name.value.trim();
