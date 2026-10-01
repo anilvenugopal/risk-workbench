@@ -54,7 +54,7 @@
 <text x="800" y="180">poller</text>
 <text x="155" y="395">CIC SQL Server</text>
 <text x="155" y="415" font-size="12">Workbench database</text>
-<text x="155" y="433" font-size="12" font-family="monospace">CRE_Trial_ELT_Repository</text>
+<text x="155" y="433" font-size="12"><tspan font-family="monospace">CRE_Trial_ELT_Repository</tspan> (trial)</text>
 <text x="450" y="395">Moody's Risk Modeler</text>
 <text x="450" y="415" font-size="12">API (HTTPS) and</text>
 <text x="450" y="433" font-size="12">DATABRIDGE (SQL)</text>
@@ -72,18 +72,20 @@
 
 <table>
 <tr><th>Component</th><th>Where the repo puts it</th><th>To confirm</th></tr>
-<tr><td>nginx</td><td>The app server, as a systemd service owned by infra. The app's server block is <code>/etc/nginx/conf.d/risk-workbench.conf</code>, written from <code>deploy/nginx/site.conf</code>.</td><td>The server's hostname and the URL analysts use. Whether HTTPS ends at nginx or a load balancer; <code>site.conf</code> listens on port 80 only.</td></tr>
+<tr><td>nginx</td><td>The app server, as a systemd service owned by infra. The app's server block is <code>/etc/nginx/conf.d/risk-workbench.conf</code>, written from <code>deploy/nginx/site.conf</code>. In the deployed environment the app cannot be reached through nginx on port 80 (B1 on <a href="09-path-to-production.html#blockers">page 9</a>).</td><td>The server's hostname and the URL analysts use. Whether HTTPS ends at nginx or a load balancer; <code>site.conf</code> listens on port 80 only.</td></tr>
 <tr><td>uvicorn, Valkey, workers, poller</td><td>The same server, started with <code>nohup</code> by <code>infra/scripts/rhel9/rhel9-start.sh</code> as the deployment account. There are no systemd units for them.</td><td>Whether all run on one server, and the service account they run as.</td></tr>
 <tr><td>Python</td><td>Python 3.14 from RHEL9 AppStream (<code>PYTHON_PKG</code> and <code>PYTHON_BIN</code> default to <code>python3.14</code>), with a <code>.venv</code> in the app directory. Docker dev and CI use Python 3.12.</td><td></td></tr>
-<tr><td>Workbench database and loss repository</td><td>One CIC SQL Server holds both (spec 014 open item O-05). The connection is set in <code>infra/.env</code>.</td><td>The SQL Server hostname, the Workbench database name, and the logins.</td></tr>
+<tr><td>Workbench database and loss repository</td><td>One CIC SQL Server holds both (spec 014 open item O-05). The connection is set in <code>infra/.env</code>. The <code>LOSS</code> connection points at <code>CRE_Trial_ELT_Repository</code>, a trial repository (B5 on <a href="09-path-to-production.html#blockers">page 9</a>).</td><td>The SQL Server hostname, the Workbench database name, the production loss repository, and the logins.</td></tr>
 <tr><td><code>EXPOSURE</code> database</td><td>See <a href="03-data.html#databases">page 3</a>.</td><td>Whether it is created at CIC.</td></tr>
-<tr><td>Shared drives</td><td>Mounted on the app server at the paths in <code>SHARED_DRIVE_ROOT</code> and <code>EXPORT_ARCHIVE_DIR</code>. The cron example in <code>sweep-export-archives.sh</code> uses <code>/mnt/lossshare/export_archive</code>.</td><td>The real mount points.</td></tr>
+<tr><td>Shared drives</td><td>Mounted on the app server at the paths in <code>SHARED_DRIVE_ROOT</code> and <code>EXPORT_ARCHIVE_DIR</code>. The shared drive is mounted at <code>/Workbench</code> today; a higher-level directory is wanted (B4 on <a href="09-path-to-production.html#blockers">page 9</a>). The cron example in <code>sweep-export-archives.sh</code> uses <code>/mnt/lossshare/export_archive</code>.</td><td>The export archive mount point.</td></tr>
 <tr><td>Risk Modeler and DATABRIDGE</td><td>Moody's cloud. The server needs outbound HTTPS to Risk Modeler and its S3 upload URLs, and SQL access to DATABRIDGE.</td><td>Which Risk Modeler tenant is production.</td></tr>
 </table>
 
 <p>To confirm: which servers exist today (development, test, production), their hostnames, and the Git commit or tag deployed on each.</p>
 
 <h2 id="deployment">Deployment process</h2>
+
+<p>Today the code is copied onto the server by hand; no CD process runs the scripts below (B2 on <a href="09-path-to-production.html#blockers">page 9</a>). <code>rhel9-app-install.sh</code> fails at <code>pip install</code> because the server may not connect to PyPI (B3).</p>
 
 <p>The runbooks are in <code>docs/RHEL9/</code>:</p>
 <table>
@@ -147,9 +149,9 @@
 <tr><td>A dead worker</td><td>Run <code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-worker-health.sh</code>. Read <code>/var/lib/risk-workbench/worker-&lt;queue&gt;.log</code> for the cause. Then stop and start. The poller resets that queue's interrupted job to <code>pending</code> once its heartbeat is older than <code>RWB_HEARTBEAT_STALE_SECS</code>, and the new worker picks it up.</td></tr>
 <tr><td>A stuck <code>rwb_job</code></td><td>Find it on Workflows → RWB Jobs. Dead (no heartbeat): it is reset automatically once its queue has a live worker. <code>pending</code> and never picked up: that queue's worker is not running. <code>running</code> with a live heartbeat: it ends at its Dramatiq time limit; if it must end sooner, kill that queue's worker (PID in <code>/var/lib/risk-workbench/pids/worker-&lt;queue&gt;.pid</code>), then start it again. <code>failed</code>: Resubmit on the page. See <a href="02-application-architecture.html#job-lifecycle">page 2</a>.</td></tr>
 <tr><td>A stuck <code>irp_job</code></td><td>The poller checks it on every pass until Risk Modeler reports a final status; Workflows → IRP Jobs shows the status Risk Modeler returns. There is no action in the Workbench to cancel it. Check the job in Risk Modeler. A failed analysis submission is retried automatically, then the analysis shows as error.</td></tr>
-<tr><td>Export archive sweep</td><td><code>EXPORT_ARCHIVE_DIR=&lt;dir&gt; bash infra/scripts/sweep-export-archives.sh --older-than 90</code> lists the <code>{export_id}/{irp_analysis_id}</code> archive folders older than 90 days. Add <code>--delete</code> to delete them; empty <code>{export_id}</code> folders are removed too. Nothing schedules it. The script header suggests a nightly cron line: <code>0 2 * * * EXPORT_ARCHIVE_DIR=/mnt/lossshare/export_archive bash /rms/infra/scripts/sweep-export-archives.sh --older-than 90 --delete</code>.</td></tr>
+<tr><td>Export archive sweep</td><td><code>EXPORT_ARCHIVE_DIR=&lt;dir&gt; bash infra/scripts/sweep-export-archives.sh --older-than 90</code> lists the <code>{export_id}/{irp_analysis_id}</code> archive folders older than 90 days. Add <code>--delete</code> to delete them; empty <code>{export_id}</code> folders are removed too. Nothing schedules it (B8 on <a href="09-path-to-production.html#blockers">page 9</a>). The script header suggests a nightly cron line: <code>0 2 * * * EXPORT_ARCHIVE_DIR=/mnt/lossshare/export_archive bash /rms/infra/scripts/sweep-export-archives.sh --older-than 90 --delete</code>.</td></tr>
 <tr><td>Add or change a user</td><td>Use the admin screen (<a href="07-configuration-and-observability.html#settings-admin">page 7</a>). For the first admin, or without a browser: <code>cd /rms &amp;&amp; bash infra/scripts/run_user_setup.sh</code>. It needs <code>rhel9-app-install.sh</code> to have run.</td></tr>
-<tr><td>Update contract statuses from CRM</td><td>CIC runs <code>infra/scripts/bulk_update_contract_status.sql</code> in the Workbench database; it reads <code>dbo.CRMContractStatus</code> from the loss repository. Its SOURCE line names <code>rwb_loss</code>; change it to <code>CRE_Trial_ELT_Repository</code> for production. The login needs <code>SELECT</code> on that table.</td></tr>
+<tr><td>Update contract statuses from CRM</td><td>CIC runs <code>infra/scripts/bulk_update_contract_status.sql</code> in the Workbench database; it reads <code>dbo.CRMContractStatus</code> from the loss repository. Its SOURCE line names <code>rwb_loss</code>; change it to the production loss repository's name. The login needs <code>SELECT</code> on that table.</td></tr>
 </table>
 
 <p>To confirm: how long export archives must be kept, and who schedules the sweep. And who runs the contract status update, and how often.</p>

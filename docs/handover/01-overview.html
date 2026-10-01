@@ -52,7 +52,7 @@
 <tr><td>Treaty / TY</td><td>A treaty is a reinsurance treaty stored in an EDM. TY is the treaty-level export: one loaded data set per treaty. TY is an output level, not a financial perspective.</td><td><code>irp_treaty</code>; <code>TY</code> in <code>app/config.py</code></td></tr>
 <tr><td>Event rate scheme</td><td>A Risk Modeler set of event rates that an analysis uses. Required for DLM model profiles, optional for HD. Templates reference it by its Risk Modeler id, because scheme names repeat across peril and region.</td><td><code>irp_event_rate_scheme</code>; <code>analysis_template.event_rate_scheme_irp_id</code></td></tr>
 <tr><td>Export</td><td>Loading the event loss table of one or more finished analyses, at one perspective (for example GU, gross, or TY), into CIC's loss repository.</td><td><code>stage.rwb_loss_result_manifest</code> in the loss database</td></tr>
-<tr><td>Loss repository</td><td>CIC's SQL Server database of loss sets, <code>CRE_Trial_ELT_Repository</code>. The Workbench writes to it only through its own <code>stage</code> schema. The dev copy is <code>rwb_loss</code>.</td><td>See <a href="03-data.html#databases">page 3</a></td></tr>
+<tr><td>Loss repository</td><td>CIC's SQL Server database of loss sets. Today the Workbench connects to <code>CRE_Trial_ELT_Repository</code>, a trial repository (B5 on <a href="09-path-to-production.html#blockers">page 9</a>). The Workbench writes to it only through its own <code>stage</code> schema. The dev copy is <code>rwb_loss</code>.</td><td>See <a href="03-data.html#databases">page 3</a></td></tr>
 </table>
 
 <p>The longer product glossary is section 1.4 of <a href="../PRD.md">docs/PRD.md</a>. The table definitions are in <a href="../DATA_MODEL.md">docs/DATA_MODEL.md</a>.</p>
