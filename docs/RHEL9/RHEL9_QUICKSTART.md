@@ -63,7 +63,7 @@ DEPLOY_USER=cinreadm APP_DIR=/rms bash rhel9-setup.sh
 Installs: git, Python 3.14 + pip, `unixODBC-devel`, the Microsoft ODBC
 Driver 18 (via Microsoft's own RHEL9 repo), nginx, valkey, gcc/gcc-c++/
 make, gettext, rsync. Does **not** install Podman — that's a separate,
-optional step (Section 6), needed only for a local WSL2 SQL Server
+optional step (Section 5), needed only for a local WSL2 SQL Server
 instance, never for a real deployment target.
 
 Also: creates `/rms` (owned by `cinreadm`), starts nginx as
@@ -95,7 +95,12 @@ sudo cat /etc/sudoers.d/risk-workbench-nginx-conf-write
 
 Skip this if pointing at a real, separately-hosted SQL Server instead.
 
+On a fresh server `/rms/infra/scripts/rhel9/` does not exist until the first
+deploy (Section 7), so create it before copying the script:
+
 ```bash
+ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47 \
+    "mkdir -p /rms/infra/scripts/rhel9"
 scp -i ~/.ssh/risk-workbench-deploy \
     infra/scripts/rhel9/rhel9-setup-podman-mssql.sh \
     cinreadm@172.19.253.47:/rms/infra/scripts/rhel9/
@@ -106,7 +111,7 @@ ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47 \
 Installs Podman, does the one-time rootless setup, and **creates** (does
 not start) a SQL Server container identical to Ubuntu's Docker setup,
 bind-mounted to `/var/lib/risk-workbench/mssql`. Start it before deploying
-(Section 8) — the prerequisite check in the next section tests real
+(Section 9) — the prerequisite check in the next section tests real
 network connectivity to whatever `infra/.env` points at, container or not.
 
 ## 6. Verify prerequisites (remote, no password prompt expected)
@@ -116,7 +121,11 @@ ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47 \
     "APP_DIR=/rms DEPLOY_USER=cinreadm PYTHON_PKG=python3.14 bash /rms/infra/scripts/rhel9/rhel9-check-prereqs.sh"
 ```
 
-Checks packages, commands, directory ownership, the nginx sudo grants,
+On a fresh server this script exists only after the first deploy (Section 7),
+which runs it for you right after the push; run it by hand on a server that
+already has the code.
+
+Checks packages, commands, directory ownership, the nginx reload grant,
 ODBC driver registration, and (once `infra/.env` exists) SQL Server
 network reachability. Read-only — safe to run anytime.
 
@@ -133,8 +142,8 @@ bash infra/scripts/rhel9/rhel9-ssh-deploy.sh
 
 `SSH_KEY` must not contain spaces. Pushes git-tracked files via `rsync`
 (honors `.gitignore` — `infra/.env` and similar are never touched or
-deleted), then remotely verifies prerequisites, installs dependencies,
-runs migrations, and reloads nginx. RHEL9 never talks to GitHub directly.
+deleted), then remotely verifies prerequisites, waits for queued `rwb_job`
+rows to drain, installs dependencies, runs migrations, and reloads nginx. RHEL9 never talks to GitHub directly.
 
 **Pull-based (run directly on RHEL9) — manual/local alternative:**
 
@@ -162,7 +171,7 @@ Starts/stops Valkey, uvicorn, one Dramatiq worker process per queue (one per
 `worker-<queue>.pid` and log `worker-<queue>.log`), and the poller.
 Accepts an already-running Valkey instance when `valkey-cli ping` succeeds.
 Refuses to start when another process occupies port 6379 or when port 8000
-is occupied; verifies ports are free after stopping. nginx is left alone
+is occupied; verifies port 8000 is free after stopping uvicorn. nginx is left alone
 (managed separately via `systemctl` and the deploy script's reload step).
 
 `rhel9-stop.sh` now requires `APP_DIR` (it didn't before this feature) —

@@ -14,7 +14,7 @@ boots, registering it with Red Hat, and creating your personal login account.
 Does **not** cover: installing project dependencies (Python, Redis, the ODBC
 driver, etc.) — see [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md). Does not
 cover cloning the repo or running the app — see
-[RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md).
+[SCAFFOLDING.md](../SCAFFOLDING.md) and [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md).
 
 ---
 

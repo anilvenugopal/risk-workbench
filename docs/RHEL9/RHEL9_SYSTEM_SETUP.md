@@ -8,7 +8,7 @@ Prerequisite: [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) completed —
 registered RHEL9 distro, `cinreadm` created with sudo, locale fixed.
 
 This covers system packages only. For `uv` and running the app for
-development, see [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md).
+development, see [SCAFFOLDING.md](../SCAFFOLDING.md).
 
 ## Do this
 
@@ -160,7 +160,7 @@ was verified — confirm them live rather than trusting a number written here.
 
 It might seem natural to make `python3` (or a bare `python`) point at 3.14
 system-wide via `alternatives`/`update-alternatives`. **Don't** — this project
-uses `uv` (see [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md)) to manage its virtual
+uses `uv` (see [SCAFFOLDING.md](../SCAFFOLDING.md)) to manage its virtual
 environment, which finds or downloads the exact Python version a project
 needs and builds an isolated `.venv/` with it, untouched by whatever the
 system's `python3` symlink points to. Changing the system-wide default would
@@ -180,7 +180,7 @@ the project's dependency management.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-See [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md) for how the project uses `uv` day to day, and [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) for how a
+See [SCAFFOLDING.md](../SCAFFOLDING.md) for how the project uses `uv` day to day, and [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) for how a
 `uv.lock`-built environment can be applied without `uv` present there, with a workaround.
 
 ---
@@ -263,9 +263,9 @@ it too.
 
 *Package install automated by rhel9-setup.sh section 2 ("System
 packages") — it installs `valkey`, per the decision below. Starting it
-with the right flags (AOF, a writable `--dir`) is NOT yet scripted for
-RHEL9 — see "This is already solved" further down for Ubuntu's existing
-script and what an RHEL9 equivalent still needs.*
+with the right flags (AOF, a writable `--dir`) is scripted:
+`infra/scripts/rhel9/rhel9-start.sh` section 2 starts `valkey-server` with
+`--appendonly yes --appendfsync everysec --dir /var/lib/risk-workbench/valkey`.*
 
 ### Which one, and why
 
@@ -407,19 +407,21 @@ container. On any real checkout (RHEL9, Ubuntu native, or the production
 server), that folder doesn't exist, so nginx can't find the app's CSS/JS/
 image files. This was broken everywhere except Docker; it is now fixed.
 
-**Fix:** the config file now uses a placeholder, `${APP_ROOT}`, instead of a
-hardcoded path. Before starting nginx, run `envsubst` to fill in the real
-checkout path for whichever environment you're in:
+**Fix:** [deploy/nginx/site.conf](../../deploy/nginx/site.conf), the server
+block installed on RHEL9, uses a placeholder, `${APP_ROOT}`, instead of a
+hardcoded path. `rhel9-ssh-deploy.sh` fills it in with `envsubst` and writes
+it to `/etc/nginx/conf.d/risk-workbench.conf`:
 
 ```bash
-APP_ROOT=/home/cinreadm/risk-workbench envsubst '$APP_ROOT' \
-    < deploy/nginx/nginx.conf > /tmp/nginx.conf
-nginx -c /tmp/nginx.conf
+APP_ROOT=/rms envsubst '$APP_ROOT' \
+    < deploy/nginx/site.conf | sudo tee /etc/nginx/conf.d/risk-workbench.conf > /dev/null
+sudo systemctl reload nginx
 ```
 
-Replace `/home/cinreadm/risk-workbench` with wherever the repo is actually
-checked out. The Docker path (`infra/scripts/start-all.sh`) does this
-automatically with `APP_ROOT=/workspace`.
+Replace `/rms` with wherever the repo is actually checked out.
+`deploy/nginx/nginx.conf` is the full config the Docker container runs
+(`infra/scripts/start-all.sh`, no `envsubst`) and keeps the hardcoded
+`/workspace/app/static/`.
 
 ### Install — enable as a systemd service
 
@@ -508,9 +510,9 @@ one before starting the other. Diagnose with
 ```bash
 DEPLOY_USER=cinreadm APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup.sh  # once
 cp <your .env> infra/.env                             # once
-bash infra/scripts/rhel9/rhel9-setup-podman-mssql.sh         # once, if wanted
+DEPLOY_USER=cinreadm APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup-podman-mssql.sh  # once, if wanted
 APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start.sh         # every session
-bash infra/scripts/rhel9/rhel9-start-podman-mssql.sh         # every session, if wanted
+APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start-podman-mssql.sh  # every session, if wanted
 ```
 
 `rhel9-setup-podman-mssql.sh` installs Podman and creates the SQL Server
@@ -527,7 +529,8 @@ checks for this and assigns it if missing.
 **Confirmed**: this is normally already done for you. RHEL9's
 `/etc/login.defs` sets `SUB_UID_COUNT`/`SUB_GID_COUNT`, so `useradd`
 assigns every new account a subuid/subgid range automatically — see
-[RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) — no project script does this.
+[RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md). `rhel9-setup-podman-mssql.sh`
+assigns a range (`usermod --add-subuids`) only when the account has none.
 
 ### `podman create` vs `podman start` vs `podman run`
 
