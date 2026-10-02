@@ -396,6 +396,18 @@ breakouts (D3/D4, O12-3).
 
 - **Q: Note 12 D3 aligns quick-breakout-by-peril, three days after P-19 deferred it. What does the reversal cost?** → **A: The registration lockstep and nothing else — peril already enumerates, counts coverage, and selects accounts.** `_DIMENSION_LETTER["peril"] = "P"`, the `run_breakout_peril` job-type seed, the actor, and the `_BODIES` entry; the shared `_run_breakout_body` runs it unchanged. Generated names read the mnemonic (`cbhu - WS`) through the same `display_value` the pane and the cart use, and the plan entry carries it as its label, so the preview row and the Risk Modeler description show mnemonic beside code exactly as a geography breakout shows `Admin1Name` beside `Admin1Code`. The value, the stored `breakout_value`, and the number token stay the numeric code. Peril remains a custom-grouping pill — quick mode is an addition, not a move. With all four value dimensions quick, `_QUICK_DIMENSIONS` and `DimensionEligibility.quick` are **deleted**: an always-true flag would leave the template, `modal_context`, and `request_breakout` branching on a distinction that no longer exists. Full reasoning and the minutes in **R14**. → spec **P-19** (revised), FR-004
 
+### Session 2026-10-02
+
+Issue #62 (states listed apart from their countries on the expanded row) and
+issue #66 (P-31) share one cause: `portfolio_states.sql` grouped on the bare
+`Admin1Code` and returned no country.
+
+- **Q: How does the country travel with a state value?** → **A: Inside the value, as one string `{country}-{Admin1Code}`.** `irp_portfolio.breakout_value` and `breakout_group.filters` store it verbatim, so no Alembic revision is needed and `uq_irp_portfolio_breakout` keeps its shape. **Rejected:** a separate country column on `irp_portfolio` and a `{country: [codes]}` shape in `breakout_group.filters` — a revision, a unique-key change, and a second filter shape, to carry a string the selection scripts can compose themselves. The four state scripts concatenate the country dimension's expression, so the selection read still filters on a string byte-identical to the enumerated value (FR-008). `MAX(Admin1Name)` now runs per (country, code), so BE `11` and NL `11` get their own labels.
+- **Q: What does an unlabeled state display?** → **A: The stored value, `US-TX`.** The deferred P-31 text proposed `{country} {code}`; rejected because the cart, the criteria line, and the preview would then show a string that is not the value the analyst ticked.
+- **Q: Does `_compose_number` special-case the hyphen?** → **A: No.** `US-TX` strips to `USTX`, which differs from the value, so the number takes the 6-hex tail. A special case would buy a readable number at the cost of a second normalization rule on the identity adoption resolves on (R4).
+- **Q: An address with a code and no country?** → **A: Kept, as `-TX`.** Dropping it would leave accounts out of every state sub-portfolio with nothing in the overlap disclosure to say why. The expanded row lists it under a `—` country heading.
+- **Q: Data written before this change?** → **A: No code path.** Pre-cutover (no backwards compatibility): re-sync each EDM, then delete the bare-code state sub-portfolios and state custom groups by hand before re-running breakouts. → spec **P-31** (FR-005, FR-009, FR-014)
+
 ### Carried from the design record
 
 Standing decisions restated for this feature, not new ones:

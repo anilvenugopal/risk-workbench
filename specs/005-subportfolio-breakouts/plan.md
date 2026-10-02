@@ -4,7 +4,7 @@
 
 ## Plan status
 
-Everything below is built on `005-subportfolio-breakouts` (PR #47) except **P-31** and **P-32**, which are out of this branch and deferred to issues #66 and #67 — P-32 is the O12-1 sign-off blocker named in [spec.md](spec.md). The `breakout_service.py` module split is issue #65. The library prerequisite (T-02) is delivered and the sandbox spike (T-08) is closed — evidence in [probe-findings.md](probe-findings.md).
+Everything below is built on `005-subportfolio-breakouts` (PR #47) except **P-32**, which is deferred to issue #67 and is the O12-1 sign-off blocker named in [spec.md](spec.md). P-31 shipped with issue #62. The `breakout_service.py` module split is issue #65. The library prerequisite (T-02) is delivered and the sandbox spike (T-08) is closed — evidence in [probe-findings.md](probe-findings.md).
 
 **Verified on the unit tier only.** The SQL Server tier has never run on this branch (`tests/sqlserver/test_detail_tables_migration.py` included) and the dev `rwb_workbench` is still at a pre-005 schema — see Testing.
 
