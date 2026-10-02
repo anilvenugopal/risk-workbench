@@ -1,0 +1,7 @@
+{# A UTC timestamp as <time data-utc>: app.js localizeUtcTimes() rewrites its
+   text to the browser's zone, and tableToTsv() copies data-value. #}
+{%- macro local_time(ts) -%}
+  {%- if ts -%}
+  <time data-utc="{{ ts }}" data-value="{{ ts }}" title="{{ ts }} UTC">{{ (ts | string)[:19] }}</time>
+  {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
+{%- endmacro -%}

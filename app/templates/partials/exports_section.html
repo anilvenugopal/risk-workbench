@@ -6,6 +6,7 @@
    the values in force ride on the poll, Retry, and Close URLs. Polls
    only while some row is not terminal. Retry and Close re-render the whole
    section, with `action_message` when one was refused (§7, §8). #}
+{% from "partials/time_macros.html" import local_time %}
 {% import "partials/export_row_macros.html" as rows_macros %}
 {% macro filter_select(name, all_label, options, current, labels=none) -%}
 <select name="{{ name }}" class="wf-field__input" style="width:auto"
@@ -92,8 +93,8 @@
         <span class="l">{{ a.treaty_incept }}</span>
         <span class="l">{{ a.data_vintage }}</span>
         <span class="l" title="{{ a.requested_by_email }}">{{ a.requested_by_email }}</span>
-        <span class="l"><time data-utc="{{ a.requested_at }}" title="{{ a.requested_at }} UTC">{{ a.requested_at }}</time></span>
-        <span class="l"><time data-utc="{{ a.updated_at }}" title="{{ a.updated_at }} UTC">{{ a.updated_at }}</time></span>
+        <span class="l">{{ local_time(a.requested_at) }}</span>
+        <span class="l">{{ local_time(a.updated_at) }}</span>
         <span class="l">
           {% if a.can_retry %}
           <span class="export-analysis__actions">
@@ -114,7 +115,7 @@
         {% endif %}
         {% if a.closed_at %}
         <div class="export-detail__closed">Closed
-          <time data-utc="{{ a.closed_at }}" title="{{ a.closed_at }} UTC">{{ a.closed_at }}</time>
+          {{ local_time(a.closed_at) }}
           by {{ a.closed_by }}</div>
         {% endif %}
       </div>
