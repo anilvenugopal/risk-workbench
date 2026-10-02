@@ -319,11 +319,12 @@ document.addEventListener('alpine:init', () => {
       ncReset(input.closest('.bo-row').querySelector('.name-collision'));
       this.recount();
     },
+    // htmx fires afterSwap on the swapped-in .name-collision, not on the input
+    // that sent the check, so the row is found from the event target.
     onSwap(e) {
-      const elt = e.detail && e.detail.elt;
-      if (elt && elt.classList && elt.classList.contains('nc-input')) {
-        delete elt.dataset.pending;
-      }
+      const row = e.target.closest && e.target.closest('.bo-row');
+      const input = row && row.querySelector('.nc-input');
+      if (input) delete input.dataset.pending;
       this.recount();
     },
     onCheckError(e) {
