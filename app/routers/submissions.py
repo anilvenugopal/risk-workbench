@@ -1903,7 +1903,8 @@ async def create_export(request: Request, submission_id: str):
             analysis_ids=analysis_ids, perspective_code=perspective,
             client_id=_parse_int(form.get("client_id")), treaty_incept=treaty_incept,
             crm_id=crm_id, data_vintage=data_vintage, model_version=model_version,
-            data_names=data_names, treaty_picks=treaty_picks)
+            data_names=data_names, treaty_picks=treaty_picks,
+            actor_id=request.state.user.id)
     except export_service.ExportValidationError as exc:
         return reshow(error=str(exc))
     return RedirectResponse(f"/submissions/{submission_id}#submission-exports", status_code=303)

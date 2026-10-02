@@ -422,7 +422,8 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
                   perspective_code: str, client_id: int | None, treaty_incept: Any,
                   crm_id: str | None, data_vintage: Any, model_version: str | None,
                   data_names: dict[str, str] | None = None,
-                  treaty_picks: dict[str, dict[str, str]] | None = None) -> str:
+                  treaty_picks: dict[str, dict[str, str]] | None = None,
+                  actor_id: Any) -> str:
     """Validate in the contracts/routes.md §4 order, insert one manifest row per
     analysis — at TY one per treaty the analyst ticked — in one LOSS
     transaction, enqueue ``submit_results_export``, and return the new
@@ -537,7 +538,8 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
             rwb_job_type="submit_results_export",
             link_type="not_applicable", link_id=None,
             context_type="result_export", context_id=export_id,
-            input_data={"export_id": export_id, "submission_id": _uid(submission_id)})
+            input_data={"export_id": export_id, "submission_id": _uid(submission_id)},
+            actor_id=actor_id)
     except Exception as exc:  # noqa: BLE001 — the manifest is committed; fail its rows so Retry applies
         logger.exception("submit_results_export enqueue failed for export %s", export_id)
         execute_command(

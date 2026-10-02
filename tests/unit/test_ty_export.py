@@ -127,7 +127,8 @@ def deal(iteration2_db, loss_db):
                       irp_app_analysis_id="41960", perspectives=("GU", "GR"), treaties=TREATIES)
     seed_client(1, "Example Re")
     seed_lookup_versions("25.0")
-    return {"submission_id": submission_id, "edm_id": edm_id, "a": a, "c": c}
+    return {"submission_id": submission_id, "edm_id": edm_id, "a": a, "c": c,
+            "user_a": iteration2_db.user_a}
 
 
 def _create(deal, analysis_ids, perspective="TY", treaty_picks=None, **overrides):
@@ -135,7 +136,7 @@ def _create(deal, analysis_ids, perspective="TY", treaty_picks=None, **overrides
                   analysis_ids=analysis_ids, perspective_code=perspective, client_id=1,
                   treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
                   data_vintage=date(2025, 12, 31), model_version="25.0", data_names=None,
-                  treaty_picks=treaty_picks)
+                  treaty_picks=treaty_picks, actor_id=deal["user_a"])
     kwargs.update(overrides)
     return svc.create_export(**kwargs)
 

@@ -47,7 +47,8 @@ def _create(deal, analysis_ids, perspective="GR", **overrides):
     kwargs = dict(submission_id=deal["submission_id"], user_email="analyst.a@example.com",
                   analysis_ids=analysis_ids, perspective_code=perspective, client_id=1,
                   treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
-                  data_vintage=date(2025, 12, 31), model_version="25.0", data_names=None)
+                  data_vintage=date(2025, 12, 31), model_version="25.0", data_names=None,
+                  actor_id=deal["user_a"])
     kwargs.update(overrides)
     return svc.create_export(**kwargs)
 
