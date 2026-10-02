@@ -23,6 +23,7 @@ from app.services.rwb_job_service import (
     enqueue_rwb_job,
 )
 from db import execute_command
+from tests.unit.conftest import cedant_id
 
 _NO_LINK = {"link_type": "not_applicable", "link_id": None,
            "context_type": None, "context_id": None}
@@ -83,10 +84,10 @@ def _edm(*, name="EDM") -> str:
 def _submission(*, name="Sub", assigned_analyst_id) -> str:
     sid = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
+        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_id, "
         "status_code, inserted_at, updated_at) "
-        "VALUES (:id, :a, :name, 'Cedant', 'ACTIVE', :now, :now)",
-        {"id": sid, "a": assigned_analyst_id, "name": name,
+        "VALUES (:id, :a, :name, :ced, 'ACTIVE', :now, :now)",
+        {"id": sid, "a": assigned_analyst_id, "name": name, "ced": cedant_id(),
          "now": "2026-01-01 00:00:00"},
         connection="WORKBENCH")
     return sid

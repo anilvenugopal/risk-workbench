@@ -64,6 +64,8 @@
 
 ## R6 — Cedant autocomplete without a cedant table
 
+**Superseded by issue #129**: the cedant is now a row in a shared `cedant` table that `submission.cedant_id` references.
+
 **Decision**: `cedant_name` stays a plain `NVARCHAR` on `submission` (no cedant registry, DATA_MODEL §4). Autocomplete is a `SELECT DISTINCT cedant_name FROM submission WHERE cedant_name LIKE :prefix + '%' ORDER BY cedant_name` served to an HTMX-driven suggestion list (or a `<datalist>` for the JS-off path). Purely a consistency aid; it introduces no entity.
 
 **Rationale**: FR-006 requires autocomplete over existing values *without* a separate registry. `DISTINCT` over the column is the whole mechanism.

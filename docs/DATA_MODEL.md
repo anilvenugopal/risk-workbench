@@ -91,6 +91,7 @@ relationship, resource ownership, or row-level access rule.
 ```mermaid
 erDiagram
   app_user ||--o{ submission : "assigned analyst (soft owner)"
+  cedant ||--o{ submission : "cedant"
   submission ||--o{ submission_status_event : logs
   submission ||--o{ contract : "0..N contracts (CRM IDs)"
   submission_status_kind ||--o{ submission : "Modeling status (cached current)"
@@ -107,13 +108,21 @@ erDiagram
     uniqueidentifier id PK
     uniqueidentifier assigned_analyst_id FK "soft owner"
     string name "naming-convention label e.g. TY2604_AmericanFamily; NOT unique — id is the key"
-    string cedant_name "primary filter; plain string + autocomplete"
+    uniqueidentifier cedant_id FK "cedant; primary filter"
     date data_vintage "required; the in-force as-of date of the EDM data, one per submission"
     int treaty_year "nullable; entered by hand; may be blank"
     uniqueidentifier links_to_submission_id FK "nullable; self-ref link to a related submission"
     string directory_path "nullable; per-deal shared-drive directory"
     int client_id "nullable; rwb_loss dbo.Client.ClientID — another database, no FK"
     string status_code FK "submission_status_kind; Modeling status, cached current"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+  cedant {
+    uniqueidentifier id PK
+    string name "unique case-insensitively"
     datetime inserted_at
     datetime updated_at
     uniqueidentifier inserted_by FK
@@ -173,8 +182,8 @@ erDiagram
 ```
 
 **Submission:**
-- **`submission` is the root.** No hierarchy above it: one cedant's modeling project. `cedant_name` is the primary filter; `treaty_year` is entered by hand and supports renewal-year grouping; `data_vintage` (required) is the in-force as-of date of the EDM data, one per submission by convention, shown on the deal card and pre-filled into the export form's data vintage (spec 017 P-19, note 32 D23, CIC 2026-09-29). These are the system of record — there is no CRM/treaty-system integration to derive them from.
-- **`cedant_name` is a plain string**, kept consistent by autocomplete over existing values — deliberately not its own table.
+- **`submission` is the root.** No hierarchy above it: one cedant's modeling project. `cedant_id` is the primary filter; `treaty_year` is entered by hand and supports renewal-year grouping; `data_vintage` (required) is the in-force as-of date of the EDM data, one per submission by convention, shown on the deal card and pre-filled into the export form's data vintage (spec 017 P-19, note 32 D23, CIC 2026-09-29). These are the system of record — there is no CRM/treaty-system integration to derive them from.
+- **`cedant` is a shared list any analyst maintains** (issue #129), at `/cedants` or from the submission form. The form picks from the list and stores `cedant_id`, so a rename shows on every submission. A name typed on the form that matches no cedant is inserted in the same transaction as the submission. A name is unique case-insensitively. A cedant can be deleted only while no submission uses it. `cedant` is user-edited data keyed by UUID, like `app_user`, not a `*_kind` table (Article 3).
 - **`contract`** is the CRM ID (spec 017, note 32 D17–D22): 0..N per submission, each with its `crm_id`, `treaty_type_code`, `inception_date`, `expiration_date` and `contract_status_code`. **`crm_id` is unique across the Workbench** (`uq_contract_crm_id`, case-insensitive under the default collation; note 33 D12–D14): a CRM ID names one contract on one submission, whatever either submission's status, and the service refuses a reuse with a link to the submission that holds it. No contract is primary (P-17), but the list row reads one: the first entered by `inserted_at` (staggered by a microsecond per row on a multi-contract save), or, under a contract-level filter, the first that satisfied every contract filter together (note 34 D5). The list's default order is that contract's inception, `COALESCE((SELECT c.inception_date FROM contract c WHERE c.submission_id = s.id AND <the list's contract clauses> ORDER BY c.inserted_at, c.id` capped to one row`), s.inserted_at) DESC, s.name`, so a submission with no contract sorts by its creation date. Contract-level list filters (CRM ID, treaty type, inception, Contract status, in force) share one `EXISTS` over `contract`, so one row must satisfy them together (P-18).
 - **`v_contract`** is a view: one row per contract — the contract's columns plus the submission's name, cedant, client, treaty year, data vintage and Modeling status; a submission with no contract emits no row. It is the CRM-ID-grain extract for CIC's linking SQL (spec 017 FR-013); the January bulk status update, `infra/scripts/bulk_update_contract_status.sql`, reads `dbo.CRMContractStatus` in the loss repository and writes `contract` directly (FR-023, note 32 D25, note 34 D11). "In force as of D" is `contract_status_code = 'WON' AND inception_date <= D AND expiration_date >= D`, computed at query time, never stored (P-09).
 - **`client_id`** is `dbo.Client.ClientID` in `rwb_loss`, read over the `LOSS` connection and never a foreign key (another database). Optional; the Workbench never writes to the client list (spec 017 P-04).
@@ -739,6 +748,7 @@ erDiagram
 | `role_kind` / `user_role` | Role vocabulary and assignment. |
 | `audit_log` | Who did what, when — **DEFERRED**. |
 | `submission` | The deal and top-level entity. `name` is a non-unique label; `id` is the key. |
+| `cedant` | Shared cedant list; `submission.cedant_id` references it. |
 | `contract` | 0..N contracts (CRM IDs) per submission: treaty type, term and Contract status. |
 | `contract_status_kind` | `OPEN` / `WON` / `LOST`. |
 | `v_contract` | View: one row per contract with its submission's attributes (spec 017 FR-013). |
@@ -814,6 +824,8 @@ erDiagram
 
 ## Change log
 
+- **2026-10-01 — Cedant seed (issue #129, revision `0005`).** No schema change. `0005` inserts the names in `db/bootstrap/seed/cedants.xlsx` (the client's list, one column headed `Cedant`) that `cedant` does not already hold, case ignored. `infra/scripts/load_cedants.py` (`make load-cedants`) applies the same rule to a later file; neither renames nor deletes a cedant.
+- **2026-09-30 — Cedant list (issue #129, revision `0004`).** New `cedant` table (`name` unique via `uq_cedant_name`, audit columns). `submission.cedant_name` is replaced by `cedant_id` (FK, `ix_submission_cedant_id`); the migration creates one cedant per distinct old name. `v_contract` joins `cedant` and still exposes `cedant_name`. Reverses CR-003's "no cedant table".
 - **2026-09-29 — Migration files from now on.** `0001_initial.py` is frozen at the spec 017 merge. Every later `WORKBENCH` schema change ships as a new Alembic revision and is applied with `alembic upgrade head`. No schema change.
 - **2026-09-25 — Spec 017 data vintage required (note 33 D7, note 35 D13).** `submission.data_vintage` becomes `DATE NOT NULL` in `0001_initial.py` before the last rebuild; the export form no longer pre-fills from it. No other schema change.
 - **2026-09-24 — Spec 017 list row and sort read the first-entered contract (note 34 D5, D6).** No schema change. The submissions list sorts on the first-entered contract's inception instead of `MAX(inception_date)`, and a row filtered on a contract attribute shows the first contract that matched.

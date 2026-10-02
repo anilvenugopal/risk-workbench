@@ -176,6 +176,23 @@ def _analyst_ids() -> list[str]:
     return ids
 
 
+def _cedant_ids() -> dict[str, str]:
+    """The demo cedants' ids by name, creating any that are missing."""
+    ids: dict[str, str] = {}
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        for name in CEDANTS:
+            cedant_id = conn.execute(
+                text("SELECT id FROM cedant WHERE name = :name"), {"name": name},
+            ).scalar()
+            if cedant_id is None:
+                conn.execute(text("INSERT INTO cedant (name) VALUES (:name)"), {"name": name})
+                cedant_id = conn.execute(
+                    text("SELECT id FROM cedant WHERE name = :name"), {"name": name},
+                ).scalar()
+            ids[name] = str(cedant_id)
+    return ids
+
+
 def _clear(names: list[str]) -> int:
     """Delete the submissions a previous run of the same ``--count`` wrote, with
     their contracts and status events, and every dbo.CRMContractStatus row."""
@@ -219,10 +236,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.clear:
             print(f"Demo seed: cleared {_clear([plan.name for plan in plans])} submissions")
         owners = _analyst_ids()
+        cedants = _cedant_ids()
         for plan in plans:
             actor = owners[plan.owner_index]
             submission_id = submission_service.create_submission(
-                name=plan.name, cedant_name=plan.cedant_name,
+                name=plan.name, cedant_id=cedants[plan.cedant_name],
                 treaty_year=plan.treaty_year, client_id=plan.client_id,
                 data_vintage=plan.data_vintage, contracts=plan.contracts,
                 actor_id=actor,

@@ -93,5 +93,6 @@ class TestExportContext:
         from app.nav import get_nav_context
         ctx = get_nav_context(_user(["analyst"]), "submissions.export_new")
         assert ctx["active_section"] == "submissions"
-        assert [c["key"] for c in ctx["sidebar"]] == ["submissions.all"]
+        assert [c["key"] for c in ctx["sidebar"]] == [
+            "submissions.all", "submissions.cedants"]
         assert ctx["breadcrumb"][-1]["key"] == "submissions.export_new"

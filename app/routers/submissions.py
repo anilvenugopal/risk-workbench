@@ -45,6 +45,7 @@ from app.services import (
     analysis_import_service,
     analysis_service,
     auth_service,
+    cedant_service,
     client_service,
     edm_service,
     export_service,
@@ -56,6 +57,7 @@ from app.services import (
 )
 from app.services._common import _parse_int, _uid
 from app.services.analysis_execution_service import ExecutionGateError
+from app.services.cedant_service import CedantValidationError, NewCedant
 from app.services.submission_service import ContractInput, ContractInvalid
 from app.services.errors import (
     ConcurrencyConflict,
@@ -74,6 +76,9 @@ router = APIRouter()
 # renamed away or closed while the form sat open, or the page is stale.
 _UNKNOWN_LINK_MESSAGE = "That deal was not found — pick the linked deal again."
 _UNKNOWN_CLIENT_MESSAGE = "Choose a client from the list."
+# The Cedant field posts this in place of an id when the analyst typed a new
+# name; the name comes in new_cedant_name (P-06).
+NEW_CEDANT = "new"
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -111,18 +116,26 @@ def _parse_date(value: str | None) -> date | None:
 
 
 def _validate_submission_form(
-    *, name: str, cedant_name: str, treaty_year: str, data_vintage: str,
-    directory_path: str,
-) -> tuple[dict[str, str], int | None, date | None]:
-    """One message per bad field (CR4), plus the parsed treaty year and data
-    vintage so the caller does not parse twice. An empty dict means valid."""
+    *, name: str, cedant_id: str, new_cedant_name: str,
+    treaty_year: str, data_vintage: str, directory_path: str,
+) -> tuple[dict[str, str], int | None, date | None, NewCedant | None]:
+    """One message per bad field (CR4), plus the parsed treaty year, data
+    vintage and typed new cedant so the caller does not parse twice. An empty
+    dict means valid."""
     errors: dict[str, str] = {}
     if not name.strip():
         errors["name"] = "Enter a name for this submission."
     elif not name_check.is_valid_name(name.strip()):
         errors["name"] = name_check.name_rule_message("Submission")
-    if not cedant_name.strip():
-        errors["cedant_name"] = "Enter a cedant."
+    new_cedant = None
+    if cedant_id.strip() == NEW_CEDANT:
+        try:
+            new_cedant = cedant_service.new_cedant(new_cedant_name)
+        except CedantValidationError as exc:
+            errors["cedant_id"] = str(exc)
+    elif cedant_id.strip().lower() not in {
+            cedant.id for cedant in cedant_service.list_cedants()}:
+        errors["cedant_id"] = "Pick a cedant from the list."
 
     parsed_treaty_year = _parse_int(treaty_year)
     if treaty_year.strip() and not (
@@ -147,7 +160,7 @@ def _validate_submission_form(
                 "That folder is no longer on the shared drive — browse and pick it "
                 "again.")
 
-    return errors, parsed_treaty_year, parsed_data_vintage
+    return errors, parsed_treaty_year, parsed_data_vintage, new_cedant
 
 
 _CONTRACT_FIELDS = ("crm_id", "treaty_type_code", "inception_date",
@@ -212,6 +225,7 @@ def _form_context(
         "treaty_types": submission_service.treaty_type_kinds(),
         "contract_statuses": submission_service.contract_status_kinds(),
         "clients": client_service.list_clients(),
+        "cedant_options": cedant_service.list_cedants(),
         "form": form,
         "submission": submission,
         "link_target": submission_service.get_submission(links_to),
@@ -994,7 +1008,7 @@ def _not_found(request: Request):
 # naming it gets the table on its own: rebuilding the status list, the analyst
 # list and the nav shell for htmx to discard is the cost of a keystroke otherwise.
 _LIST_TARGET = "sub-list"
-_TEXT_PARAMS = ("q", "cedant")
+_TEXT_PARAMS = ("q",)
 
 
 def _sort_links(sort_query: str, sort: str, descending: bool) -> dict[str, dict]:
@@ -1046,7 +1060,7 @@ def list_submissions_page(request: Request):
     # Echoed back into the inputs so a filtered request re-renders what was typed,
     # and read by the template to tell "nothing matches" from "nothing here yet".
     filter_values = {
-        key: request.query_params.get(key, "") for key in ("q", "cedant", "inception")
+        key: request.query_params.get(key, "") for key in ("q", "inception")
     }
     filter_values |= multi_values
     filter_values["in_force"] = parsed.in_force
@@ -1058,7 +1072,7 @@ def list_submissions_page(request: Request):
     query_values = [
         (query_key, filter_values[query_key].strip())
         for query_key, filter_key in (
-            ("q", "name"), ("cedant", "cedant_name"), ("inception", "inception_date"),
+            ("q", "name"), ("inception", "inception_date"),
         )
         if filters[filter_key] is not None
     ]
@@ -1107,35 +1121,6 @@ def list_submissions_page(request: Request):
     }, status_code=422 if validation_error else 200)
 
 
-def _suggest_menu(request: Request, options: list[dict], term: str,
-                  empty_message: str, menu_id: str):
-    """Render one of the two typeahead menus. ``menu_id`` is the id of the div
-    htmx swaps into, and each option derives its own id from it."""
-    return _partial(request, "partials/typeahead_menu.html", {
-        "options": options,
-        "searched": len(term.strip()) >= submission_service.MIN_SUGGEST_TERM,
-        "empty_message": empty_message,
-        "menu_id": menu_id,
-    })
-
-
-@router.get("/submissions/cedant-suggest", response_class=HTMLResponse)
-def cedant_suggest(request: Request):
-    """Typeahead menu for the create/edit form's CEDANT field (FR-006/R6).
-
-    htmx sends the field under its own name, so the term arrives as
-    ``cedant_name``; ``q`` (the name in the 002 contract) is still accepted for a
-    hand-built call."""
-    term = (request.query_params.get("cedant_name")
-            or request.query_params.get("q", ""))
-    return _suggest_menu(
-        request,
-        [{"value": cedant, "label": cedant}
-         for cedant in submission_service.cedant_suggestions(term)],
-        term, "No matching cedant.", "cedant-menu",
-    )
-
-
 @router.get("/submissions/link-suggest", response_class=HTMLResponse)
 def link_suggest(request: Request):
     """Typeahead menu for the "links to" picker (CR8). Searches name and cedant;
@@ -1150,9 +1135,8 @@ def link_suggest(request: Request):
     matches = submission_service.search_submissions_for_link(
         term, exclude_id=exclude_id,
     )
-    return _suggest_menu(
-        request,
-        [
+    return _partial(request, "partials/typeahead_menu.html", {
+        "options": [
             {
                 "value": row.id,
                 "label": row.name,
@@ -1160,8 +1144,10 @@ def link_suggest(request: Request):
             }
             for row in matches
         ],
-        term, "No matching submission.", "link-menu",
-    )
+        "searched": len(term.strip()) >= submission_service.MIN_SUGGEST_TERM,
+        "empty_message": "No matching submission.",
+        "menu_id": "link-menu",
+    })
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
@@ -1179,7 +1165,8 @@ def create(
     # FastAPI rejects itself returns raw JSON, which is the least clear thing an
     # analyst can be shown. _validate_submission_form owns every message.
     name: str = Form(""),
-    cedant_name: str = Form(""),
+    cedant_id: str = Form(""),
+    new_cedant_name: str = Form(""),
     client_id: str = Form(""),
     data_vintage: str = Form(""),
     treaty_year: str = Form(""),
@@ -1199,9 +1186,9 @@ def create(
                                    contract_inception, contract_expiration,
                                    contract_status)
     form = {
-        "name": name, "cedant_name": cedant_name, "client_id": client_id,
-        "data_vintage": data_vintage, "treaty_year": treaty_year,
-        "directory_path": directory_path,
+        "name": name, "cedant_id": cedant_id, "new_cedant_name": new_cedant_name,
+        "client_id": client_id, "data_vintage": data_vintage,
+        "treaty_year": treaty_year, "directory_path": directory_path,
         "links_to_submission_id": links_to_submission_id,
         "contract_rows": contract_rows,
     }
@@ -1211,9 +1198,11 @@ def create(
                       nav_key="submissions.all", form=form, submission=None,
                       links_to=links_to)
 
-    field_errors, parsed_treaty_year, parsed_data_vintage = _validate_submission_form(
-        name=name, cedant_name=cedant_name, treaty_year=treaty_year,
-        data_vintage=data_vintage, directory_path=directory_path)
+    field_errors, parsed_treaty_year, parsed_data_vintage, new_cedant = (
+        _validate_submission_form(
+            name=name, cedant_id=cedant_id, new_cedant_name=new_cedant_name,
+            treaty_year=treaty_year,
+            data_vintage=data_vintage, directory_path=directory_path))
     parsed_client_id, client_error = _validate_client(
         client_id, client_service.list_clients())
     if client_error:
@@ -1224,7 +1213,7 @@ def create(
 
     try:
         submission_id = submission_service.create_submission(
-            name=name.strip(), cedant_name=cedant_name.strip(),
+            name=name.strip(), cedant_id=cedant_id.strip(), new_cedant=new_cedant,
             client_id=parsed_client_id, data_vintage=parsed_data_vintage,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
@@ -1458,7 +1447,7 @@ def edit_form(request: Request, submission_id: str):
         # Read-only gate (R3): closed deals are not editable.
         return _detail_response(request, submission_id, status_code=409)
     form = {
-        "name": submission.name, "cedant_name": submission.cedant_name,
+        "name": submission.name, "cedant_id": submission.cedant_id,
         "client_id": submission.client_id or "",
         "data_vintage": str(submission.data_vintage or ""),
         "treaty_year": submission.treaty_year or "",
@@ -1477,7 +1466,8 @@ def update(
     submission_id: str,
     # Optional here for the same reason as create() — see the note there.
     name: str = Form(""),
-    cedant_name: str = Form(""),
+    cedant_id: str = Form(""),
+    new_cedant_name: str = Form(""),
     client_id: str = Form(""),
     data_vintage: str = Form(""),
     treaty_year: str = Form(""),
@@ -1494,9 +1484,9 @@ def update(
         return _not_found(request)
 
     form = {
-        "name": name, "cedant_name": cedant_name, "client_id": client_id,
-        "data_vintage": data_vintage, "treaty_year": treaty_year,
-        "directory_path": directory_path,
+        "name": name, "cedant_id": cedant_id, "new_cedant_name": new_cedant_name,
+        "client_id": client_id, "data_vintage": data_vintage,
+        "treaty_year": treaty_year, "directory_path": directory_path,
         "links_to_submission_id": links_to_submission_id,
     }
     links_to = links_to_submission_id.strip() or None
@@ -1505,9 +1495,11 @@ def update(
                       nav_key="submissions.detail", form=form,
                       submission=submission, links_to=links_to)
 
-    field_errors, parsed_treaty_year, parsed_data_vintage = _validate_submission_form(
-        name=name, cedant_name=cedant_name, treaty_year=treaty_year,
-        data_vintage=data_vintage, directory_path=directory_path)
+    field_errors, parsed_treaty_year, parsed_data_vintage, new_cedant = (
+        _validate_submission_form(
+            name=name, cedant_id=cedant_id, new_cedant_name=new_cedant_name,
+            treaty_year=treaty_year,
+            data_vintage=data_vintage, directory_path=directory_path))
     parsed_client_id, client_error = _validate_client(
         client_id, client_service.list_clients())
     if client_error:
@@ -1520,7 +1512,7 @@ def update(
         submission_service.update_submission(
             submission_id=submission_id, expected_updated_at=updated_at,
             actor_id=request.state.user.id,
-            name=name.strip(), cedant_name=cedant_name.strip(),
+            name=name.strip(), cedant_id=cedant_id.strip(), new_cedant=new_cedant,
             client_id=parsed_client_id, data_vintage=parsed_data_vintage,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,

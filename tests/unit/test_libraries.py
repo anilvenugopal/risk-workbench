@@ -32,6 +32,7 @@ from app.services import submission_service as svc
 from app.templating import TEMPLATE_DIRS
 from db import execute_command
 from tests.unit.test_name_check_routes import _client
+from tests.unit.conftest import cedant_id
 
 # (module, child table) for the two sibling libraries.
 LIBS = [(edm_service, "irp_edm"), (rdm_service, "irp_rdm")]
@@ -61,10 +62,11 @@ def _entity(table, *, name, status="ready", deleted=False,
 def _submission(*, name, inserted_at) -> str:
     sid = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
+        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_id, "
         "status_code, inserted_at, updated_at) "
-        "SELECT :id, id, :name, 'Cedant', 'ACTIVE', :now, :now FROM app_user LIMIT 1",
-        {"id": sid, "name": name, "now": inserted_at}, connection="WORKBENCH")
+        "SELECT :id, id, :name, :ced, 'ACTIVE', :now, :now FROM app_user LIMIT 1",
+        {"id": sid, "name": name, "ced": cedant_id(), "now": inserted_at},
+        connection="WORKBENCH")
     return sid
 
 
@@ -210,31 +212,44 @@ def _import_job(table, entity_id, *, status, progress, inserted_at) -> None:
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
-def test_running_import_progress_reaches_every_entity_read(iteration2_db, mod, table):
+def test_import_label_reaches_every_entity_read(iteration2_db, mod, table):
     running = _entity(table, name="Running", status="importing")
     _import_job(table, running, status="FAILED", progress=80,
                 inserted_at="2026-01-01 00:00:00")
     _import_job(table, running, status="RUNNING", progress=45,
                 inserted_at="2026-01-02 00:00:00")
     queued = _entity(table, name="Queued", status="importing")
-    _import_job(table, queued, status="QUEUED", progress=5,
+    _import_job(table, queued, status="QUEUED", progress=None,
+                inserted_at="2026-01-02 00:00:00")
+    finished = _entity(table, name="Finished", status="importing")
+    _import_job(table, finished, status="FINISHED", progress=100,
+                inserted_at="2026-01-02 00:00:00")
+    ready = _entity(table, name="Ready", status="ready")
+    _import_job(table, ready, status="FINISHED", progress=100,
                 inserted_at="2026-01-02 00:00:00")
     sid = _submission(name="Deal", inserted_at="2026-01-01 00:00:00")
-    _attach(sid, table, running)
-    _attach(sid, table, queued)
+    for entity in (running, queued, finished, ready):
+        _attach(sid, table, entity)
+    empty_sid = _submission(name="Empty", inserted_at="2026-01-01 00:00:00")
 
-    entity_table = (svc.list_submission_edms(sid) if mod is edm_service
-                    else svc.list_submission_rdms(sid))
-    detail = (mod.get_edm_detail(running) if mod is edm_service
-              else mod.get_rdm_detail(running)["rdm"])
+    if mod is edm_service:
+        entity_table = svc.list_submission_edms(sid)
+        candidates = svc.list_edm_candidates(empty_sid).rows
+        detail = mod.get_edm_detail(running)
+    else:
+        entity_table = svc.list_submission_rdms(sid)
+        candidates = svc.list_rdm_candidates(empty_sid).rows
+        detail = mod.get_rdm_detail(running)["rdm"]
 
-    expected = {"Running": 45, "Queued": None}
-    assert {r.name: r.import_progress for r in _list(mod)} == expected
-    assert {r.name: r.import_progress for r in entity_table} == expected
-    assert detail.import_progress == 45
+    expected = {"Running": "Running 45%", "Queued": "Queued",
+                "Finished": "Finished", "Ready": None}
+    assert {r.name: r.import_label for r in _list(mod)} == expected
+    assert {r.name: r.import_label for r in entity_table} == expected
+    assert {r.name: r.import_label for r in candidates} == expected
+    assert detail.import_label == "Running 45%"
 
 
-def _render_table(*, statuses, filters=None, progress=None):
+def _render_table(*, statuses, filters=None, import_label=None):
     """Render library_table.html in isolation and report (polls?, html). Guards the
     self-terminating condition — the list must poll while any row is still moving
     under a worker and stop once every row is terminal."""
@@ -246,7 +261,7 @@ def _render_table(*, statuses, filters=None, progress=None):
     live = any(s in edm_service.TRANSIENT_STATUSES for s in statuses)
     html = env.get_template("partials/library_table.html").render(
         rows=[NS(id=f"e{i}", name=f"E{i}", status=s, source_file_path="/x/E.bak",
-                 inserted_at="2026-01-01", submissions=[], import_progress=progress)
+                 inserted_at="2026-01-01", submissions=[], import_label=import_label)
               for i, s in enumerate(statuses)],
         filter_values=filter_values, live=live, validation_error=None,
         is_filtered=any(filter_values.values()),
@@ -261,8 +276,9 @@ def test_list_polls_while_a_row_is_in_flight():
     assert _render_table(statuses=["ready", "importing"])[0] is True  # one is enough
 
 
-def test_status_chip_shows_import_progress():
-    assert ">importing 45%<" in _render_table(statuses=["importing"], progress=45)[1]
+def test_status_chip_shows_import_label():
+    assert ">Running 45%<" in _render_table(statuses=["importing"],
+                                            import_label="Running 45%")[1]
     assert ">importing<" in _render_table(statuses=["importing"])[1]
 
 
@@ -326,7 +342,7 @@ def _deal(*, name, owner, contract_status="OPEN", crm_ids=("C-1",),
     from app.services import submission_service
 
     return submission_service.create_submission(
-        name=name, cedant_name=f"{name} Re",
+        name=name, cedant_id=cedant_id(f"{name} Re"),
         contracts=[submission_service.ContractInput(
             crm_id=crm_id, treaty_type_code="per_risk_xol",
             inception_date=date(2026, 1, 1), expiration_date=expiration,
