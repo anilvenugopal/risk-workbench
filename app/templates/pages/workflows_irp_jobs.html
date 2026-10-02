@@ -1,7 +1,40 @@
 {% extends "base/shell.html" %}
+{% import "partials/form_macros.html" as forms %}
 {% block title %}IRP Jobs{% endblock %}
 {% block main %}
 <div class="page-pad">
+
+  {# GET, no CSRF — mirrors pages/workflows_rwb_jobs.html. Naming #irp-jobs-live
+     as the target gets the table back on its own. The form sits outside the
+     swap, so fields keep focus. It carries no page, so any filter change lands
+     on page 1. app.js fills tz with the browser's zone, which turns the two
+     dates into local days. #}
+  <form class="filters" method="get" action="/workflows/irp-jobs"
+        hx-get="/workflows/irp-jobs" hx-trigger="input delay:300ms, submit, filter-picked"
+        hx-target="#irp-jobs-live" hx-swap="outerHTML"
+        hx-push-url="true">
+    <div class="filters__row">
+      {{ forms.multi_picker("job_type", "Job type", job_types, filter_values.job_type) }}
+      {{ forms.multi_picker("status", "Status", statuses, filter_values.status) }}
+      {{ forms.multi_picker("submitted_by", "Submitted by", analysts,
+                            filter_values.submitted_by,
+                            any_label="Anyone", empty_value="any") }}
+    </div>
+    <div class="filters__row">
+      <label>Submitted from
+        <input class="wf-field__input" type="date" name="submitted_from"
+               value="{{ filter_values.submitted_from }}">
+      </label>
+      <label>Completed by
+        <input class="wf-field__input" type="date" name="completed_by"
+               value="{{ filter_values.completed_by }}">
+      </label>
+      <input type="hidden" name="tz">
+      <a class="btn-sm" href="/workflows/irp-jobs">Reset filters</a>
+    </div>
+    <button type="submit" hidden>Filter</button>
+  </form>
+
   {% include "partials/irp_jobs_table.html" %}
 </div>
 {% endblock %}

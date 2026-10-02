@@ -1245,6 +1245,21 @@ if (document.readyState !== 'loading') {
 }
 document.addEventListener('htmx:load', (e) => localizeUtcTimes(e.detail.elt));
 
+// ── Browser time zone ──────────────────────────────────────────────────────────
+// A form's hidden <input name="tz"> gets the browser's IANA zone, so the server can
+// read its date filters (/workflows/irp-jobs) as the analyst's local days.
+function fillTimeZone(root) {
+  const scope = root instanceof Element ? root : document;
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  scope.querySelectorAll('input[name="tz"]').forEach((el) => { el.value = zone; });
+}
+if (document.readyState !== 'loading') {
+  fillTimeZone(document);
+} else {
+  document.addEventListener('DOMContentLoaded', () => fillTimeZone(document));
+}
+document.addEventListener('htmx:load', (e) => fillTimeZone(e.detail.elt));
+
 // ── Swap state preservation ───────────────────────────────────────────────────
 // Two things live only in the DOM, and an HTMX swap replaces DOM: how far the
 // analyst has scrolled, and which <details> are open. The EDM detail page's
