@@ -232,7 +232,7 @@ def test_backfill_status_sees_breakout_fired_heads_quick_and_group(iteration2_db
         "VALUES (:i, :p, 'k1', 'Coastal', :f, 'src - Coastal', 'src-Coastal', "
         ":c, '2026-01-01', '2026-01-01')",
         {"i": group_row_id, "p": _portfolio(group_edm),
-         "f": '{"state": ["FL"]}', "c": str(uuid.uuid4())},
+         "f": '{"state": ["US-FL"]}', "c": str(uuid.uuid4())},
         connection="WORKBENCH")
     group_job = _job("breakout_group", group_row_id,
                      "run_breakout_custom", "succeeded", group_edm,
@@ -594,7 +594,7 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
                           breakout_dimension_code="custom",
                           breakout_value="a1b2c3",
                           breakout_group_label="Coastal HU",
-                          breakout_group_filters={"state": ["FL", "GA"],
+                          breakout_group_filters={"state": ["US-FL", "US-GA"],
                                                   "lob": ["Homeowners"],
                                                   "peril": ["2"]},
                           **common)
@@ -609,7 +609,8 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
     # peril reads as its mnemonic, not the stored loccvg.PERIL code (D4) —
     # on the quick row and inside the custom filter set alike
     assert "Peril IN (WS)" in html
-    assert "lob IN (Homeowners) AND peril IN (WS) AND state IN (FL, GA)" in html
+    assert ("lob IN (Homeowners) AND peril IN (WS) AND state IN (US-FL, US-GA)"
+            in html)
     assert html.count("Base portfolio") == 3
 
 

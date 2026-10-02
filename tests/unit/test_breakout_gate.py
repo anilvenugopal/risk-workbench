@@ -73,7 +73,7 @@ def test_gate_eligible_happy_path(iteration2_db):
     # values come sorted from the stored summary, with labels and counts
     assert [(v.value, v.label, v.accounts)
             for v in _dim(gate, "state").values] == [
-        ("CA", "CALIFORNIA", 1481), ("TX", "TEXAS", 220)]
+        ("US-CA", "CALIFORNIA", 1481), ("US-TX", "TEXAS", 220)]
 
 
 @pytest.mark.parametrize("status", ["pending_import", "importing", "error",
@@ -199,7 +199,7 @@ def test_modal_selects_peril_when_it_is_the_only_eligible_dimension(
     edm_id = mk_edm()
     summary = dict(SUMMARY, breakout_values={
         "lob": [{"value": "FLD Comm", "label": None, "accounts": 1701}],
-        "state": [{"value": "FL", "label": None, "accounts": 1701}],
+        "state": [{"value": "US-FL", "label": None, "accounts": 1701}],
         "peril": [{"value": "1", "label": None, "accounts": 517},
                   {"value": "2", "label": None, "accounts": 1701}]})
     pid = mk_portfolio(edm_id, summary=summary)
@@ -404,13 +404,13 @@ def test_load_approved_plan_runs_verbatim_never_recomputes():
     # A stored plan whose names no longer match what a recompute would produce
     # still parses to exactly what was persisted — no re-suffixing, no reads.
     input_data = {"plan": [
-        {"value": "TX", "label": "TEXAS", "name": "old name (4)",
-         "number": "P1-S-TX", "accounts": 220},
+        {"value": "US-TX", "label": "TEXAS", "name": "old name (4)",
+         "number": "P1-S-USTX873133", "accounts": 220},
     ]}
     plan = load_approved_plan(input_data)
     assert len(plan) == 1
     assert plan[0].name == "old name (4)"
-    assert plan[0].number == "P1-S-TX"
+    assert plan[0].number == "P1-S-USTX873133"
     assert plan[0].accounts == 220
 
 
