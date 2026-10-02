@@ -15,12 +15,13 @@ from starlette.testclient import TestClient
 
 from app.services import analysis_service, irp_gateway, submission_service
 from db import execute_command
+from tests.unit.conftest import cedant_id
 
 
 def _submission(db, name: str) -> str:
     return submission_service.create_submission(
-        name=name, cedant_name=name, treaty_year=2026,
-        data_vintage="2026-06-30", actor_id=db.user_a, confirmed=True).submission_id
+        name=name, cedant_id=cedant_id(name), treaty_year=2026,
+        data_vintage="2026-06-30", actor_id=db.user_a)
 
 
 def _rdm(name: str, irp_id: int) -> str:
@@ -112,10 +113,12 @@ def client(iteration2_db) -> TestClient:
     templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["app_env"] = settings.app_env
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     templates.env.globals["default_perspective"] = (
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(edms.router)

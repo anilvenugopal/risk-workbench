@@ -60,11 +60,10 @@ def submission_filter_clauses(
     client) become clauses on ``alias``. Contract-level keys (``crm_ids``,
     ``treaty_type_codes``, ``inception_date``, ``contract_status_codes``,
     ``in_force_as_of``) share one ``EXISTS`` over ``contract`` so a single
-    contract satisfies them together (P-18, research.md R4). ``name`` and
-    ``cedant_name`` match on words, every word required (see
-    ``_word_and_clauses``); each ``crm_ids`` value matches a whole CRM ID,
-    case-insensitive and trimmed (P-10); ``in_force_as_of`` is a ``date`` and
-    applies FR-018; the rest are exact."""
+    contract satisfies them together (P-18, research.md R4). ``name`` matches
+    on words, every word required (see ``_word_and_clauses``); each ``crm_ids``
+    value matches a whole CRM ID, case-insensitive and trimmed (P-10);
+    ``in_force_as_of`` is a ``date`` and applies FR-018; the rest are exact."""
     s = alias
     clauses: list[str] = []
     params: dict[str, Any] = {}
@@ -80,10 +79,10 @@ def submission_filter_clauses(
         more_clauses, more = _word_and_clauses(filters["name"], (f"{s}.name",), "n")
         clauses += more_clauses
         params |= more
-    if filters.get("cedant_name"):
-        more_clauses, more = _word_and_clauses(
-            filters["cedant_name"], (f"{s}.cedant_name",), "c")
-        clauses += more_clauses
+    if filters.get("cedant_ids"):
+        clause, more = _in_clause(
+            f"{s}.cedant_id", [_as_uuid(c) for c in filters["cedant_ids"]], "ced")
+        clauses.append(clause)
         params |= more
     if filters.get("treaty_years"):
         clause, more = _in_clause(

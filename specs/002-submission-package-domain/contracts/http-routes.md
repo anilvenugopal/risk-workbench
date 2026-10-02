@@ -13,7 +13,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 | GET | `/submissions` | Master-detail list, owner-filtered | Nav `submissions.all`. Filters via query string. |
 | GET | `/submissions/{id}` | Detail view — attributes, status + history, CRM tags, packages | Real URL (Article 8). 404 if unknown id. Visible to any analyst (FR-019). |
 
-**List query params** (all optional, combine with AND — FR-021/R7/R10): `q` (name), `cedant`, `crm_id`, `owner`, `status`, `treaty_type`, `inception` (ISO date), `treaty_year`. `q` and `cedant` match on words — every whitespace-separated word must appear, as a substring (CR1/CR2); `crm_id` matches a substring of any CRM tag on the deal (CR3); the rest are exact. `page` (1-based, default 1) selects one 50-row page; the Prev/Next links carry the applied filters, and the filter form sends no `page`, so re-filtering returns to page 1.
+**List query params** (all optional, combine with AND — FR-021/R7/R10): `q` (name), `cedant` (cedant id, repeated), `crm_id`, `owner`, `status`, `treaty_type`, `inception` (ISO date), `treaty_year`. `q` matches on words — every whitespace-separated word must appear, as a substring (CR1/CR2); `crm_id` matches a substring of any CRM tag on the deal (CR3); the rest are exact. `page` (1-based, default 1) selects one 50-row page; the Prev/Next links carry the applied filters, and the filter form sends no `page`, so re-filtering returns to page 1.
 
 `owner` carries an `app_user.id`, never a display name, which two analysts can share:
 
@@ -30,8 +30,7 @@ A request whose `HX-Target` header is `sub-list` — the filter form and the pag
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/submissions/cedant-suggest?cedant_name=` | HTMX cedant typeahead for the create/edit form (`DISTINCT cedant_name`, contains match); returns `partials/typeahead_menu.html` (FR-006/R6). htmx sends the field under its own name; `?q=` is still accepted. Both suggest routes render an empty body below a 2-character term and cap the menu at 10 rows in the query |
-| GET | `/submissions/link-suggest?links_to_search=&links_to_exclude=` | HTMX typeahead for the "links to" picker; AND-combines terms across name and cedant, drops `links_to_exclude` from the results, returns `partials/typeahead_menu.html` (FR-007/CR8). `?q=`/`?exclude=` are still accepted |
+| GET | `/submissions/link-suggest?links_to_search=&links_to_exclude=` | HTMX typeahead for the "links to" picker; AND-combines terms across name and cedant, drops `links_to_exclude` from the results, returns `partials/typeahead_menu.html` (FR-007/CR8). `?q=`/`?exclude=` are still accepted. Renders an empty body below a 2-character term and caps the menu at 10 rows in the query |
 
 ---
 
@@ -72,6 +71,20 @@ Once COMPLETED/CANCELLED, the detail view renders **read-only**: edit/reassign/C
 Both reject with `SubmissionClosed` (409) unless the submission is ACTIVE (FR-017/FR-015). Zero tags is a valid state (FR-016).
 
 FR-017's *edit* is served by remove + add: tags render as read-only chips, so there is no in-place edit route (issue #16). A dedicated `POST /submissions/{id}/crm-ids/{tag_id}` was removed along with `edit_crm_id`.
+
+---
+
+## Cedants (FR-006a)
+
+Nav `submissions.cedants`. Every POST checks the CSRF token and, on success or a bad token, redirects to `/cedants` with a 303.
+
+| Method | Path | Purpose | Errors |
+|---|---|---|---|
+| GET | `/cedants?q=` | Cedant list with each cedant's submission count; `q` keeps the names containing every word of it, any order | — |
+| POST | `/cedants` | Add a cedant (`name`) | 422 + the message under the add field (blank, over 255 characters, or a name another cedant has, case ignored) |
+| POST | `/cedants/{id}/rename` | Rename a cedant (`name`) | 422 + the message under that row's field, same rules as add |
+| POST | `/cedants/{id}/delete` | Delete one cedant | 409 + a message naming the cedant, kept because a submission uses it |
+| POST | `/cedants/delete` | Delete the checked cedants (`cedant_ids`, repeated) | 409 + a message naming the cedants kept; the others are deleted |
 
 ---
 

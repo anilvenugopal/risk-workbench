@@ -634,7 +634,7 @@ class BreakoutBanner:
 
 @dataclass(frozen=True)
 class BreakoutPageState:
-    running: bool                                # keeps the 3s self-poll alive
+    running: bool                                # keeps the self-poll alive
     banner: BreakoutBanner | None
     flights: dict[str, BreakoutFlight]           # portfolio id → live run
     errors: dict[str, list[BreakoutRowError]]    # portfolio id → durable lines
@@ -1214,7 +1214,7 @@ def compose_group_preview(edm_id: Any, portfolio_id: Any, *,
     matches (P-29 — ``group_matches_no_accounts``, fail-open). Raises
     ``GateRefused`` on every refusal; no writes. Callers run the whole call in
     a threadpool: the match count queries DataBridge over the whole portfolio
-    and must not hold the event loop while the page's 3-second polls wait."""
+    and must not hold the event loop while the page's polls wait."""
     gate = evaluate_gate(edm_id, portfolio_id)
     plans = compose_group_cart(gate, edm_id=edm_id, portfolio_id=portfolio_id,
                                groups=[*carted, new_group])

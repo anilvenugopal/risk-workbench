@@ -163,7 +163,7 @@ def _decorate(rows: list[dict], *, type_labels: dict, status_labels: dict) -> No
 
 def _list_context(request: Request) -> dict:
     """Everything ``partials/rwb_jobs_table.html`` reads. The page route adds the
-    owner and submission-status pickers on top; the 3-second poll does not."""
+    owner and submission-status pickers on top; the poll does not."""
     current_user = request.state.user
     submission_name = (request.query_params.get("q") or "").strip() or None
     submission_status_codes = [
@@ -225,7 +225,7 @@ def _list_context(request: Request) -> dict:
         # Filters plus the sort in force, for the poll to re-render what the
         # analyst is actually looking at.
         "list_query": urlencode(query_values + order_values),
-        # Any row not yet terminal keeps the 3s trigger in the fragment.
+        # Any row not yet terminal keeps the poll trigger in the fragment.
         "live": any(r["status_code"] in ("pending", "running") for r in rows),
     }
 

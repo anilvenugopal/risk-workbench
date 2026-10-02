@@ -279,10 +279,12 @@ def _client() -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     templates.env.globals["default_perspective"] = (
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(rdms.router)
@@ -304,7 +306,7 @@ def _stub_reads(monkeypatch, *, rdm=..., sync_status=None, analyses=None):
     monkeypatch.setattr(rdm_service, "get_rdm", lambda rdm_id: rdm)
     # No database behind these routes: the stub's own ``submissions`` stand.
     monkeypatch.setattr(rdm_service, "_attach_submissions", lambda kind, rows: None)
-    monkeypatch.setattr(rdm_service, "_import_progress", lambda kind, ids: {})
+    monkeypatch.setattr(rdm_service, "_latest_import_jobs", lambda kind, ids: {})
     monkeypatch.setattr(rdm_service, "latest_backfill_status",
                         lambda rdm_id: sync_status)
     monkeypatch.setattr(analysis_service, "list_broker_analyses",

@@ -8,12 +8,9 @@ analyst may load and act on any submission (Article 6 / FR-019).
 Service errors are mapped to HTTP here:
   SubmissionClosed / ConcurrencyConflict → 409 banner (input preserved)
   SelfLinkError / UnknownLinkError       → 422
-  duplicate look-alikes (unconfirmed)    → non-blocking dup-warning partial
 
 Field-level validation returns 422 with a ``field_errors`` dict the form renders
-under the offending input, plus a one-line summary banner (CR4). The unconfirmed
-duplicate warning is the one re-render that stays 200: nothing the analyst typed
-is wrong.
+under the offending input, plus a one-line summary banner (CR4).
 """
 
 from __future__ import annotations
@@ -33,6 +30,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._analysis_delete import delete_analyses_response
+from app.routers._analysis_rows import analysis_rows_response, retarget_section
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.routers._list_filters import (
@@ -47,6 +45,7 @@ from app.services import (
     analysis_import_service,
     analysis_service,
     auth_service,
+    cedant_service,
     client_service,
     edm_service,
     export_service,
@@ -58,6 +57,7 @@ from app.services import (
 )
 from app.services._common import _parse_int, _uid
 from app.services.analysis_execution_service import ExecutionGateError
+from app.services.cedant_service import CedantValidationError, NewCedant
 from app.services.submission_service import ContractInput, ContractInvalid
 from app.services.errors import (
     ConcurrencyConflict,
@@ -76,6 +76,9 @@ router = APIRouter()
 # renamed away or closed while the form sat open, or the page is stale.
 _UNKNOWN_LINK_MESSAGE = "That deal was not found — pick the linked deal again."
 _UNKNOWN_CLIENT_MESSAGE = "Choose a client from the list."
+# The Cedant field posts this in place of an id when the analyst typed a new
+# name; the name comes in new_cedant_name (P-06).
+NEW_CEDANT = "new"
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -113,18 +116,26 @@ def _parse_date(value: str | None) -> date | None:
 
 
 def _validate_submission_form(
-    *, name: str, cedant_name: str, treaty_year: str, data_vintage: str,
-    directory_path: str,
-) -> tuple[dict[str, str], int | None, date | None]:
-    """One message per bad field (CR4), plus the parsed treaty year and data
-    vintage so the caller does not parse twice. An empty dict means valid."""
+    *, name: str, cedant_id: str, new_cedant_name: str,
+    treaty_year: str, data_vintage: str, directory_path: str,
+) -> tuple[dict[str, str], int | None, date | None, NewCedant | None]:
+    """One message per bad field (CR4), plus the parsed treaty year, data
+    vintage and typed new cedant so the caller does not parse twice. An empty
+    dict means valid."""
     errors: dict[str, str] = {}
     if not name.strip():
         errors["name"] = "Enter a name for this submission."
     elif not name_check.is_valid_name(name.strip()):
         errors["name"] = name_check.name_rule_message("Submission")
-    if not cedant_name.strip():
-        errors["cedant_name"] = "Enter a cedant."
+    new_cedant = None
+    if cedant_id.strip() == NEW_CEDANT:
+        try:
+            new_cedant = cedant_service.new_cedant(new_cedant_name)
+        except CedantValidationError as exc:
+            errors["cedant_id"] = str(exc)
+    elif cedant_id.strip().lower() not in {
+            cedant.id for cedant in cedant_service.list_cedants()}:
+        errors["cedant_id"] = "Pick a cedant from the list."
 
     parsed_treaty_year = _parse_int(treaty_year)
     if treaty_year.strip() and not (
@@ -149,7 +160,7 @@ def _validate_submission_form(
                 "That folder is no longer on the shared drive — browse and pick it "
                 "again.")
 
-    return errors, parsed_treaty_year, parsed_data_vintage
+    return errors, parsed_treaty_year, parsed_data_vintage, new_cedant
 
 
 _CONTRACT_FIELDS = ("crm_id", "treaty_type_code", "inception_date",
@@ -203,24 +214,24 @@ def _error_banner(field_errors: dict[str, str], action: str) -> list[str]:
 def _form_context(
     *, mode: str, form: dict, submission, links_to: str | None = None,
     errors: list[str] | None = None, field_errors: dict[str, str] | None = None,
-    field_owners: dict | None = None, warnings: list | None = None,
+    field_owners: dict | None = None,
 ) -> dict:
-    """The render context for ``pages/submission_form.html``. ``errors``,
-    ``field_errors`` and ``warnings`` are three same-shaped collections the
-    template treats differently, so they are keyword-only. ``field_owners``
-    holds the ``ContractOwner`` a contract row's error links to."""
+    """The render context for ``pages/submission_form.html``. ``errors`` and
+    ``field_errors`` are two same-shaped collections the template treats
+    differently, so they are keyword-only. ``field_owners`` holds the
+    ``ContractOwner`` a contract row's error links to."""
     return {
         "mode": mode,
         "treaty_types": submission_service.treaty_type_kinds(),
         "contract_statuses": submission_service.contract_status_kinds(),
         "clients": client_service.list_clients(),
+        "cedant_options": cedant_service.list_cedants(),
         "form": form,
         "submission": submission,
         "link_target": submission_service.get_submission(links_to),
         "errors": errors or [],
         "field_errors": field_errors or {},
         "field_owners": field_owners or {},
-        "warnings": warnings or [],
         "min_suggest_term": submission_service.MIN_SUGGEST_TERM,
         "min_treaty_year": MIN_TREATY_YEAR,
         "max_treaty_year": MAX_TREATY_YEAR,
@@ -230,14 +241,13 @@ def _form_context(
 def _reshow_form(
     request: Request, *, mode: str, nav_key: str, form: dict, submission,
     links_to: str | None, errors=None, field_errors=None, field_owners=None,
-    warnings=None, status_code: int = 200,
+    status_code: int = 200,
 ):
     return _render(
         request, "pages/submission_form.html", nav_key,
         _form_context(mode=mode, form=form, submission=submission,
                       links_to=links_to, errors=errors,
-                      field_errors=field_errors, field_owners=field_owners,
-                      warnings=warnings),
+                      field_errors=field_errors, field_owners=field_owners),
         status_code=status_code)
 
 
@@ -329,6 +339,7 @@ def _entity_sort_links(
 
 
 _ANALYSES_STATUS_FILTERS = ("failed", "in_progress", "ready")
+_RESULTS_SECTION_ID = "submission-analyses"
 
 
 def _results_status_filter(request: Request) -> str:
@@ -395,14 +406,14 @@ def _results_section_context(request: Request, submission_id: str,
         "groups": _results_groups(submission_id),
         "source_submission": submission,
         "show_edm": True,
-        "section_id": "submission-analyses",
+        "section_id": _RESULTS_SECTION_ID,
         "section_title": "Results",
         "analyses_table_url": f"/submissions/{submission_id}/analyses",
         "rdm_analyses_prefix": f"/submissions/{submission_id}/rdms",
         "delete_url": f"/submissions/{submission_id}/analyses/delete",
         "import_url": f"/submissions/{submission_id}/analyses/import",
         "status_filter": _results_status_filter(request),
-        # Keeps the 3s poll alive between a compose POST and the worker's claim
+        # Keeps the poll alive between a compose POST and the worker's claim
         # of the group row (spec 012 — no group row exists yet to read as live).
         "grouping_request_id": grouping_request_id or "",
         "execution_live": grouping_service.grouping_request_is_live(
@@ -414,19 +425,40 @@ def _results_section_context(request: Request, submission_id: str,
     }
 
 
+def _results_gone() -> HTMLResponse:
+    # Submission hard-gone mid-poll: a terminal notice with no trigger
+    # ends polling (the EDM section's precedent).
+    return HTMLResponse(
+        f'<details class="sec" open id="{_RESULTS_SECTION_ID}">'
+        '<summary><span class="sec__title">Results</span></summary>'
+        '<div class="state-box state-box--warn">This submission no longer '
+        'exists.</div></details>')
+
+
 @router.get("/submissions/{submission_id}/analyses", response_class=HTMLResponse)
 def submission_analyses(request: Request, submission_id: str):
     submission = submission_service.get_submission(submission_id)
     if submission is None:
-        # Submission hard-gone mid-poll: a terminal notice with no trigger
-        # ends polling (the EDM section's precedent).
-        return HTMLResponse(
-            '<details class="sec" open id="submission-analyses">'
-            '<summary><span class="sec__title">Results</span></summary>'
-            '<div class="state-box state-box--warn">This submission no longer '
-            'exists.</div></details>')
+        return _results_gone()
     return _partial(request, "partials/analyses_merged_section.html",
                     _results_section_context(request, submission_id, submission))
+
+
+@router.post("/submissions/{submission_id}/analyses/rows",
+             response_class=HTMLResponse)
+def submission_analyses_rows(
+    request: Request, submission_id: str,
+    analyses_hash: Annotated[str, Form(alias="hash")] = "",
+    live: Annotated[str, Form()] = "",
+):
+    """The Results section's poll. No writes, no Risk Modeler call
+    (Article 11)."""
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return retarget_section(_results_gone(), _RESULTS_SECTION_ID)
+    return analysis_rows_response(
+        request, _results_section_context(request, submission_id, submission),
+        analyses_hash, live)
 
 
 @router.get("/submissions/{submission_id}/rdms/{rdm_id}/analyses",
@@ -976,7 +1008,7 @@ def _not_found(request: Request):
 # naming it gets the table on its own: rebuilding the status list, the analyst
 # list and the nav shell for htmx to discard is the cost of a keystroke otherwise.
 _LIST_TARGET = "sub-list"
-_TEXT_PARAMS = ("q", "cedant")
+_TEXT_PARAMS = ("q",)
 
 
 def _sort_links(sort_query: str, sort: str, descending: bool) -> dict[str, dict]:
@@ -1028,7 +1060,7 @@ def list_submissions_page(request: Request):
     # Echoed back into the inputs so a filtered request re-renders what was typed,
     # and read by the template to tell "nothing matches" from "nothing here yet".
     filter_values = {
-        key: request.query_params.get(key, "") for key in ("q", "cedant", "inception")
+        key: request.query_params.get(key, "") for key in ("q", "inception")
     }
     filter_values |= multi_values
     filter_values["in_force"] = parsed.in_force
@@ -1040,7 +1072,7 @@ def list_submissions_page(request: Request):
     query_values = [
         (query_key, filter_values[query_key].strip())
         for query_key, filter_key in (
-            ("q", "name"), ("cedant", "cedant_name"), ("inception", "inception_date"),
+            ("q", "name"), ("inception", "inception_date"),
         )
         if filters[filter_key] is not None
     ]
@@ -1089,35 +1121,6 @@ def list_submissions_page(request: Request):
     }, status_code=422 if validation_error else 200)
 
 
-def _suggest_menu(request: Request, options: list[dict], term: str,
-                  empty_message: str, menu_id: str):
-    """Render one of the two typeahead menus. ``menu_id`` is the id of the div
-    htmx swaps into, and each option derives its own id from it."""
-    return _partial(request, "partials/typeahead_menu.html", {
-        "options": options,
-        "searched": len(term.strip()) >= submission_service.MIN_SUGGEST_TERM,
-        "empty_message": empty_message,
-        "menu_id": menu_id,
-    })
-
-
-@router.get("/submissions/cedant-suggest", response_class=HTMLResponse)
-def cedant_suggest(request: Request):
-    """Typeahead menu for the create/edit form's CEDANT field (FR-006/R6).
-
-    htmx sends the field under its own name, so the term arrives as
-    ``cedant_name``; ``q`` (the name in the 002 contract) is still accepted for a
-    hand-built call."""
-    term = (request.query_params.get("cedant_name")
-            or request.query_params.get("q", ""))
-    return _suggest_menu(
-        request,
-        [{"value": cedant, "label": cedant}
-         for cedant in submission_service.cedant_suggestions(term)],
-        term, "No matching cedant.", "cedant-menu",
-    )
-
-
 @router.get("/submissions/link-suggest", response_class=HTMLResponse)
 def link_suggest(request: Request):
     """Typeahead menu for the "links to" picker (CR8). Searches name and cedant;
@@ -1132,9 +1135,8 @@ def link_suggest(request: Request):
     matches = submission_service.search_submissions_for_link(
         term, exclude_id=exclude_id,
     )
-    return _suggest_menu(
-        request,
-        [
+    return _partial(request, "partials/typeahead_menu.html", {
+        "options": [
             {
                 "value": row.id,
                 "label": row.name,
@@ -1142,8 +1144,10 @@ def link_suggest(request: Request):
             }
             for row in matches
         ],
-        term, "No matching submission.", "link-menu",
-    )
+        "searched": len(term.strip()) >= submission_service.MIN_SUGGEST_TERM,
+        "empty_message": "No matching submission.",
+        "menu_id": "link-menu",
+    })
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
@@ -1161,7 +1165,8 @@ def create(
     # FastAPI rejects itself returns raw JSON, which is the least clear thing an
     # analyst can be shown. _validate_submission_form owns every message.
     name: str = Form(""),
-    cedant_name: str = Form(""),
+    cedant_id: str = Form(""),
+    new_cedant_name: str = Form(""),
     client_id: str = Form(""),
     data_vintage: str = Form(""),
     treaty_year: str = Form(""),
@@ -1172,7 +1177,6 @@ def create(
     contract_inception: Annotated[list[str], Form()] = [],
     contract_expiration: Annotated[list[str], Form()] = [],
     contract_status: Annotated[list[str], Form()] = [],
-    confirmed: str = Form(""),
     csrf_token: str = Form(...),
 ):
     if not validate_csrf_token(csrf_token):
@@ -1182,9 +1186,9 @@ def create(
                                    contract_inception, contract_expiration,
                                    contract_status)
     form = {
-        "name": name, "cedant_name": cedant_name, "client_id": client_id,
-        "data_vintage": data_vintage, "treaty_year": treaty_year,
-        "directory_path": directory_path,
+        "name": name, "cedant_id": cedant_id, "new_cedant_name": new_cedant_name,
+        "client_id": client_id, "data_vintage": data_vintage,
+        "treaty_year": treaty_year, "directory_path": directory_path,
         "links_to_submission_id": links_to_submission_id,
         "contract_rows": contract_rows,
     }
@@ -1194,9 +1198,11 @@ def create(
                       nav_key="submissions.all", form=form, submission=None,
                       links_to=links_to)
 
-    field_errors, parsed_treaty_year, parsed_data_vintage = _validate_submission_form(
-        name=name, cedant_name=cedant_name, treaty_year=treaty_year,
-        data_vintage=data_vintage, directory_path=directory_path)
+    field_errors, parsed_treaty_year, parsed_data_vintage, new_cedant = (
+        _validate_submission_form(
+            name=name, cedant_id=cedant_id, new_cedant_name=new_cedant_name,
+            treaty_year=treaty_year,
+            data_vintage=data_vintage, directory_path=directory_path))
     parsed_client_id, client_error = _validate_client(
         client_id, client_service.list_clients())
     if client_error:
@@ -1206,14 +1212,14 @@ def create(
                        field_errors=field_errors, status_code=422)
 
     try:
-        result = submission_service.create_submission(
-            name=name.strip(), cedant_name=cedant_name.strip(),
+        submission_id = submission_service.create_submission(
+            name=name.strip(), cedant_id=cedant_id.strip(), new_cedant=new_cedant,
             client_id=parsed_client_id, data_vintage=parsed_data_vintage,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
             contracts=[_contract_input(row) for row in contract_rows],
             links_to_submission_id=links_to,
-            actor_id=request.state.user.id, confirmed=(confirmed == "1"),
+            actor_id=request.state.user.id,
         )
     except ContractInvalid as exc:
         # The message sits under the row it names (US1 acceptance 3).
@@ -1225,12 +1231,7 @@ def create(
     except UnknownLinkError:
         return _reshow(field_errors={
             "links_to_submission_id": _UNKNOWN_LINK_MESSAGE}, status_code=422)
-    if not result.created:
-        # Non-blocking look-alike warning (FR-004): re-render form + dup list.
-        # 200, not 422 — nothing the analyst typed is wrong, and "create anyway"
-        # is one click away.
-        return _reshow(warnings=result.warnings)
-    return RedirectResponse(f"/submissions/{result.submission_id}", status_code=303)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 
 # ── Detail ─────────────────────────────────────────────────────────────────────
@@ -1446,7 +1447,7 @@ def edit_form(request: Request, submission_id: str):
         # Read-only gate (R3): closed deals are not editable.
         return _detail_response(request, submission_id, status_code=409)
     form = {
-        "name": submission.name, "cedant_name": submission.cedant_name,
+        "name": submission.name, "cedant_id": submission.cedant_id,
         "client_id": submission.client_id or "",
         "data_vintage": str(submission.data_vintage or ""),
         "treaty_year": submission.treaty_year or "",
@@ -1465,14 +1466,14 @@ def update(
     submission_id: str,
     # Optional here for the same reason as create() — see the note there.
     name: str = Form(""),
-    cedant_name: str = Form(""),
+    cedant_id: str = Form(""),
+    new_cedant_name: str = Form(""),
     client_id: str = Form(""),
     data_vintage: str = Form(""),
     treaty_year: str = Form(""),
     directory_path: str = Form(""),
     links_to_submission_id: str = Form(""),
     updated_at: str = Form(...),
-    confirmed: str = Form(""),
     csrf_token: str = Form(...),
 ):
     if not validate_csrf_token(csrf_token):
@@ -1483,9 +1484,9 @@ def update(
         return _not_found(request)
 
     form = {
-        "name": name, "cedant_name": cedant_name, "client_id": client_id,
-        "data_vintage": data_vintage, "treaty_year": treaty_year,
-        "directory_path": directory_path,
+        "name": name, "cedant_id": cedant_id, "new_cedant_name": new_cedant_name,
+        "client_id": client_id, "data_vintage": data_vintage,
+        "treaty_year": treaty_year, "directory_path": directory_path,
         "links_to_submission_id": links_to_submission_id,
     }
     links_to = links_to_submission_id.strip() or None
@@ -1494,9 +1495,11 @@ def update(
                       nav_key="submissions.detail", form=form,
                       submission=submission, links_to=links_to)
 
-    field_errors, parsed_treaty_year, parsed_data_vintage = _validate_submission_form(
-        name=name, cedant_name=cedant_name, treaty_year=treaty_year,
-        data_vintage=data_vintage, directory_path=directory_path)
+    field_errors, parsed_treaty_year, parsed_data_vintage, new_cedant = (
+        _validate_submission_form(
+            name=name, cedant_id=cedant_id, new_cedant_name=new_cedant_name,
+            treaty_year=treaty_year,
+            data_vintage=data_vintage, directory_path=directory_path))
     parsed_client_id, client_error = _validate_client(
         client_id, client_service.list_clients())
     if client_error:
@@ -1506,10 +1509,10 @@ def update(
                        field_errors=field_errors, status_code=422)
 
     try:
-        result = submission_service.update_submission(
+        submission_service.update_submission(
             submission_id=submission_id, expected_updated_at=updated_at,
-            actor_id=request.state.user.id, confirmed=(confirmed == "1"),
-            name=name.strip(), cedant_name=cedant_name.strip(),
+            actor_id=request.state.user.id,
+            name=name.strip(), cedant_id=cedant_id.strip(), new_cedant=new_cedant,
             client_id=parsed_client_id, data_vintage=parsed_data_vintage,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
@@ -1529,9 +1532,6 @@ def update(
         return _reshow(
             errors=["This deal changed since you opened it — reload and re-apply."],
             status_code=409)
-
-    if not result.updated:
-        return _reshow(warnings=result.warnings)  # non-blocking dup warning
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 

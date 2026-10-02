@@ -24,9 +24,8 @@ class TestRailNodes:
 class TestChildren:
     def test_submissions_has_children(self):
         from app.nav.manifest import children
-        kids = children("submissions")
-        assert len(kids) == 1
-        assert kids[0]["key"] == "submissions.all"
+        assert [k["key"] for k in children("submissions")] == [
+            "submissions.all", "submissions.cedants"]
 
     def test_workflows_has_5_children(self):
         from app.nav.manifest import children
@@ -118,7 +117,8 @@ class TestVisibleNodes:
 class TestExportNodes:
     def test_export_nodes_are_hidden_under_the_submission(self):
         from app.nav.manifest import breadcrumb, children
-        assert [k["key"] for k in children("submissions")] == ["submissions.all"]
+        assert [k["key"] for k in children("submissions")] == [
+            "submissions.all", "submissions.cedants"]
         assert [c["key"] for c in breadcrumb("submissions.export_new")] == [
             "submissions", "submissions.detail", "submissions.export_new"]
         assert breadcrumb("submissions.export_new")[-1]["label"] == "Export"

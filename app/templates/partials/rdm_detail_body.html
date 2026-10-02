@@ -1,6 +1,6 @@
 {# Live body (mirrors edm_detail_body): while the manual
    analyses backfill is in flight — or the import itself still is — the wrapper
-   polls its own read-only render every 3s and swaps itself, so the page updates
+   polls its own read-only render and swaps itself, so the page updates
    on its own when the rwb job lands. The server stops emitting the trigger once
    the work is terminal, so polling ends without a reload. The Sync forms swap
    this wrapper via HTMX (URL never changes, no re-submission prompt on refresh);
@@ -24,7 +24,7 @@
   x-bind:class="{ 'rdm-notes-open': notesOpen }"
   x-on:entity-note-saved="notesOpen = false"
   {%- if live %}
-  hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open')]"
+  hx-get="{{ body_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <div class="detail-head">
@@ -39,7 +39,7 @@
     <div>
     <h1>{{ rdm.name }}
       <span class="status-chip status-chip--{{ (rdm.status or 'unknown')|lower|replace(' ', '-') }}">
-        {{ rdm.status or 'unknown' }}{% if rdm.import_progress is not none %} {{ rdm.import_progress }}%{% endif %}</span>
+        {{ rdm.import_label or rdm.status or 'unknown' }}</span>
     </h1>
     <div class="detail-meta">
       <span class="mono" title="{{ rdm.source_file_path }}">{{ rdm.source_file_path or '—' }}</span>

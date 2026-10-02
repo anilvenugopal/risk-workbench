@@ -5,7 +5,7 @@
     <label class="entity-candidate">
       <input type="checkbox" name="entity_ids" value="{{ candidate.id }}">
       <span>{{ candidate.name }}</span>
-      {% if candidate.status %}<span class="status-chip status-chip--{{ candidate.status }}">{{ candidate.status | replace('_', ' ') | title }}</span>{% endif %}
+      {% if candidate.status %}<span class="status-chip status-chip--{{ candidate.status }}">{{ candidate.import_label or (candidate.status | replace('_', ' ') | title) }}</span>{% endif %}
     </label>
     {% endfor %}
   </div>

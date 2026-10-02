@@ -80,7 +80,7 @@ def test_closing_the_last_open_analysis_stops_the_polling(client, export):
 
     response = _close(client, export, export["b"])
 
-    assert 'hx-trigger="every 10s"' not in response.text
+    assert 'hx-trigger="every 3s"' not in response.text
 
 
 def test_close_keeps_the_filter_in_force(client, export):

@@ -8,7 +8,7 @@ a render (spec non-negotiable 1); §5 enqueues and dispatches, nothing more.
 `GET /edms/{edm_id}/analyses` (existing section endpoint, extended)
 
 - Query: `status` (existing filter) only. It rides the section/poll URL so the
-  3s self-poll never resets it. No `perspective` param: the toggle lives inside
+  self-poll never resets it. No `perspective` param: the toggle lives inside
   the expanded row (O-12).
 - Renders the **merged** section replacing today's separate "Analyses" and
   "Broker analyses" sections (FR-009): own rows (existing
@@ -48,7 +48,7 @@ a render (spec non-negotiable 1); §5 enqueues and dispatches, nothing more.
   read `—`), broker groups for every related RDM. Same `status` param, same
   View form (`submission=` context only).
 - Included in `submission_detail.html` as a new Results section; self-polls
-  every 3s only while any listed analysis or retrieval is live (same pattern
+  every `UI_POLL_INTERVAL_SECS` seconds only while any listed analysis or retrieval is live (same pattern
   as the EDM section).
 
 ## 3. Dedicated results page
@@ -110,7 +110,7 @@ unaffected.
   - `204` with `HX-Trigger: {"analyses-changed": true, "rwb:toast":
     {"message": "Results retrieval queued.", "type": "success"}}` — the
     section refetches and the AAL cell reads `retrieving…`; `is_live`
-    resumes the 3s poll until the numbers land.
+    resumes the poll until the numbers land.
   - `204` with the same `analyses-changed` and `"rwb:toast": {"message":
     "Results retrieval is already running.", "type": "warning"}` when the
     primitive returns `None` (head already `pending`/`running`). The refetch

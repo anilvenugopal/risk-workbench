@@ -258,11 +258,16 @@ def test_detail_carries_rm_treaties_deep_link(iteration2_db, monkeypatch):
     monkeypatch.setattr(settings, "risk_modeler_base_url",
                         "https://api-euw1.rms-ppe.com/")
     monkeypatch.setattr(settings, "risk_modeler_tenant_name", "acme")
-    assert edm_service.get_edm_detail(edm_id).rm_treaties_url == (
+    detail = edm_service.get_edm_detail(edm_id)
+    assert detail.rm_treaties_url == (
         "https://acme.rms-ppe.com/riskmodeler/datasources/townsend%20edm/treaties")
+    assert detail.rm_url == (
+        "https://acme.rms-ppe.com/riskmodeler/datasources/townsend%20edm/portfolios")
 
     monkeypatch.setattr(settings, "risk_modeler_tenant_name", "")
-    assert edm_service.get_edm_detail(edm_id).rm_treaties_url is None
+    detail = edm_service.get_edm_detail(edm_id)
+    assert detail.rm_treaties_url is None
+    assert detail.rm_url is None
 
 
 # ── worker: pre-capability EDMs without an exposureId (name resolution) ───────────
@@ -329,6 +334,7 @@ def _client() -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     templates.env.filters["breakout_display"] = display_value
     app.state.templates = templates
     app.add_middleware(_InjectUser)
@@ -650,6 +656,23 @@ def test_treaties_rm_link_hidden_until_import_finishes(monkeypatch):
     html = _client().get("/edms/edm-1").text
     assert rm_url not in html
     assert "edit in Risk Modeler" in html
+
+
+def test_meta_line_links_a_ready_edm_to_risk_modeler(monkeypatch):
+    rm_url = "https://rm.example.com/riskmodeler/datasources/legacy_edm/portfolios"
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(rm_url=rm_url))
+    html = _client().get("/edms/edm-1").text
+    assert (f'<a href="{rm_url}" target="_blank" rel="noopener"' in html)
+    assert "Open in Risk Modeler ↗" in html
+
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            status="importing", detail_state="importing",
+                            rm_url=rm_url))
+    html = _client().get("/edms/edm-1").text
+    assert rm_url not in html
+    assert "Open in Risk Modeler" not in html
 
 
 def test_sync_button_rendered_by_state(monkeypatch):

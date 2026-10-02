@@ -8,7 +8,7 @@ the route decides:
   • treaty-year range rejection, and a blank year filled from the inception date
     when the analyst never touches the field (CR5);
   • the 303 to the new deal, and CSRF rejection writing nothing;
-  • the two typeahead menus, including the AND-combined "links to" search (CR7/CR8);
+  • the cedant picker, and the AND-combined "links to" search (CR8);
   • the list's eight filters — which query parameter feeds which predicate, the
     values echoed back into the inputs, the CRM column, and the two empty states
     (CR1–CR3).
@@ -35,6 +35,7 @@ from starlette.testclient import TestClient
 from app.services import rwb_job_service, submission_service
 from app.services.submission_service import ContractInput
 from db import execute, execute_command, execute_scalar
+from tests.unit.conftest import cedant_id
 from tests.unit.rm_analyses import seed_rm_analysis
 
 
@@ -65,10 +66,12 @@ def client(iteration2_db) -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     templates.env.globals["default_perspective"] = (
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(submissions.router)
@@ -84,17 +87,19 @@ def _csrf() -> str:
 
 def _payload(*, crm_ids: str | None = None, treaty_type_code: str = "per_risk_xol",
              inception_date: str = "2026-04-01", expiration_date: str = "",
-             contract_status: str = "OPEN", **overrides) -> dict:
+             contract_status: str = "OPEN",
+             cedant_name: str = "American Family Mutual", **overrides) -> dict:
     """The create form's post: the submission fields plus one contract row per
     CRM ID in ``crm_ids`` (comma-separated; blank posts no row; ``None`` posts
     one row with a CRM ID no other deal holds), every row on the same treaty
-    type, dates and status."""
+    type, dates and status. ``cedant_name`` posts that cedant's id, inserting
+    the cedant on first use; blank posts no cedant."""
     if crm_ids is None:
         crm_ids = f"T-{uuid.uuid4().hex[:6]}"
     ids = [value.strip() for value in crm_ids.split(",") if value.strip()]
     form = {
         "name": "TY2604_AmericanFamily",
-        "cedant_name": "American Family Mutual",
+        "cedant_id": cedant_id(cedant_name) if cedant_name else "",
         "client_id": "",
         "data_vintage": "2026-06-30",
         "treaty_year": "",
@@ -697,7 +702,7 @@ def test_name_outside_the_character_rule_is_refused(client):
 def test_validation_failure_preserves_what_the_analyst_typed(client):
     res = client.post("/submissions", data=_payload(
         name="", cedant_name="Zephyr Mutual", directory_path=r"\\share\deals\z"))
-    assert "Zephyr Mutual" in res.text
+    assert f'value="{cedant_id("Zephyr Mutual")}" selected' in res.text
     assert r"\\share\deals\z" in res.text
 
 
@@ -706,7 +711,7 @@ def test_several_bad_fields_are_all_reported(client):
         name="", cedant_name="", data_vintage="someday"))
     assert "3 fields need attention" in res.text
     assert "Enter a name for this submission." in res.text
-    assert "Enter a cedant." in res.text
+    assert "Pick a cedant from the list." in res.text
     assert "Enter a valid date." in res.text
 
 
@@ -789,7 +794,7 @@ def test_treaty_year_outside_the_allowed_range_is_rejected(client, bad_year):
     assert _count() == 0
 
 
-# ── Create: redirect, CSRF, duplicate warning ────────────────────────────────
+# ── Create: redirect, CSRF ───────────────────────────────────────────────────
 
 def test_valid_create_redirects_to_the_new_deal(client):
     res = client.post("/submissions", data=_payload())
@@ -806,43 +811,105 @@ def test_bad_csrf_token_writes_nothing(client):
     assert _count() == 0
 
 
-def test_look_alike_creates_only_after_confirming(client):
-    client.post("/submissions", data=_payload())
-    res = client.post("/submissions", data=_payload())
-    assert res.status_code == 200 and "dup-warn" in res.text
-    assert _count() == 1
-    confirmed = client.post("/submissions", data=_payload(confirmed="1"))
-    assert confirmed.status_code == 303
-    assert _count() == 2
+# ── The cedant picker ────────────────────────────────────────────────────────
+
+def test_create_refuses_a_cedant_id_that_is_not_in_the_list(client):
+    for posted in (str(uuid.uuid4()), "not-a-uuid"):
+        res = client.post("/submissions", data={
+            **_payload(name="Unknown_cedant"), "cedant_id": posted})
+        assert res.status_code == 422
+        assert "Pick a cedant from the list." in res.text
+    assert _count() == 0
 
 
-# ── CR7/CR8: the two typeahead menus ─────────────────────────────────────────
-
-def test_cedant_suggest_renders_menu_options(client):
-    client.post("/submissions", data=_payload(cedant_name="American Family Mutual"))
-    body = client.get("/submissions/cedant-suggest?cedant_name=fam").text
-    assert 'data-value="American Family Mutual"' in body
-    # Focus stays in the input while the analyst arrows through the menu, so the
-    # highlighted row can only be announced by id.
-    assert 'id="cedant-menu-opt-0"' in body
-    assert 'role="option"' in body
+def test_edit_selects_the_deals_own_cedant(client):
+    sid, _ = _deal(client, name="Kept_cedant", cedant_name="Fading Re")
+    body = client.get(f"/submissions/{sid}/edit").text
+    assert f'value="{cedant_id("Fading Re")}" selected>Fading Re' in body
 
 
-def test_the_form_renders_the_service_minimum_into_both_typeaheads(
+def _cedants() -> set[str]:
+    return {row["name"] for row in execute(
+        "SELECT name FROM cedant", {}, connection="WORKBENCH")}
+
+
+def _typed_cedant(typed: str, **overrides) -> dict:
+    """The post when the analyst picked the "Add cedant" row for ``typed``."""
+    return {**_payload(**overrides), "cedant_id": "new", "new_cedant_name": typed}
+
+
+def _created_id(res) -> str:
+    assert res.status_code == 303, res.text
+    return res.headers["location"].rsplit("/", 1)[-1]
+
+
+def test_create_offers_adding_a_cedant(client):
+    assert "selectSearch({ creatable: true })" in client.get("/submissions/new").text
+
+
+def test_create_with_a_typed_cedant_writes_the_cedant_with_the_submission(client):
+    sid = _created_id(client.post("/submissions", data=_typed_cedant(
+        "  Lakeshore Farm Bureau ", name="Typed_cedant")))
+    assert submission_service.get_submission(sid).cedant_name == "Lakeshore Farm Bureau"
+    assert "Lakeshore Farm Bureau" in _cedants()
+
+
+def test_create_with_a_name_another_analyst_just_added_uses_that_cedant(client):
+    acme = cedant_id("Acme Re")
+    sid = _created_id(client.post("/submissions", data=_typed_cedant(
+        "ACME RE", name="Raced_cedant")))
+    assert submission_service.get_submission(sid).cedant_id == acme
+    assert "ACME RE" not in _cedants()
+
+
+def test_a_refused_create_writes_no_cedant_and_keeps_the_typed_name(client):
+    res = client.post("/submissions", data=_typed_cedant("Lakeshore", name=""))
+    assert res.status_code == 422
+    assert '<option value="new" selected>Lakeshore</option>' in res.text
+    assert 'name="new_cedant_name" value="Lakeshore"' in res.text
+    assert "Lakeshore" not in _cedants()
+
+
+@pytest.mark.parametrize("typed, message", [
+    ("   ", "Enter a cedant name."),
+    ("x" * 256, "A cedant name is at most 255 characters."),
+])
+def test_create_refuses_a_blank_or_long_typed_cedant(client, typed, message):
+    res = client.post("/submissions", data=_typed_cedant(typed, name="Bad_cedant"))
+    assert res.status_code == 422
+    assert message in res.text
+    assert _count() == 0
+
+
+def test_edit_to_a_typed_cedant_writes_it_with_the_update(client):
+    sid, updated_at = _deal(client, name="Edit_typed_cedant")
+    res = client.post(f"/submissions/{sid}", data={
+        **_typed_cedant("Lakeshore", name="Edit_typed_cedant"), "updated_at": updated_at})
+    assert res.status_code == 303
+    assert submission_service.get_submission(sid).cedant_name == "Lakeshore"
+
+
+def test_a_stale_edit_writes_no_cedant(client):
+    sid, _ = _deal(client, name="Stale_typed_cedant")
+    res = client.post(f"/submissions/{sid}", data={
+        **_typed_cedant("Lakeshore", name="Stale_typed_cedant"),
+        "updated_at": "2000-01-01 00:00:00"})
+    assert res.status_code == 409
+    assert "Lakeshore" not in _cedants()
+
+
+# ── CR8: the "links to" typeahead menu ───────────────────────────────────────
+
+def test_the_form_renders_the_service_minimum_into_the_link_typeahead(
         client, monkeypatch):
-    # One number reaches four places: the two hx-trigger filters that withhold the
-    # request, and the two Alpine components that drop a stale menu. Moving the
-    # service constant has to move all four, so the test moves it — asserting
+    # One number reaches two places: the hx-trigger filter that withholds the
+    # request, and the Alpine component that drops a stale menu. Moving the
+    # service constant has to move both, so the test moves it — asserting
     # against the current value would pass against a hardcoded literal too.
     monkeypatch.setattr(submission_service, "MIN_SUGGEST_TERM", 4)
     body = client.get("/submissions/new").text
-    assert body.count("this.value.trim().length>=4") == 2
-    assert body.count("minTerm: 4") == 2
-
-
-def test_cedant_suggest_shows_the_empty_state_for_a_new_cedant(client):
-    body = client.get("/submissions/cedant-suggest?cedant_name=Zephyr").text
-    assert "No matching cedant." in body
+    assert body.count("this.value.trim().length>=4") == 1
+    assert body.count("minTerm: 4") == 1
 
 
 def test_link_suggest_shows_the_empty_state_when_nothing_matches(client):
@@ -850,14 +917,9 @@ def test_link_suggest_shows_the_empty_state_when_nothing_matches(client):
     assert "No matching submission." in body
 
 
-def test_cedant_suggest_renders_nothing_for_an_empty_term(client):
-    assert client.get("/submissions/cedant-suggest?cedant_name=").text.strip() == ""
-
-
-def test_suggest_routes_render_nothing_for_a_one_character_term(client):
-    # The form's hx-trigger filter withholds the request; the routes hold the same
+def test_link_suggest_renders_nothing_for_a_one_character_term(client):
+    # The form's hx-trigger filter withholds the request; the route holds the same
     # minimum for a hand-built call.
-    assert client.get("/submissions/cedant-suggest?cedant_name=A").text.strip() == ""
     assert client.get("/submissions/link-suggest?links_to_search=A").text.strip() == ""
 
 
@@ -949,7 +1011,7 @@ def test_editing_to_an_unknown_link_target_is_rejected(client, link_value):
     submission = submission_service.get_submission(sid)
     edit = client.post(f"/submissions/{sid}", data=_payload(
         name="Keeps_its_link", links_to_submission_id=link_value,
-        updated_at=str(submission.updated_at), confirmed="1"))
+        updated_at=str(submission.updated_at)))
     assert edit.status_code == 422
     assert "That deal was not found" in edit.text
     assert execute(
@@ -970,7 +1032,7 @@ def test_editing_a_deal_to_link_to_itself_is_rejected(client):
     submission = submission_service.get_submission(sid)
     edit = client.post(f"/submissions/{sid}", data=_payload(
         name="Self_linker", links_to_submission_id=sid,
-        updated_at=str(submission.updated_at), confirmed="1"))
+        updated_at=str(submission.updated_at)))
     assert edit.status_code == 422
     assert "A submission cannot link to itself." in edit.text
     assert execute(
@@ -984,9 +1046,9 @@ def _mk_owned_by_b(client, name: str) -> None:
     """A deal owned by the other analyst. The route always assigns the signed-in
     user, so this goes through the service."""
     submission_service.create_submission(
-        name=name, cedant_name="Beta Re", treaty_year=2026,
+        name=name, cedant_id=cedant_id("Beta Re"), treaty_year=2026,
         contracts=[ContractInput("B-1", "aggregate_xol", date(2026, 3, 1))],
-        data_vintage="2026-06-30", actor_id=client.db.user_b, confirmed=True)
+        data_vintage="2026-06-30", actor_id=client.db.user_b)
 
 
 def _two_american_deals(client) -> None:
@@ -996,6 +1058,13 @@ def _two_american_deals(client) -> None:
     client.post("/submissions", data=_payload(
         name="TY2501_AmericanNational", cedant_name="American National",
         inception_date="2025-01-01"))
+
+
+def test_list_cedant_picker_narrows(client):
+    _two_american_deals(client)
+    body = client.get(f"/submissions?cedant={cedant_id('American National')}").text
+    assert "TY2501_AmericanNational" in body
+    assert "TY2506_AmericanFamily" not in body
 
 
 def test_list_search_narrows_by_name(client):
@@ -1090,17 +1159,18 @@ def test_list_renders_every_status_and_marks_the_picked_ones(client):
 
 
 def test_list_echoes_every_filter_back_into_its_input(client):
+    mutual = cedant_id("Mutual Re")
     body = client.get(
-        f"/submissions?q=amfam&cedant=mutual&crm_id=CRM-9&status=ACTIVE"
+        f"/submissions?q=amfam&cedant={mutual}&crm_id=CRM-9&status=ACTIVE"
         f"&owner={client.db.user_b}&treaty_type=cat_xol&inception=2026-04-01"
         "&treaty_year=2026").text
-    for name, value in (("q", "amfam"), ("cedant", "mutual"),
+    for name, value in (("q", "amfam"),
                         ("crm_id", "CRM-9"),
                         ("inception", "2026-04-01"), ("treaty_year", "2026")):
         assert f'name="{name}"' in body and f'value="{value}"' in body
     # Each picked value comes back as its own hidden input and a ticked menu row.
     for name, value in (("status", "ACTIVE"), ("treaty_type", "cat_xol"),
-                        ("owner", str(client.db.user_b))):
+                        ("owner", str(client.db.user_b)), ("cedant", mutual)):
         assert f'name="{name}" value="{value}"' in body
         assert _is_picked(body, value)
 
@@ -1128,8 +1198,7 @@ def test_empty_my_deals_offers_to_clear_rather_than_reading_as_empty(client):
 # ── List: the #sub-list fragment and the pager ───────────────────────────────
 
 def _fill_a_page_and_a_bit(client, extra: int = 2) -> None:
-    """PAGE_SIZE + ``extra`` deals, each with its own name and cedant so no create
-    trips the look-alike warning."""
+    """PAGE_SIZE + ``extra`` deals, each with its own name and cedant."""
     for i in range(submission_service.PAGE_SIZE + extra):
         client.post("/submissions", data=_payload(
             name=f"Paged_deal_{i:03d}", cedant_name=f"Paged cedant {i:03d}"))
@@ -1239,7 +1308,7 @@ def test_repeated_filter_parameters_or_within_the_filter(client):
 
 def test_repeated_treaty_years_or_within_the_filter(client):
     for name, year in (("Y2025", "2025"), ("Y2026", "2026"), ("Y2027", "2027")):
-        client.post("/submissions", data=_payload(name=name, cedant_name=f"{name} Re",
+        client.post("/submissions", data=_payload(name=name, cedant_name=f"Cedant {year}",
                                                   treaty_year=year))
     body = client.get("/submissions?treaty_year=2025&treaty_year=2027").text
     assert "Y2025" in body and "Y2027" in body and "Y2026" not in body
@@ -1454,38 +1523,32 @@ def test_an_unknown_direction_reads_the_columns_own_starting_direction(client):
     assert _row_order(body) == ["Alpha", "Bravo", "Charlie"]
 
 
-@pytest.mark.parametrize("parameter", ["q", "cedant", "crm_id"])
+@pytest.mark.parametrize("parameter", ["q", "crm_id"])
 def test_text_filters_accept_exactly_100_trimmed_characters(client, parameter):
     response = client.get("/submissions", params={parameter: "x" * 100})
     assert response.status_code == 200
 
 
-@pytest.mark.parametrize(
-    ("parameter", "label"),
-    [("q", "Name"), ("cedant", "Cedant")],
-)
-def test_text_filters_reject_101_trimmed_characters_without_querying(
-        client, monkeypatch, parameter, label):
+def test_name_filter_rejects_101_trimmed_characters_without_querying(
+        client, monkeypatch):
     def fail(**kwargs):
         pytest.fail("list_submissions was called")
 
     monkeypatch.setattr(submission_service, "list_submissions", fail)
-    response = client.get("/submissions", params={parameter: f"  {'x' * 101}  "})
+    response = client.get("/submissions", params={"q": f"  {'x' * 101}  "})
     assert response.status_code == 422
-    assert f"{label} must be 100 characters or fewer." in response.text
+    assert "Name must be 100 characters or fewer." in response.text
 
 
-@pytest.mark.parametrize("parameter", ["q", "cedant"])
-def test_name_and_cedant_accept_exactly_10_words(client, parameter):
-    response = client.get("/submissions", params={parameter: "x " * 9 + "x"})
+def test_name_filter_accepts_exactly_10_words(client):
+    response = client.get("/submissions", params={"q": "x " * 9 + "x"})
     assert response.status_code == 200
 
 
-@pytest.mark.parametrize(("parameter", "label"), [("q", "Name"), ("cedant", "Cedant")])
-def test_name_and_cedant_reject_11_words(client, parameter, label):
-    response = client.get("/submissions", params={parameter: "x " * 10 + "x"})
+def test_name_filter_rejects_11_words(client):
+    response = client.get("/submissions", params={"q": "x " * 10 + "x"})
     assert response.status_code == 422
-    assert f"{label} must contain 10 words or fewer." in response.text
+    assert "Name must contain 10 words or fewer." in response.text
 
 
 def test_invalid_filter_fragment_contains_the_validation_message(client):
@@ -1656,6 +1719,39 @@ def test_results_fragment_status_filter_rides_the_poll_url(client):
     assert "sort=" not in html.split("hx-target=\"this\"")[0]
 
 
+def test_results_rows_poll_swaps_rows_or_replaces_the_section(client):
+    submission_id, edm_id, _ = _seed_results_data(client)
+    running = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code) "
+        "VALUES (:id, :edm, 'CRE_Running_v25', 'CRE_Running_v25', 'pending')",
+        {"id": running, "edm": edm_id}, connection="WORKBENCH")
+    html = client.get(f"/submissions/{submission_id}/analyses").text
+    analyses_hash = re.search(r'"hash": "([0-9a-f]+)"', html).group(1)
+    assert f'hx-post="/submissions/{submission_id}/analyses/rows"' in html
+
+    rows = client.post(f"/submissions/{submission_id}/analyses/rows",
+                       data={"hash": analyses_hash, "live": running})
+    assert f'id="analysis-row-{running}" hx-swap-oob="innerHTML"' in rows.text
+    assert rows.text.count("hx-swap-oob=\"innerHTML\"") == 1
+    assert "data-analyses-section" not in rows.text
+
+    replaced = client.post(f"/submissions/{submission_id}/analyses/rows",
+                           data={"hash": "stale", "live": running})
+    assert replaced.headers["HX-Retarget"] == "#submission-analyses"
+    assert replaced.headers["HX-Reswap"] == "outerHTML"
+    assert "data-analyses-section" in replaced.text
+
+
+def test_results_rows_poll_ends_when_the_submission_is_gone(client):
+    response = client.post(f"/submissions/{uuid.uuid4()}/analyses/rows",
+                           data={"hash": "any", "live": ""})
+
+    assert response.headers["HX-Retarget"] == "#submission-analyses"
+    assert "This submission no longer exists." in response.text
+    assert "hx-trigger" not in response.text
+
+
 def test_submission_rdm_lazy_rows_read_merged_columns(client):
     submission_id, _, rdm_id = _seed_results_data(client)
 
@@ -1666,8 +1762,7 @@ def test_submission_rdm_lazy_rows_read_merged_columns(client):
     assert ">Finished</span>" in html
     assert "Portfolio" not in html        # FR-020
 
-    other = client.post("/submissions",
-                        data=_payload(name="Other_deal", confirmed="1"))
+    other = client.post("/submissions", data=_payload(name="Other_deal"))
     other_id = other.headers["location"].rsplit("/", 1)[-1]
     assert client.get(
         f"/submissions/{other_id}/rdms/{rdm_id}/analyses").status_code == 404
@@ -2068,7 +2163,7 @@ def test_create_refuses_a_crm_id_another_deal_holds_and_links_that_deal(client):
 
 def test_contract_add_and_edit_refuse_a_crm_id_another_deal_holds_and_link_it(client):
     owner, _ = _deal(client, name="Owner_deal", crm_ids="A-1")
-    sid, _ = _deal(client, name="Second_deal", crm_ids="B-1", confirmed="1")
+    sid, _ = _deal(client, name="Second_deal", crm_ids="B-1")
     added = client.post(
         f"/submissions/{sid}/contracts", headers=_HX,
         data={"crm_id": " a-1 ", "treaty_type_code": "stop_loss",
@@ -2279,7 +2374,7 @@ def test_contract_delete_post_removes_the_row_and_its_dates(client):
 
 def test_contract_posts_on_another_deal_are_not_found(client):
     deal_a, _ = _deal(client, name="Deal_A", crm_ids="A-1")
-    deal_b, _ = _deal(client, name="Deal_B", crm_ids="B-1", confirmed="1")
+    deal_b, _ = _deal(client, name="Deal_B", crm_ids="B-1")
     b1 = _contract(deal_b, "B-1")
     deleted = client.post(f"/submissions/{deal_a}/contracts/{b1.id}/delete",
                           headers=_HX, data={"csrf_token": _csrf()})

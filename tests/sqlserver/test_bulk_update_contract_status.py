@@ -84,12 +84,15 @@ def deal() -> SimpleNamespace:
         {"id": actor, "email": f"bulk-{actor[:8]}@example.com"}, connection="WORKBENCH")
     tag = uuid.uuid4().hex[:8].upper()
     crm_a, crm_b = f"BULK-{tag}-A", f"BULK-{tag}-B"
-    created = svc.create_submission(
-        name=f"Bulk update {tag}", cedant_name="Bulk Test Cedant", treaty_year=2027,
+    cedant_id = str(uuid.uuid4())
+    execute_command("INSERT INTO cedant (id, name) VALUES (:id, :name)",
+                    {"id": cedant_id, "name": f"Bulk Test Cedant {tag}"},
+                    connection="WORKBENCH")
+    submission_id = svc.create_submission(
+        name=f"Bulk update {tag}", cedant_id=cedant_id, treaty_year=2027,
         contracts=[svc.ContractInput(crm_a, "per_risk_xol", date(2027, 1, 1)),
                    svc.ContractInput(crm_b, "aggregate_xol", date(2027, 1, 1))],
-        data_vintage="2026-06-30", actor_id=actor, confirmed=True)
-    submission_id = str(created.submission_id)
+        data_vintage="2026-06-30", actor_id=actor)
     yield SimpleNamespace(submission_id=submission_id, crm_a=crm_a, crm_b=crm_b, tag=tag)
     with get_connection("LOSS") as conn, conn.begin():
         conn.execute(text("DELETE FROM dbo.CRMContractStatus"))
@@ -98,6 +101,8 @@ def deal() -> SimpleNamespace:
                         {"id": submission_id}, connection="WORKBENCH")
     execute_command("DELETE FROM submission WHERE id = :id",
                     {"id": submission_id}, connection="WORKBENCH")
+    execute_command("DELETE FROM cedant WHERE id = :id",
+                    {"id": cedant_id}, connection="WORKBENCH")
     execute_command("DELETE FROM app_user WHERE id = :id",
                     {"id": actor}, connection="WORKBENCH")
 

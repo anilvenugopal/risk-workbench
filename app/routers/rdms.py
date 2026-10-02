@@ -157,7 +157,7 @@ def _detail(request: Request, rdm_id: str, status_code: int = 200):
                        {"status_code": 404, "title": "Not found",
                         "detail": "That RDM does not exist."}, status_code=404)
     # Rendered by the page shell (not the polled #rdm-detail body, which would
-    # wipe it on the first 3s swap): the import was saved fail-open because the
+    # wipe it on the first poll swap): the import was saved fail-open because the
     # name-collision check couldn't reach Risk Modeler.
     ctx["nc_unchecked"] = request.query_params.get("nc") == "unchecked"
     return _render(request, "pages/rdm_detail.html", ctx, status_code=status_code)
@@ -266,13 +266,13 @@ def _body_partial(request: Request, rdm_id: str, *, poll: bool = False):
     ctx = rdm_service.get_rdm_detail(rdm_id)
     if ctx is None:
         # RDM hard-gone mid-poll: return a terminal notice with no trigger,
-        # so the every-3s poll ends instead of returning a repeating 404.
+        # so the poll ends instead of returning a repeating 404.
         return HTMLResponse(
             '<div class="page-pad" id="rdm-detail">'
             '<div class="state-box state-box--warn">This RDM no longer exists.'
             '</div></div>')
     if poll and ctx["sync_running"] and any(g.analyses for g in ctx["analyses"]):
-        # A populated page mid-sync: swapping the body every 3s would collapse
+        # A populated page mid-sync: swapping the body on every poll would collapse
         # every <details> the analyst opened. 204 → htmx swaps nothing and the
         # poll keeps ticking; the first post-sync poll returns the fresh body
         # (whose trigger is gone), rendering the result exactly once.

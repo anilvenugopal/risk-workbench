@@ -10,6 +10,12 @@
 <div class="detail-meta" id="edm-detail-meta"
      {%- if oob_swap | default(false) %} hx-swap-oob="true"{% endif %}>
   <span class="mono" title="{{ edm.source_file_path }}">{{ edm.source_file_path or '—' }}</span>
+  {# RM's datasource URL is name-based and 404s until the import FINISHES #}
+  {% if edm.rm_url and edm.status == 'ready' %}
+  <span class="crumb__sep">&middot;</span>
+  <a href="{{ edm.rm_url }}" target="_blank" rel="noopener"
+     title="Open this EDM in Risk Modeler (new tab)">Open in Risk Modeler ↗</a>
+  {% endif %}
   <span class="crumb__sep">&middot;</span>
   <button class="detail-note-toggle" type="button" aria-controls="entity-note"
           x-bind:aria-expanded="notesOpen"

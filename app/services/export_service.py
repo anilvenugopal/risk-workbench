@@ -134,7 +134,8 @@ class ExportableAnalysis:
         return self.disabled_reason is None
 
     def aal_display(self, perspective_code: str) -> str:
-        return analysis_service.fmt_loss(self.aal.get(perspective_code))
+        value = self.aal.get(perspective_code)
+        return "—" if value is None else f"{value:,.0f}"
 
     @property
     def treaty_choices(self) -> list[TreatyChoice]:

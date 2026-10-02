@@ -265,9 +265,11 @@ def _attach_submissions(kind: str, rows: list) -> None:
         row.submissions = refs.get(row.id, [])
 
 
-def _import_progress(kind: str, entity_ids: list[Any]) -> dict[str, int]:
-    """Risk Modeler progress of each entity's latest import job, keyed by
-    entity id. Only a RUNNING job with a stored progress gets a key."""
+def _latest_import_jobs(
+    kind: str, entity_ids: list[Any],
+) -> dict[str, tuple[str, int | None]]:
+    """``(status, progress)`` of each entity's latest import job, keyed by
+    entity id. Entities with no import job get no key."""
     if not entity_ids:
         return {}
     column = f"irp_{kind}_id"
@@ -279,8 +281,20 @@ def _import_progress(kind: str, entity_ids: list[Any]) -> dict[str, int]:
         f"FROM irp_job WHERE irp_job_type = :job_type AND {in_sql}) j "
         f"WHERE j.row_num = 1",
         params | {"job_type": f"import_{kind}"}, connection="WORKBENCH")
-    return {_uid(r["entity_id"]): r["progress"] for r in rows
-            if r["status"] == "RUNNING" and r["progress"] is not None}
+    return {_uid(r["entity_id"]): (r["status"], r["progress"]) for r in rows}
+
+
+def _import_label(
+    status: str | None, job_status: str | None, job_progress: int | None,
+) -> str | None:
+    """The chip label for an importing entity's latest import job. ``None``
+    when the entity is not importing or has no job, so the screen keeps its
+    own label."""
+    if status != _IMPORTING or job_status is None:
+        return None
+    if job_status == "RUNNING" and job_progress is not None:
+        return f"Running {job_progress}%"
+    return job_status.capitalize()
 
 
 def _submission_entity_context(
@@ -502,6 +516,6 @@ def _parse_json_dict(raw: Any, what: str) -> dict | None:
 __all__ = ["SubmissionRef", "STORED_RETURN_PERIODS", "CONDENSED_RETURN_PERIODS",
            "_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
            "_snapshot_prune", "_parse_json_dict", "_attach_submissions",
-           "_import_progress",
+           "_latest_import_jobs", "_import_label",
            "_submission_entity_context", "_import_entity", "_mark_importing",
            "_mark_error", "_retry_import", "_replace_source_file", "_rm_ui_root"]

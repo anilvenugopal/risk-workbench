@@ -1,5 +1,5 @@
 {% import "partials/analysis_row_macros.html" as row %}
-<details class="drow" id="analysis-row-{{ a.id }}">
+<details class="drow" id="analysis-row-{{ a.id }}"{% if oob %} hx-swap-oob="innerHTML"{% endif %}>
   <summary>
     <span class="l">
       {% if a.is_deletable %}
