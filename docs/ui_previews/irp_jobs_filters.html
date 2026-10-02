@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IRP Jobs Filters</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+/* ── base ─────────────────────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1);max-width:70ch}
+.note{font-size:var(--fs-caption);color:var(--text-tertiary);margin-top:var(--space-3);max-width:90ch}
+.stage{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-4);box-shadow:var(--shadow-sm);min-width:0}
+code{font-family:var(--font-mono);font-size:var(--fs-mono)}
+@media (max-width:600px){.wrap{padding:var(--space-5) var(--space-4)}}
+
+/* ── existing app classes reused verbatim ─────────────────────────────────── */
+.wf-field__input{padding:5px var(--space-2);border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-panel);font:inherit;font-size:var(--fs-label);color:var(--text-primary);width:100%}
+.wf-field__input:focus{outline:none;border-color:var(--color-brand);box-shadow:var(--ring-focus)}
+.btn-sm{display:inline-flex;align-items:center;height:28px;padding:0 var(--space-3);border-radius:var(--radius-sm);border:1px solid var(--border-default);background:var(--surface-panel);color:var(--text-secondary);font-size:var(--fs-label);text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn-sm:hover{background:var(--surface-hover)}
+.ta__menu{position:absolute;z-index:20;top:calc(100% + 3px);left:0;min-width:100%;background:var(--surface-panel);border:1px solid var(--border-strong);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);max-height:280px;overflow:auto;padding:var(--space-1);display:flex;flex-direction:column;gap:1px}
+.ta__opt{display:flex;align-items:center;gap:var(--space-2);width:100%;text-align:left;border:0;background:none;cursor:pointer;padding:6px var(--space-2);border-radius:var(--radius-sm);font:inherit;font-size:var(--fs-label);color:var(--text-primary);white-space:nowrap}
+.ta__opt:hover,.ta__opt.is-active{background:var(--color-brand-faint)}
+.ta__check{width:12px;flex:none;color:var(--color-brand);font-size:var(--fs-caption)}
+.ta__filter{padding:var(--space-1) var(--space-1) var(--space-2)}
+
+.filters{display:flex;flex-direction:column;gap:var(--space-3)}
+.filters__row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-3)}
+.filters label,.filters__field>span{display:block;font-size:var(--fs-caption);text-transform:uppercase;letter-spacing:.04em;color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.filters__field{min-width:190px}
+.filters__combo{position:relative}
+.filters__trigger{display:flex;align-items:center;gap:var(--space-2);min-height:30px;text-align:left;cursor:pointer}
+.filters__trigger .filters__chips{flex:1;display:flex;flex-wrap:wrap;gap:var(--space-1);overflow:hidden}
+.filters__any{color:var(--text-tertiary)}
+.filters__chevron{color:var(--text-tertiary);font-size:var(--fs-caption)}
+.filter-chip{display:inline-flex;align-items:center;gap:var(--space-1);padding:1px var(--space-2);border-radius:var(--radius-pill);border:1px solid var(--color-brand-border);background:var(--color-brand-wash);color:var(--color-brand);font-size:var(--fs-caption);font-weight:var(--fw-medium);white-space:nowrap}
+.filter-chip__x{border:0;background:none;padding:0;margin-left:1px;color:var(--color-brand);cursor:pointer;font-size:var(--fs-caption);line-height:1}
+
+.mk-table{width:100%;border-collapse:collapse;font-size:var(--fs-body)}
+.mk-table thead th{text-align:left;padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--border-default);font-weight:var(--fw-medium);white-space:nowrap}
+.mk-table td{padding:9px var(--space-3);border-bottom:1px solid var(--border-faint);color:var(--text-primary);vertical-align:top}
+.mk-table td.empty{text-align:center;color:var(--text-tertiary);font-size:var(--fs-label);padding:var(--space-4)}
+.mk-table a{color:var(--color-brand)}
+.na{color:var(--text-tertiary)}
+.when{white-space:nowrap;font-variant-numeric:tabular-nums}
+.status-chip{display:inline-block;font-size:var(--fs-caption);font-weight:var(--fw-medium);letter-spacing:.03em;text-transform:uppercase;padding:1px var(--space-2);border-radius:var(--radius-pill);border:1px solid var(--border-default);color:var(--text-secondary);background:var(--surface-recessed);white-space:nowrap}
+.status-chip--cancelled{background:var(--surface-recessed);color:var(--text-tertiary);border-color:var(--border-default)}
+.status-chip--submission-failed{background:var(--c-red-050);color:var(--c-red-700);border-color:var(--c-red-200)}
+.pager{display:flex;align-items:center;gap:var(--space-3)}
+.pager__at{font-size:var(--fs-label);color:var(--text-tertiary)}
+.form-banner{padding:var(--space-2) var(--space-3);border-radius:var(--radius-md);font-size:var(--fs-label);border:1px solid var(--color-danger-border);background:var(--color-danger-bg);color:var(--color-danger)}
+
+/* ── new for this screen ──────────────────────────────────────────────────── */
+.filters__date .wf-field__input{display:block;width:10em}
+.table-scroll{overflow-x:auto}
+.live-table{display:flex;flex-direction:column;gap:var(--space-3);margin-top:var(--space-4)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>UI PREVIEW — not wired.</strong> IRP Jobs (<code>/workflows/irp-jobs</code>, issue #179): filters,
+    a Completed column, and a pager. Menus are drawn open where the state calls for it. Real tokens.
+  </div>
+
+  <div class="hero">IRP Jobs</div>
+  <div class="sub">Every Risk Modeler job the Workbench submitted, newest first. Opens on your own jobs.
+    Submitted and Completed show in your browser's time zone, and the two date filters use your local days.</div>
+
+  <!-- ── STATE 1 ─────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">State 1 — landing view: Submitted by is you, nothing else set, more than one page</div>
+  <div class="stage">
+    <div class="filters">
+      <div class="filters__row">
+        <div class="filters__field">
+          <span>Job type</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips"><span class="filters__any">Any</span></span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+        <div class="filters__field">
+          <span>Status</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips"><span class="filters__any">Any</span></span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+        <div class="filters__field">
+          <span>Submitted by</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips"><span class="filter-chip">Analyst A<span class="filter-chip__x">×</span></span></span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="filters__row">
+        <label class="filters__date">Submitted from
+          <input class="wf-field__input" type="date" id="s1-sf" name="submitted_from">
+        </label>
+        <label class="filters__date">Completed by
+          <input class="wf-field__input" type="date" id="s1-cb" name="completed_by">
+        </label>
+        <a class="btn-sm" href="#">Reset filters</a>
+      </div>
+    </div>
+
+    <div class="live-table">
+      <div class="table-scroll">
+        <table class="mk-table">
+          <thead>
+            <tr>
+              <th>Type</th><th>Entity / Analysis</th><th>Status</th><th>Submitted by</th>
+              <th>Submitted</th><th>Completed</th><th>Attempts</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Analysis</td><td>TY2604_AmFam_Port_A_ELT_US_WS</td>
+              <td><span class="status-chip status-chip--running">RUNNING 42%</span></td>
+              <td>Analyst A</td><td class="when">2026-10-02 09:41</td><td><span class="na">—</span></td><td>1</td>
+            </tr>
+            <tr>
+              <td>Import EDM</td><td>EDM_2604_Property</td>
+              <td><span class="status-chip status-chip--queued">QUEUED</span></td>
+              <td>Analyst A</td><td class="when">2026-10-02 09:38</td><td><span class="na">—</span></td><td>1</td>
+            </tr>
+            <tr>
+              <td>Export</td><td>TY2603_Meridian_ELT_US_EQ</td>
+              <td><span class="status-chip status-chip--finished">FINISHED</span></td>
+              <td>Analyst A</td><td class="when">2026-10-01 16:12</td><td class="when">2026-10-01 16:19</td><td>1</td>
+            </tr>
+            <tr>
+              <td>Import RDM</td><td>RDM_BrokerQ1</td>
+              <td><span class="status-chip status-chip--submission-failed">SUBMISSION FAILED</span></td>
+              <td>Analyst A</td><td class="when">2026-10-01 11:05</td><td class="when">2026-10-01 11:05</td><td>3</td>
+            </tr>
+            <tr>
+              <td>Geohazard</td><td>TY2601_Zephyr_Port</td>
+              <td><span class="status-chip status-chip--cancelled">CANCELLED</span></td>
+              <td>Analyst A</td><td class="when">2026-09-30 15:47</td><td class="when">2026-09-30 15:52</td><td>1</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <nav class="pager" aria-label="IRP job pages">
+        <span class="pager__at">Page 1</span>
+        <a class="btn-sm" href="#">Next ›</a>
+      </nav>
+    </div>
+    <div class="note">50 rows a page. The pager shows only once there is a second page. While any row on
+      this page is still running at Risk Modeler, the table refreshes itself with the same filters and the
+      same page. Once every row on the page has finished, failed, or been cancelled, it stops refreshing.
+      Completed stays blank until the job ends.</div>
+  </div>
+
+  <!-- ── STATE 2 ─────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">State 2 — filtered: two job types, FAILED, both dates, Anyone; page 2</div>
+  <div class="stage">
+    <div class="filters">
+      <div class="filters__row">
+        <div class="filters__field">
+          <span>Job type</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips">
+                <span class="filter-chip">Import EDM<span class="filter-chip__x">×</span></span>
+                <span class="filter-chip">Export<span class="filter-chip__x">×</span></span>
+              </span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+        <div class="filters__field">
+          <span>Status</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips"><span class="filter-chip">FAILED<span class="filter-chip__x">×</span></span></span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+        <div class="filters__field">
+          <span>Submitted by</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips"><span class="filters__any">Anyone</span></span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="filters__row">
+        <label class="filters__date">Submitted from
+          <input class="wf-field__input" type="date" id="s2-sf" name="submitted_from" value="2026-09-01">
+        </label>
+        <label class="filters__date">Completed by
+          <input class="wf-field__input" type="date" id="s2-cb" name="completed_by">
+        </label>
+        <a class="btn-sm" href="#">Reset filters</a>
+      </div>
+    </div>
+
+    <div class="live-table">
+      <div class="table-scroll">
+        <table class="mk-table">
+          <thead>
+            <tr>
+              <th>Type</th><th>Entity / Analysis</th><th>Status</th><th>Submitted by</th>
+              <th>Submitted</th><th>Completed</th><th>Attempts</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Export</td><td>TY2599_Coastal_ELT_US_WS</td>
+              <td><span class="status-chip status-chip--failed">FAILED</span></td>
+              <td>Analyst B</td><td class="when">2026-09-12 10:20</td><td class="when">2026-09-12 10:31</td><td>1</td>
+            </tr>
+            <tr>
+              <td>Import EDM</td><td>EDM_2599_Coastal</td>
+              <td><span class="status-chip status-chip--failed">FAILED</span></td>
+              <td>Analyst A</td><td class="when">2026-09-03 08:02</td><td class="when">2026-09-03 08:40</td><td>1</td>
+            </tr>
+            <tr>
+              <td>Import EDM</td><td>EDM_2598_Harbor</td>
+              <td><span class="status-chip status-chip--failed">FAILED</span></td>
+              <td><span class="na">—</span></td><td class="when">2026-09-01 07:15</td><td class="when">2026-09-01 07:58</td><td>1</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <nav class="pager" aria-label="IRP job pages">
+        <a class="btn-sm" href="#">‹ Prev</a>
+        <span class="pager__at">Page 2</span>
+        <a class="btn-sm" href="#">Next ›</a>
+      </nav>
+    </div>
+    <div class="note">Filters combine with AND. Several picks in one filter combine with OR. Changing any
+      filter goes back to page 1. The URL holds the filters and the page, so a copied link opens the same
+      view. Submitted from Sep 1 and Completed by Sep 30 means submitted at or after local midnight on Sep 1 and completed before local midnight on Oct 1. Either date can be set alone. Once Completed by is set, jobs that have not completed drop out. Jobs submitted
+      before this change show "—" under Submitted by; they are not backfilled. Reset filters goes to the bare
+      URL, so Submitted by goes back to you.</div>
+  </div>
+
+  <!-- ── STATE 3 ─────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">State 3 — Status and Submitted by menus open</div>
+  <div class="stage">
+    <div class="filters">
+      <div class="filters__row">
+        <div class="filters__field">
+          <span>Status</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger" aria-expanded="true">
+              <span class="filters__chips"><span class="filter-chip">FAILED<span class="filter-chip__x">×</span></span></span>
+              <span class="filters__chevron">▾</span>
+            </button>
+            <div class="ta__menu" style="width:220px">
+              <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>QUEUED</button>
+              <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>SUBMITTED</button>
+              <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>PENDING</button>
+              <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>RUNNING</button>
+              <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>FINISHED</button>
+              <button class="ta__opt" role="option" aria-selected="true"><span class="ta__check">✓</span>FAILED</button>
+              <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>CANCELLED</button>
+              <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>SUBMISSION FAILED</button>
+              <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>SUBMISSION RETRYING</button>
+            </div>
+          </div>
+        </div>
+        <div class="filters__field" style="margin-left:48px">
+          <span>Submitted by</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger" aria-expanded="true">
+              <span class="filters__chips"><span class="filter-chip">Analyst A<span class="filter-chip__x">×</span></span></span>
+              <span class="filters__chevron">▾</span>
+            </button>
+            <div class="ta__menu" style="width:230px">
+              <div role="listbox" aria-multiselectable="true">
+                <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>Anyone</button>
+                <button class="ta__opt" role="option" aria-selected="true"><span class="ta__check">✓</span>Analyst A</button>
+                <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>Analyst B</button>
+                <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>Analyst C</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="note" style="margin-top:300px">Submitted by lists every active analyst. Picking
+      Anyone, or removing the last chip, shows every analyst's jobs. Picking several analysts shows the jobs
+      of any of them.</div>
+  </div>
+
+  <!-- ── STATE 4 ─────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">State 4 — empty tables</div>
+  <div class="stage">
+    <div class="table-scroll">
+      <table class="mk-table">
+        <thead>
+          <tr><th>Type</th><th>Entity / Analysis</th><th>Status</th><th>Submitted by</th>
+            <th>Submitted</th><th>Completed</th><th>Attempts</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="7" class="empty">You have not submitted any IRP jobs. <a href="#">Show everyone's jobs</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">Landing view, nothing else set, and you have no jobs. The link sets Submitted by to Anyone.</div>
+
+    <div class="table-scroll" style="margin-top:var(--space-5)">
+      <table class="mk-table">
+        <thead>
+          <tr><th>Type</th><th>Entity / Analysis</th><th>Status</th><th>Submitted by</th>
+            <th>Submitted</th><th>Completed</th><th>Attempts</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="7" class="empty">No IRP jobs match these filters. <a href="#">Reset filters</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">Any filter beyond the landing view is set, and nothing matches.</div>
+
+    <div class="table-scroll" style="margin-top:var(--space-5)">
+      <table class="mk-table">
+        <thead>
+          <tr><th>Type</th><th>Entity / Analysis</th><th>Status</th><th>Submitted by</th>
+            <th>Submitted</th><th>Completed</th><th>Attempts</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="7" class="empty">Page 4 is past the last page. <a href="#">Go to page 1</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">A bookmarked or edited URL asks for a page past the end. The link keeps the filters.</div>
+  </div>
+
+  <!-- ── STATE 5 ─────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">State 5 — date error</div>
+  <div class="stage">
+    <div class="filters">
+      <div class="filters__row">
+        <label class="filters__date">Submitted from
+          <input class="wf-field__input" type="date" id="s5-sf" name="submitted_from" value="2026-09-30">
+        </label>
+        <label class="filters__date">Completed by
+          <input class="wf-field__input" type="date" id="s5-cb" name="completed_by" value="2026-09-01">
+        </label>
+        <a class="btn-sm" href="#">Reset filters</a>
+      </div>
+    </div>
+    <div class="live-table">
+      <div class="form-banner" role="alert">Submitted from is later than Completed by.</div>
+      <div class="table-scroll">
+        <table class="mk-table">
+          <thead>
+            <tr><th>Type</th><th>Entity / Analysis</th><th>Status</th><th>Submitted by</th>
+              <th>Submitted</th><th>Completed</th><th>Attempts</th></tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="7" class="empty">Fix the dates to see jobs.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="note">The other message is "Submitted from is not a valid date.", and the same for Completed by. The date picker prevents a bad date, so that message appears only from an edited URL. No pager
+      and no refresh while the error shows.</div>
+  </div>
+
+</div>
+</body>
+</html>
