@@ -185,7 +185,7 @@
                   hx-include="closest form"
                   @htmx:after-request="onAdded($event)">Add breakout</button>
         </div>
-        {% with kind = 'portfolio', scope = 'this EDM', action = 'Adding' %}{% include "partials/name_collision.html" %}{% endwith %}
+        {% with kind = 'portfolio', scope = 'this EDM', action = 'Creating' %}{% include "partials/name_collision.html" %}{% endwith %}
         <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
       </div>
       <div id="bo-cart-error"></div>

@@ -138,14 +138,11 @@ class StaleSummary(BreakoutRefused):
 
 class NameRefused(BreakoutRefused):
     """One or more confirmed quick-breakout names can't be used (P-33).
-    ``names`` holds every posted name by breakout value, as typed, so the
-    re-rendered preview keeps them; ``errors`` holds the reason per refused
-    value."""
+    ``errors`` holds the reason per refused breakout value."""
 
-    def __init__(self, names: dict[str, str], errors: dict[str, str]) -> None:
+    def __init__(self, errors: dict[str, str]) -> None:
         super().__init__("Some names can't be used — fix the flagged rows and "
                          "confirm again.")
-        self.names = names
         self.errors = errors
 
 
@@ -986,11 +983,9 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
     (``_confirm_preconditions``) with the dimension-eligibility shape check,
     then the analyst's names, then build and persist the approved plan and
     enqueue idempotently. ``names`` pairs each to-be-created entry's breakout
-    value with the name the analyst confirmed (P-33). A posted value set that
-    is not exactly the plan's to-be-created values raises ``GateRefused``; any
-    unusable name raises ``NameRefused`` with a reason per row. Returns the
-    job id with the plan size, or ``None`` when a live job already exists (UI:
-    "already running")."""
+    value with the name the analyst confirmed (P-33). Returns the job id with
+    the plan size, or ``None`` when a live job already exists (UI: "already
+    running")."""
     def _dimension_eligible(gate: BreakoutGate) -> None:
         eligibility = next(
             (d for d in gate.dimensions if d.dimension == dimension), None)
@@ -1013,12 +1008,10 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
                         source_portfolio_irp_id=gate.source_irp_id,
                         dimension=dimension)
     editable = [p for p in plan if not p.exists]
-    typed = dict(names)
-    if (len(typed) != len(names)
-            or set(typed) != {p.value for p in editable}):
+    confirmed = {v: n.strip() for v, n in names}
+    if set(confirmed) != {p.value for p in editable}:
         raise GateRefused("the posted names don't match this breakout — "
                           "review the names and confirm again")
-    confirmed = {v: n.strip() for v, n in typed.items()}
     live = {n.casefold() for n in _live_portfolio_names(edm_id)}
     taken: set[str] = set()
     errors: dict[str, str] = {}
@@ -1032,7 +1025,7 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
         else:
             taken.add(name.casefold())
     if errors:
-        raise NameRefused(typed, errors)
+        raise NameRefused(errors)
     plan = [p if p.exists else replace(p, name=confirmed[p.value])
             for p in plan]
     input_data = {

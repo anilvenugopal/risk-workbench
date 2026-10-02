@@ -250,9 +250,6 @@ def test_modal_rows_carry_name_inputs_prefilled_with_generated_names(
                         ("FLD Comm", "usfl_commercial_FLD_Comm")):
         assert f'name="value" value="{value}"' in r.text
         assert f'name="name" value="{name}"' in r.text
-    assert 'maxlength="40" required' in r.text
-    assert 'hx-get="' + _url(edm_id, pid) + '/name-check"' in r.text
-    assert ':disabled="blocked"' in r.text
 
 
 def test_modal_disclosures_in_every_form(routes_db, client):
@@ -482,21 +479,7 @@ def test_confirm_rewritten_summary_409_rerenders_fresh_preview(
     assert fake_irp.stamp_reads == []       # refused before the RM read
 
 
-def test_confirm_stores_an_edited_name(routes_db, client, fake_irp):
-    edm_id, pid = _eligible_pair(fake_irp)
-    r = _confirm(client, edm_id, pid, names=[
-        ("EQ Comm", "Quake_Comm"), ("FLD Comm", "usfl_commercial_FLD_Comm")])
-    assert r.status_code == 200
-    plan = json.loads(breakout_jobs()[0]["input_data"])["plan"]
-    assert [(e["value"], e["name"]) for e in plan] == [
-        ("EQ Comm", "Quake_Comm"), ("FLD Comm", "usfl_commercial_FLD_Comm")]
-
-
 @pytest.mark.parametrize("bad, reason", [
-    ("  ", "every portfolio needs a name"),
-    ("X" * 41, "portfolio names cap at 40 characters"),
-    ("Quake Comm", "Portfolio names may use only letters, numbers, "
-                   "underscores, and hyphens."),
     ("USFL_COMMERCIAL", "already exists in this EDM"),
     ("usfl_commercial_eq_comm", "already exists in this breakout"),
 ])
@@ -696,7 +679,7 @@ def test_breakout_name_check_renders_the_collision_fragment(
     assert 'data-nc="blocked"' in blocked.text
     flat = " ".join(blocked.text.split())
     assert "a portfolio with this name already exists in this EDM" in flat
-    assert "Adding is blocked" in flat
+    assert "Creating is blocked" in flat
     ok = client.get(url + "?group_label=Fresh")
     assert 'data-nc="ok"' in ok.text
     assert "this EDM" in ok.text

@@ -118,12 +118,11 @@ def breakout_name_check(request: Request, edm_id: str, portfolio_id: str):
     pane's Add) or ``name`` (a quick-breakout row, P-33). GET, no writes; the
     Risk Modeler leg fails open."""
     params = request.query_params
-    quick = "group_label" not in params
-    name = params.get("name", "") if quick else params["group_label"]
+    name = params.get("group_label") or params.get("name", "")
     return _partial(request, "partials/name_collision.html",
                     {"check": breakout_service.check_group_name(edm_id, name),
                      "name": name, "kind": "portfolio", "scope": "this EDM",
-                     "action": "Creating" if quick else "Adding"})
+                     "action": "Creating"})
 
 
 @router.post("/edms/{edm_id}/portfolios/{portfolio_id}/breakout")
@@ -142,8 +141,9 @@ def breakout_confirm(
     check, summary-unchanged check, freshness read, plan persistence with the
     posted ``value``/``name`` pairs (P-33), idempotent enqueue. Success
     returns the Portfolios section (retargeted at ``#edm-portfolios`` — the
-    modal closes itself) with the "Breakout started" toast; every refusal returns **409 + the re-rendered modal** and writes no
-    job row. No-JS fallback is PRG."""
+    modal closes itself) with the "Breakout started" toast; every refusal
+    returns **409 + the re-rendered modal** and writes no job row. No-JS
+    fallback is PRG."""
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(csrf_token):
         if is_htmx:
@@ -151,19 +151,19 @@ def breakout_confirm(
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
 
     def refused(error: str | None = None, error_kind: str | None = None,
-                **name_state):
+                names=None, name_errors=None):
         if not is_htmx:
             return RedirectResponse(f"/edms/{edm_id}", status_code=303)
         return _modal(request, edm_id, portfolio_id, dimension,
                       status_code=409, error=error, error_kind=error_kind,
-                      **name_state)
+                      names=names, name_errors=name_errors)
 
     try:
         requested = breakout_service.request_breakout(
             edm_id, portfolio_id, dimension, summary_as_of or None,
             list(zip(value, name)), request.state.user.id)
     except NameRefused as exc:
-        return refused(exc.reason, "names", names=exc.names,
+        return refused(exc.reason, names=dict(zip(value, name)),
                        name_errors=exc.errors)
     except BreakoutRefused as exc:
         return refused(exc.reason, _REFUSAL_KIND.get(type(exc), "gate"))

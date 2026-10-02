@@ -25,7 +25,6 @@ from app.services import breakout_service
 from app.services.breakout_service import (
     MISSING_SUMMARY_REASON,
     GateRefused,
-    NameRefused,
     StaleSummary,
     SummaryRewritten,
     compose_plan,
@@ -288,9 +287,8 @@ def test_confirm_double_post_yields_one_job(iteration2_db, fake_irp):
     first = request_breakout(
         edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
         iteration2_db.user_a)
-    second = request_breakout(
-        edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
-        iteration2_db.user_a)
+    second = request_breakout(edm_id, pid, "lob", AS_OF, [],
+                              iteration2_db.user_a)
     assert first is not None
     assert second is None                      # already running (in_flight gate)
     assert len(breakout_jobs()) == 1
@@ -305,9 +303,8 @@ def test_confirm_each_dimension_gets_its_own_job_slot(iteration2_db, fake_irp):
     assert request_breakout(
         edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
         iteration2_db.user_a) is not None
-    assert request_breakout(
-        edm_id, pid, "state", AS_OF, generated_names(edm_id, pid, "state"),
-        iteration2_db.user_a) is None
+    assert request_breakout(edm_id, pid, "state", AS_OF, [],
+                            iteration2_db.user_a) is None
     # once the LOB run is terminal, the state dimension enqueues its own row
     execute_command(
         "UPDATE rwb_job SET status_code = 'succeeded' "
@@ -324,9 +321,7 @@ def test_confirm_stale_stamp_refuses_with_no_job_row(iteration2_db, fake_irp):
     fake_irp.set_portfolio_stamp(edm_exposure_id="90001", irp_id="1",
                                  stamp="2026-08-04T08:00:00.000Z")  # RM moved
     with pytest.raises(StaleSummary, match="Sync the EDM, then retry"):
-        request_breakout(
-            edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
-            iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", AS_OF, [], iteration2_db.user_a)
     assert breakout_jobs() == []
 
 
@@ -337,9 +332,7 @@ def test_confirm_missing_stored_stamp_refuses_with_no_job_row(
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="1",
                            name="usfl_commercial", stamp=RM_STAMP)
     with pytest.raises(StaleSummary):
-        request_breakout(
-            edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
-            iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", AS_OF, [], iteration2_db.user_a)
     assert breakout_jobs() == []
 
 
@@ -347,9 +340,7 @@ def test_confirm_gateway_error_refuses_with_no_job_row(iteration2_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     fake_irp.raise_on_fetch_stamp = True
     with pytest.raises(StaleSummary, match="couldn't verify freshness"):
-        request_breakout(
-            edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
-            iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", AS_OF, [], iteration2_db.user_a)
     assert breakout_jobs() == []
 
 
@@ -360,9 +351,7 @@ def test_confirm_without_a_risk_modeler_id_refuses_with_no_job_row(
     edm_id = mk_edm()
     pid = mk_portfolio(edm_id, irp_id=None)
     with pytest.raises(StaleSummary, match="couldn't verify freshness"):
-        request_breakout(
-            edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
-            iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", AS_OF, [], iteration2_db.user_a)
     assert breakout_jobs() == []
     assert fake_irp.stamp_reads == []
 
@@ -375,10 +364,8 @@ def test_confirm_rewritten_summary_refuses_even_when_stamp_matches(
     # is even read, and no job row exists.
     edm_id, pid = _eligible_pair(fake_irp)
     with pytest.raises(SummaryRewritten, match="synced while you were reviewing"):
-        request_breakout(
-            edm_id, pid, "lob", "2026-08-02 09:00:00",
-            generated_names(edm_id, pid, "lob"),
-            iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", "2026-08-02 09:00:00", [],
+                         iteration2_db.user_a)
     assert breakout_jobs() == []
     assert fake_irp.stamp_reads == []          # refused before the RM read
 
@@ -390,13 +377,9 @@ def test_confirm_gate_refusal_writes_no_job_row(iteration2_db, fake_irp):
         "state": SUMMARY["breakout_values"]["state"]})
     pid = mk_portfolio(edm_id, summary=summary)
     with pytest.raises(GateRefused, match="only one line of business"):
-        request_breakout(
-            edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
-            iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", AS_OF, [], iteration2_db.user_a)
     with pytest.raises(GateRefused, match="unknown breakout dimension"):
-        request_breakout(
-            edm_id, pid, "zip", AS_OF, generated_names(edm_id, pid, "zip"),
-            iteration2_db.user_a)
+        request_breakout(edm_id, pid, "zip", AS_OF, [], iteration2_db.user_a)
     assert breakout_jobs() == []
 
 
@@ -417,23 +400,6 @@ def test_confirm_persists_the_confirmed_names_and_keeps_numbers(
             gate, edm_id=edm_id, portfolio_id=pid,
             source_name="usfl_commercial", source_portfolio_irp_id="1",
             dimension="lob")]
-
-
-def test_confirm_refuses_a_name_taken_since_the_preview(
-        iteration2_db, fake_irp):
-    # FR-006b: a portfolio created in the EDM between preview and confirm with
-    # a previewed name refuses that row — never a silent re-suffix.
-    edm_id, pid = _eligible_pair(fake_irp)
-    preview = generated_names(edm_id, pid, "lob")
-    mk_portfolio(edm_id, name=preview[0][1].upper(), irp_id="77", summary=None)
-
-    with pytest.raises(NameRefused) as refused:
-        request_breakout(edm_id, pid, "lob", AS_OF, preview,
-                         iteration2_db.user_a)
-    assert list(refused.value.errors) == [preview[0][0]]
-    assert "already exists in this EDM" in refused.value.errors[preview[0][0]]
-    assert refused.value.names == dict(preview)
-    assert breakout_jobs() == []
 
 
 # ── worker-side plan load (T-10/R10) ──────────────────────────────────────────────

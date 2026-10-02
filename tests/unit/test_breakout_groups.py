@@ -302,8 +302,7 @@ def test_one_episode_per_portfolio_blocks_both_directions(
     # a live cart blocks the quick confirm ...
     assert evaluate_gate(edm_id, pid).in_flight == "custom"
     assert breakout_service.request_breakout(
-        edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
-        iteration2_db.user_a) is None
+        edm_id, pid, "lob", AS_OF, [], iteration2_db.user_a) is None
     # ... and a second cart confirm
     assert request_group_breakout(
         edm_id, pid, [_group("H", {"lob": ["EQ Comm"]})], AS_OF,
