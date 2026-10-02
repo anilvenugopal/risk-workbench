@@ -1477,9 +1477,27 @@ document.addEventListener('click', (e) => {
   const dtable = scope.querySelector('.dtable');
   const ep = dtable ? null : scope.querySelector('table.ep');
   if (!dtable && !ep) { showToast('Nothing to copy yet.', 'warning'); return; }
-  navigator.clipboard.writeText(dtable ? tableToTsv(dtable) : epToTsv(ep)).then(
-    () => showToast('Table copied — paste into Excel.', 'success'),
-    () => showToast('Couldn’t reach the clipboard.', 'error'));
+  const tsv = dtable ? tableToTsv(dtable) : epToTsv(ep);
+  const copied = () => showToast('Table copied — paste into Excel.', 'success');
+  const failed = () => showToast('Couldn’t reach the clipboard.', 'error');
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(tsv).then(copied, failed);
+    return;
+  }
+  // navigator.clipboard exists only in a secure context (HTTPS or localhost);
+  // a plain-HTTP origin falls back to the legacy copy command.
+  const area = document.createElement('textarea');
+  area.value = tsv;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (err) { /* ok stays false */ }
+  area.remove();
+  btn.focus();
+  (ok ? copied : failed)();
 });
 
 // The checked ids travel in tick order — kept per section by a document-level
