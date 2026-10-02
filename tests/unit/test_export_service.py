@@ -132,6 +132,16 @@ def test_a_plt_group_is_disabled_and_refused(deal):
         _create(deal, [group])
 
 
+def test_cart_aal_reads_to_the_ones_place():
+    a = svc.ExportableAnalysis(
+        id="a", name="A", origin="RMS", engine=None, framework=None, rdm_name=None,
+        irp_id=None, irp_app_analysis_id=None, analysis_name=None,
+        analysis_description=None, perspectives=["GR", "RL"], peril_code=None,
+        region_code=None, currency=None, aal={"GR": 4_123_456.78, "RL": None})
+    assert a.aal_display("GR") == "4,123,457"
+    assert a.aal_display("RL") == "—"
+
+
 def test_unknown_submission_is_none(deal):
     assert svc.list_exportable_analyses(str(uuid.uuid4())) is None
 

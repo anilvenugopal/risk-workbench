@@ -155,7 +155,7 @@ def test_fragment_intersection_and_data_name_fields(client, deal):
     assert '<option value="RL" selected>' in frag.text
     assert f'name="data_name[{deal["a"]}]"' in frag.text
     assert f'name="data_name[{deal["b"]}]"' in frag.text
-    assert frag.text.count("AAL 100") == 2
+    assert frag.text.count("AAL 100 USD") == 2
     assert "hx-swap-oob" not in frag.text
 
 
