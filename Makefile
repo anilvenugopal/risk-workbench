@@ -88,6 +88,9 @@ bootstrap-loss:   ## [Docker] Apply CIC's table mirror + the stage schema to rwb
 bootstrap-loss-reset:   ## [Docker] DESTRUCTIVE — drop the stage tables in rwb_loss, then bootstrap-loss
 	$(BOX) python infra/scripts/bootstrap_loss.py --reset-stage
 
+load-cedants:   ## [Docker] Add cedant names from an Excel file not yet in rwb_workbench (FILE=path, default db/bootstrap/seed/cedants.xlsx)
+	$(BOX) python infra/scripts/load_cedants.py $(FILE)
+
 seed-demo:   ## [Docker] Seed demo submissions + contracts for the search screens (ARGS="--count 120 --clear")
 	$(BOX) python infra/scripts/seed_demo_submissions.py $(ARGS)
 
@@ -177,6 +180,9 @@ wsl-bootstrap-loss:   ## [WSL2] Apply CIC's table mirror + the stage schema to r
 
 wsl-bootstrap-loss-reset:   ## [WSL2] DESTRUCTIVE — drop the stage tables in rwb_loss, then wsl-bootstrap-loss
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/bootstrap_loss.py --reset-stage'
+
+wsl-load-cedants:   ## [WSL2] Add cedant names from an Excel file not yet in rwb_workbench (FILE=path, default db/bootstrap/seed/cedants.xlsx)
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/load_cedants.py $(FILE)'
 
 wsl-seed-demo:   ## [WSL2] Seed demo submissions + contracts for the search screens (ARGS="--count 120 --clear")
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/seed_demo_submissions.py $(ARGS)'

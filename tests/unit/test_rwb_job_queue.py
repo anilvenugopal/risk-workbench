@@ -25,6 +25,7 @@ from app.services.rwb_job_service import (
 )
 from app.workers.runtime import upsert_heartbeat
 from db import execute_command, execute_one, execute_scalar
+from tests.unit.conftest import cedant_id
 
 # Filler for tests exercising dedup/claim/reconcile/cancel mechanics that
 # don't care about link/context semantics (CR-04c) — a real EDM/RDM id would
@@ -796,10 +797,11 @@ def _submission(*, name="Sub", cedant_name="Cedant", status_code="ACTIVE",
                 assigned_analyst_id) -> str:
     sid = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
+        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_id, "
         "status_code, inserted_at, updated_at) "
         "VALUES (:id, :a, :name, :cedant, :status, :now, :now)",
-        {"id": sid, "a": assigned_analyst_id, "name": name, "cedant": cedant_name,
+        {"id": sid, "a": assigned_analyst_id, "name": name,
+         "cedant": cedant_id(cedant_name),
          "status": status_code, "now": "2026-01-01 00:00:00"},
         connection="WORKBENCH")
     return sid

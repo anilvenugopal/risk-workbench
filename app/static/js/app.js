@@ -301,16 +301,11 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Typeahead menu shared by the submission form's CEDANT field and its "links
-  // to" picker (CR7/CR8). HTMX fetches and renders the options; this only handles
-  // open/close, the keyboard, and committing a pick.
-  //
-  // Two shapes, told apart by whether the markup provides an x-ref="value":
-  //   - cedant     — free text, the chosen name goes straight into the input
-  //   - links to   — the id goes into the hidden value input and the chosen
-  //                  submission's name is shown as a chip instead
-  // With JS off the cedant field degrades to plain text the server still reads;
-  // the "links to" picker needs JavaScript.
+  // Typeahead menu for the submission form's "links to" picker (CR7/CR8). HTMX
+  // fetches and renders the options; this only handles open/close, the
+  // keyboard, and committing a pick. The id goes into the hidden x-ref="value"
+  // input and the chosen submission's name is shown as a chip. The picker needs
+  // JavaScript.
   //
   // `minTerm` comes from the template, which renders it from the route context's
   // `min_suggest_term` — one number, submission_service.MIN_SUGGEST_TERM, reaching
@@ -377,18 +372,14 @@ document.addEventListener('alpine:init', () => {
       if (!opt) return;
       const value = opt.dataset.value;
       const label = opt.dataset.label || value;
-      if (this.$refs.value) {
-        this.$refs.value.value = value;
-        this.chosenLabel = label;
-        this.chosen = true;
-        this.$refs.input.value = '';
-      } else {
-        this.$refs.input.value = label;
-      }
+      this.$refs.value.value = value;
+      this.chosenLabel = label;
+      this.chosen = true;
+      this.$refs.input.value = '';
       this.close();
     },
     clear() {
-      if (this.$refs.value) this.$refs.value.value = '';
+      this.$refs.value.value = '';
       this.chosen = false;
       this.chosenLabel = '';
       this.close();
@@ -411,6 +402,12 @@ document.addEventListener('alpine:init', () => {
     // only filters, so without that row an analyst cannot undo a selection —
     // emptying the input and leaving restores the committed label via close().
     clearable: config.clearable === true,
+    // The Cedant field passes { creatable: true }: a typed name that matches no
+    // option gets a last menu row that stages it — as the <select>'s "new"
+    // option plus the hidden new_cedant_name input — and the server writes the
+    // cedant when the submission saves (P-06).
+    creatable: config.creatable === true,
+    pendingHint: '',
     options: [],
     init() {
       this.$el.classList.add('ta--ready');
@@ -422,7 +419,12 @@ document.addEventListener('alpine:init', () => {
     get filteredOptions() {
       const term = this.query.trim().toLowerCase();
       if (!term) return this.options;
-      return this.options.filter((o) => o.label.toLowerCase().includes(term));
+      const matches = this.options.filter((o) => o.label.toLowerCase().includes(term));
+      if (!this.creatable || this.options.some((o) => o.label.toLowerCase() === term)) {
+        return matches;
+      }
+      const name = this.query.trim();
+      return [...matches, { value: '', create: name, label: `Add cedant “${name}”` }];
     },
     get placeholder() {
       const blank = this.select.querySelector('option[value=""]');
@@ -441,6 +443,10 @@ document.addEventListener('alpine:init', () => {
       if (this.clearable) this.options.unshift({ value: '', label: 'None' });
       const current = this.select.selectedOptions[0];
       this.query = current && current.value ? current.textContent.trim() : '';
+      if (this.creatable) {
+        const staged = this.select.value === 'new' ? this.$refs.newName.value : '';
+        this.pendingHint = staged ? 'New cedant — added when you save this submission.' : '';
+      }
       this.isOpen = false;
       this.activeIndex = -1;
     },
@@ -488,9 +494,30 @@ document.addEventListener('alpine:init', () => {
     },
     pick(opt) {
       if (!opt) return;
-      this.select.value = opt.dataset.value;
+      // Alpine renders data-create="" on every row, not only the create row.
+      if (opt.dataset.create) {
+        this.stage(opt.dataset.create);
+      } else {
+        this.select.value = opt.dataset.value;
+        if (this.creatable && opt.dataset.value !== 'new') this.unstage();
+      }
       this.select.dispatchEvent(new Event('change', { bubbles: true }));
       this.sync();
+    },
+    stage(name) {
+      let staged = this.select.querySelector('option[value="new"]');
+      if (!staged) {
+        staged = new Option('', 'new');
+        this.select.add(staged);
+      }
+      staged.textContent = name;
+      this.select.value = 'new';
+      this.$refs.newName.value = name;
+    },
+    unstage() {
+      const staged = this.select.querySelector('option[value="new"]');
+      if (staged) staged.remove();
+      this.$refs.newName.value = '';
     },
   }));
 

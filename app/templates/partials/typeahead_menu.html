@@ -1,8 +1,7 @@
-{# Typeahead menu — the HTMX target for both the CEDANT field and the "links to"
-   picker (CR7/CR8). Buttons are type="button" so a keyboard pick never submits
-   the form. Each option's id is built from `menu_id`, which the input names in
-   `aria-activedescendant` — the create form renders both menus, so a bare index
-   would collide.
+{# Typeahead menu — the HTMX target for the "links to" picker (CR8). Buttons
+   are type="button" so a keyboard pick never submits the form. Each option's
+   id is built from `menu_id`, which the input names in
+   `aria-activedescendant`.
 
    `searched` is false when no search ran, and the menu stays blank rather than
    reporting no match. #}

@@ -6,10 +6,11 @@ creator becomes its owner.
 
 **Purely workbench.** Risk Modeler has no concept of a submission — it never learns the deal
 name or the cedant — so this flow touches no external system at all. It writes two rows in one
-transaction and returns.
+transaction (three when the analyst typed a new cedant) and returns.
 
-Code: `submissions.create` → `submission_service.create_submission`; the cedant typeahead is
-`submission_service.cedant_suggestions`.
+Code: `submissions.create` → `submission_service.create_submission`. The Cedant field filters
+the cedants already rendered into the form (`selectSearch` in `app.js`); a typed new name
+is resolved by `cedant_service.new_cedant` and written by `cedant_service.save_new_cedant`.
 
 **Classification:** entirely **sync**. No RM call, no `rwb_job`, no worker, no poller.
 
@@ -17,10 +18,11 @@ Code: `submissions.create` → `submission_service.create_submission`; the cedan
 
 | # | Table | Row / change | Written by | Process |
 |---|---|---|---|---|
+| 0 | `cedant` | INSERT — only when the analyst picked "Add cedant" (issue #129 P-06) | `save_new_cedant` | 🟦 request |
 | 1 | `submission` | INSERT — `status_code='ACTIVE'`, `assigned_analyst_id = the creator` | `create_submission` | 🟦 request |
 | 2 | `submission_status_event` | INSERT — the initial `ACTIVE` event, `reason=NULL` | `create_submission` | 🟦 request |
 
-**Both commit in one transaction** (R2). That is Article 4 in miniature: `submission.status_code`
+**All commit in one transaction** (R2), so a refused or abandoned form writes no cedant. That is Article 4 in miniature: `submission.status_code`
 is a *cached* value and `submission_status_event` is the truth, so a submission may never exist
 without its opening event.
 
@@ -36,14 +38,13 @@ sequenceDiagram
         Note over User,DB: REQUEST PATH — the whole flow. No RM, no worker, no poller
         User->>App: GET /submissions/new
         App-->>User: the form
-        loop as the analyst types a cedant (debounced)
-            User->>App: GET /submissions/cedant-suggest?q=…
-            App->>DB: SELECT DISTINCT cedant_name LIKE 'q%' (no cedant table)
-            App-->>User: datalist fragment
-        end
+        Note over User,App: the Cedant field filters the rendered cedants in the browser;<br/>a name matching none is staged as cedant_id="new" + new_cedant_name
 
         User->>App: POST /submissions (CSRF)
         Note over App,DB: ONE transaction
+        opt cedant_id = "new"
+            App->>DB: INSERT cedant
+        end
         App->>DB: INSERT submission (status_code='ACTIVE', owner = creator)
         App->>DB: INSERT submission_status_event ('ACTIVE')
         App-->>User: 303 → /submissions/{id}
@@ -58,9 +59,9 @@ sequenceDiagram
   ever see the *names of the EDMs and RDMs* the analyst later attaches. Something had to own
   "these imports belong to one deal", and this is it — which is why the submission is the
   association rows rather than anything in Risk Modeler.
-- **The cedant list is derived, not curated.** There is no cedant table; the typeahead is a
-  `DISTINCT` over what's already been typed. Cheap and self-maintaining, at the cost of
-  propagating a typo until someone fixes it.
+- **The cedant list is shared.** Any analyst adds a cedant from this form or from
+  `/cedants` (issue #129). The form shows partial matches above the "Add cedant" row, which
+  is the only guard against a second spelling of an existing cedant.
 - **Duplicate deals are legal.** The identity check is advisory by design. Anything that later
   wants "the submission for this deal" must not assume there is exactly one.
 - **The creator is the owner, and the owner is not a permission.** `assigned_analyst_id` drives

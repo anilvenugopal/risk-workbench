@@ -151,6 +151,18 @@ NODES: list[dict[str, Any]] = [
         "bottom": False,
     },
     {
+        "key": "submissions.cedants",
+        "label": "Cedants",
+        "parent": "submissions",
+        "route": "/cedants",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": True,
+        "roles": [],
+        "hidden": False,
+        "bottom": False,
+    },
+    {
         # Parameterized detail node — routing/breadcrumb only, never rendered in
         # the sidebar (hidden). Active-state + breadcrumb derive from position.
         "key": "submissions.detail",

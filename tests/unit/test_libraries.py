@@ -32,6 +32,7 @@ from app.services import submission_service as svc
 from app.templating import TEMPLATE_DIRS
 from db import execute_command
 from tests.unit.test_name_check_routes import _client
+from tests.unit.conftest import cedant_id
 
 # (module, child table) for the two sibling libraries.
 LIBS = [(edm_service, "irp_edm"), (rdm_service, "irp_rdm")]
@@ -61,10 +62,11 @@ def _entity(table, *, name, status="ready", deleted=False,
 def _submission(*, name, inserted_at) -> str:
     sid = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
+        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_id, "
         "status_code, inserted_at, updated_at) "
-        "SELECT :id, id, :name, 'Cedant', 'ACTIVE', :now, :now FROM app_user LIMIT 1",
-        {"id": sid, "name": name, "now": inserted_at}, connection="WORKBENCH")
+        "SELECT :id, id, :name, :ced, 'ACTIVE', :now, :now FROM app_user LIMIT 1",
+        {"id": sid, "name": name, "ced": cedant_id(), "now": inserted_at},
+        connection="WORKBENCH")
     return sid
 
 
@@ -340,7 +342,7 @@ def _deal(*, name, owner, contract_status="OPEN", crm_ids=("C-1",),
     from app.services import submission_service
 
     return submission_service.create_submission(
-        name=name, cedant_name=f"{name} Re",
+        name=name, cedant_id=cedant_id(f"{name} Re"),
         contracts=[submission_service.ContractInput(
             crm_id=crm_id, treaty_type_code="per_risk_xol",
             inception_date=date(2026, 1, 1), expiration_date=expiration,

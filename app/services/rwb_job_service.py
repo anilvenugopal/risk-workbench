@@ -316,7 +316,7 @@ def list_rwb_jobs_for_monitoring(
         sub_params: dict[str, Any] = {}
         if submission_name:
             name_clauses, name_params = _word_and_clauses(
-                submission_name.strip(), ("s.name", "s.cedant_name"), "sn")
+                submission_name.strip(), ("s.name", "ced.name"), "sn")
             sub_clauses += name_clauses
             sub_params |= name_params
         if submission_status_codes:
@@ -332,12 +332,14 @@ def list_rwb_jobs_for_monitoring(
         clauses.append(
             "EXISTS ("
             "SELECT 1 FROM submission_edm se JOIN submission s ON s.id = se.submission_id "
+            "JOIN cedant ced ON ced.id = s.cedant_id "
             f"WHERE rj.link_type = 'edm' AND se.edm_id = rj.link_id{sub_where}"
             " UNION ALL "
             "SELECT 1 FROM submission_rdm sr JOIN submission s ON s.id = sr.submission_id "
+            "JOIN cedant ced ON ced.id = s.cedant_id "
             f"WHERE rj.link_type = 'rdm' AND sr.rdm_id = rj.link_id{sub_where}"
             " UNION ALL "
-            "SELECT 1 FROM submission s "
+            "SELECT 1 FROM submission s JOIN cedant ced ON ced.id = s.cedant_id "
             f"WHERE rj.link_type = 'submission' AND s.id = rj.link_id{sub_where}"
             ")"
         )
