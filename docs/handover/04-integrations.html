@@ -54,8 +54,6 @@
 <tr><td>Every analysis submission needs a currency block <code>{code, scheme, vintage, asOfDate}</code>; Risk Modeler sets no default</td><td>The analyst picks currency, scheme, and vintage at submit time. <code>asOfDate</code> is the vintage's <code>effective_date</code> from <code>irp_currency_scheme_vintage</code>. Templates store no currency.</td><td><code>_validate_currency()</code> in <code>app/services/analysis_execution_service.py</code></td></tr>
 </table>
 
-<p>Open requests to the irp-integration maintainers are in <a href="../IRP_INTEGRATION_FOLLOWUPS.md">docs/IRP_INTEGRATION_FOLLOWUPS.md</a>.</p>
-
 <h2 id="databridge">DATABRIDGE reads</h2>
 
 <p>DATABRIDGE is the Moody's SQL Server that holds the EDM databases. The Workbench reads it, never writes to it, and never connects to it through <code>db/</code>.</p>

@@ -126,7 +126,7 @@ Open risk: if RM rejects WX/QS server-side (they are CIC's requested codes, so u
 
 ## R6 — Currency and engine-version sources (T-05, FR-021)
 
-From `docs/IRP_INTEGRATION_FOLLOWUPS.md` (documented `search_analyses` / `get_analysis_by_id` response fields, confidence 0.99): the analysis metadata payload carries `currencyCode`, `currencyName`, `engineType`, `engineVersion`, `engineSubTypeCode`.
+From the documented `search_analyses` / `get_analysis_by_id` response fields (confidence 0.99): the analysis metadata payload carries `currencyCode`, `currencyName`, `engineType`, `engineVersion`, `engineSubTypeCode`.
 
 - **Currency (FR-010)**: both origins already store this payload verbatim in `irp_analysis.settings_metadata` — own rows at `finalize_analysis`, broker rows at `backfill_rdm_analyses` (spec 004). The merged table's Currency column is read-model extraction of `currencyCode`; no new column, no new capture. A NULL `settings_metadata` (failed metadata read) renders as `—`, the existing graceful-blank rule.
 - **Engine/model version (FR-021)**: the retrieval worker snapshots `engineType` + `engineVersion` out of the same payload into the `loss_results` extract, so the stored result records what produced it even if the analysis row's snapshot is later refreshed. When `settings_metadata` is NULL at retrieval time, the T-03 `get_analysis_metadata` re-read supplies the same fields.
