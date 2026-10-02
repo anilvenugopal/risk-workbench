@@ -122,7 +122,7 @@ function ncReset(el) {
 function ncFailOpen(e) {
   const elt = e.detail && e.detail.elt;
   if (!elt || !elt.classList || !elt.classList.contains('nc-input')) return false;
-  const scope = elt.closest('.mrow') || elt.closest('form');
+  const scope = elt.closest('.mrow') || elt.closest('.bo-row') || elt.closest('form');
   const el = scope && scope.querySelector('.name-collision');
   if (!el) return false;
   el.dataset.nc = 'unchecked';
@@ -298,6 +298,37 @@ document.addEventListener('alpine:init', () => {
       this.nameVal = '';
       this.nameState = 'pending';
       this.resel();
+    },
+  }));
+
+  // The quick-breakout preview's editable names (spec 005 P-33). Create stays
+  // disabled while any edited row's check is in flight or came back 'blocked';
+  // 'unchecked' (Risk Modeler unreachable) does not block — the confirm
+  // re-validates every name against the EDM either way. A row is pending from
+  // its first keystroke until its own check swaps in.
+  Alpine.data('breakoutNames', () => ({
+    blocked: false,
+    recount() {
+      this.blocked = !!this.$root.querySelector(
+        '.bo-row .nc-input[data-pending], .bo-row .name-collision[data-nc="blocked"]');
+    },
+    onInput(e) {
+      const input = e.target;
+      if (!input.classList.contains('nc-input')) return;
+      input.dataset.pending = '';
+      ncReset(input.closest('.bo-row').querySelector('.name-collision'));
+      this.recount();
+    },
+    // htmx fires afterSwap on the swapped-in .name-collision, not on the input
+    // that sent the check, so the row is found from the event target.
+    onSwap(e) {
+      const row = e.target.closest && e.target.closest('.bo-row');
+      const input = row && row.querySelector('.nc-input');
+      if (input) delete input.dataset.pending;
+      this.recount();
+    },
+    onCheckError(e) {
+      if (ncFailOpen(e)) this.onSwap(e);
     },
   }));
 
