@@ -32,13 +32,13 @@ Conventions inherited wholesale: `_render`/`_partial` helpers, `validate_csrf_to
   - Gate refusal → **409** + modal fragment re-rendered with reasons.
   - Summary rewritten since the preview (`summary_as_of` mismatch) → 409 variant: *"This EDM was synced while you were reviewing — here is the current breakout."* The re-rendered preview shows the new values, and the analyst confirms again. **No `rwb_job` row is created.** This refusal must fire even when the `stampDate` still matches — a re-backfill that leaves the Risk Modeler portfolio untouched writes back an equal stamp (P-16).
   - Stale summary (stamp mismatch / no stored stamp / freshness unverifiable) → 409 variant: *"Portfolio data has changed in Risk Modeler since the last sync — Sync the EDM, then retry."* **No `rwb_job` row is created.**
-  - Name refused (`NameRefused`) → 409 variant: *"Some names can't be used — fix the flagged rows and confirm again."* The preview re-renders with every posted name kept and the reason under each refused row; the reason is advisory and Create stays enabled. Posted values that are not exactly the plan's to-be-created values → the gate 409. **No `rwb_job` row is created.**
+  - Name refused (`NameRefused`) → 409 variant: *"Some names can't be used — fix the flagged rows and confirm again."* The preview re-renders with every posted name kept and the reason under each refused row. Posted values that are not exactly the plan's to-be-created values → the gate 409. **No `rwb_job` row is created.**
   - Already running → 409 variant with "already running" banner (idempotent enqueue returned `None`).
 - The freshness read is the only RM call on this path (Article 2 submit-time name resolution) — otherwise enqueue only (Article 11).
 
 ### `GET /edms/{edm_id}/portfolios/{portfolio_id}/breakout/name-check` — as-you-type portfolio name (P-25, P-33)
 
-- Query: `group_label` (the custom pane's Add — the blocked line reads "Adding is blocked") or `name` (a quick-breakout preview row — "Creating is blocked"). Renders `partials/name_collision.html` with `breakout_service.check_group_name`'s verdict — the EDM's own portfolio names plus one cached Risk Modeler `portfolioName` search, which **fails open** (`checked=False`) when RM is unreachable.
+- Query: `group_label` (the custom pane's Add) or `name` (a quick-breakout preview row). The blocked line reads "Creating is blocked". Renders `partials/name_collision.html` with `breakout_service.check_group_name`'s verdict — the EDM's own portfolio names plus one cached Risk Modeler `portfolioName` search, which **fails open** (`checked=False`) when RM is unreachable.
 - GET, no CSRF, no writes. It carries the typed name alone, so it cannot see the cart; the cart leg is enforced at Add by `compose_group_cart` (FR-018).
 
 ### `POST /edms/{edm_id}/portfolios/{portfolio_id}/breakout/group-preview` — Add one cart row (FR-018)
