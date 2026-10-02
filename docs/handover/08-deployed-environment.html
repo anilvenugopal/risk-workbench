@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>8. Deployed environment — Risk Analysis Workbench handover</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Index</a> · Previous: <a href="07-configuration-and-observability.html">7. Configuration and observability</a> · Next: <a href="09-path-to-production.html">9. Path to production</a></nav>
+
+<h1>8. Deployed environment</h1>
+
+<p>The repository describes a RHEL9 deployment and contains the scripts for it. It does not record which servers exist, their hostnames, or what version runs on them. The scripts and runbooks use the account <code>cinreadmd</code> and the app directory <code>/rms</code>, which are the values on the deployed server. Their examples also use the address <code>172.19.253.47</code>. That is the WSL2 address of the RHEL9 VM used to test the scripts (<a href="../RHEL9/RHEL9_SSH_KEY_SETUP.md">RHEL9_SSH_KEY_SETUP.md</a>); the deployed environment does not use it.</p>
+
+<h2 id="topology">Topology</h2>
+
+<svg class="diagram" viewBox="0 0 900 470" role="img" aria-labelledby="topology-title">
+<title id="topology-title">Deployed topology: one RHEL9 app server and the systems it connects to</title>
+<defs>
+<marker id="topology-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+</marker>
+</defs>
+<g fill="none" stroke="currentColor">
+<rect x="350" y="20" width="200" height="40"/>
+<rect x="20" y="100" width="860" height="200"/>
+<rect x="40" y="145" width="140" height="60"/>
+<rect x="200" y="145" width="140" height="60"/>
+<rect x="360" y="145" width="140" height="60"/>
+<rect x="520" y="145" width="200" height="60"/>
+<rect x="740" y="145" width="120" height="60"/>
+<rect x="20" y="370" width="270" height="80"/>
+<rect x="315" y="370" width="270" height="80"/>
+<rect x="610" y="370" width="270" height="80"/>
+</g>
+<g fill="none" stroke="currentColor" marker-end="url(#topology-arrow)">
+<path d="M450,60 V100"/>
+<path d="M180,175 H200"/>
+<path d="M155,300 V370"/>
+<path d="M450,300 V370"/>
+<path d="M745,300 V370"/>
+</g>
+<g fill="currentColor" font-size="14" text-anchor="middle">
+<text x="450" y="45">analysts' browsers</text>
+<text x="110" y="170">nginx</text>
+<text x="110" y="190" font-size="12">systemd service</text>
+<text x="270" y="170">uvicorn</text>
+<text x="270" y="190" font-size="12" font-family="monospace">0.0.0.0:8000</text>
+<text x="430" y="170">Valkey</text>
+<text x="430" y="190" font-size="12" font-family="monospace">127.0.0.1:6379</text>
+<text x="620" y="170">Dramatiq workers</text>
+<text x="620" y="190" font-size="12">one command per queue (20)</text>
+<text x="800" y="180">poller</text>
+<text x="155" y="395">CIC SQL Server</text>
+<text x="155" y="415" font-size="12">Workbench database</text>
+<text x="155" y="433" font-size="12"><tspan font-family="monospace">CRE_Trial_ELT_Repository</tspan> (trial)</text>
+<text x="450" y="395">Moody's Risk Modeler</text>
+<text x="450" y="415" font-size="12">API (HTTPS) and</text>
+<text x="450" y="433" font-size="12">DATABRIDGE (SQL)</text>
+<text x="745" y="395">Shared drive mounts</text>
+<text x="745" y="415" font-size="12">broker files: <tspan font-family="monospace">SHARED_DRIVE_ROOT</tspan></text>
+<text x="745" y="433" font-size="12">export archives: <tspan font-family="monospace">EXPORT_ARCHIVE_DIR</tspan></text>
+</g>
+<g fill="currentColor" font-size="12">
+<text x="40" y="128" font-size="14">RHEL9 app server (one host)</text>
+<text x="40" y="250">App directory: <tspan font-family="monospace">/rms</tspan>, with <tspan font-family="monospace">/rms/.venv</tspan> and <tspan font-family="monospace">/rms/infra/.env</tspan></text>
+<text x="40" y="275">Runtime state: <tspan font-family="monospace">/var/lib/risk-workbench/</tspan> (logs, <tspan font-family="monospace">pids/</tspan>, <tspan font-family="monospace">valkey/</tspan>)</text>
+<text x="458" y="85">:80</text>
+</g>
+</svg>
+
+<table>
+<tr><th>Component</th><th>Where the repo puts it</th><th>To confirm</th></tr>
+<tr><td>nginx</td><td>The app server, as a systemd service owned by infra. The app's server block is <code>/etc/nginx/conf.d/risk-workbench.conf</code>, written from <code>deploy/nginx/site.conf</code>. In the deployed environment the app cannot be reached through nginx on port 80 (B1 on <a href="09-path-to-production.html#blockers">page 9</a>).</td><td>The server's hostname and the URL analysts use. Whether HTTPS ends at nginx or a load balancer (<a href="#https">Enabling HTTPS</a>).</td></tr>
+<tr><td>uvicorn, Valkey, workers, poller</td><td>The same server, started with <code>nohup</code> by <code>infra/scripts/rhel9/rhel9-start.sh</code> as the run account (<a href="#accounts">Accounts</a>). They have no systemd units, by decision: the team that maintains the Linux server runs <code>rhel9-start.sh</code> after each restart (<a href="#runbook">runbook</a>).</td><td>Whether all run on one server.</td></tr>
+<tr><td>Python</td><td>Python 3.14 from RHEL9 AppStream (<code>PYTHON_PKG</code> and <code>PYTHON_BIN</code> default to <code>python3.14</code>), with a <code>.venv</code> in the app directory. Docker dev and CI use Python 3.12.</td><td></td></tr>
+<tr><td>Workbench database and loss repository</td><td>One CIC SQL Server holds both (spec 014 O-05). The connection is set in <code>infra/.env</code>. The <code>LOSS</code> connection points at <code>CRE_Trial_ELT_Repository</code>, a trial repository (B5 on <a href="09-path-to-production.html#blockers">page 9</a>).</td><td>The SQL Server hostname, the Workbench database name, the production loss repository, and the logins.</td></tr>
+<tr><td><code>EXPOSURE</code> database</td><td>See <a href="03-data.html#databases">page 3</a>.</td><td>Whether it is created at CIC.</td></tr>
+<tr><td>Shared drives</td><td>Mounted on the app server. <code>SHARED_DRIVE_ROOT</code> points into it for the import file browser. <code>EXPORT_ARCHIVE_DIR</code> is to be a location on it, still to be chosen (B8 on <a href="09-path-to-production.html#blockers">page 9</a>). The shared drive is mounted at <code>/Workbench</code> today; a higher-level directory is wanted (B4 on <a href="09-path-to-production.html#blockers">page 9</a>). The cron example in <code>sweep-export-archives.sh</code> uses <code>/mnt/lossshare/export_archive</code>.</td><td>The export archive mount point.</td></tr>
+<tr><td>Risk Modeler and DATABRIDGE</td><td>Moody's cloud. See <a href="#outbound">Outbound connections</a>.</td><td>Which Risk Modeler tenant is production.</td></tr>
+</table>
+
+<p>The existing server becomes production. CIC is creating a lower environment now (B11 on <a href="09-path-to-production.html#blockers">page 9</a>). To confirm: the hostname of each server, and the Git commit or tag deployed on each.</p>
+
+<h2 id="outbound">Outbound connections</h2>
+
+<p>Every row below needs a firewall rule that lets the app server reach that host and port. Getting the firewall requests created, approved, and carried out was the biggest blocker in the first deployment. Any new server, for production or a lower environment (B11 on <a href="09-path-to-production.html#blockers">page 9</a>), needs the same rules, so raise the requests as soon as the server's IP address is known.</p>
+
+<p>Each connection's host is set in <code>infra/.env</code> unless its setting says otherwise; each SQL Server port is in the matching <code>MSSQL_&lt;NAME&gt;_PORT</code>. CIC's SQL Server databases use port 4988, so <code>MSSQL_WORKBENCH_PORT</code> and <code>MSSQL_LOSS_PORT</code> must be set to 4988; the default is 1433, which Data Bridge uses. The Risk Modeler and DATABRIDGE hosts below are the values in the development <code>infra/.env</code>.</p>
+
+<table>
+<tr><th>Destination</th><th>Host and setting</th><th>Port</th><th>Opened by</th><th>Needed</th></tr>
+<tr><td>Workbench database (CIC SQL Server)</td><td>To fill in<br>Setting: <code>MSSQL_WORKBENCH_SERVER</code></td><td>4988</td><td>uvicorn, workers, poller</td><td>Now</td></tr>
+<tr><td>Loss repository (CIC SQL Server)</td><td>The same server as the Workbench database<br>Setting: <code>MSSQL_LOSS_SERVER</code></td><td>4988</td><td>uvicorn (the client list from <code>dbo.Client</code>, <code>/health</code>), workers (exports)</td><td>Now</td></tr>
+<tr><td>Risk Modeler API</td><td><code>api-euw1.rms-ppe.com</code><br>Setting: <code>RISK_MODELER_BASE_URL</code>. Bearer sign-in uses the same host.</td><td>443</td><td>uvicorn, workers, poller</td><td>Now</td></tr>
+<tr><td>Risk Modeler S3 tenant</td><td>To fill in<br>Setting: None. Risk Modeler returns a presigned S3 URL for each upload and export download.</td><td>443</td><td>workers</td><td>Now</td></tr>
+<tr><td>DATABRIDGE SQL Server (Moody's)</td><td><code>467d5f3e13599b70a8f60bcb2808f105.eih.rms-ppe.com</code><br>Setting: <code>MSSQL_DATABRIDGE_SERVER</code></td><td>1433</td><td>uvicorn (the breakout match count), workers (breakout account selection)</td><td>Now. Also needs the Data Bridge IP allowlist entry below.</td></tr>
+<tr><td>Python package index</td><td><code>pypi.org</code> and <code>files.pythonhosted.org</code> today; CIC's Artifactory later<br>Setting: None today. <code>PIP_INDEX_URL</code> or <code>/etc/pip.conf</code> once Artifactory exists.</td><td>443</td><td><code>rhel9-app-install.sh</code></td><td>At install. Blocked today (B3 on <a href="09-path-to-production.html#blockers">page 9</a>).</td></tr>
+<tr><td>Microsoft Entra ID</td><td><code>login.microsoftonline.com</code><br>Setting: <code>ENTRA_TENANT_ID</code></td><td>443</td><td>uvicorn (MSAL token exchange). Analysts' browsers are also redirected there.</td><td>Once OIDC sign-in is set up (B7)</td></tr>
+<tr><td>Microsoft Graph</td><td><code>graph.microsoft.com</code> and <code>login.microsoftonline.com</code><br>Setting: <code>MAIL_*</code></td><td>443</td><td>Only <code>infra/scripts/mail_smoke_test.py</code> today</td><td>Once email notifications are built</td></tr>
+<tr><td>Kerberos KDC</td><td>To fill in<br>Setting: <code>KERBEROS_ENABLED</code>, <code>KRB5_*</code>, <code>MSSQL_&lt;NAME&gt;_AUTH_TYPE=WINDOWS</code></td><td>88</td><td>Any process whose SQL Server connection uses Windows authentication</td><td>Once a connection uses Windows authentication</td></tr>
+</table>
+
+<p>Data Bridge accepts connections only from IP addresses on its allowlist. Besides the firewall rule, the public IP address that the app server's requests to Data Bridge come from must be added to the Data Bridge allowlist. A new server, or a change to the network address CIC's outbound traffic uses, needs a new entry.</p>
+
+<p>Valkey listens on <code>127.0.0.1:6379</code> on the app server and needs no outbound rule. The shared drive is mounted by the operating system, so the app opens no connection to it; the account that runs the app (<code>cinreadmd</code>) has read access, which the import file browser needs. Writing export archives to the shared drive needs write access to their location (B8 on <a href="09-path-to-production.html#blockers">page 9</a>).</p>
+
+<h2 id="accounts">Accounts</h2>
+
+<p>One account deploys the code and a second account runs the app (B10 on <a href="09-path-to-production.html#blockers">page 9</a>). Today <code>cinreadmd</code> does both. Infra creates the two accounts. To confirm: their names, and whether <code>cinreadmd</code> becomes the run account.</p>
+
+<table>
+<tr><th>Account</th><th>Does</th><th>Needs</th></tr>
+<tr><td>Deployment account</td><td>Receives the code from <code>rhel9-ssh-deploy.sh</code>, or runs <code>rhel9-pull-code.sh</code>. Runs <code>rhel9-app-install.sh</code>, which builds <code>.venv</code>, installs the packages, and runs <code>alembic upgrade head</code>.</td><td>Owns <code>/rms</code>. The deploy SSH key. The two sudoers rules <code>rhel9-setup.sh</code> writes: <code>systemctl reload nginx</code> and <code>tee /etc/nginx/conf.d/risk-workbench.conf</code>. Read access to <code>infra/.env</code>, because the drain check and the migrations connect to the Workbench database.</td></tr>
+<tr><td>Run account</td><td>Runs <code>rhel9-start.sh</code> and <code>rhel9-stop.sh</code>, so uvicorn, the workers, the poller, and Valkey run as this account. Runs the commands in the <a href="#runbook">runbook</a>.</td><td>Owns <code>/var/lib/risk-workbench/</code> (logs, <code>pids/</code>, <code>valkey/</code>). Read access to <code>/rms</code>, including <code>.venv</code> and <code>infra/.env</code>. Read access to <code>SHARED_DRIVE_ROOT</code>. Write access to <code>EXPORT_ARCHIVE_DIR</code> (B8) and <code>EXPORT_STAGING_DIR</code>.</td></tr>
+</table>
+
+<p><code>infra/.env</code> holds the passwords, so make it readable by these two accounts only.</p>
+
+<h2 id="https">Enabling HTTPS</h2>
+
+<p>HTTPS is wanted in production (B12 on <a href="09-path-to-production.html#blockers">page 9</a>). Nothing serves it today: <code>site.conf</code> listens on port 80 only, and analysts reach uvicorn over HTTP on port 8000 (B1). The steps below end TLS at nginx on the app server, which is what the repo is built for. Fix B1 first, because the steps change the nginx server block that does not serve today.</p>
+
+<ol>
+<li>Hostname. Choose the DNS name analysts will use and point it at the app server. The certificate, the Entra redirect URI, and the analysts' bookmarks all use this name.</li>
+<li>Certificate. CIC issues a certificate for the hostname from a certificate authority the analysts' browsers trust, such as CIC's internal CA. Put the certificate with its full chain, and its private key, on the app server, for example in <code>/etc/pki/tls/certs/</code> and <code>/etc/pki/tls/private/</code>. Make the private key readable by root only; nginx reads it as root when it starts or reloads. Name who renews the certificate before it expires.</li>
+<li>nginx. Change <code>deploy/nginx/site.conf</code> in the repo, not <code>/etc/nginx/conf.d/risk-workbench.conf</code> on the server: <code>rhel9-ssh-deploy.sh</code> rewrites that file from <code>site.conf</code> on every deploy. Add <code>listen 443 ssl</code>, <code>ssl_certificate</code>, and <code>ssl_certificate_key</code> to the server block. Add a server block on port 80 that only redirects: <code>return 301 https://$host$request_uri;</code>. The deploy substitutes only <code>$APP_ROOT</code>, so write the certificate paths as fixed paths or add them to the <code>envsubst</code> call in <code>rhel9-ssh-deploy.sh</code>. <code>deploy/nginx/nginx.conf</code> is for Docker dev and stays on HTTP.</li>
+<li>Deploy health check. The last step of <code>rhel9-ssh-deploy.sh</code> runs <code>curl -sf http://127.0.0.1:80/api/health</code>. Once port 80 redirects, curl gets a 301, which <code>-sf</code> counts as success, so the check reports OK with an empty body. Change it to call the HTTPS address.</li>
+<li>Inbound firewall. Raise a firewall request for port 443 from the analysts' network to the app server. Raise it early: firewall requests were the biggest blocker in the first deployment (<a href="#outbound">Outbound connections</a>). If firewalld runs on the server, open HTTPS there too: <code>sudo firewall-cmd --permanent --add-service=https</code>, then <code>sudo firewall-cmd --reload</code>.</li>
+<li>Close port 8000. Change <code>rhel9-start.sh</code> to start uvicorn with <code>--host 127.0.0.1</code> instead of <code>0.0.0.0</code>, so the app cannot be reached over plain HTTP past nginx. nginx already sends requests to <code>127.0.0.1:8000</code>.</li>
+<li><code>infra/.env</code>. Set <code>APP_ENV=production</code>, which marks the session cookie <code>Secure</code>, so browsers send it over HTTPS only. Set it in the same change as HTTPS: with <code>APP_ENV=production</code>, sign-in over <code>http://</code> on port 8000 stops working. It also turns off <code>/docs</code> and switches the logs to JSON (<a href="07-configuration-and-observability.html#env-reference">page 7</a>). Set <code>ENTRA_REDIRECT_URI=https://&lt;hostname&gt;/auth/callback</code> and register that URI in Entra (Step 7 of <a href="../ENTRA_SETUP.md">docs/ENTRA_SETUP.md</a>). Stop and start the app.</li>
+<li>Check. Open <code>https://&lt;hostname&gt;/</code> in a browser, check the browser trusts the certificate, sign in, and check that <code>http://&lt;hostname&gt;/</code> redirects to HTTPS.</li>
+</ol>
+
+<p>If CIC ends TLS at a load balancer instead, the certificate and the inbound port 443 rule go on the load balancer. nginx keeps listening on port 80, reachable from the load balancer only, and <code>site.conf</code> needs no TLS block. Steps 1, 6, 7, and 8 still apply.</p>
+
+<h2 id="deployment">Deployment process</h2>
+
+<p>Today the code is copied onto the server by hand; no CD process runs the scripts below (B2 on <a href="09-path-to-production.html#blockers">page 9</a>). <code>rhel9-app-install.sh</code> fails at <code>pip install</code> because the server may not connect to PyPI (B3).</p>
+
+<p>The runbooks are in <code>docs/RHEL9/</code>:</p>
+<table>
+<tr><th>Runbook</th><th>Covers</th></tr>
+<tr><td><a href="../RHEL9/RHEL9_QUICKSTART.md">RHEL9_QUICKSTART.md</a></td><td>The whole sequence as short commands. Start here.</td></tr>
+<tr><td><a href="../RHEL9/RHEL9_SYSTEM_SETUP.md">RHEL9_SYSTEM_SETUP.md</a></td><td>The one-time server setup and why each package is needed.</td></tr>
+<tr><td><a href="../RHEL9/RHEL9_DEPLOYMENT.md">RHEL9_DEPLOYMENT.md</a></td><td>Each deployment step, the push-based deploy, and the open items.</td></tr>
+<tr><td><a href="../RHEL9/RHEL9_SSH_KEY_SETUP.md">RHEL9_SSH_KEY_SETUP.md</a></td><td>The deploy SSH key.</td></tr>
+<tr><td><a href="../RHEL9/RHEL9_WSL_INSTALL.md">RHEL9_WSL_INSTALL.md</a></td><td>A RHEL9 VM under WSL2 for testing the scripts.</td></tr>
+</table>
+
+<p>One-time setup, on the server:</p>
+<ol>
+<li><code>DEPLOY_USER=&lt;account&gt; APP_DIR=/rms bash rhel9-setup.sh</code> (needs sudo). Installs git, Python 3.14, ODBC Driver 18, nginx, Valkey, gcc, gettext, and rsync; creates the app directory and <code>/var/lib/risk-workbench/valkey</code>; enables nginx; writes two sudoers rules for the deployment account (<code>systemctl reload nginx</code>, and <code>tee /etc/nginx/conf.d/risk-workbench.conf</code>); sets <code>vm.overcommit_memory=1</code>.</li>
+<li>Install the deploy SSH key for the deployment account.</li>
+<li>Place <code>/rms/infra/.env</code> by hand. No script creates or overwrites it.</li>
+<li>Create the three databases. <code>rhel9-app-install.sh</code> does not create them. To confirm: who creates the Workbench database at CIC and with which login.</li>
+</ol>
+
+<p>Each deployment:</p>
+<ol>
+<li>On the server, make sure no job is in flight: <code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-drain-check.sh</code> while the workers are still running, or check Workflows → RWB Jobs.</li>
+<li>On the server, as the run account, stop the app: <code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-stop.sh</code>.</li>
+<li>From a developer machine or CI runner with the code checked out: <code>DEPLOY_HOST=&lt;user&gt;@&lt;host&gt; DEPLOY_DIR=/rms SSH_KEY=&lt;key&gt; bash infra/scripts/rhel9/rhel9-ssh-deploy.sh</code>.</li>
+<li>On the server, as the run account, start the app: <code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start.sh</code>, then check <code>/api/health</code> and <code>rhel9-worker-health.sh</code>.</li>
+</ol>
+
+<p><code>rhel9-ssh-deploy.sh</code> runs these steps over SSH and stops at the first failure:</p>
+<ol>
+<li>Checks that <code>infra/.env</code> exists on the server.</li>
+<li>Pushes the code with <code>rsync --delete-after --filter=':- .gitignore'</code>, so gitignored files such as <code>infra/.env</code> and <code>.venv</code> are never sent or deleted.</li>
+<li>Runs <code>rhel9-check-prereqs.sh</code>.</li>
+<li>Runs <code>rhel9-drain-check.sh</code>: waits until <code>rwb_job</code> has no <code>pending</code> or <code>running</code> rows, checking every <code>DRAIN_POLL_INTERVAL_SECS</code> (default 5) for up to <code>DRAIN_TIMEOUT_SECS</code> (default 300).</li>
+<li>Runs <code>rhel9-app-install.sh</code>: builds <code>.venv</code>, installs <code>requirements.txt</code> with <code>pip install --require-hashes</code>, runs <code>alembic upgrade head</code>, and checks the ODBC driver and app import.</li>
+<li>Writes <code>site.conf</code> into <code>/etc/nginx/conf.d/risk-workbench.conf</code> with <code>APP_ROOT</code> filled in, and reloads nginx.</li>
+<li>Calls <code>http://127.0.0.1:80/api/health</code>.</li>
+</ol>
+
+<p>Two things to know about this order. The code is already replaced by the time the drain check runs. And the drain check runs after the workers are stopped, so any <code>pending</code> row left at stop time can never clear and the deploy stops at the timeout. That is why step 1 of each deployment drains first. The deploy does not restart the app; the health check at the end reports the old processes or none.</p>
+
+<p>The pull-based alternative, run on the server, is <code>APP_DIR=/rms BRANCH=&lt;branch&gt; bash infra/scripts/rhel9/rhel9-pull-code.sh</code> (it refuses if the checkout has local changes unless given <code>--stash</code> or <code>--force</code>), then <code>rhel9-app-install.sh</code>. It needs GitHub access from the server.</p>
+
+<p>Other scripts in <code>infra/scripts/rhel9/</code>:</p>
+<table>
+<tr><th>Script</th><th>What it does</th></tr>
+<tr><td><code>rhel9-check-prereqs.sh</code></td><td>Read-only check of packages, directory ownership, the nginx reload grant, the ODBC driver, and SQL Server reachability.</td></tr>
+<tr><td><code>rhel9-db-rebuild.sh</code>, <code>drop_workbench_tables.py</code></td><td>Destructive: drops every Workbench table and runs the migrations again. Only for a database created before <code>0001</code> was frozen; see <a href="../RHEL9/RHEL9_DEPLOYMENT.md">RHEL9_DEPLOYMENT.md</a>.</td></tr>
+<tr><td><code>rhel9-worker-health.sh</code>, <code>rhel9-logs-worker.sh</code>, <code>rhel9-logs-poller.sh</code></td><td>Worker health and following logs.</td></tr>
+<tr><td><code>rhel9-setup-podman-mssql.sh</code>, <code>rhel9-start-podman-mssql.sh</code>, <code>rhel9-stop-podman-mssql.sh</code></td><td>A local SQL Server container under Podman, for the WSL2 test VM only.</td></tr>
+</table>
+
+<h2 id="runbook">Operations runbook</h2>
+
+<p>Run every command on the app server, from the app directory, as the run account (<a href="#accounts">Accounts</a>).</p>
+
+<table>
+<tr><th>Task</th><th>Steps</th></tr>
+<tr><td>Start</td><td><code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start.sh</code>. Starts Valkey, uvicorn, one worker per queue, and the poller, in that order. It refuses if port 8000 is in use, so stop first if anything is running. nginx is not touched.</td></tr>
+<tr><td>Stop</td><td><code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-stop.sh</code>. Stops uvicorn, every worker, the poller, then Valkey. It waits 35 seconds per process; a worker still finishing a job after that is reported, not killed. Jobs it interrupts are reset to <code>pending</code> by the poller after the next start.</td></tr>
+<tr><td>After a server restart</td><td>The team that maintains the Linux server runs these steps after every restart (B9 on <a href="09-path-to-production.html#blockers">page 9</a>). Before a planned restart, run <code>APP_DIR=/rms bash /rms/infra/scripts/rhel9/rhel9-stop.sh</code> if possible, so running jobs can finish. After the server is back, check the shared drive is mounted; exports fail while <code>EXPORT_ARCHIVE_DIR</code> is missing. Then, as the run account, run <code>APP_DIR=/rms bash /rms/infra/scripts/rhel9/rhel9-start.sh</code>, and check that <code>curl -s http://127.0.0.1:8000/api/health</code> returns <code>"status": "ok"</code>. The poller resets any job the restart interrupted to <code>pending</code>, and a worker picks it up again.</td></tr>
+<tr><td>Restart after an <code>infra/.env</code> change</td><td>Stop, then start. There is no script to restart a single process.</td></tr>
+<tr><td>A dead worker</td><td>Run <code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-worker-health.sh</code>. Read <code>/var/lib/risk-workbench/worker-&lt;queue&gt;.log</code> for the cause. Then stop and start. The poller resets that queue's interrupted job to <code>pending</code> once its heartbeat is older than <code>RWB_HEARTBEAT_STALE_SECS</code>, and the new worker picks it up.</td></tr>
+<tr><td>A stuck <code>rwb_job</code></td><td>Find it on Workflows → RWB Jobs. Dead (no heartbeat): it is reset automatically once its queue has a live worker. <code>pending</code> and never picked up: that queue's worker is not running. <code>running</code> with a live heartbeat: it ends at its Dramatiq time limit; if it must end sooner, kill that queue's worker (PID in <code>/var/lib/risk-workbench/pids/worker-&lt;queue&gt;.pid</code>), then start it again. <code>failed</code>: Resubmit on the page. See <a href="02-application-architecture.html#job-lifecycle">page 2</a>.</td></tr>
+<tr><td>A stuck <code>irp_job</code></td><td>The poller checks it on every pass until Risk Modeler reports a final status; Workflows → IRP Jobs shows the status Risk Modeler returns. There is no action in the Workbench to cancel it. Check the job in Risk Modeler. A failed analysis submission is retried automatically, then the analysis shows as error.</td></tr>
+<tr><td>Export archive sweep</td><td><code>EXPORT_ARCHIVE_DIR=&lt;dir&gt; bash infra/scripts/sweep-export-archives.sh --older-than 90</code> lists the <code>{export_id}/{irp_analysis_id}</code> archive folders older than 90 days. Add <code>--delete</code> to delete them; empty <code>{export_id}</code> folders are removed too. Nothing schedules it (B8 on <a href="09-path-to-production.html#blockers">page 9</a>). The script header suggests a nightly cron line: <code>0 2 * * * EXPORT_ARCHIVE_DIR=/mnt/lossshare/export_archive bash /rms/infra/scripts/sweep-export-archives.sh --older-than 90 --delete</code>.</td></tr>
+<tr><td>Add or change a user</td><td>Use the admin screen (<a href="07-configuration-and-observability.html#settings-admin">page 7</a>). For the first admin, or without a browser: <code>cd /rms &amp;&amp; bash infra/scripts/run_user_setup.sh</code>. It needs <code>rhel9-app-install.sh</code> to have run.</td></tr>
+<tr><td>Update contract statuses from CRM</td><td>CIC runs <code>infra/scripts/bulk_update_contract_status.sql</code> in the Workbench database; it reads <code>dbo.CRMContractStatus</code> from the loss repository. Its SOURCE line names <code>rwb_loss</code>; change it to the production loss repository's name. The login needs <code>SELECT</code> on that table.</td></tr>
+</table>
+
+<p>To confirm: how long export archives must be kept, and who schedules the sweep. And who runs the contract status update, and how often.</p>
+
+<nav><a href="index.html">Index</a> · Previous: <a href="07-configuration-and-observability.html">7. Configuration and observability</a> · Next: <a href="09-path-to-production.html">9. Path to production</a></nav>
+</body>
+</html>

@@ -7,9 +7,8 @@ Prerequisite: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) completed — git,
 Python 3.14, ODBC Driver 18, Redis/Valkey, nginx, gcc/g++/make, rsync all
 installed.
 
-Placeholders below (`cinreadm`, `/rms`) stand in for whatever
-account and path infra actually assigns — substitute the real values when
-deploying for real.
+The account `cinreadmd` and the app directory `/rms` used below are the
+values on the deployed server.
 
 Steps 1-7 need no elevated privileges once the one-time infra setup below is
 done — the deployment account never needs standing `sudo`.
@@ -20,18 +19,21 @@ done — the deployment account never needs standing `sudo`.
 
 Requested from infra once per server, not repeated per deployment:
 
-1. Create the application directory and service account (see Step 1 below).
+1. Create the application directory (`rhel9-setup.sh` does this). Production
+   uses one account to deploy and a second to run the app; no script creates
+   them (see Open items).
 2. Install nginx as a `systemd` service, enabled and running with a
    placeholder/default config — infra owns the unit file
    (`/etc/systemd/system/nginx.service` or the packaged default) and its
    `User=`/permissions.
-3. Grant the deployment account permission to reload (not start/stop/edit)
-   that one unit, without full root — e.g. a narrowly scoped `sudoers` entry:
+3. Grant the deployment account two narrowly scoped `sudoers` entries, without
+   full root — `rhel9-setup.sh` writes both:
    ```
-   cinreadm ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+   cinreadmd ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+   cinreadmd ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/conf.d/risk-workbench.conf
    ```
-   or the equivalent via Polkit. This is the only privileged action the
-   deployment ever performs, and it's scoped to exactly one command.
+   These are the only privileged actions the deployment performs: writing
+   that one nginx config file and reloading nginx.
 
 With this in place, deploying a new nginx config becomes: write the file,
 run `sudo systemctl reload nginx` (permitted by the narrow `sudoers` rule
@@ -43,7 +45,7 @@ ad hoc process the deployment account owns and manages itself.
 ## 1. Verify prerequisites
 
 ```bash
-APP_DIR=/rms DEPLOY_USER=cinreadm PYTHON_PKG=python3.14 \
+APP_DIR=/rms DEPLOY_USER=cinreadmd PYTHON_PKG=python3.14 \
     bash infra/scripts/rhel9/rhel9-check-prereqs.sh
 ```
 
@@ -67,7 +69,7 @@ local modifications to tracked files or untracked files sitting in the
 directory — rerun with `--stash` (sets modified files aside safely,
 recoverable with `git stash pop`) or `--force` (permanently discards
 modified tracked files; never touches untracked files) once you've
-reviewed what it found. Gitignored files (`infra/.env`, logs, `.venv`)
+reviewed what it found. Gitignored files (`infra/.env`, `.dev-logs/`, `.venv`)
 never show up in this check at all — confirmed directly, not assumed.
 
 A real CI/CD pipeline would more likely push a built artifact via `rsync`
@@ -111,7 +113,7 @@ differently (`--no-editable` still produces an unhashed local-path line
 for the same structural reason); see the script's own comments for the
 full reasoning.
 
-`requirements.txt` pins `irp-integration` 0.9.0 from PyPI. The server needs
+`requirements.txt` pins `irp-integration` 0.11.0 from PyPI. The server needs
 HTTPS access to PyPI during installation unless the packages are staged on
 the server before the deployment.
 
@@ -176,7 +178,7 @@ created and owned correctly by
 [rhel9-setup.sh](../../infra/scripts/rhel9/rhel9-setup.sh) section 7 — `/var/lib` is
 the standard Linux location for a service's own persistent data, not a
 personal user's home directory (early manual testing used
-`/home/cinreadm/valkey-data`; corrected here since a home directory ties
+`/home/cinreadmd/valkey-data`; corrected here since a home directory ties
 the data to one specific account, and `/var/lib` itself is root-owned the
 same way `/opt` is — confirmed directly with `ls -ld /var/lib` — so the
 one-time `mkdir`+`chown` needs `sudo`, same pattern as the app directory).
@@ -195,12 +197,13 @@ valkey-cli CONFIG GET appendonly   # yes
 
 ```bash
 set -a && source infra/.env && set +a
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Production runs this (and the Dramatiq workers, and the poller) as systemd
-units, not a foreground shell command — unit files are not yet written; this
-step proves the app itself starts and serves correctly first.
+This step proves the app itself starts and serves correctly. After it,
+`rhel9-start.sh` starts uvicorn, the Dramatiq workers, the poller, and Valkey
+with `nohup`. Production does not use systemd units for them: the team that
+maintains the Linux server runs `rhel9-start.sh` after every server restart.
 
 ## 7. Deploy the nginx config and reload
 
@@ -210,15 +213,16 @@ config file and triggers the pre-authorized reload:
 
 ```bash
 APP_ROOT=/rms envsubst '$APP_ROOT' \
-    < deploy/nginx/nginx.conf > /etc/nginx/conf.d/risk-workbench.conf
+    < deploy/nginx/site.conf | sudo tee /etc/nginx/conf.d/risk-workbench.conf > /dev/null
 sudo systemctl reload nginx
 ```
 
-`sudo systemctl reload nginx` is the one command the narrow `sudoers` rule
-from Step 0 permits — no password, no broader access, and no ad hoc `nginx
+`sudo tee` and `sudo systemctl reload nginx` are the two commands the narrow
+`sudoers` rules from Step 0 permit — no password, no broader access, and no ad hoc `nginx
 -c ...` process for the deployment account to own and manage itself.
 
-`nginx.conf` uses an `${APP_ROOT}` placeholder for the static-file path —
+`site.conf` (a `conf.d` server block, not the full `nginx.conf` the Docker dev
+container runs) uses an `${APP_ROOT}` placeholder for the static-file path —
 substitute the real deployment path here. `envsubst` (part of the `gettext`
 package) must be installed — see
 [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md#nginx).
@@ -248,7 +252,7 @@ the nginx reload from step 7 collapse into one script, meant to run from a
 dev machine or CI/CD runner — never on RHEL9 itself:
 
 ```bash
-DEPLOY_HOST=cinreadm@<rhel9-ip> \
+DEPLOY_HOST=cinreadmd@<rhel9-ip> \
 DEPLOY_DIR=/rms \
 SSH_KEY=~/.ssh/risk-workbench-deploy \
 bash infra/scripts/rhel9/rhel9-ssh-deploy.sh
@@ -260,21 +264,24 @@ installing the key this script authenticates with.
 [infra/scripts/rhel9/rhel9-ssh-deploy.sh](../../infra/scripts/rhel9/rhel9-ssh-deploy.sh)
 does, over SSH:
 
-1. Runs `rhel9-check-prereqs.sh` **remotely** on RHEL9 — stops here if
-   anything's missing.
-2. Pushes code via `rsync`, using `--filter=':- .gitignore'` — reads
-   `.gitignore` directly so gitignored files (`infra/.env`, logs, `.venv`,
-   generated data) are never candidates for `--delete`, without needing a
+1. Checks that `infra/.env` exists on the server — stops here if not.
+2. Pushes code via `rsync --delete-after`, using `--filter=':- .gitignore'` — reads
+   `.gitignore` directly so gitignored files (`infra/.env`, `.dev-logs/`, `.venv`,
+   generated data) are never candidates for deletion, without needing a
    separately-maintained exclude list that could fall out of date.
    Confirmed directly with a dry run (`rsync -n`) before ever using
    `--delete` for real: only git-tracked files appeared in the transfer
    plan.
-3. Runs `rhel9-app-install.sh` **remotely** — same script used by the
+3. Runs `rhel9-check-prereqs.sh` **remotely** — it runs after the push
+   because the script only exists on the server once the code is there.
+4. Runs `rhel9-drain-check.sh` **remotely** and stops if `rwb_job` rows are
+   still `pending` or `running` after `DRAIN_TIMEOUT_SECS` (default 300).
+5. Runs `rhel9-app-install.sh` **remotely** — same script used by the
    local/manual flow; it doesn't care how code arrived (`git pull` or
    `rsync` push), only that it's already there.
-4. Reloads nginx **remotely**, using the pre-authorized, no-password
-   command from Step 0.
-5. Hits the health check endpoint and reports the result.
+6. Writes `site.conf` to `/etc/nginx/conf.d/risk-workbench.conf` and reloads
+   nginx **remotely**, using the pre-authorized, no-password commands from Step 0.
+7. Hits the health check endpoint and reports the result.
 
 This deliberately does **not** call `rhel9-pull-code.sh` — that script is
 for the separate, local/manual "log into the server and `git pull`
@@ -291,9 +298,8 @@ command not found` on the remote side) — see
 **Does not yet restart the running application.** The health check at the
 end reports whatever's currently running (if anything) — it does not
 prove the newly-installed code has actually taken effect, since restarting
-uvicorn/the Dramatiq worker/the poller is still a manual step (systemd
-units and the Dramatiq drain-before-restart mechanism are both deliberately
-unbuilt — see Open items).
+uvicorn/the Dramatiq worker/the poller is a manual step: `rhel9-stop.sh`
+before the deploy, `rhel9-start.sh` after it.
 
 ---
 
@@ -308,36 +314,22 @@ list is derived from the code (`python -m app.workers.queues`), never
 hand-copied into either script. `rhel9-worker-health.sh` reports each
 queue's live/dead state (PID-file + independent process-scan) for
 before/after inspection around a start or stop. `rhel9-ssh-deploy.sh` now
-drain-checks `rwb_job` (`rhel9-drain-check.sh`, step 2.5) before installing
+drain-checks `rwb_job` (`rhel9-drain-check.sh`, step 4 above) before installing
 new code — an operator still stops the workers (`rhel9-stop.sh`) beforehand
 and starts them again (`rhel9-start.sh`) afterward; the deploy script itself
 still does not stop/start them.
 
-- **systemd unit files** for uvicorn, Dramatiq workers, the poller, and
-  Valkey — not yet written; Steps 5-6 above run them in the
-  foreground/manually as a proof of concept only. Deliberately deferred for
-  the worker specifically (CR-004): converting the worker to systemd ahead of
-  the other three processes would split RHEL9's process model across two
-  supervision styles; systemd conversion is planned for all four processes
-  together, as later, separate work. nginx's privilege problem (Step 7) is
-  resolved in principle by Step 0's one-time infra setup — a pre-authorized
-  `systemctl reload nginx` — but the other four processes need the same
-  treatment: real unit files, owned and started by infra under the service
-  account, not run ad hoc by the deployment account.
-- **Service account**: this runbook uses a personal account as a
-  placeholder. Production needs a dedicated, non-personal service account —
-  get the real name from infra before finalizing any unit file that
-  references one.
-- **Code delivery mechanism**: step 2's `rhel9-pull-code.sh` assumes the
-  server can reach GitHub directly (outbound internet + credentials), which
-  many corporate servers won't have. Confirm with infra whether code
-  arrives via CI/CD artifact (pushed via `rsync`/`scp` over SSH) instead —
-  the script covers the pull-based case; the push-based case still needs
-  its own script, sharing `rhel9-app-install.sh` for the install step
-  rather than duplicating it.
-- **Governed file sync for a push-based deploy**: once a push-based script
-  exists, it must only ever delete files git tracks — never touch anything
-  gitignored (`infra/.env`, logs, `.venv`, generated data). `rsync
-  --filter=':- .gitignore'` was identified as the correct mechanism (reads
-  `.gitignore` directly, rather than a hand-maintained exclude list that
-  can silently fall out of date) but not yet implemented in any script.
+- **Accounts**: this runbook uses `cinreadmd` to both deploy and run the
+  app. Production uses one account to deploy (owns the app directory, holds
+  the deploy SSH key and the two nginx sudoers rules) and a second to run
+  the app (owns `/var/lib/risk-workbench`, runs `rhel9-start.sh` and
+  `rhel9-stop.sh`). Get both names from infra. `rhel9-setup.sh` takes one
+  `DEPLOY_USER` for both today.
+- **Code delivery mechanism**: the push-based script exists
+  (`rhel9-ssh-deploy.sh`, sharing `rhel9-app-install.sh`) and is the chosen
+  path. Still to confirm with infra: whether the CI/CD runner or a developer
+  machine may SSH to the server, and whether the server can reach PyPI for
+  `pip install` or the packages must be staged.
+- **Governed file sync for a push-based deploy**: done — `rhel9-ssh-deploy.sh`
+  runs `rsync --delete-after --filter=':- .gitignore'`, so only git-tracked
+  files are ever deleted.

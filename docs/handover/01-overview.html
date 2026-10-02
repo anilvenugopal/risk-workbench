@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1. Overview — Risk Analysis Workbench handover</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Index</a> · Next: <a href="02-application-architecture.html">2. Application architecture</a></nav>
+
+<h1>1. Overview</h1>
+
+<h2 id="what-it-does">What the Workbench does</h2>
+
+<p>The Risk Analysis Workbench is a web application for CIC's reinsurance catastrophe-modeling analysts. It drives Moody's Risk Modeler through its API, so an analyst can import exposure, run analyses, review results, and export loss tables without working in the Risk Modeler UI.</p>
+
+<p>Two roles use it, both stored in <code>role_kind</code>:</p>
+<ul>
+<li><code>analyst</code>: works submissions end to end.</li>
+<li><code>admin</code>: everything an analyst can do, plus user administration and creating, editing, and deleting analysis templates and template suites.</li>
+</ul>
+
+<p>The round trip for one submission:</p>
+<table>
+<tr><th>Step</th><th>What the analyst does</th><th>What the Workbench does</th></tr>
+<tr><td>1</td><td>Creates a submission with its cedant, client, data vintage, and contracts.</td><td>Writes <code>submission</code> and <code>contract</code> rows.</td></tr>
+<tr><td>2</td><td>Picks an EDM or RDM file from the shared drive, or links an EDM that already exists in Risk Modeler.</td><td>The <code>upload_edm</code> or <code>upload_rdm</code> worker submits the Risk Modeler import job. The poller tracks it, then the <code>backfill_edm_detail</code> or <code>backfill_rdm_analyses</code> worker reads the EDM's portfolios and exposure, or the RDM's analyses.</td></tr>
+<tr><td>3</td><td>Optionally splits a portfolio into breakouts, and optionally runs a hazard lookup (GeoHaz).</td><td>The <code>run_breakout_*</code> workers create the portfolios in Risk Modeler. The <code>run_geohaz</code> worker submits the hazard lookup job.</td></tr>
+<tr><td>4</td><td>Picks portfolios, a template suite or a single template, and the currency, then runs the analyses.</td><td>The <code>execute_analysis_batch</code> worker submits one Risk Modeler analysis job per portfolio and template. When a job finishes, the poller enqueues <code>finalize_analysis</code>, which enqueues <code>retrieve_analysis_results</code> to read the EP, AAL, and statistics.</td></tr>
+<tr><td>5</td><td>Reviews and compares results, and groups finished analyses.</td><td>The <code>submit_grouping</code> worker submits the grouping job. A finished group is treated as an analysis.</td></tr>
+<tr><td>6</td><td>Exports finished analyses to CIC's loss repository.</td><td><code>submit_results_export</code> asks Risk Modeler for the event loss table, <code>stage_results_export</code> downloads it into the loss repository's <code>stage</code> schema, and <code>load_results_export</code> loads it into <code>dbo.Data</code>, <code>dbo.RMSELT</code>, and <code>dbo.RMS_HistoricalRDS</code>.</td></tr>
+</table>
+
+<p>How the request path, workers, and poller divide the work is on <a href="02-application-architecture.html#request-vs-worker">page 2</a>. The product requirements are in <a href="../PRD.md">docs/PRD.md</a>.</p>
+
+<h2 id="glossary">Glossary</h2>
+
+<table>
+<tr><th>Term</th><th>Meaning</th><th>Where it lives</th></tr>
+<tr><td>Submission</td><td>One cedant's modeling project, and the top-level container in the Workbench. It holds the cedant, client, data vintage, treaty year, assigned analyst, and modeling status (Active, Completed, Cancelled). EDMs and RDMs are linked to it, not copied into it.</td><td><code>submission</code>, <code>submission_edm</code>, <code>submission_rdm</code></td></tr>
+<tr><td>Contract / CRM ID</td><td>One contract from CIC's CRM, identified by its CRM ID. A submission has zero or more contracts. Each contract has its own treaty type, inception, expiration, and contract status (Won, Lost, Open).</td><td><code>contract</code></td></tr>
+<tr><td>EDM</td><td>Exposure Data Module: a Moody's exposure database, usually a broker's <code>.bak</code> or <code>.mdf</code> file, imported into Risk Modeler.</td><td><code>irp_edm</code></td></tr>
+<tr><td>RDM</td><td>Results Data Module: a Moody's results database, usually the broker's own analyses, imported into Risk Modeler for comparison.</td><td><code>irp_rdm</code></td></tr>
+<tr><td>Portfolio</td><td>A named set of accounts inside an EDM. Risk Modeler runs analyses against portfolios, not against EDMs.</td><td><code>irp_portfolio</code></td></tr>
+<tr><td>Breakout</td><td>A portfolio created by filtering a source portfolio by line of business, state, country, peril, or a custom grouping of those values. One breakout run creates one portfolio per value or group.</td><td><code>breakout_group</code>, <code>irp_portfolio</code></td></tr>
+<tr><td>Analysis</td><td>One Risk Modeler analysis. It is either run by the Workbench against a portfolio, or imported from an RDM (<code>rdm_id</code> is set). A group is also an analysis (<code>is_group</code> is set).</td><td><code>irp_analysis</code></td></tr>
+<tr><td>Template</td><td>An analysis template: one analysis definition made of a model profile, an output profile, an event rate scheme, and analysis settings. A template stores no currency; the analyst picks the currency when running it.</td><td><code>analysis_template</code></td></tr>
+<tr><td>Suite</td><td>A template suite: a named, unordered set of templates that run together.</td><td><code>template_suite</code>, <code>template_suite_item</code></td></tr>
+<tr><td>Grouping</td><td>Combining finished analyses or groups of one submission into one group analysis in Risk Modeler.</td><td><code>irp_analysis</code>, <code>irp_analysis_group_member</code></td></tr>
+<tr><td>GeoHaz</td><td>Hazard lookup on a portfolio. It is optional and does not re-geocode. Every launch sends the hazard data version in <code>HAZARD_DATA_VERSION</code>.</td><td><code>irp_job</code> with type <code>geohaz</code></td></tr>
+<tr><td>Treaty / TY</td><td>A treaty is a reinsurance treaty stored in an EDM. TY is the treaty-level export: one loaded data set per treaty. TY is an output level, not a financial perspective.</td><td><code>irp_treaty</code>; <code>TY</code> in <code>app/config.py</code></td></tr>
+<tr><td>Event rate scheme</td><td>A Risk Modeler set of event rates that an analysis uses. Required for DLM model profiles, optional for HD. Templates reference it by its Risk Modeler id, because scheme names repeat across peril and region.</td><td><code>irp_event_rate_scheme</code>; <code>analysis_template.event_rate_scheme_irp_id</code></td></tr>
+<tr><td>Export</td><td>Loading the event loss table of one or more finished analyses, at one perspective (for example GU, gross, or TY), into CIC's loss repository.</td><td><code>stage.rwb_loss_result_manifest</code> in the loss database</td></tr>
+<tr><td>Loss repository</td><td>CIC's SQL Server database of loss sets. Today the Workbench connects to <code>CRE_Trial_ELT_Repository</code>, a trial repository (B5 on <a href="09-path-to-production.html#blockers">page 9</a>). The Workbench writes to it only through its own <code>stage</code> schema. The dev copy is <code>rwb_loss</code>.</td><td>See <a href="03-data.html#databases">page 3</a></td></tr>
+</table>
+
+<p>The longer product glossary is section 1.4 of <a href="../PRD.md">docs/PRD.md</a>. The table definitions are in <a href="../DATA_MODEL.md">docs/DATA_MODEL.md</a>.</p>
+
+<h2 id="feature-map">Feature map</h2>
+
+<p>Each feature was built from one folder under <code>specs/</code>. Use this table to find where to start reading the code. Routers are in <code>app/routers/</code>, services in <code>app/services/</code>, and workers in <code>app/workers/</code>. There is no spec 008; the number was skipped.</p>
+
+<table>
+<tr><th>Spec</th><th>Feature</th><th>Routers</th><th>Services</th><th>Workers</th></tr>
+<tr><td><a href="../../specs/001-app-shell-nav-auth/spec.md">001</a></td><td>App shell, navigation, login, user admin</td><td><code>shell</code>, <code>auth</code>, <code>admin</code>, <code>health</code></td><td><code>auth_service</code></td><td>none</td></tr>
+<tr><td><a href="../../specs/002-submission-package-domain/spec.md">002</a></td><td>Submission model. Its package model was removed by 006.</td><td><code>submissions</code></td><td><code>submission_service</code></td><td>none</td></tr>
+<tr><td><a href="../../specs/003-edm-rdm-entity-management/spec.md">003</a></td><td>EDM and RDM import from the shared drive, and EDM sync from Risk Modeler</td><td><code>edms</code>, <code>rdms</code>, <code>shared_drive</code></td><td><code>edm_service</code>, <code>rdm_service</code>, <code>shared_drive</code>, <code>irp_gateway</code></td><td><code>entity_jobs</code></td></tr>
+<tr><td><a href="../../specs/004-edm-rdm-details-backfill/spec.md">004</a></td><td>EDM and RDM detail pages and their backfill</td><td><code>edms</code>, <code>rdms</code>, <code>treaties</code></td><td><code>edm_service</code>, <code>portfolio_service</code>, <code>treaty_service</code></td><td><code>entity_jobs</code></td></tr>
+<tr><td><a href="../../specs/005-subportfolio-breakouts/spec.md">005</a></td><td>Breakouts</td><td><code>portfolios</code></td><td><code>breakout_service</code>, <code>name_check</code></td><td><code>portfolio_jobs</code></td></tr>
+<tr><td><a href="../../specs/006-package-retirement/spec.md">006</a></td><td>Package removal; submissions link EDMs and RDMs directly</td><td><code>submissions</code></td><td><code>submission_service</code></td><td><code>entity_jobs</code></td></tr>
+<tr><td><a href="../../specs/007-geohaz-execution/spec.md">007</a></td><td>GeoHaz</td><td><code>edms</code></td><td><code>geohaz_service</code></td><td><code>geohaz_jobs</code></td></tr>
+<tr><td><a href="../../specs/009-template-suites/spec.md">009</a></td><td>Templates, suites, and the Risk Modeler reference data sync</td><td><code>templates</code></td><td><code>template_service</code></td><td><code>metadata_jobs</code></td></tr>
+<tr><td><a href="../../specs/010-analysis-execution/spec.md">010</a></td><td>Running analyses from a suite or a template</td><td><code>edms</code></td><td><code>analysis_execution_service</code></td><td><code>analysis_jobs</code></td></tr>
+<tr><td><a href="../../specs/011-analysis-results/spec.md">011</a></td><td>Results retrieval and the analyses tables</td><td><code>submissions</code>, <code>edms</code>, <code>shell</code></td><td><code>analysis_service</code></td><td><code>analysis_jobs</code></td></tr>
+<tr><td><a href="../../specs/012-grouping-execution/spec.md">012</a></td><td>Grouping</td><td><code>submissions</code></td><td><code>grouping_service</code>, <code>grouping_view</code></td><td><code>grouping_jobs</code></td></tr>
+<tr><td><a href="../../specs/013-analysis-comparison/spec.md">013</a></td><td>Comparing analyses</td><td><code>submissions</code>, <code>edms</code>, <code>shell</code></td><td><code>analysis_service</code></td><td>none</td></tr>
+<tr><td><a href="../../specs/014-results-export/spec.md">014</a></td><td>Export to the loss repository</td><td><code>submissions</code></td><td><code>export_service</code></td><td><code>export_jobs</code></td></tr>
+<tr><td><a href="../../specs/015-analysis-run-details/spec.md">015</a></td><td>Run details in an analysis's expanded row</td><td><code>submissions</code>, <code>edms</code></td><td><code>analysis_service</code>, <code>grouping_view</code></td><td><code>analysis_jobs</code></td></tr>
+<tr><td><a href="../../specs/016-ty-perspective-export/spec.md">016</a></td><td>TY export</td><td><code>submissions</code></td><td><code>export_service</code></td><td><code>export_jobs</code></td></tr>
+<tr><td><a href="../../specs/017-submission-data-and-search/spec.md">017</a></td><td>Contracts, client, and search</td><td><code>submissions</code>, <code>edms</code>, <code>rdms</code>, <code>shell</code></td><td><code>submission_service</code>, <code>client_service</code>, <code>search_service</code>, <code>submission_filters</code></td><td>none</td></tr>
+<tr><td><a href="../../specs/101-import-analyses-by-id/plan.md">101</a></td><td>Importing analyses by Risk Modeler id. GitHub issue #101 is the spec; the folder has only <code>plan.md</code> and <code>research.md</code>.</td><td><code>submissions</code></td><td><code>analysis_import_service</code></td><td><code>entity_jobs</code></td></tr>
+<tr><td><a href="../../specs/cr04-per-queue-workers-job-ui/spec.md">cr04</a></td><td>One Dramatiq queue per job type, and the RWB Jobs page</td><td><code>rwb_jobs</code></td><td><code>rwb_job_service</code></td><td><code>queues</code>, <code>loader</code></td></tr>
+<tr><td><a href="../../specs/cr04c-rwb-job-link-context/spec.md">cr04c</a></td><td>Link and context columns on <code>rwb_job</code></td><td><code>rwb_jobs</code></td><td><code>rwb_job_service</code></td><td>none</td></tr>
+</table>
+
+<p>The code layout is on <a href="05-codebase.html#app-layout">page 5</a>.</p>
+
+<nav><a href="index.html">Index</a> · Next: <a href="02-application-architecture.html">2. Application architecture</a></nav>
+</body>
+</html>

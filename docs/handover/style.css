@@ -1,0 +1,31 @@
+body {
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+table {
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+th,
+td {
+  border: 1px solid;
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+td code {
+  overflow-wrap: anywhere;
+}
+
+svg.diagram {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 1rem 0;
+}

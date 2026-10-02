@@ -20,7 +20,7 @@ approver to click the running feature before starting the next user story.
   `specs/002-submission-package-domain/`, `specs/003-edm-rdm-entity-management/`,
   and `specs/004-edm-rdm-details-backfill/` files that own Package behavior.
 - [x] T005 [P] [T-06] Record TestPyPI `irp-integration` 0.4.0 and the confirmed
-  `exposure_set_name` signature in `docs/IRP_INTEGRATION_FOLLOWUPS.md`.
+  `exposure_set_name` signature.
 
 ## Phase 2: Package removal foundation
 

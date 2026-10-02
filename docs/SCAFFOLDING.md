@@ -12,7 +12,8 @@ for `pip` + `venv` — same Python packages, same result, no compliance exposure
 environment. Procurement, legal, and compliance will never see it.
 
 If your organisation bans uv, replace `uv run <cmd>` with `.venv/bin/<cmd>`
-and `uv sync` with `pip install -r requirements.txt`. The packages are identical.
+and `uv sync` with `pip install -r requirements.txt`. `requirements.txt` holds the
+runtime packages only (`uv export --no-dev`), so it has no pytest or ruff.
 
 ---
 
@@ -22,17 +23,18 @@ and `uv sync` with `pip install -r requirements.txt`. The packages are identical
 WSL2 Development                          Production (Linux server)
 ─────────────────────────────────         ──────────────────────────────
   nginx          (not needed in dev)       nginx          (systemd)
-  uvicorn        make wsl-app        ≡    uvicorn        (systemd)
-  redis-server   make wsl-start           redis-server   (systemd)
-  dramatiq       make wsl-worker          dramatiq       (systemd)
-  poller         make wsl-poller          poller         (systemd)
+  uvicorn        make wsl-app        ≡    uvicorn        (rhel9-start.sh)
+  redis-server   make wsl-start           valkey-server  (rhel9-start.sh)
+  dramatiq       make wsl-worker          dramatiq       (rhel9-start.sh)
+  poller         make wsl-poller          poller         (rhel9-start.sh)
 
   SQL Server ─── Docker container   ≡    SQL Server ─── separate host
 ```
 
 The same five processes run in development and production. In development they
-are started manually (one terminal each). In production they run as systemd
-services. The commands are identical — only the launcher changes.
+are started manually (one terminal each). In production
+`infra/scripts/rhel9/rhel9-start.sh` starts them with `nohup`; nginx alone is a
+systemd service. The commands are identical — only the launcher changes.
 
 **Redis is durable (AOF) in all environments.** `appendonly yes`,
 `appendfsync everysec`, persisted SSD volume. This ensures acknowledged
@@ -43,7 +45,7 @@ so the five-process count is unchanged.
 
 Docker is used in development **only for SQL Server**. Everything else runs
 directly in your WSL2 shell. Your partner (Windows, no WSL2) runs everything
-including the app inside Docker — see [PARTNER_PLAYBOOK.md](PARTNER_PLAYBOOK.md).
+including the app inside Docker — see [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md).
 
 ---
 
@@ -154,8 +156,8 @@ make wsl-start
 ```
 
 This starts the SQL Server Docker container and Redis (with AOF durability
-enabled). SQL Server takes about 30 seconds to be ready on first start. The
-command waits for it automatically.
+enabled). SQL Server takes about 30 seconds to be ready on first start.
+`make wsl-start` does not wait for it; `make wsl-setup` does.
 
 To verify Redis AOF is active: `redis-cli INFO persistence | grep aof_enabled`
 should print `aof_enabled:1`.
@@ -181,7 +183,8 @@ make wsl-app
 ```
 
 Open http://localhost:8000/api/health in a browser.
-You should see: `{"status": "ok", "version": "0.1.0"}`
+You should see JSON with `status`, `db_workbench`, `db_exposure`, `db_loss`,
+`redis` and `env` keys.
 
 ---
 
@@ -190,7 +193,7 @@ You should see: `{"status": "ok", "version": "0.1.0"}`
 ```
 Terminal 1          Terminal 2       Terminal 3        Terminal 4
 ──────────────      ────────────     ─────────────     ────────────
-make wsl-start      make wsl-app     make wsl-worker   make wsl-poller
+make wsl-start      make wsl-app     make wsl-workers  make wsl-poller
 (infrastructure)    (web app)        (bg workers)      (IRP poller)
 ```
 
@@ -216,7 +219,7 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 | `make wsl-start` | Start SQL Server (Docker) + Redis (with AOF: `--appendonly yes --appendfsync everysec`). Idempotent. |
 | `make wsl-stop` | Stop SQL Server container and Redis. |
 | `make wsl-app` | Start uvicorn with live reload on port 8000. |
-| `make wsl-worker` | Start Dramatiq background worker. |
+| `make wsl-workers` | Start every queue's Dramatiq worker in the background (`make wsl-worker QUEUE=<name>` starts one in the foreground). |
 | `make wsl-poller` | Start IRP job poller (interval from `POLL_INTERVAL_SECS`, default 15s). |
 | `make wsl-test` | Run unit tests (no SQL Server needed, fast). |
 | `make wsl-test-sql` | Run SQL Server integration tests. |
@@ -250,7 +253,7 @@ base revision, frozen when spec 017 merged (2026-09-29). Never edit it. Every
 schema change is a new revision:
 
 ```bash
-uv run alembic revision -m "add contract broker column" --rev-id 0002   # next four-digit id; no database needed
+uv run alembic revision -m "add contract broker column" --rev-id 0004   # next four-digit id; no database needed
 make wsl-db-migrate                                                      # alembic upgrade head (Docker: make db-migrate)
 ```
 
@@ -315,7 +318,7 @@ is not automatic while the debugger is attached.
 |---|---|---|
 | Unit | `make wsl-test` | Nothing — runs offline |
 | SQL Server | `make wsl-test-sql` | SQL Server running |
-| IRP | `make wsl-test-irp` | Sandbox IRP credentials |
+| IRP | `uv run pytest tests/irp --run-irp` | Sandbox IRP credentials |
 
 ### Continuous integration
 
@@ -332,7 +335,7 @@ The workflow reuses the same Make targets developers run locally, so there is
 no separate CI-only test path. It materializes `infra/.env` from
 `infra/.env.example` (the disposable CI SQL Server uses the example's SA
 password), so no GitHub Secrets are required. The IRP tier is not in CI yet —
-`tests/irp/` has no tests and it needs sandbox credentials.
+it needs sandbox credentials.
 
 **Branch protection (one-time, needs repo admin).** GitHub only lists a status
 check for protection *after* it has run once, so: merge the workflow to `main`
@@ -375,20 +378,17 @@ uv run pytest tests/unit/test_db_config.py::TestGetConnectionConfig::test_sql_au
 
 ### New env vars (`infra/.env.example`)
 
-Three new env vars control the heartbeat and reconciler timing. Add these to
-`infra/.env.example` (and to your local `infra/.env`):
+Two env vars control the heartbeat and reconciler timing. Both are in
+`infra/.env.example`:
 
 ```ini
 # Heartbeat: how often the daemon thread stamps rwb_job_heartbeat (seconds)
-RWB_HEARTBEAT_INTERVAL_SECS=15
+RWB_HEARTBEAT_INTERVAL_SECS=30
 
 # Reconciler: how old a heartbeat must be before the reconciler reclaims the job.
 # Must be a constant multiple of INTERVAL (3-4× is recommended).
 # Never set this close to INTERVAL — a transient DB blip must not cause false reclaims.
-RWB_HEARTBEAT_STALE_SECS=45
-
-# Reconciler: how often the poller runs the reconcile sweep (seconds)
-RWB_RECONCILE_INTERVAL_SECS=30
+RWB_HEARTBEAT_STALE_SECS=120
 ```
 
 These are constants, not per-job durations. The reconciler's stale threshold
@@ -399,26 +399,21 @@ is a multiple of the heartbeat interval — never tied to how long a job takes.
 **Dev (WSL2 native `redis-server`):**
 `make wsl-start` starts Redis as:
 ```
-redis-server --appendonly yes --appendfsync everysec --dir /var/lib/redis
+redis-server --appendonly yes --appendfsync everysec --dir /tmp --logfile /tmp/rwb-redis.log
 ```
-The AOF file persists on local disk across restarts.
+The AOF file is under `/tmp`, so it does not survive a reboot of the WSL2 VM.
 
-**Partner / Docker Compose (`infra/docker-compose.yml`):**
-The Redis service in `docker-compose.yml` must include:
-```yaml
-redis:
-  command: redis-server --appendonly yes --appendfsync everysec
-  volumes:
-    - redis-data:/data
-```
-The named volume `redis-data` persists across container restarts.
+**Partner / Docker (`linux-box`):**
+There is no separate Redis service. `infra/scripts/start-all.sh` starts
+`redis-server --appendonly yes --appendfsync everysec --dir /workspace/.dev-logs`
+inside `linux-box`. That directory is not a volume, so the AOF file does not
+survive recreating the container.
 
-**Production (systemd `redis-server`):**
-`/etc/redis/redis.conf` must include:
+**Production (RHEL9, Valkey):**
+`infra/scripts/rhel9/rhel9-start.sh` starts:
 ```
-appendonly yes
-appendfsync everysec
-dir /var/lib/redis  # persisted SSD volume
+valkey-server --port 6379 --bind 127.0.0.1 --appendonly yes --appendfsync everysec \
+    --dir /var/lib/risk-workbench/valkey --logfile /var/lib/risk-workbench/valkey/valkey.log
 ```
 Leave `auto-aof-rewrite-percentage` and `auto-aof-rewrite-min-size` at
 defaults (self-compacting; the AOF file tracks live queue size, not history).
@@ -432,8 +427,8 @@ redis-cli INFO persistence | grep aof_enabled  # → aof_enabled:1
 ### Reconciler
 
 The reconciler is folded into the poller process (`app/poller/run.py`). It
-runs every `RWB_RECONCILE_INTERVAL_SECS` and scans for `rwb_job` rows with
-`status='running'` whose latest `rwb_job_heartbeat.heartbeat_at` is older than
+runs on every poller pass (`POLL_INTERVAL_SECS`) and scans for `rwb_job` rows with
+`status_code='running'` whose latest `rwb_job_heartbeat.heartbeat_at` is older than
 `RWB_HEARTBEAT_STALE_SECS`. For each stale row it atomically resets
 `running → pending` and re-enqueues the Dramatiq message.
 
