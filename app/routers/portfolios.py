@@ -25,7 +25,7 @@ from starlette.concurrency import run_in_threadpool
 from app.auth.csrf import validate_csrf_token
 from app.services import breakout_service, edm_service
 from app.services.breakout_service import (
-    BreakoutRefused, GateRefused, StaleSummary, SummaryRewritten)
+    BreakoutRefused, GateRefused, NameRefused, StaleSummary, SummaryRewritten)
 
 router = APIRouter()
 
@@ -50,12 +50,15 @@ def _partial(request: Request, template: str, ctx: dict, status_code: int = 200)
 def _modal(request: Request, edm_id: str, portfolio_id: str,
            dimension: str | None = None, *, mode: str = "quick",
            status_code: int = 200, error: str | None = None,
-           error_kind: str | None = None):
+           error_kind: str | None = None, names: dict | None = None,
+           name_errors: dict | None = None):
     """Render ``partials/breakout_modal.html`` for the CURRENT stored summary.
     ``mode`` picks the pane — quick (default) or custom (the grouping cart,
     FR-018). Missing/deleted EDM or portfolio → the graceful 404 fragment
     (never an error page — the modal mounts over a page that may be
-    mid-poll)."""
+    mid-poll). ``names`` / ``name_errors`` carry a refused quick confirm's
+    typed names and per-row reasons back into the preview, keyed by breakout
+    value."""
     modal = breakout_service.modal_context(edm_id, portfolio_id, dimension)
     ctx = {
         "edm_id": edm_id, "portfolio_id": portfolio_id, "modal": modal,
@@ -63,6 +66,7 @@ def _modal(request: Request, edm_id: str, portfolio_id: str,
         "mode": ("custom" if mode == "custom" else "quick"),
         "large_fanout_threshold": breakout_service.LARGE_FANOUT_THRESHOLD,
         "name_max": breakout_service.PORTFOLIO_NAME_MAX,
+        "names": names or {}, "name_errors": name_errors or {},
     }
     return _partial(request, "partials/breakout_modal.html", ctx,
                     status_code=404 if modal is None else status_code)
@@ -108,15 +112,18 @@ def breakout_modal(request: Request, edm_id: str, portfolio_id: str):
 @router.get("/edms/{edm_id}/portfolios/{portfolio_id}/breakout/name-check",
             response_class=HTMLResponse)
 def breakout_name_check(request: Request, edm_id: str, portfolio_id: str):
-    """As-you-type group-name check (P-25 — the EDM import pattern): renders
-    ``partials/name_collision.html`` with the verdict for the typed name
-    against this EDM's portfolios. GET, no writes; the Risk Modeler leg fails
-    open."""
-    name = request.query_params.get("group_label", "")
+    """As-you-type portfolio-name check (P-25 — the EDM import pattern):
+    renders ``partials/name_collision.html`` with the verdict for the typed
+    name against this EDM's portfolios. Reads ``group_label`` (the custom
+    pane's Add) or ``name`` (a quick-breakout row, P-33). GET, no writes; the
+    Risk Modeler leg fails open."""
+    params = request.query_params
+    quick = "group_label" not in params
+    name = params.get("name", "") if quick else params["group_label"]
     return _partial(request, "partials/name_collision.html",
                     {"check": breakout_service.check_group_name(edm_id, name),
                      "name": name, "kind": "portfolio", "scope": "this EDM",
-                     "action": "Adding"})
+                     "action": "Creating" if quick else "Adding"})
 
 
 @router.post("/edms/{edm_id}/portfolios/{portfolio_id}/breakout")
@@ -126,14 +133,16 @@ def breakout_confirm(
     portfolio_id: str,
     dimension: str = Form(...),
     summary_as_of: str = Form(default=""),
+    value: list[str] = Form(default=[]),
+    name: list[str] = Form(default=[]),
     csrf_token: str = Form(...),
 ):
     """Confirm (FR-002a/FR-002b/FR-006a): ``request_breakout`` runs the seven
     ordered steps — gate re-check, in-flight check, dimension-eligibility
-    check, summary-unchanged check, freshness read, plan persistence,
-    idempotent enqueue. Success returns the Portfolios section (retargeted at
-    ``#edm-portfolios`` — the modal closes itself) with the "Breakout started"
-    toast; every refusal returns **409 + the re-rendered modal** and writes no
+    check, summary-unchanged check, freshness read, plan persistence with the
+    posted ``value``/``name`` pairs (P-33), idempotent enqueue. Success
+    returns the Portfolios section (retargeted at ``#edm-portfolios`` — the
+    modal closes itself) with the "Breakout started" toast; every refusal returns **409 + the re-rendered modal** and writes no
     job row. No-JS fallback is PRG."""
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(csrf_token):
@@ -141,16 +150,21 @@ def breakout_confirm(
             return Response(status_code=204, headers={"HX-Refresh": "true"})
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
 
-    def refused(error: str | None = None, error_kind: str | None = None):
+    def refused(error: str | None = None, error_kind: str | None = None,
+                **name_state):
         if not is_htmx:
             return RedirectResponse(f"/edms/{edm_id}", status_code=303)
         return _modal(request, edm_id, portfolio_id, dimension,
-                      status_code=409, error=error, error_kind=error_kind)
+                      status_code=409, error=error, error_kind=error_kind,
+                      **name_state)
 
     try:
         requested = breakout_service.request_breakout(
             edm_id, portfolio_id, dimension, summary_as_of or None,
-            request.state.user.id)
+            list(zip(value, name)), request.state.user.id)
+    except NameRefused as exc:
+        return refused(exc.reason, "names", names=exc.names,
+                       name_errors=exc.errors)
     except BreakoutRefused as exc:
         return refused(exc.reason, _REFUSAL_KIND.get(type(exc), "gate"))
     if requested is None:

@@ -9,6 +9,7 @@ import json
 import uuid
 from datetime import datetime
 
+from app.services import breakout_service
 from app.workers import portfolio_jobs
 from db import execute, execute_command, execute_one
 
@@ -146,6 +147,18 @@ def mk_backfill_job(edm_id: str, *, status: str = "pending",
         {"i": str(uuid.uuid4()), "rt": requestor_type, "r": requestor_id,
          "edm": edm_id,
          "s": status, "now": datetime.utcnow()}, connection="WORKBENCH")
+
+
+def generated_names(edm_id: str, portfolio_id: str,
+                    dimension: str = "lob") -> list[tuple[str, str]]:
+    """The preview's prefilled ``(value, name)`` pairs — what a quick confirm
+    posts when the analyst edits no name."""
+    gate = breakout_service.evaluate_gate(edm_id, portfolio_id)
+    plan = breakout_service.compose_plan(
+        gate, edm_id=edm_id, portfolio_id=portfolio_id,
+        source_name=gate.source_name,
+        source_portfolio_irp_id=gate.source_irp_id, dimension=dimension)
+    return [(p.value, p.name) for p in plan if not p.exists]
 
 
 def breakout_jobs() -> list[dict]:

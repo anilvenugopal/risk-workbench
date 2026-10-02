@@ -44,6 +44,11 @@
   {% if confirmable %}
   <form class="{{ modal_class }}" method="post" action="{{ base_url }}"
         hx-post="{{ base_url }}" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
+        x-data="breakoutNames()"
+        @input="onInput($event)"
+        @htmx:after-swap="onSwap($event)"
+        @htmx:response-error="onCheckError($event)"
+        @htmx:send-error="onCheckError($event)"
         @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $el.closest('.modal').remove()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <input type="hidden" name="dimension" value="{{ modal.dimension }}">
@@ -246,14 +251,34 @@
         refresh on the page — Break out re-enables when it finishes.</div>
       {% else %}
 
-      {# ── the preview list (FR-006) — every sub-portfolio, NEVER truncated ── #}
+      {# ── the preview list (FR-006) — every sub-portfolio, NEVER truncated.
+            Each to-be-created row's name is editable, prefilled with the
+            generated name (P-33); a refused confirm's reason renders in the
+            row's .name-collision without data-nc, so it advises without
+            blocking Create and the row's next check replaces it. ── #}
       <div class="bo-list">
-        <div class="bo-list__head"><span>Value</span><span>Generated name</span><span class="r">Accounts</span></div>
+        <div class="bo-list__head"><span>Value</span><span>Name</span><span class="r">Accounts</span></div>
         <div class="bo-list__scroll">
           {% for entry in modal.plan %}
           <div class="bo-row">
             <span class="bo-row__value">{{ entry.value }}{% if entry.label %}<span class="bo-row__label">{{ entry.label }}</span>{% endif %}</span>
-            <span class="bo-row__name">{{ entry.name }}{% if entry.exists %} <span class="bo-row__exists">· already created</span>{% endif %}</span>
+            {% if entry.exists %}
+            <span class="bo-row__name">{{ entry.name }} <span class="bo-row__exists">· already created</span></span>
+            {% else %}
+            <div class="bo-row__name">
+              <input type="hidden" name="value" value="{{ entry.value }}">
+              <input type="text" name="name" value="{{ names.get(entry.value, entry.name) }}"
+                     maxlength="{{ name_max }}" required
+                     pattern="{{ forms.name_pattern }}" title="{{ forms.name_title }}"
+                     class="nc-input" aria-label="Name for {{ entry.label or entry.value }}"
+                     hx-get="{{ base_url }}/name-check"
+                     hx-trigger="input changed delay:500ms"
+                     hx-target="next .name-collision" hx-swap="outerHTML">
+              <div class="name-collision">
+                {%- if name_errors.get(entry.value) %}<div class="name-collision__error" role="alert">{{ name_errors[entry.value] }}</div>{% endif -%}
+              </div>
+            </div>
+            {% endif %}
             <span class="bo-row__accounts">{{ '{:,}'.format(entry.accounts) }}</span>
           </div>
           {% endfor %}
@@ -309,7 +334,7 @@
       {% if confirmable %}
       <span class="bo-modal__count"><strong>{{ modal.plan|length }}</strong> sub-portfolio{{ '' if modal.plan|length == 1 else 's' }} will be created</span>
       <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Cancel</button>
-      <button type="submit" class="btn-sm btn-sm--primary">Create {{ modal.plan|length }} sub-portfolio{{ '' if modal.plan|length == 1 else 's' }}</button>
+      <button type="submit" class="btn-sm btn-sm--primary" :disabled="blocked">Create {{ modal.plan|length }} sub-portfolio{{ '' if modal.plan|length == 1 else 's' }}</button>
       {% elif cart_ready %}
       <span class="bo-modal__count"><strong x-text="n">0</strong>
         <span x-text="n === 1 ? 'breakout' : 'breakouts'">breakouts</span></span>

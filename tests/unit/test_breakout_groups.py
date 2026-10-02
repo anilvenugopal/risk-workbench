@@ -29,6 +29,7 @@ from tests.unit.breakout_rows import (
     AS_OF,
     RM_STAMP,
     SUMMARY,
+    generated_names,
     mk_edm,
     mk_portfolio,
     rerun_breakout_job,
@@ -301,7 +302,8 @@ def test_one_episode_per_portfolio_blocks_both_directions(
     # a live cart blocks the quick confirm ...
     assert evaluate_gate(edm_id, pid).in_flight == "custom"
     assert breakout_service.request_breakout(
-        edm_id, pid, "lob", AS_OF, iteration2_db.user_a) is None
+        edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
+        iteration2_db.user_a) is None
     # ... and a second cart confirm
     assert request_group_breakout(
         edm_id, pid, [_group("H", {"lob": ["EQ Comm"]})], AS_OF,
@@ -313,7 +315,8 @@ def test_one_episode_per_portfolio_blocks_both_directions(
         "WHERE rwb_job_type = 'run_breakout_custom'",
         {}, connection="WORKBENCH")
     quick = breakout_service.request_breakout(
-        edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
+        edm_id, pid, "lob", AS_OF, generated_names(edm_id, pid, "lob"),
+        iteration2_db.user_a)
     assert quick is not None
     assert request_group_breakout(
         edm_id, pid, [_group("H", {"lob": ["EQ Comm"]})], AS_OF,
