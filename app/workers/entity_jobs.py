@@ -69,6 +69,7 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
     Modeler records a ``SUBMISSION FAILED`` ``irp_job`` (for the poller's retry batch),
     flips the EDM to the visible/recoverable ``error`` state, and fails the ``rwb_job``."""
     ctx = rwb_job_service.load_input_data(rwb_job_id)
+    actor_id = rwb_job_service.get_rwb_job(rwb_job_id=rwb_job_id)["inserted_by"]
     edm_id = ctx.get("edm_id")
     submission_id = ctx.get("requested_from_submission_id")
     edm = edm_service.get_edm(edm_id) if edm_id else None
@@ -86,7 +87,8 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
         irp_job_service.record_submission_failure(
             requested_from_submission_id=submission_id,
             irp_job_type="import_edm", irp_edm_id=edm_id,
-            payload={"name": edm.name, "source_file_path": edm.source_file_path})
+            payload={"name": edm.name, "source_file_path": edm.source_file_path},
+            actor_id=actor_id)
         edm_service.mark_error(edm_id=edm_id)
         return runtime.JobResult.fail(f"upload_edm submit failed: {exc}",
                                       submit_failed=str(exc))
@@ -98,7 +100,7 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
         requested_from_submission_id=submission_id,
         irp_job_type="import_edm", irp_edm_id=edm_id,
         irp_id=res.irp_id, resource_uri=res.resource_uri,
-        payload=res.payload, response=res.response)
+        payload=res.payload, response=res.response, actor_id=actor_id)
     edm_service.mark_importing(edm_id=edm_id)
     logger.info("import_edm submitted for edm=%s (irp_id=%s)", edm_id, res.irp_id)
     return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=res.irp_id)
@@ -123,6 +125,7 @@ def _rdm_import_exists(rdm_id: Any) -> bool:
 def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
     """Submit one standalone RDM import and record its ``irp_job``."""
     ctx = rwb_job_service.load_input_data(rwb_job_id)
+    actor_id = rwb_job_service.get_rwb_job(rwb_job_id=rwb_job_id)["inserted_by"]
     rdm_id = ctx.get("rdm_id")
     submission_id = ctx.get("requested_from_submission_id")
     rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
@@ -138,13 +141,15 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
         irp_job_service.record_submission_failure(
             requested_from_submission_id=submission_id,
             irp_job_type="import_rdm", irp_rdm_id=rdm_id,
-            payload={"name": rdm.name, "source_file_path": rdm.source_file_path})
+            payload={"name": rdm.name, "source_file_path": rdm.source_file_path},
+            actor_id=actor_id)
         rdm_service.mark_error(rdm_id=rdm_id)
         return runtime.JobResult.fail(f"upload_rdm submit failed: {exc}")
     irp_job_id = irp_job_service.record_submitted_irp_job(
         requested_from_submission_id=submission_id,
         irp_job_type="import_rdm", irp_rdm_id=rdm_id, irp_id=res.irp_id,
-        resource_uri=res.resource_uri, payload=res.payload, response=res.response)
+        resource_uri=res.resource_uri, payload=res.payload, response=res.response,
+        actor_id=actor_id)
     rdm_service.mark_importing(rdm_id=rdm_id)
     logger.info("import_rdm submitted for rdm=%s (irp_id=%s)", rdm_id, res.irp_id)
     return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=res.irp_id)

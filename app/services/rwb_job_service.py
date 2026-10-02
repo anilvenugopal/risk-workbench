@@ -240,7 +240,7 @@ def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
         """
         SELECT id, requestor_type, requestor_id, link_type, link_id,
                context_type, context_id, rwb_job_type, status_code,
-               attempt_count, correlation_id
+               attempt_count, correlation_id, inserted_by
         FROM rwb_job WHERE id = :id
         """,
         {"id": str(rwb_job_id)},
