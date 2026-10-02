@@ -3,6 +3,7 @@
    <summary> and never wraps them: app.js tableToTsv() slices those children
    positionally, so a change in how many a macro emits silently misaligns every
    copied column. #}
+{% from "partials/time_macros.html" import local_time %}
 {%- macro cell(v) -%}
   {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
 {%- endmacro -%}
@@ -57,10 +58,7 @@
 
 {%- macro submitted_cell(ts) -%}
     <span class="l">
-      {% if ts %}
-      <time data-utc="{{ ts }}" data-value="{{ ts }}"
-            title="{{ ts }} UTC">{{ (ts | string)[:19] }}</time>
-      {% else %}<span class="na">&mdash;</span>{% endif %}
+      {{ local_time(ts) }}
     </span>
 {%- endmacro -%}
 

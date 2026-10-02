@@ -117,6 +117,33 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _as_datetime(value: Any) -> datetime | None:
+    """A timestamp column as a ``datetime``; ``None`` for ``None``, a non-string,
+    or an unparseable string. SQL Server's driver returns ``datetime``; the
+    SQLite unit tier returns the stored ISO string."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _format_duration(seconds: float) -> str:
+    """``"2m 14s"`` / ``"41s"`` — the smallest two units that matter; a job
+    still queued or running never needs day/hour precision to be useful."""
+    total = max(0, int(seconds))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
 def _json(value: Any) -> str | None:
     return None if value is None else json.dumps(value)
 
@@ -514,7 +541,7 @@ def _parse_json_dict(raw: Any, what: str) -> dict | None:
 
 
 __all__ = ["SubmissionRef", "STORED_RETURN_PERIODS", "CONDENSED_RETURN_PERIODS",
-           "_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
+           "_utcnow", "_as_datetime", "_format_duration", "_json", "_uid", "_txn", "_snapshot_upsert",
            "_snapshot_prune", "_parse_json_dict", "_attach_submissions",
            "_latest_import_jobs", "_import_label",
            "_submission_entity_context", "_import_entity", "_mark_importing",

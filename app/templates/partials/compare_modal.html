@@ -7,13 +7,14 @@
    failed are listed, never tickable (FR-002); a row with no recorded run
    currency is tickable but carries no data-currency, so a pair-add naming it
    is refused (P-05). #}
+{% from "partials/time_macros.html" import local_time %}
 {%- macro row_meta(a) -%}
 <span class="cmp-meta">
   {% if a.rdm_name %}<span class="cmp-meta__part" title="Broker analysis — source RDM">{{ a.rdm_name }}</span>{% endif %}
   {% if a.peril %}<span class="cmp-meta__part" title="Peril">{{ a.peril }}</span>{% endif %}
   {% if a.engine %}<span class="cmp-meta__part" title="Engine">{{ a.engine }}</span>{% endif %}
   <span class="cmp-meta__part" title="Regions &amp; rates">{{ a.run_details or 'regions & rates not returned' }}</span>
-  {% if a.submitted_at %}<span class="cmp-meta__part"><time data-utc="{{ a.submitted_at }}" title="{{ a.submitted_at }}">{{ a.submitted_at }}</time></span>{% endif %}
+  {% if a.submitted_at %}<span class="cmp-meta__part">{{ local_time(a.submitted_at) }}</span>{% endif %}
 </span>
 {%- endmacro -%}
 {% set ready = (rows or [])|selectattr('results_state', 'equalto', 'ready')|list %}

@@ -1,6 +1,7 @@
 {# One rwb_job row. Rendered inside partials/rwb_jobs_table.html's loop, and on
    its own as the cancel/resubmit response — those posts swap the row they
    changed, so a re-read status lands in place without redrawing the table. #}
+{% from "partials/time_macros.html" import local_time %}
 <tr>
   <td>{{ row.type_label or row.rwb_job_type }}</td>
   <td>{% if row.entity_name %}<a class="crumb" href="{% if row.link_type == 'edm' %}/edms/{{ row.link_id }}{% else %}/rdms/{{ row.link_id }}{% endif %}">{{ row.entity_name }}</a>{% else %}<span class="na">—</span>{% endif %}</td>
@@ -23,7 +24,7 @@
     <span class="err-detail">{{ row.error_detail }}</span>
     {% endif %}
   </td>
-  <td>{% if row.submitted_at %}{{ (row.submitted_at | string)[:16] }}{% else %}<span class="na">—</span>{% endif %}</td>
+  <td>{{ local_time(row.submitted_at) }}</td>
   <td>
     {% if row.elapsed %}
     {{ 'queued ' ~ row.elapsed if row.status_code == 'pending' else row.elapsed }}

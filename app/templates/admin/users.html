@@ -1,4 +1,5 @@
 {% extends "base/shell.html" %}
+{% from "partials/time_macros.html" import local_time %}
 
 {% block title %}Users{% endblock %}
 
@@ -33,7 +34,7 @@
           {% if u.is_active %}<span class="badge badge--positive">active</span>
           {% else %}<span class="badge badge--negative">inactive</span>{% endif %}
         </td>
-        <td>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else '—' }}</td>
+        <td>{{ local_time(u.last_login_at) }}</td>
         <td class="muted">{{ 'Entra' if u.entra_oid else 'password' }}</td>
       </tr>
       {% else %}
