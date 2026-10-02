@@ -40,7 +40,7 @@
         </div>
         {# No AAL at TY: the value exists only per treaty, on the loaded row (P-10). #}
         {% if perspective and perspective != 'TY' %}
-        <div class="bo-cart-row__meta" title="{{ a.aal.get(perspective) }}">AAL {{ a.aal_display(perspective) }}</div>
+        <div class="bo-cart-row__meta" title="{{ a.aal.get(perspective) }}">AAL {{ a.aal_display(perspective) }}{% if a.currency %} {{ a.currency }}{% endif %}</div>
         {% endif %}
         {% if perspective == 'TY' %}
         <div class="treaty-pick">
