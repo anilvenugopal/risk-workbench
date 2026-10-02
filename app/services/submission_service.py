@@ -36,13 +36,15 @@ from sqlalchemy import text
 from app.services import client_service
 from app.services._common import (
     _escape_like,
-    _import_progress,
+    _import_label,
     _in_clause,
+    _latest_import_jobs,
     _rm_ui_root,
     _uid,
     _utcnow,
     _word_and_clauses,
 )
+from app.services.cedant_service import NewCedant, save_new_cedant
 from app.services.errors import (
     ConcurrencyConflict,
     SelfLinkError,
@@ -175,6 +177,7 @@ class Submission:
     the term and the deal status live on ``contracts``."""
     id: str
     name: str
+    cedant_id: str
     cedant_name: str
     treaty_year: int | None
     links_to_submission_id: str | None
@@ -214,7 +217,12 @@ class SubmissionEdm:
     portfolio_count: int
     rm_url: str | None
     notes: str | None = None
-    import_progress: int | None = None
+    job_status: str | None = None
+    job_progress: int | None = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 @dataclass(frozen=True)
@@ -225,7 +233,12 @@ class SubmissionRdm:
     analysis_count: int
     rm_url: str | None
     notes: str | None = None
-    import_progress: int | None = None
+    job_status: str | None = None
+    job_progress: int | None = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 @dataclass(frozen=True)
@@ -233,6 +246,12 @@ class EntityCandidate:
     id: str
     name: str
     status: str | None
+    job_status: str | None = None
+    job_progress: int | None = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 @dataclass(frozen=True)
@@ -372,11 +391,12 @@ def _load_status(submission_id: Any) -> str | None:
 
 
 _ROW_SELECT = """
-    SELECT s.id, s.name, s.cedant_name, s.treaty_year, s.data_vintage,
+    SELECT s.id, s.name, ced.name AS cedant_name, s.treaty_year, s.data_vintage,
            s.status_code, sk.label AS status_label, s.client_id,
            s.assigned_analyst_id, u.display_name AS assigned_analyst_name,
            s.updated_at
     FROM submission s
+    JOIN cedant ced ON ced.id = s.cedant_id
     LEFT JOIN submission_status_kind sk ON sk.code = s.status_code
     LEFT JOIN app_user u ON u.id = s.assigned_analyst_id
 """
@@ -506,7 +526,8 @@ _CONTRACT_INSERT = """
 
 
 def create_submission(
-    *, name: str, cedant_name: str, data_vintage: Any,
+    *, name: str, cedant_id: Any, new_cedant: NewCedant | None = None,
+    data_vintage: Any,
     treaty_year: int | None = None,
     links_to_submission_id: Any = None, directory_path: str | None = None,
     client_id: int | None = None,
@@ -519,6 +540,9 @@ def create_submission(
     Every contract row is validated before anything is written
     (``_prepare_contracts``). The submission row, its initial ACTIVE status
     event and its contracts commit in one transaction (R2).
+
+    ``new_cedant``, when given in place of ``cedant_id``, is written in the same
+    transaction (P-06).
 
     ``data_vintage`` is required (P-19); ``treaty_year`` is stored as entered,
     blank included (P-20)."""
@@ -535,7 +559,7 @@ def create_submission(
         "id": sid,
         "owner": actor,
         "name": name,
-        "cedant": cedant_name,
+        "cedant": str(cedant_id),
         "client": client_id,
         "vintage": vintage,
         "ty": treaty_year,
@@ -546,10 +570,12 @@ def create_submission(
     }
     try:
         with get_connection("WORKBENCH") as conn, conn.begin():
+            if new_cedant is not None:
+                params["cedant"] = save_new_cedant(conn, new_cedant, actor_id=actor)
             conn.execute(text(
                 """
                 INSERT INTO submission
-                    (id, assigned_analyst_id, name, cedant_name, client_id,
+                    (id, assigned_analyst_id, name, cedant_id, client_id,
                      data_vintage, treaty_year, links_to_submission_id,
                      directory_path, status_code, inserted_at, updated_at,
                      inserted_by, updated_by)
@@ -599,13 +625,14 @@ def get_submission(submission_id: Any) -> Submission | None:
         return None
     row = execute_one(
         """
-        SELECT s.id, s.name, s.cedant_name, s.treaty_year, s.data_vintage,
-               s.links_to_submission_id,
+        SELECT s.id, s.name, s.cedant_id, ced.name AS cedant_name,
+               s.treaty_year, s.data_vintage, s.links_to_submission_id,
                s.directory_path, s.status_code, sk.label AS status_label,
                s.client_id,
                s.assigned_analyst_id, u.display_name AS assigned_analyst_name,
                s.inserted_at, s.updated_at
         FROM submission s
+        JOIN cedant ced ON ced.id = s.cedant_id
         LEFT JOIN submission_status_kind sk ON sk.code = s.status_code
         LEFT JOIN app_user u ON u.id = s.assigned_analyst_id
         WHERE s.id = :id
@@ -621,6 +648,7 @@ def get_submission(submission_id: Any) -> Submission | None:
     return Submission(
         id=_uid(row["id"]),
         name=row["name"],
+        cedant_id=_uid(row["cedant_id"]),
         cedant_name=row["cedant_name"],
         treaty_year=row["treaty_year"],
         links_to_submission_id=_uid(row["links_to_submission_id"]),
@@ -689,17 +717,18 @@ def _list_submission_entities(
         f"ORDER BY {order_by}",
         params, connection="WORKBENCH",
     )
-    progress = _import_progress(kind, [row["id"] for row in rows])
-    return [
-        dto(
+    jobs = _latest_import_jobs(kind, [row["id"] for row in rows])
+    entities = []
+    for row in rows:
+        job_status, job_progress = jobs.get(_uid(row["id"]), (None, None))
+        entities.append(dto(
             id=_uid(row["id"]), name=row["name"], status=row["status"],
             rm_url=_risk_modeler_url(row["name"], kind=kind),
             notes=row["notes"],
-            import_progress=progress.get(_uid(row["id"])),
+            job_status=job_status, job_progress=job_progress,
             **{count_alias: int(row[count_alias] or 0)},
-        )
-        for row in rows
-    ]
+        ))
+    return entities
 
 
 def list_submission_edms(
@@ -744,10 +773,16 @@ def _list_entity_candidates(
     )
     rows = execute(sql, params, connection="WORKBENCH")
     has_next = len(rows) > PAGE_SIZE
+    rows = rows[:PAGE_SIZE]
+    jobs = _latest_import_jobs(kind, [row["id"] for row in rows])
+    candidates = []
+    for row in rows:
+        job_status, job_progress = jobs.get(_uid(row["id"]), (None, None))
+        candidates.append(EntityCandidate(
+            id=_uid(row["id"]), name=row["name"], status=row["status"],
+            job_status=job_status, job_progress=job_progress))
     return CandidatePage(
-        rows=[EntityCandidate(id=_uid(row["id"]), name=row["name"],
-                              status=row["status"])
-              for row in rows[:PAGE_SIZE]],
+        rows=candidates,
         page=page,
         has_next=has_next,
     )
@@ -870,7 +905,7 @@ def detach_rdm(*, submission_id: Any, rdm_id: Any) -> bool:
 # not sort — a deal carries several.
 SORT_COLUMNS = {
     "name": "s.name",
-    "cedant": "s.cedant_name",
+    "cedant": "ced.name",
     "inception": _FIRST_INCEPTION,
     "year": "s.treaty_year",
 }
@@ -894,7 +929,7 @@ def _order_by(sort: str, descending: bool, contract_clauses: Sequence[str] = ())
 def list_submissions(
     *, owner_ids: list[Any] | None = None,
     name: str | None = None,
-    cedant_name: str | None = None, crm_ids: list[str] | None = None,
+    cedant_ids: list[Any] | None = None, crm_ids: list[str] | None = None,
     treaty_type_codes: list[str] | None = None, inception_date: Any = None,
     treaty_years: list[int] | None = None, status_codes: list[str] | None = None,
     contract_status_codes: list[str] | None = None,
@@ -908,7 +943,7 @@ def list_submissions(
     The list filters OR within themselves and AND against the others (D16). An
     empty list turns that filter off: ``owner_ids=[]`` lists every owner's deals.
 
-    ``name`` (CR1) and ``cedant_name`` match on words, every word required — see
+    ``name`` (CR1) matches on words, every word required — see
     ``_word_and_clauses``. Contract-level filters (CRM IDs, treaty types,
     inception, contract status, in force) are satisfied by one contract row
     together (P-18) — see ``submission_filter_clauses``.
@@ -920,7 +955,7 @@ def list_submissions(
     No minimum term length: every read is capped at ``PAGE_SIZE``, so a
     one-character search costs no more than the page it narrows."""
     filters = {
-        "owner_ids": owner_ids, "name": name, "cedant_name": cedant_name,
+        "owner_ids": owner_ids, "name": name, "cedant_ids": cedant_ids,
         "crm_ids": crm_ids, "treaty_type_codes": treaty_type_codes,
         "inception_date": inception_date, "treaty_years": treaty_years,
         "status_codes": status_codes, "contract_status_codes": contract_status_codes,
@@ -968,29 +1003,11 @@ def contract_status_kinds() -> list[tuple[str, str]]:
 
 
 # Both typeahead searches ignore a term this short. `%a%` matches most of the
-# submission table, and a leading wildcard cannot seek ix_submission_cedant_name,
-# so a one-character term buys a scan of every submission for a menu the analyst
+# submission table, and a leading wildcard cannot seek an index, so a
+# one-character term buys a scan of every submission for a menu the analyst
 # has not narrowed enough to read. The form applies the same minimum client-side
 # so the request is not sent at all.
 MIN_SUGGEST_TERM = 2
-
-
-def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
-    """The first ``limit`` DISTINCT cedant names containing ``term`` (FR-006/R6).
-    No cedant table.
-
-    Contains, not prefix (CR7): typing "fam" has to find "American Family
-    Mutual", which a ``LIKE 'fam%'`` match never returns."""
-    trimmed = (term or "").strip()
-    if len(trimmed) < MIN_SUGGEST_TERM:
-        return []
-    rows = execute(
-        "SELECT DISTINCT cedant_name FROM submission "
-        "WHERE cedant_name LIKE :term ESCAPE '\\' ORDER BY cedant_name "
-        + row_limit(limit),
-        {"term": f"%{_escape_like(trimmed)}%"}, connection="WORKBENCH",
-    )
-    return [row["cedant_name"] for row in rows]
 
 
 def search_submissions_for_link(
@@ -1006,7 +1023,7 @@ def search_submissions_for_link(
     trimmed = (term or "").strip()
     if len(trimmed) < MIN_SUGGEST_TERM:
         return []
-    clauses, params = _word_and_clauses(trimmed, ("s.name", "s.cedant_name"), "t")
+    clauses, params = _word_and_clauses(trimmed, ("s.name", "ced.name"), "t")
     return _submission_rows(clauses, params, exclude_id=exclude_id, limit=limit)
 
 
@@ -1021,7 +1038,7 @@ def search_submissions_global(term: str, *, limit: int = 10) -> list[SubmissionR
         return []
     like = f"%{_escape_like(trimmed)}%"
     clauses = [
-        "(s.name LIKE :q ESCAPE '\\' OR s.cedant_name LIKE :q ESCAPE '\\' "
+        "(s.name LIKE :q ESCAPE '\\' OR ced.name LIKE :q ESCAPE '\\' "
         "OR EXISTS (SELECT 1 FROM contract c "
         "WHERE c.submission_id = s.id AND c.crm_id LIKE :q ESCAPE '\\'))"
     ]
@@ -1031,24 +1048,27 @@ def search_submissions_global(term: str, *, limit: int = 10) -> list[SubmissionR
 # ── Edit / reassign (gated + concurrency-checked) ────────────────────────────
 
 _MUTABLE_FIELDS = (
-    "name", "cedant_name", "client_id", "data_vintage", "treaty_year",
+    "name", "cedant_id", "client_id", "data_vintage", "treaty_year",
     "links_to_submission_id", "directory_path",
 )
 
 
 def update_submission(
     *, submission_id: Any, expected_updated_at: Any, actor_id: Any,
-    **fields: Any,
+    new_cedant: NewCedant | None = None, **fields: Any,
 ) -> None:
     """Edit mutable fields, gated by R3 (ACTIVE) + R1 (concurrency) + R9
     (self-link, and a ``links_to_submission_id`` naming no submission).
     Contracts are edited through ``add_contract`` / ``update_contract`` /
     ``remove_contract``.
 
+    ``new_cedant``, when given in place of ``cedant_id``, is written in the same
+    transaction as the update, so a refused update writes no cedant (P-06).
+
     A ``data_vintage`` of ``None`` is refused (P-19)."""
     sid = str(submission_id)
     current = execute_one(
-        "SELECT status_code, name, cedant_name, client_id, data_vintage, "
+        "SELECT status_code, name, cedant_id, client_id, data_vintage, "
         "treaty_year, links_to_submission_id, directory_path "
         "FROM submission WHERE id = :id",
         {"id": sid}, connection="WORKBENCH",
@@ -1071,34 +1091,37 @@ def update_submission(
     if links_to is not None and links_to == _uid(sid):
         raise SelfLinkError("A submission cannot link to itself.")
 
-    rows_affected = execute_command(
-        """
-        UPDATE submission
-        SET name = :name, cedant_name = :cedant, client_id = :client,
-            data_vintage = :vintage, treaty_year = :ty,
-            links_to_submission_id = :lt, directory_path = :dir,
-            updated_at = :now, updated_by = :actor
-        WHERE id = :id AND updated_at = :expected
-        """,
-        {
-            "name": merged["name"],
-            "cedant": merged["cedant_name"],
-            "client": merged["client_id"],
-            "vintage": merged["data_vintage"],
-            "ty": merged["treaty_year"],
-            "lt": links_to,
-            "dir": merged["directory_path"],
-            "now": _utcnow(),
-            "actor": str(actor_id),
-            "id": sid,
-            "expected": expected_updated_at,
-        },
-        connection="WORKBENCH",
-    )
-    if rows_affected == 0:
-        raise ConcurrencyConflict(
-            "This deal changed since you opened it — reload and re-apply."
-        )
+    params = {
+        "name": merged["name"],
+        "cedant": str(merged["cedant_id"]),
+        "client": merged["client_id"],
+        "vintage": merged["data_vintage"],
+        "ty": merged["treaty_year"],
+        "lt": links_to,
+        "dir": merged["directory_path"],
+        "now": _utcnow(),
+        "actor": str(actor_id),
+        "id": sid,
+        "expected": expected_updated_at,
+    }
+    # Raising inside the block rolls back a cedant written for this update.
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        if new_cedant is not None:
+            params["cedant"] = save_new_cedant(conn, new_cedant, actor_id=params["actor"])
+        rows_affected = conn.execute(text(
+            """
+            UPDATE submission
+            SET name = :name, cedant_id = :cedant, client_id = :client,
+                data_vintage = :vintage, treaty_year = :ty,
+                links_to_submission_id = :lt, directory_path = :dir,
+                updated_at = :now, updated_by = :actor
+            WHERE id = :id AND updated_at = :expected
+            """
+        ), params).rowcount
+        if rows_affected == 0:
+            raise ConcurrencyConflict(
+                "This deal changed since you opened it — reload and re-apply."
+            )
 
 
 def reassign_owner(

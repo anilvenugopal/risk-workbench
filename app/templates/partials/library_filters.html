@@ -25,10 +25,8 @@
     </label>
     {{ forms.multi_picker("owner", "Owner", owner_options, filter_values.owner,
                           any_label="Any owner", search_placeholder="Narrow this list") }}
-    <label>Cedant
-      <input class="wf-field__input" type="text" name="cedant"
-             value="{{ filter_values.cedant }}" autocomplete="off" maxlength="100">
-    </label>
+    {{ forms.multi_picker("cedant", "Cedant", cedant_options, filter_values.cedant,
+                          search_placeholder="Narrow this list") }}
     {% if client_options is none %}
     <div class="filters__field">
       <span>Client ID</span>

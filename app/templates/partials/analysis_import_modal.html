@@ -6,7 +6,7 @@
    the import route, which answers 204 with analyses-changed and a toast, and
    the dialog closes itself. When nothing imported, that route answers 200 with
    the body instead, and the dialog stays open on the reasons. #}
-<div class="modal-overlay" @click.self="document.getElementById('import-modal').replaceChildren()">
+<div class="modal-overlay">
   <div class="modal-card modal-card--import" role="dialog" aria-modal="true" aria-labelledby="import-modal-title" x-data>
     <div class="modal-header">
       <span id="import-modal-title" class="modal-title">Import analyses &middot; {{ submission.name }}</span>
