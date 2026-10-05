@@ -82,6 +82,17 @@ def test_defaults_to_the_current_users_jobs(iteration2_db):
     assert "Analyst B" in resp.text
 
 
+def test_a_submitted_by_that_is_not_an_id_gets_the_default_view(iteration2_db):
+    # SQL Server refuses to compare a non-UUID with irp_job.inserted_by
+    _job("Mine", by=iteration2_db.user_a)
+    _job("Theirs", by=iteration2_db.user_b)
+
+    resp = _client(iteration2_db.user_a).get("/workflows/irp-jobs?submitted_by=me")
+    assert resp.status_code == 200
+    assert "Mine" in resp.text
+    assert "Theirs" not in resp.text
+
+
 def test_job_type_and_status_filters(iteration2_db):
     _job("EdmDone", by=iteration2_db.user_a)
     _job("EdmFailed", by=iteration2_db.user_a, status="FAILED")
@@ -132,6 +143,8 @@ def test_dates_fall_back_to_utc_days(iteration2_db, tz):
 @pytest.mark.parametrize("query, message", [
     ("submitted_from=2026-13-01", "Submitted from is not a valid date."),
     ("completed_by=yesterday", "Completed by is not a valid date."),
+    ("completed_by=9999-12-31", "Completed by is not a valid date."),
+    ("submitted_from=0001-01-01&tz=Asia/Tokyo", "Submitted from is not a valid date."),
     ("submitted_from=2026-09-30&completed_by=2026-09-01",
      "Submitted from is later than Completed by."),
 ])

@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse
 from app.nav import get_nav_context
 from app.services import auth_service, irp_job_service
 from app.services._common import _parse_int
+from app.services.submission_filters import _as_uuid
 
 router = APIRouter()
 
@@ -53,19 +54,28 @@ def _list_context(request: Request) -> dict:
     params = request.query_params
     job_types = [v.strip() for v in params.getlist("job_type") if v.strip()]
     statuses = [v.strip() for v in params.getlist("status") if v.strip()]
-    by_params = [v.strip() for v in params.getlist("submitted_by") if v.strip()]
+    by_params = [v.strip() for v in params.getlist("submitted_by")
+                 if v.strip() == "any" or _as_uuid(v)]
     submitted_by = ([str(request.state.user.id)] if not by_params
                     else [] if "any" in by_params else by_params)
     texts = {key: (params.get(key) or "").strip() for key in _DATE_LABELS}
     tz = (params.get("tz") or "").strip()
+    zone = _zone(tz)
     page = max(1, _parse_int(params.get("page")) or 1)
 
     error = None
     days: dict[str, date | None] = {}
+    bounds: dict[str, datetime | None] = {}
     for key, text in texts.items():
+        days[key] = bounds[key] = None
+        if not text:
+            continue
         try:
-            days[key] = date.fromisoformat(text) if text else None
-        except ValueError:
+            days[key] = date.fromisoformat(text)
+            # Completed by is inclusive, so its bound is the next local midnight.
+            bounds[key] = _utc_midnight(
+                days[key] + timedelta(days=1 if key == "completed_by" else 0), zone)
+        except (ValueError, OverflowError):
             days[key] = None
             error = error or f"{_DATE_LABELS[key]} is not a valid date."
     if error is None and days["submitted_from"] and days["completed_by"] \
@@ -74,14 +84,10 @@ def _list_context(request: Request) -> dict:
 
     rows, has_next = [], False
     if error is None:
-        zone = _zone(tz)
         rows, has_next = irp_job_service.list_jobs(
             job_types=job_types, statuses=statuses, submitted_by=submitted_by,
-            submitted_from=(_utc_midnight(days["submitted_from"], zone)
-                            if days["submitted_from"] else None),
-            completed_before=(_utc_midnight(days["completed_by"] + timedelta(days=1), zone)
-                              if days["completed_by"] else None),
-            page=page)
+            submitted_from=bounds["submitted_from"],
+            completed_before=bounds["completed_by"], page=page)
 
     filter_values = {"job_type": job_types, "status": statuses,
                      "submitted_by": submitted_by or ["any"], **texts}
