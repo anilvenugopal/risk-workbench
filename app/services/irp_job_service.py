@@ -267,8 +267,8 @@ def list_jobs(
     """One page of ``irp_job`` rows for the read-only job monitor, newest first,
     and whether a next page exists. Each row carries the job type label, the most
     specific linked entity's name (analysis over portfolio over RDM over EDM),
-    status, progress, submitter, submission and completion times, and attempt
-    count. An empty list turns that filter off. ``submitted_from`` and
+    status, progress, submitter, and submission and completion times. An empty
+    list turns that filter off. ``submitted_from`` and
     ``completed_before`` are naive UTC bounds: ``submitted_at >= submitted_from``
     and ``completed_at < completed_before``."""
     clauses: list[str] = []
@@ -290,7 +290,7 @@ def list_jobs(
     rows = execute(
         f"""
         SELECT j.id, j.irp_job_type, k.label AS type_label, j.status, j.progress,
-               j.submission_attempt_count AS attempts, j.submitted_at, j.completed_at,
+               j.submitted_at, j.completed_at,
                u.display_name AS submitted_by,
                COALESCE(a.name, p.name, r.name, e.name) AS entity_name
         FROM irp_job j

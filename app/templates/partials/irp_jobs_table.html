@@ -27,7 +27,7 @@
     <thead>
       <tr>
         <th>Type</th><th>Entity / Analysis</th><th>Status</th><th>Submitted by</th>
-        <th>Submitted</th><th>Completed</th><th>Attempts</th>
+        <th>Submitted</th><th>Completed</th>
       </tr>
     </thead>
     <tbody>
@@ -39,10 +39,9 @@
         <td>{% if row.submitted_by %}{{ row.submitted_by }}{% else %}<span class="na">—</span>{% endif %}</td>
         <td>{% if row.submitted_at %}<time data-utc="{{ row.submitted_at }}" title="{{ row.submitted_at }} UTC">{{ (row.submitted_at | string)[:16] }}</time>{% endif %}</td>
         <td>{% if row.completed_at %}<time data-utc="{{ row.completed_at }}" title="{{ row.completed_at }} UTC">{{ (row.completed_at | string)[:16] }}</time>{% else %}<span class="na">—</span>{% endif %}</td>
-        <td>{{ row.attempts }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="7" class="empty">
+      <tr><td colspan="6" class="empty">
         {%- if date_error %}Fix the dates to see jobs.
         {%- elif page > 1 %}Page {{ page }} is past the last page. <a href="/workflows/irp-jobs{{ ('?' ~ filter_query) if filter_query }}">Go to page 1</a>
         {%- elif is_default_view %}You have not submitted any IRP jobs. <a href="/workflows/irp-jobs?submitted_by=any">Show everyone's jobs</a>
