@@ -97,13 +97,16 @@ docker compose -f infra/docker-compose.yml logs -f sqlserver
 ```powershell
 docker compose -f infra/docker-compose.yml exec linux-box python scripts/bootstrap_db.py
 docker compose -f infra/docker-compose.yml exec linux-box alembic upgrade head
+docker compose -f infra/docker-compose.yml exec linux-box python scripts/seed_db.py
+docker compose -f infra/docker-compose.yml exec linux-box python scripts/bootstrap_loss.py
 ```
 
 ### Step 6 — Verify
 
 Open your browser: http://localhost/api/health
 
-You should see: `{"status": "ok", "version": "0.1.0"}`
+You should see JSON with `status`, `db_workbench`, `db_exposure`, `db_loss`,
+`redis` and `env` keys.
 
 ### Step 7 — Attach VS Code to the container
 
@@ -114,11 +117,13 @@ You should see: `{"status": "ok", "version": "0.1.0"}`
 
 2. Press `Ctrl+Shift+P` → "Dev Containers: Attach to Running Container"
 
-3. Select `/risk-workbench-linux-box-1` (or similar name)
+3. Select `/infra-linux-box-1` (or similar name)
 
-4. VS Code opens a new window connected to the container. Your files are
-   at `/workspace` inside the container — the same files on your disk,
-   mounted as a volume.
+4. VS Code opens a new window connected to the container. `app/`, `alembic/`,
+   `db/`, `deploy/` and `tests/` are mounted at `/workspace/<name>`, and
+   `infra/scripts/` at `/workspace/scripts` — the same files on your disk.
+   Other files (`docs/`, `specs/`, `Makefile`, `pyproject.toml`) are copied
+   into the image at build time or not present.
 
 5. Open a terminal in VS Code (`Ctrl+Backtick`). You are now inside the
    Linux container — same as if you had SSHed into a Linux server.
@@ -182,31 +187,29 @@ source ~/.bashrc   # or close and reopen terminal
 cp infra/.env.example infra/.env
 ```
 
-Edit `infra/.env`. Key changes for WSL2 native mode:
-```ini
-# In native WSL2 mode, SQL Server is on localhost (port is mapped from container)
-MSSQL_WORKBENCH_SERVER=localhost
-MSSQL_EXPOSURE_SERVER=localhost
-MSSQL_LOSS_SERVER=localhost
-```
+Leave `MSSQL_*_SERVER=sqlserver` in `infra/.env`: every WSL2 make target
+sources `infra/scripts/wsl-env.sh`, which points the three servers at
+`localhost`. Changing them in `.env` would break the Docker mode.
 
 ### Step 7 — Install Python dependencies
 
 ```bash
-make native-install
+uv sync
 ```
 
-### Step 8 — Start SQL Server only
+### Step 8 — Start SQL Server and Redis
 
 ```bash
-make sqlserver-up
+make wsl-start
 ```
 
 ### Step 9 — Bootstrap and migrate
 
 ```bash
-python scripts/bootstrap_db.py
-alembic upgrade head
+make wsl-db-bootstrap
+make wsl-db-migrate
+make wsl-db-seed
+make wsl-bootstrap-loss
 ```
 
 ### Step 10 — Start development processes
@@ -215,16 +218,16 @@ Open 3 terminals in VS Code (`Ctrl+Backtick`, then split):
 
 ```bash
 # Terminal 1
-make native-dev       # uvicorn --reload
+make wsl-app          # uvicorn --reload
 
 # Terminal 2
-make native-worker    # dramatiq worker
+make wsl-workers      # one dramatiq worker per queue, in the background
 
 # Terminal 3
-make native-poller    # IRP poller
+make wsl-poller       # IRP poller
 ```
 
-Open http://localhost:8000/api/health — you should see `{"status": "ok", ...}`
+Open http://localhost:8000/api/health — you should see JSON with a `status` key.
 
 ---
 
@@ -236,7 +239,7 @@ Claude Code is used for all feature development via SpecKit.
 
 ```bash
 # In your WSL2 terminal (Option B) or PowerShell (Option A)
-npm install -g @anthropic/claude-code
+npm install -g @anthropic-ai/claude-code
 ```
 
 Or install the VS Code extension:
@@ -289,8 +292,8 @@ All SpecKit commands start with `/speckit-` in Claude Code:
 | `/speckit-specify "description"` | Create a feature specification |
 | `/speckit-plan` | Research + create implementation plan |
 | `/speckit-tasks` | Break plan into concrete tasks |
-| `/speckit-implement` | Implement the next task |
-| `/speckit-analyze` | Constitution compliance check |
+| `/speckit-implement` | Implement the tasks in `tasks.md` |
+| `/speckit-analyze` | Check spec.md, plan.md and tasks.md for consistency and constitution violations |
 
 ### Starting a new feature
 
@@ -298,7 +301,7 @@ In the Claude Code chat (VS Code panel or terminal):
 
 ```
 /speckit-specify "Add a submission history page that lists all past 
-submissions for the current customer, with status and date"
+submissions assigned to the current analyst, with status and date"
 ```
 
 Claude will ask clarifying questions, then generate a spec in `specs/`.
@@ -324,13 +327,13 @@ discuss it rather than overriding.
 
 ```bash
 # Start / stop
-make dev-up              # Start full Docker stack
-make dev-down            # Stop everything (data preserved)
-make sqlserver-up        # Start SQL Server only (WSL2 native mode)
+make start              # Start full Docker stack
+make stop               # Stop everything (data preserved)
+make wsl-start          # Start SQL Server + Redis only (WSL2 native mode)
 
 # Logs
 make logs                # uvicorn log stream
-make logs-worker         # dramatiq worker log
+make logs-worker QUEUE=upload_edm   # one queue's dramatiq worker log
 make logs-poller         # poller log
 
 # Shell access
@@ -347,8 +350,7 @@ make test-sql            # SQL Server integration tests
 make lint                # ruff linter
 make format              # ruff formatter
 
-# Debug
-make debug-up            # Start with debugpy on :5678
+# Debug: set APP_DEBUG=1 in infra/.env, then make start (debugpy on :5678)
 ```
 
 ---
@@ -357,13 +359,14 @@ make debug-up            # Start with debugpy on :5678
 
 ### Quick: live reload
 
-Just run `make dev-up` (Docker) or `make native-dev` (WSL2). Save a file;
+Just run `make start` (Docker) or `make wsl-app` (WSL2). Save a file;
 uvicorn picks it up in under a second. Use `print()` or `logging` for quick
 inspection.
 
 ### Full: breakpoint debugging
 
-1. Run `make debug-up` (this restarts the stack with `APP_DEBUG=1`)
+1. Set `APP_DEBUG=1` in `infra/.env` and run `make start` (this recreates
+   `linux-box`; `infra/scripts/start-all.sh` then starts uvicorn under debugpy)
 2. Open VS Code Run panel (Ctrl+Shift+D)
 3. Select "Attach to uvicorn (debugpy)"
 4. Press F5
@@ -394,12 +397,8 @@ git push -u origin 001-my-feature
 gh pr create
 ```
 
-Commit messages follow Conventional Commits:
-- `feat:` — new feature
-- `fix:` — bug fix
-- `docs:` — documentation only
-- `refactor:` — code refactor, no behavior change
-- `test:` — tests only
+Commit messages follow AGENTS.md: a subject of at most 72 characters, a body
+that says why, and no AI attribution lines.
 
 ---
 
@@ -421,7 +420,7 @@ then update all `MSSQL_*_PORT` values in `infra/.env` to `1434`.
 
 In VS Code (connected to WSL2 or container), open the command palette:
 `Python: Select Interpreter` → choose `/workspace/.venv/bin/python`
-(container) or `~/.venv/bin/python` (WSL2).
+(container) or `<repo>/.venv/bin/python` (WSL2).
 
 ### "Module not found" errors in tests
 

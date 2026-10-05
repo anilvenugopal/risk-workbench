@@ -59,7 +59,7 @@ A client secret has been created and set in `infra/.env` as `ENTRA_CLIENT_SECRET
 
 ### Step 4 — Add `email` optional claim to the ID token
 
-**Why this matters:** The OIDC callback receives an ID token from Entra. The app extracts the `email` claim from that token and uses it to look up or create an `app_user` row. Without the `email` optional claim explicitly added, Entra may omit it from the ID token even though `User.Read` is granted. The app will fail at user matching with a confusing "no email in token" error.
+**Why this matters:** The OIDC callback receives an ID token from Entra. The app extracts the `email` claim from that token (falling back to `preferred_username`) and uses it to look up or create an `app_user` row. Without the `email` optional claim explicitly added, Entra may omit it from the ID token even though `User.Read` is granted. If both claims are missing, sign-in fails and the browser lands on `/auth/login?error=token_exchange_failed: email claim missing from ID token`.
 
 **How to do it:**
 
@@ -76,7 +76,7 @@ After saving, the ID token returned during login will include an `email` field c
 
 **Optional — also add `preferred_username`:**
 
-Repeat steps 4–8, choosing `preferred_username` instead of `email`. This gives a display name for the user. Not required for the app to work, but useful for `app_user.display_name` auto-population on first login.
+Repeat steps 4–8, choosing `preferred_username` instead of `email`. The app uses it as the email when `email` is absent. `app_user.display_name` comes from the `name` claim, or the email when `name` is absent.
 
 **Verify:** After saving, the Token configuration page should show:
 
@@ -95,7 +95,9 @@ ID token
 
 Entra requires HTTPS for the front-channel logout URL. Unlike the redirect URI (where `http://localhost` is a special-cased exception), there is no localhost exception for front-channel logout. Attempting to save `http://localhost:8000/auth/logout` will be rejected by the portal.
 
-**Why this matters (for production):** Front-channel logout is a back-channel notification Entra sends *to your app* when the user's Entra-wide session ends — for example, when they sign out of another app in the tenant. Without it, the Risk Workbench session may persist after an Entra-wide logout. For local dev this scenario never arises (only one app, one session), so the omission has no practical consequence.
+**The app has no endpoint for this yet.** Entra's front-channel logout loads the URL in the browser with a GET. The only logout route is `POST /auth/logout`, which requires a CSRF token, so Entra's GET to `/auth/logout` would be rejected with 405. Do not configure Step 5 until a GET logout endpoint exists.
+
+**Why this matters (for production):** Front-channel logout is a request Entra makes, through the user's browser, *to your app* when the user's Entra-wide session ends — for example, when they sign out of another app in the tenant. Without it, the Risk Workbench session may persist after an Entra-wide logout. For local dev this scenario never arises (only one app, one session), so the omission has no practical consequence.
 
 **The sign-out flow your app controls still works without this.** When the analyst clicks "Sign out" in the app, the app: (1) invalidates `user_session` locally, (2) clears the cookie, (3) redirects the browser to Entra's logout endpoint with a `post_logout_redirect_uri`. This is the normal sign-out path and does not depend on the front-channel logout URL.
 
@@ -113,7 +115,7 @@ Entra requires HTTPS for the front-channel logout URL. Unlike the redirect URI (
 
 ### Step 6 — Restrict access: Assignment required = Yes
 
-**Why this matters:** By default, any user in the PremiumIQ tenant can sign in to this app via Entra — even users who have no `app_user` row and no roles assigned. The app handles this correctly (it auto-provisions `app_user` with no roles, so they see an "access denied" page), but it is better to block at the Entra layer so uninvited users never reach the app at all.
+**Why this matters:** By default, any user in the PremiumIQ tenant can sign in to this app via Entra — even users who have no `app_user` row and no roles assigned. The app handles this correctly (it auto-provisions `app_user` with no roles, so they land on the "Access pending" page, `/auth/access-pending`), but it is better to block at the Entra layer so uninvited users never reach the app at all.
 
 **How to do it:**
 
@@ -155,7 +157,7 @@ Also update `ENTRA_REDIRECT_URI` in the production environment's `.env` to the `
 All OIDC variables are in `infra/.env` (never committed to git):
 
 ```ini
-AUTH_MODE=oidc                          # switch to this when testing OIDC; keep 'password' for default dev
+AUTH_MODE=oidc                          # password | oidc | both (app/config.py default: both)
 
 ENTRA_CLIENT_ID=e2e1c2d1-c25e-4daa-9faf-65a07ea94460
 ENTRA_TENANT_ID=4dcbd443-2dae-4065-b806-17d9c7781f58
@@ -163,7 +165,7 @@ ENTRA_CLIENT_SECRET=<your secret value>
 ENTRA_REDIRECT_URI=http://localhost:8000/auth/callback
 ```
 
-`AUTH_MODE=password` remains the default for local development until OIDC is fully wired in code (Iteration 1). Set `AUTH_MODE=oidc` to test the OIDC flow once Step 4–6 above are complete and the code is implemented.
+The OIDC flow is implemented (`app/routers/auth.py`). `AUTH_MODE` decides which sign-in options the login page shows: `password`, `oidc`, or `both`. `app/config.py` defaults to `both`; `infra/.env.example` sets `password`.
 
 ---
 
@@ -172,10 +174,11 @@ ENTRA_REDIRECT_URI=http://localhost:8000/auth/callback
 ```
 Browser                    App (FastAPI)              Entra
   |                            |                        |
-  |  GET /auth/login           |                        |
+  |  GET /auth/oidc-login      |                        |
   |--------------------------->|                        |
   |                            | generate PKCE verifier |
-  |                            | store state in session |
+  |                            | store flow in signed   |
+  |                            | rwb_oidc_state cookie  |
   |  302 → Entra login URL     |                        |
   |<---------------------------|                        |
   |                                                     |
@@ -196,7 +199,9 @@ Browser                    App (FastAPI)              Entra
   |                            | upsert app_user        |
   |                            | create user_session    |
   |                            | set session cookie     |
-  |  302 → / (home)            |                        |
+  |  302 → / (home), or        |                        |
+  |  /auth/access-pending for  |                        |
+  |  a user created just now   |                        |
   |<---------------------------|                        |
 ```
 
@@ -204,7 +209,7 @@ Key security properties:
 - The browser never sees the authorization code after it is consumed
 - Tokens (ID token, access token) are never stored — discarded after `oid` and `email` are extracted
 - The session cookie contains only the session ID (random 64-char hex) — no identity claims
-- Authorization (roles, customer access) is read from the WORKBENCH database on every request — never from token claims
+- Authorization (roles from `user_role` / `role_kind`) is read from the WORKBENCH database on every request — never from token claims
 
 ---
 
@@ -225,5 +230,5 @@ Step 6 (Assignment required = Yes) is enabled but the current user is not in the
 **"invalid_client: The provided client secret keys are expired"**  
 The client secret has expired. Create a new one in Certificates & secrets, update `ENTRA_CLIENT_SECRET` in `.env`, and restart the app. Calendar the new expiry immediately.
 
-**Redirect loop after login**  
-Usually a mismatch between the session cookie domain and the redirect URI host. In development this means the app is being accessed via a hostname other than `localhost` (e.g. `127.0.0.1`). Access it via `http://localhost:8000` exactly.
+**Back on the login page with `?error=state_missing` after signing in**  
+The `rwb_oidc_state` cookie was set on a different host from the redirect URI. In development this means the app is being accessed via a hostname other than `localhost` (e.g. `127.0.0.1`), so the cookie is not sent to the `localhost` callback. Access it via `http://localhost:8000` exactly.

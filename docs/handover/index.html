@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Risk Analysis Workbench — technical handover</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<h1>Risk Analysis Workbench — technical handover</h1>
+
+<p>Reference pages for the team that runs and maintains the Workbench. Each page states the facts and links to the repository document or code that holds the detail. Items marked "To confirm" are not recorded in the repository.</p>
+
+<ol>
+<li><a href="01-overview.html">Overview</a>
+  <ul>
+  <li><a href="01-overview.html#what-it-does">What the Workbench does</a></li>
+  <li><a href="01-overview.html#glossary">Glossary</a></li>
+  <li><a href="01-overview.html#feature-map">Feature map</a></li>
+  </ul></li>
+<li><a href="02-application-architecture.html">Application architecture</a>
+  <ul>
+  <li><a href="02-application-architecture.html#components">Components</a></li>
+  <li><a href="02-application-architecture.html#request-vs-worker">Request path vs. worker path</a></li>
+  <li><a href="02-application-architecture.html#job-lifecycle">Job lifecycle</a></li>
+  </ul></li>
+<li><a href="03-data.html">Data</a>
+  <ul>
+  <li><a href="03-data.html#databases">The databases</a></li>
+  <li><a href="03-data.html#stage-schema">Stage schema in the loss repository</a></li>
+  <li><a href="03-data.html#workbench-schema">Workbench schema</a></li>
+  <li><a href="03-data.html#rwb-job-references">rwb_job: the requestor, link, and context columns</a></li>
+  <li><a href="03-data.html#data-access">Data access</a></li>
+  <li><a href="03-data.html#migrations">Migrations</a></li>
+  </ul></li>
+<li><a href="04-integrations.html">Integrations</a>
+  <ul>
+  <li><a href="04-integrations.html#risk-modeler">Moody's Risk Modeler through irp-integration</a></li>
+  <li><a href="04-integrations.html#databridge">DATABRIDGE reads</a></li>
+  <li><a href="04-integrations.html#loss-export">Loss repository export</a></li>
+  <li><a href="04-integrations.html#authentication">Authentication</a></li>
+  <li><a href="04-integrations.html#notifications">Email and Teams notifications</a></li>
+  </ul></li>
+<li><a href="05-codebase.html">Codebase</a>
+  <ul>
+  <li><a href="05-codebase.html#repository-layout">Repository layout</a></li>
+  <li><a href="05-codebase.html#app-layout">Inside app/</a></li>
+  <li><a href="05-codebase.html#testing">Testing</a></li>
+  <li><a href="05-codebase.html#conventions">Conventions</a></li>
+  </ul></li>
+<li><a href="06-development.html">Development</a>
+  <ul>
+  <li><a href="06-development.html#local-setup">Local setup</a></li>
+  <li><a href="06-development.html#make-targets">Make targets and scripts</a></li>
+  <li><a href="06-development.html#dependencies">Dependencies</a></li>
+  <li><a href="06-development.html#ai-tooling">AI tooling</a></li>
+  <li><a href="06-development.html#decision-history">Decision history</a></li>
+  <li><a href="06-development.html#ui-workflow">UI workflow</a></li>
+  </ul></li>
+<li><a href="07-configuration-and-observability.html">Configuration and observability</a>
+  <ul>
+  <li><a href="07-configuration-and-observability.html#user-settings">Settings the functional team will ask about</a>
+    <ul>
+    <li><a href="07-configuration-and-observability.html#settings-env">Changed in infra/.env</a></li>
+    <li><a href="07-configuration-and-observability.html#settings-kind-tables">Changed by an Alembic revision</a></li>
+    <li><a href="07-configuration-and-observability.html#settings-admin">Changed on the admin screen</a></li>
+    </ul></li>
+  <li><a href="07-configuration-and-observability.html#env-reference">Environment variable reference</a></li>
+  <li><a href="07-configuration-and-observability.html#logging">Logging</a></li>
+  <li><a href="07-configuration-and-observability.html#health">Health and monitoring</a></li>
+  </ul></li>
+<li><a href="08-deployed-environment.html">Deployed environment</a>
+  <ul>
+  <li><a href="08-deployed-environment.html#topology">Topology</a></li>
+  <li><a href="08-deployed-environment.html#outbound">Outbound connections</a></li>
+  <li><a href="08-deployed-environment.html#accounts">Accounts</a></li>
+  <li><a href="08-deployed-environment.html#https">Enabling HTTPS</a></li>
+  <li><a href="08-deployed-environment.html#deployment">Deployment process</a></li>
+  <li><a href="08-deployed-environment.html#runbook">Operations runbook</a></li>
+  </ul></li>
+<li><a href="09-path-to-production.html">Path to production</a>
+  <ul>
+  <li><a href="09-path-to-production.html#blockers">Blockers</a></li>
+  <li><a href="09-path-to-production.html#known-debt">Known debt</a></li>
+  </ul></li>
+</ol>
+</body>
+</html>
