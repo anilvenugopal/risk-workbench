@@ -568,7 +568,7 @@ def test_retry_on_one_treaty_row_leaves_its_loaded_sibling_alone(ty_staging):
                     {"m": second["manifest_id"]}, connection="LOSS")
 
     assert svc.apply_retry(ty_staging["submission_id"], ty_staging["export_id"],
-                           second["manifest_id"]) == "stage"
+                           second["manifest_id"], actor_id=ty_staging["user_a"]) == "stage"
     assert manifest_row(second["manifest_id"])["stage_status"] == "pending"
     assert export_jobs.run_one(rwb_job_id=_stage_job()["id"],
                                rwb_job_type="stage_results_export", worker_id="w1")
@@ -610,7 +610,8 @@ def test_retry_after_a_rejection_stamps_the_new_job_on_the_row_that_rides_along(
     assert (first["stage_status"], second["stage_status"]) == ("failed", "failed")
     fake_irp.raise_on_export_submit_for = set()
 
-    assert svc.apply_retry(ty_env["submission_id"], export_id, first["manifest_id"]) == "submit"
+    assert svc.apply_retry(ty_env["submission_id"], export_id, first["manifest_id"],
+                           actor_id=ty_env["user_a"]) == "submit"
     export_jobs.run_pending(worker_id="w1")
     irp_id = execute_one("SELECT irp_id FROM irp_job", {}, connection="WORKBENCH")["irp_id"]
     assert [r["irp_export_job_id"] for r in _manifest_rows(export_id)] == [irp_id, None]

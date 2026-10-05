@@ -1954,7 +1954,8 @@ def retry_export_analysis(request: Request, submission_id: str, export_id: str,
                                 status_code=303)
     message = None
     try:
-        export_service.apply_retry(submission_id, export_id, manifest_id)
+        export_service.apply_retry(submission_id, export_id, manifest_id,
+                                   actor_id=request.state.user.id)
     except export_service.ExportNotFound:
         return _export_not_found(request)
     except export_service.ExportActionRefused as exc:

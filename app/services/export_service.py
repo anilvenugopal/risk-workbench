@@ -703,7 +703,8 @@ def apply_close(submission_id: Any, export_id: Any, manifest_id: Any,
         {"now": now, "u": user_email, "m": manifest["manifest_id"]}, connection="LOSS")
 
 
-def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBranch:
+def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any, *,
+                actor_id: Any) -> RetryBranch:
     """Re-arm exactly one job for a failed row and dispatch it. The job is the
     analysis's one stage or load job; it acts on every eligible row of the
     analysis, so a loaded or closed sibling treaty row is never re-run
@@ -736,7 +737,8 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBr
             requestor_type="rwb_job", requestor_id=stage_job["id"], rwb_job_type=job_type,
             link_type=link_type, link_id=link_id,
             context_type="irp_analysis", context_id=analysis_id,
-            input_data={"export_id": export_key, "irp_analysis_id": analysis_id})
+            input_data={"export_id": export_key, "irp_analysis_id": analysis_id},
+            actor_id=actor_id)
     elif branch == "stage":
         execute_command(
             "UPDATE stage.rwb_loss_result_manifest SET stage_status = 'pending', "
@@ -748,7 +750,8 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBr
             link_type=link_type, link_id=link_id,
             context_type="irp_analysis", context_id=analysis_id,
             input_data={"export_id": export_key, "irp_analysis_id": analysis_id,
-                        "irp_job_id": _uid(job["id"])})
+                        "irp_job_id": _uid(job["id"])},
+            actor_id=actor_id)
     else:
         execute_command(
             "UPDATE stage.rwb_loss_result_manifest SET irp_export_job_id = NULL, "
@@ -761,7 +764,8 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBr
             link_type="not_applicable", link_id=None,
             context_type="result_export", context_id=export_key,
             input_data={"export_id": export_key,
-                        "submission_id": _uid(manifest["requested_from_submission_id"])})
+                        "submission_id": _uid(manifest["requested_from_submission_id"])},
+            actor_id=actor_id)
     dispatch.dispatch(rwb_job_id=rwb_job_id, rwb_job_type=job_type)
     return branch
 
