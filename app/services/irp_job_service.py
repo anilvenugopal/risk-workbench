@@ -247,8 +247,9 @@ PAGE_SIZE = 50
 # Every value Risk Modeler or the Workbench writes to irp_job.status, for the
 # monitor's Status filter. irp_job.status mirrors Risk Modeler, so it has no kind
 # table (Article 3).
-STATUS_OPTIONS = ("QUEUED", "SUBMITTED", "PENDING", "RUNNING", "FINISHED", "FAILED",
-                  "CANCELLED", "SUBMISSION FAILED", "SUBMISSION RETRYING")
+STATUS_OPTIONS = ("QUEUED", "SUBMITTED", "PENDING", "RUNNING", "CANCEL_REQUESTED",
+                  "CANCELLING", "FINISHED", "FAILED", "CANCELLED", "SUBMISSION FAILED",
+                  "SUBMISSION RETRYING")
 
 
 def job_type_kinds() -> list[tuple[str, str]]:
