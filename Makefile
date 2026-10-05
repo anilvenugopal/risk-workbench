@@ -67,7 +67,7 @@ shell:   ## [Docker] Open a bash shell inside the app container
 	$(BOX) bash
 
 db-bootstrap:   ## [Docker] Create the 3 app databases (run once on first start)
-	$(BOX) python infra/scripts/bootstrap_db.py
+	$(BOX) python scripts/bootstrap_db.py
 
 db-migrate:   ## [Docker] Run pending Alembic migrations on WORKBENCH
 	$(BOX) alembic upgrade head
@@ -77,22 +77,22 @@ db-rebuild:   ## [Docker] DESTRUCTIVE — drop and recreate all 3 app databases
 	@echo "  WARNING: drops rwb_workbench, rwb_exposure, rwb_loss — all data lost."
 	@echo ""
 	@read -p "  Type 'yes' to confirm: " C && [ "$$C" = "yes" ]
-	$(BOX) python infra/scripts/reset_db.py --all
+	$(BOX) python scripts/reset_db.py --all
 	$(BOX) alembic upgrade head
-	$(BOX) python infra/scripts/seed_db.py
-	$(BOX) python infra/scripts/bootstrap_loss.py
+	$(BOX) python scripts/seed_db.py
+	$(BOX) python scripts/bootstrap_loss.py
 
 bootstrap-loss:   ## [Docker] Apply CIC's table mirror + the stage schema to rwb_loss and seed Client / historical lookup
-	$(BOX) python infra/scripts/bootstrap_loss.py
+	$(BOX) python scripts/bootstrap_loss.py
 
 bootstrap-loss-reset:   ## [Docker] DESTRUCTIVE — drop the stage tables in rwb_loss, then bootstrap-loss
-	$(BOX) python infra/scripts/bootstrap_loss.py --reset-stage
+	$(BOX) python scripts/bootstrap_loss.py --reset-stage
 
 load-cedants:   ## [Docker] Add cedant names from an Excel file not yet in rwb_workbench (FILE=path, default db/bootstrap/seed/cedants.xlsx)
-	$(BOX) python infra/scripts/load_cedants.py $(FILE)
+	$(BOX) python scripts/load_cedants.py $(FILE)
 
 seed-demo:   ## [Docker] Seed demo submissions + contracts for the search screens (ARGS="--count 120 --clear")
-	$(BOX) python infra/scripts/seed_demo_submissions.py $(ARGS)
+	$(BOX) python scripts/seed_demo_submissions.py $(ARGS)
 
 test:   ## [Docker] Run unit tests (no SQL Server needed)
 	$(BOX) uv run pytest tests/unit -v

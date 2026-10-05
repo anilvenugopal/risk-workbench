@@ -21,7 +21,7 @@
 <tr><td>Runs in Docker</td><td>Two Compose services in <code>infra/docker-compose.yml</code>: <code>linux-box</code> (nginx, uvicorn, Redis, one worker per queue, poller) and <code>sqlserver</code> (SQL Server 2022)</td><td><code>sqlserver</code> only</td></tr>
 <tr><td>Runs natively</td><td>Nothing</td><td>uvicorn, Redis, workers, and poller, each from its own <code>make</code> target</td></tr>
 <tr><td>Start</td><td><code>make start</code>, then open <code>http://localhost</code></td><td><code>make wsl-start</code>, then <code>make wsl-app</code>, <code>make wsl-workers</code>, <code>make wsl-poller</code>; open <code>http://localhost:8000</code></td></tr>
-<tr><td>First time</td>After the stack is up: in <code>make shell</code>, <code>python scripts/bootstrap_db.py</code>; then <code>make db-migrate</code>; then in <code>make shell</code>, <code>python scripts/seed_db.py</code> and <code>python scripts/bootstrap_loss.py</code> (see the warning below)<td>Install uv, ODBC Driver 18, and Redis, then <code>make wsl-setup</code>, <code>make wsl-db-seed</code>, <code>make wsl-bootstrap-loss</code></td></tr>
+<tr><td>First time</td><td>After the stack is up: <code>make db-bootstrap</code>, <code>make db-migrate</code>, then <code>python scripts/seed_db.py</code> in <code>make shell</code>, then <code>make bootstrap-loss</code></td><td>Install uv, ODBC Driver 18, and Redis, then <code>make wsl-setup</code>, <code>make wsl-db-seed</code>, <code>make wsl-bootstrap-loss</code></td></tr>
 <tr><td>How the database host is set</td><td><code>MSSQL_*_SERVER=sqlserver</code> from <code>infra/.env</code></td><td><code>infra/scripts/wsl-env.sh</code> overrides the three servers to <code>localhost</code>; leave <code>infra/.env</code> unchanged</td></tr>
 </table>
 
@@ -54,8 +54,6 @@
 <tr><td><code>make lint</code>, <code>make format</code></td><td></td><td>ruff.</td></tr>
 <tr><td colspan="2"><code>make irp-pypi</code>, <code>irp-testpypi</code>, <code>irp-local</code>, <code>irp-status</code></td><td>Switch or show the irp-integration source. See <a href="04-integrations.html#risk-modeler">page 4</a>.</td></tr>
 </table>
-
-<p>Warning: the Docker targets <code>db-bootstrap</code>, <code>db-rebuild</code>, <code>bootstrap-loss</code>, <code>bootstrap-loss-reset</code>, and <code>seed-demo</code> run <code>python infra/scripts/...</code> inside <code>linux-box</code>. The container mounts <code>infra/scripts/</code> at <code>/workspace/scripts</code> and has no <code>/workspace/infra</code>, so by path these targets fail. This was traced in the Makefile and <code>docker-compose.yml</code>, not run. Until it is fixed, run the script from <code>make shell</code>, for example <code>python scripts/bootstrap_db.py</code>.</p>
 
 <p>Scripts in <code>infra/scripts/</code>:</p>
 <table>
