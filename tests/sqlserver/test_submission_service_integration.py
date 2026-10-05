@@ -8,7 +8,7 @@ actually proves the paths the SQLite mirror cannot vouch for:
 
   * the ``updated_at`` optimistic-concurrency marker against a real DATETIME2
     column,
-  * ``LIKE`` collation in cedant autocomplete and the list's name and cedant
+  * ``LIKE`` collation in the list's name search and the link
     search, and the ``ESCAPE '\'`` clause behind them,
   * the ``EXISTS`` CRM-tag predicate and the dynamic ``IN`` param set that attaches
     CRM ids to a page of list rows,
@@ -32,9 +32,10 @@ Run with:  pytest tests/sqlserver --run-sqlserver   (requires live SQL Server)
 
 Isolation model: each test gets two throwaway analysts (fresh UUIDs); the kind
 tables are already seeded by the migration. Teardown deletes every row these
-tests create — all of it traces back to the two analyst ids — so each test sees
-only its own data (the global list/suggest assertions depend on that). A freshly
-rebuilt DB is the assumed clean starting point.
+tests create — the submissions trace back to the two analyst ids, and the
+cedants are the ones added during the test — so each test sees only its own
+data (the global list/suggest assertions depend on that). A freshly rebuilt DB
+is the assumed clean starting point.
 """
 
 from __future__ import annotations
@@ -54,6 +55,7 @@ from db import (
     get_engine,
     is_unique_violation,
 )
+from tests.unit.conftest import cedant_id
 
 # Re-collect the entire unit submission-service suite against the fixture below.
 from tests.unit.test_submission_service import *  # noqa: F401,F403
@@ -71,8 +73,10 @@ def _cleanup(
     user_b: str,
     edm_ids: set[str],
     rdm_ids: set[str],
+    cedant_ids: set[str],
 ) -> None:
-    """Delete the submissions and EDM/RDM rows created by one reused test."""
+    """Delete the submissions, cedants and EDM/RDM rows created by one reused
+    test."""
     ids = {"a": user_a, "b": user_b}
     owned = ("SELECT id FROM submission "
              "WHERE assigned_analyst_id IN (:a, :b) OR inserted_by IN (:a, :b)")
@@ -130,6 +134,9 @@ def _cleanup(
         "DELETE FROM submission "
         "WHERE assigned_analyst_id IN (:a, :b) OR inserted_by IN (:a, :b)",
         ids, connection="WORKBENCH")
+    for cid in cedant_ids:
+        execute_command("DELETE FROM cedant WHERE id = :id", {"id": cid},
+                        connection="WORKBENCH")
     execute_command("DELETE FROM app_user WHERE id IN (:a, :b)", ids,
                     connection="WORKBENCH")
 
@@ -151,6 +158,10 @@ def iteration1_db() -> SimpleNamespace:
         str(row["id"])
         for row in execute("SELECT id FROM irp_rdm", {}, connection="WORKBENCH")
     }
+    cedant_ids_before = {
+        str(row["id"])
+        for row in execute("SELECT id FROM cedant", {}, connection="WORKBENCH")
+    }
     for uid, tag in ((user_a, "A"), (user_b, "B")):
         execute_command(
             "INSERT INTO app_user (id, email, display_name, must_change_password, "
@@ -170,11 +181,16 @@ def iteration1_db() -> SimpleNamespace:
             str(row["id"])
             for row in execute("SELECT id FROM irp_rdm", {}, connection="WORKBENCH")
         }
+        cedant_ids_after = {
+            str(row["id"])
+            for row in execute("SELECT id FROM cedant", {}, connection="WORKBENCH")
+        }
         _cleanup(
             user_a,
             user_b,
             edm_ids_after - edm_ids_before,
             rdm_ids_after - rdm_ids_before,
+            cedant_ids_after - cedant_ids_before,
         )
 
 
@@ -202,7 +218,7 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     """
     a, b = iteration1_db.user_a, iteration1_db.user_b
     sid = svc.create_submission(
-        name=f"MarkerDeal_{uuid.uuid4().hex[:8]}", cedant_name="Marker Cedant",
+        name=f"MarkerDeal_{uuid.uuid4().hex[:8]}", cedant_id=cedant_id("Marker Cedant"),
         contracts=[_contract_input()],
         data_vintage="2026-06-30", actor_id=a,
     )
@@ -236,8 +252,8 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     assert svc.get_submission(sid).assigned_analyst_id == b
 
 
-def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
-    """``SELECT DISTINCT … ORDER BY … OFFSET/FETCH``, the ``s.id <> :exclude``
+def test_the_link_search_parses_and_caps_on_sql_server(iteration1_db):
+    """``ORDER BY … OFFSET/FETCH``, the ``s.id <> :exclude``
     predicate and the ``uniqueidentifier`` comparison behind it are all accepted by
     SQLite without proving anything about SQL Server. Run each search against the
     real driver and check the cap holds."""
@@ -245,12 +261,9 @@ def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
     tag = uuid.uuid4().hex[:8]
     for index in range(4):
         svc.create_submission(
-            name=f"CapDeal{tag}_{index}", cedant_name=f"CapCedant{tag} {index}",
+            name=f"CapDeal{tag}_{index}", cedant_id=cedant_id(f"CapCedant{tag} {index}"),
             contracts=[_contract_input()],
             data_vintage="2026-06-30", actor_id=a)
-
-    assert len(svc.cedant_suggestions(f"CapCedant{tag}", limit=2)) == 2
-    assert len(svc.cedant_suggestions(f"CapCedant{tag}")) == 4
 
     assert len(svc.search_submissions_for_link(f"CapDeal{tag}", limit=2)) == 2
     assert len(svc.search_submissions_for_link(f"CapDeal{tag}")) == 4
@@ -276,14 +289,14 @@ def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db)
     a = iteration1_db.user_a
     tag = uuid.uuid4().hex[:8]
     sid = svc.create_submission(
-        name=f"LinkDeal{tag}", cedant_name=f"LinkCedant{tag}",
+        name=f"LinkDeal{tag}", cedant_id=cedant_id(f"LinkCedant{tag}"),
         contracts=[_contract_input()],
         data_vintage="2026-06-30", actor_id=a)
 
     for bad in (str(uuid.uuid4()), "not-a-uuid"):
         with pytest.raises(UnknownLinkError):
             svc.create_submission(
-                name=f"LinkDeal{tag}_stale", cedant_name=f"LinkCedant{tag}",
+                name=f"LinkDeal{tag}_stale", cedant_id=cedant_id(f"LinkCedant{tag}"),
                 contracts=[_contract_input()],
                 links_to_submission_id=bad, data_vintage="2026-06-30", actor_id=a)
         with pytest.raises(UnknownLinkError):
@@ -294,7 +307,7 @@ def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db)
     # An UPPERCASE id — which is how SQL Server reads uniqueidentifier back — still
     # names the same deal and is stored in the canonical lowercase form.
     target = svc.create_submission(
-        name=f"LinkDeal{tag}_target", cedant_name=f"LinkCedant{tag}",
+        name=f"LinkDeal{tag}_target", cedant_id=cedant_id(f"LinkCedant{tag}"),
         contracts=[_contract_input(date(2025, 4, 1))],
         data_vintage="2026-06-30", actor_id=a)
     svc.update_submission(
@@ -310,7 +323,7 @@ def test_the_crm_id_index_is_case_insensitive_on_sql_server(iteration1_db):
     a = iteration1_db.user_a
     crm_id = f"case{uuid.uuid4().hex[:8]}"
     sid = svc.create_submission(
-        name=f"CaseDeal{uuid.uuid4().hex[:8]}", cedant_name="Case Cedant",
+        name=f"CaseDeal{uuid.uuid4().hex[:8]}", cedant_id=cedant_id("Case Cedant"),
         contracts=[svc.ContractInput(crm_id, "per_risk_xol", date(2026, 4, 1))],
         data_vintage="2026-06-30", actor_id=a)
     with pytest.raises(SQLServerQueryError) as raised:

@@ -1,3 +1,4 @@
+{% from "partials/time_macros.html" import local_time %}
 {% import "partials/form_macros.html" as forms %}
 <div id="metadata-content">
   <nav class="tabs" aria-label="Analysis metadata">
@@ -23,7 +24,7 @@
       <span class="status-chip status-chip--ready">Synced</span>
       {% endif %}
     {% endif %}
-    {% if last_synced_at %}<span>Last synced {{ last_synced_at }}</span>{% endif %}
+    {% if last_synced_at %}<span>Last synced {{ local_time(last_synced_at) }}</span>{% endif %}
     {% if active_tab_rm_url %}
     <span class="sec__spacer"></span>
     <a class="sec__note sec__note--link" href="{{ active_tab_rm_url }}"

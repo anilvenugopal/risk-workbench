@@ -9,16 +9,17 @@ from sqlalchemy import text
 
 from db import execute, execute_command, execute_scalar
 from db.errors import SQLServerQueryError
+from tests.unit.conftest import cedant_id
 
 
 def _submission(actor: str, name: str) -> str:
     submission_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO submission "
-        "(id, assigned_analyst_id, name, cedant_name, status_code, "
+        "(id, assigned_analyst_id, name, cedant_id, status_code, "
         "inserted_by, updated_by) "
-        "VALUES (:id, :actor, :name, 'Cedant', 'ACTIVE', :actor, :actor)",
-        {"id": submission_id, "actor": actor, "name": name},
+        "VALUES (:id, :actor, :name, :ced, 'ACTIVE', :actor, :actor)",
+        {"id": submission_id, "actor": actor, "name": name, "ced": cedant_id()},
         connection="WORKBENCH",
     )
     return submission_id

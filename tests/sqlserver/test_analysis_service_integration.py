@@ -74,6 +74,7 @@ def test_delete_by_submission_frees_the_name_of_an_analysis_and_a_group(
     edm_id = str(uuid.uuid4())
     analyst_id = str(uuid.uuid4())
     submission_id = str(uuid.uuid4())
+    cedant_id = str(uuid.uuid4())
     analysis_id = str(uuid.uuid4())
     group_id = str(uuid.uuid4())
     reused = [str(uuid.uuid4()), str(uuid.uuid4())]
@@ -89,11 +90,14 @@ def test_delete_by_submission_frees_the_name_of_an_analysis_and_a_group(
                 "VALUES (:id, :email, 'Delete Test', 0, 1)"
             ), {"id": analyst_id, "email": f"del_{analyst_id[:8]}@example.com"})
             conn.execute(text(
+                "INSERT INTO cedant (id, name) VALUES (:id, :name)"
+            ), {"id": cedant_id, "name": f"Delete cedant {cedant_id}"})
+            conn.execute(text(
                 "INSERT INTO submission (id, assigned_analyst_id, name, "
-                "cedant_name, data_vintage, status_code) "
-                "VALUES (:id, :analyst, :name, 'Cedant', '2026-06-30', 'ACTIVE')"
+                "cedant_id, data_vintage, status_code) "
+                "VALUES (:id, :analyst, :name, :cedant, '2026-06-30', 'ACTIVE')"
             ), {"id": submission_id, "analyst": analyst_id,
-                "name": f"Delete deal {submission_id}"})
+                "name": f"Delete deal {submission_id}", "cedant": cedant_id})
             conn.execute(text(
                 "INSERT INTO submission_edm (submission_id, edm_id) "
                 "VALUES (:s, :e)"), {"s": submission_id, "e": edm_id})
@@ -148,6 +152,8 @@ def test_delete_by_submission_frees_the_name_of_an_analysis_and_a_group(
                 {"s": submission_id})
             conn.execute(text("DELETE FROM submission WHERE id = :s"),
                          {"s": submission_id})
+            conn.execute(text("DELETE FROM cedant WHERE id = :c"),
+                         {"c": cedant_id})
             conn.execute(text("DELETE FROM app_user WHERE id = :u"),
                          {"u": analyst_id})
             conn.execute(text("DELETE FROM irp_edm WHERE id = :id"),

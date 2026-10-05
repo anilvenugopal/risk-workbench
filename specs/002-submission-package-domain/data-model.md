@@ -38,7 +38,7 @@ Derived from **DATA_MODEL.md §4–§5** (the schema source of truth) and constr
 | `id` | Uuid | PK | app-generated `uuid4()` |
 | `assigned_analyst_id` | Uuid | not null | FK → `app_user.id`; **soft owner** (drives "My Submissions" only — never an access gate, Article 6 / FR-005/FR-019) |
 | `name` | NVARCHAR(255) | not null | naming-convention label, e.g. `TY2604_AmericanFamily`; **NOT unique** (FR-002/FR-003) — `id` is the key |
-| `cedant_name` | NVARCHAR(255) | not null | plain string, autocomplete over existing values (FR-006/R6); no cedant table |
+| `cedant_id` | UNIQUEIDENTIFIER | not null, FK → `cedant.id` | picked from, or added to, the shared cedant list (FR-006, issue #129) |
 | `treaty_type_code` | NVARCHAR(50) | not null | FK → `treaty_type_kind.code` (FR-008) |
 | `inception_date` | DATE | not null | primary filter (FR-021) |
 | `treaty_year` | INT | null | parsed from `TY{yy}`; renewal-year grouping (R10) |
@@ -55,7 +55,7 @@ Derived from **DATA_MODEL.md §4–§5** (the schema source of truth) and constr
 - `CHECK (links_to_submission_id IS NULL OR links_to_submission_id <> id)` — a submission cannot link to itself (FR-007 / R9).
 - **No** `UNIQUE(name)` (FR-003 — the CR-003-era uniqueness is dropped) and **no** `customer_id`/scope column (Article 6).
 
-**Indexes:** `assigned_analyst_id` (My filter), `cedant_name` (filter + autocomplete `DISTINCT`), `treaty_type_code`, `inception_date`.
+**Indexes:** `assigned_analyst_id` (My filter), `cedant_id` (filter), `treaty_type_code`, `inception_date`.
 
 **State model** (`status_code`): `ACTIVE ⇄ COMPLETED`, `ACTIVE ⇄ CANCELLED` — every edge allowed, no precondition (FR-011/FR-012); reopen from either closed state (FR-011). No `DELETE` path exists (FR-014). Written only via the event-sourced transaction (§4 below).
 

@@ -438,6 +438,25 @@ def test_direct_execute_modal_posts_back_to_the_library_url(monkeypatch):
     assert "/submissions/" not in response.text
 
 
+def test_execute_modal_lists_each_treaty_with_its_terms(monkeypatch):
+    from app.services import treaty_service
+
+    _stub_execute_modal(monkeypatch)
+    monkeypatch.setattr(treaty_service, "list_treaties", lambda **kwargs: [
+        treaty_service.TreatyRow(
+            id="treaty-1", edm_id="edm-1", name="Cat XoL", irp_id="1042",
+            attributes={"treatyNumber": "CX-2026-01", "riskLimit": 5000000},
+            as_of=None)])
+
+    response = _client().get(
+        "/edms/edm-1/execute?kind=template&portfolio_ids=portfolio-1")
+
+    assert response.status_code == 200
+    assert 'name="treaty_names" value="Cat XoL"' in response.text
+    assert "CX-2026-01" in response.text
+    assert "$5,000,000" in response.text
+
+
 def test_execute_gate_failure_re_renders_the_modal_on_the_same_url(monkeypatch):
     from app.auth.csrf import generate_csrf_token
     from app.services import analysis_execution_service

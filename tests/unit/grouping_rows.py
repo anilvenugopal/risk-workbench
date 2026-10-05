@@ -13,6 +13,7 @@ import json
 import uuid
 
 from db import execute_command
+from tests.unit.conftest import cedant_id
 
 _next_irp_id = itertools.count(80001)
 
@@ -24,9 +25,9 @@ def _irp_id(value: str | None) -> str | None:
 def seed_submission(name: str = "Sub_One") -> str:
     submission_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO submission (id, name, cedant_name, status_code) "
-        "VALUES (:id, :name, 'Cedant', 'active')",
-        {"id": submission_id, "name": name}, connection="WORKBENCH")
+        "INSERT INTO submission (id, name, cedant_id, status_code) "
+        "VALUES (:id, :name, :ced, 'active')",
+        {"id": submission_id, "name": name, "ced": cedant_id()}, connection="WORKBENCH")
     return submission_id
 
 

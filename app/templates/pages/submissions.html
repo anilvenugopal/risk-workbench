@@ -27,10 +27,8 @@
         <input class="wf-field__input" type="text" name="q"
                value="{{ filter_values.q }}" autocomplete="off" maxlength="100">
       </label>
-      <label>Cedant
-        <input class="wf-field__input" type="text" name="cedant"
-               value="{{ filter_values.cedant }}" autocomplete="off" maxlength="100">
-      </label>
+      {{ forms.multi_picker("cedant", "Cedant", cedant_options, filter_values.cedant,
+                            search_placeholder="Narrow this list") }}
       {# CRM IDs are pasted whole, one chip each; a chip matches a whole CRM ID
          exactly (P-10), so there is nothing to validate beyond non-blank. #}
       {{ forms.chip_input("crm_id", "CRM ID", filter_values.crm_id,

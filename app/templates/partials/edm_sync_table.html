@@ -1,5 +1,6 @@
 {# `page` is None when the Risk Modeler read failed — never an error page, just the
    unavailable state (ui.md §5). #}
+{% from "partials/time_macros.html" import local_time %}
 {% if page is none %}
 <div class="state-box state-box--warn">
   <strong>Risk Modeler is not answering.</strong>
@@ -72,7 +73,7 @@
         <td class="sync-num">
           {%- if row.treaty_count is not none %}{{ row.treaty_count }}{% else %}<span class="na">—</span>{% endif -%}
         </td>
-        <td>{{ row.updated_at[:10] if row.updated_at else '—' }}</td>
+        <td>{{ local_time(row.updated_at) }}</td>
         <td class="sync-open">
           {% if row.rm_url %}
           <a href="{{ row.rm_url }}" target="_blank" rel="noopener"

@@ -150,7 +150,7 @@ def global_search(
 
     Below ``MIN_TERM`` characters every provider would return its whole table
     through a bare ``%%`` substring match, so search does not run at all — the
-    same floor ``cedant_suggestions``/``search_submissions_for_link`` use.
+    same floor ``search_submissions_for_link`` uses.
 
     ``type`` narrows the fan-out to one provider (the search modal's filter
     pill row) — an unknown key runs no provider rather than falling back to

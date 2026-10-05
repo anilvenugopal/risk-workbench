@@ -239,6 +239,12 @@ continue from the tables in spec.md/plan.md.
 - [X] T095 [P-19] `_QUICK_DIMENSIONS` and `DimensionEligibility.quick` deleted — every value dimension is quick, so the flag, the chooser's `if d.quick` filter, `modal_context`'s selection filter, and `request_breakout`'s not-quick refusal all go; the architecture guard asserts one letter/noun/scripts/job-type/actor lockstep for all four dimensions. Gate, route, and plan tests reworked to the peril-quick behavior
   - Proof: `uv run pytest tests/unit` green (1029 passed, 2026-08-12)
 
+## Phase 8: Follow-on — editable quick-breakout names (#137)
+
+- [X] T096 [P-33] [FR-006b] `breakout_service._portfolio_name_refusal` shared by `compose_group_cart` (messages unchanged) and `request_breakout`, which takes the posted `(value, name)` pairs, refuses unusable names (`NameRefused`, a reason per value), and persists the typed names in `input_data["plan"]`
+- [X] T097 [P-33] [FR-006] `breakout_confirm` reads `value`/`name` lists and re-renders a `NameRefused` as a 409 with the typed names and per-row reasons; `breakout_name_check` reads `group_label` or `name`, both with the "Creating" verb. `breakout_modal.html` renders an input per to-be-created row; `breakoutNames` in `app.js` disables Create while an edited row's check is pending or blocked; `ncFailOpen` marks the failed row, not the form's first
+- [X] T098 [P-33] [FR-006b] [FR-010] Unit tests: route tests for the prefilled inputs, each name refusal (409, names kept, reason under the row, no job row), the value-set mismatch, and the name-check `name` param; gate tests for the confirmed names keeping their numbers
+
 ---
 
 ## Dependencies & Execution Order

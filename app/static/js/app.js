@@ -122,7 +122,7 @@ function ncReset(el) {
 function ncFailOpen(e) {
   const elt = e.detail && e.detail.elt;
   if (!elt || !elt.classList || !elt.classList.contains('nc-input')) return false;
-  const scope = elt.closest('.mrow') || elt.closest('form');
+  const scope = elt.closest('.mrow') || elt.closest('.bo-row') || elt.closest('form');
   const el = scope && scope.querySelector('.name-collision');
   if (!el) return false;
   el.dataset.nc = 'unchecked';
@@ -178,6 +178,7 @@ document.addEventListener('alpine:init', () => {
     sourceSelected: false,
     nameVal: '',
     nameState: 'pending',
+    queued: '',
     init() {
       this.nameVal = this.$refs.name ? this.$refs.name.value : '';
       this.nameState = ncState(this.$root.querySelector('.name-collision'));
@@ -225,6 +226,15 @@ document.addEventListener('alpine:init', () => {
     },
     onCheckError(e) {
       if (ncFailOpen(e)) this.onSwap();
+    },
+    onImported() {
+      const name = this.$refs.name;
+      this.queued = name.value.trim();
+      name.value = '';
+      this.onName({ target: name });
+      this.$root.querySelectorAll('input[name="source_paths"]')
+        .forEach((c) => { c.checked = false; });
+      this.sourceSelected = false;
     },
   }));
 
@@ -291,16 +301,42 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Typeahead menu shared by the submission form's CEDANT field and its "links
-  // to" picker (CR7/CR8). HTMX fetches and renders the options; this only handles
-  // open/close, the keyboard, and committing a pick.
-  //
-  // Two shapes, told apart by whether the markup provides an x-ref="value":
-  //   - cedant     — free text, the chosen name goes straight into the input
-  //   - links to   — the id goes into the hidden value input and the chosen
-  //                  submission's name is shown as a chip instead
-  // With JS off the cedant field degrades to plain text the server still reads;
-  // the "links to" picker needs JavaScript.
+  // The quick-breakout preview's editable names (spec 005 P-33). Create stays
+  // disabled while any edited row's check is in flight or came back 'blocked';
+  // 'unchecked' (Risk Modeler unreachable) does not block — the confirm
+  // re-validates every name against the EDM either way. A row is pending from
+  // its first keystroke until its own check swaps in.
+  Alpine.data('breakoutNames', () => ({
+    blocked: false,
+    recount() {
+      this.blocked = !!this.$root.querySelector(
+        '.bo-row .nc-input[data-pending], .bo-row .name-collision[data-nc="blocked"]');
+    },
+    onInput(e) {
+      const input = e.target;
+      if (!input.classList.contains('nc-input')) return;
+      input.dataset.pending = '';
+      ncReset(input.closest('.bo-row').querySelector('.name-collision'));
+      this.recount();
+    },
+    // htmx fires afterSwap on the swapped-in .name-collision, not on the input
+    // that sent the check, so the row is found from the event target.
+    onSwap(e) {
+      const row = e.target.closest && e.target.closest('.bo-row');
+      const input = row && row.querySelector('.nc-input');
+      if (input) delete input.dataset.pending;
+      this.recount();
+    },
+    onCheckError(e) {
+      if (ncFailOpen(e)) this.onSwap(e);
+    },
+  }));
+
+  // Typeahead menu for the submission form's "links to" picker (CR7/CR8). HTMX
+  // fetches and renders the options; this only handles open/close, the
+  // keyboard, and committing a pick. The id goes into the hidden x-ref="value"
+  // input and the chosen submission's name is shown as a chip. The picker needs
+  // JavaScript.
   //
   // `minTerm` comes from the template, which renders it from the route context's
   // `min_suggest_term` — one number, submission_service.MIN_SUGGEST_TERM, reaching
@@ -367,18 +403,14 @@ document.addEventListener('alpine:init', () => {
       if (!opt) return;
       const value = opt.dataset.value;
       const label = opt.dataset.label || value;
-      if (this.$refs.value) {
-        this.$refs.value.value = value;
-        this.chosenLabel = label;
-        this.chosen = true;
-        this.$refs.input.value = '';
-      } else {
-        this.$refs.input.value = label;
-      }
+      this.$refs.value.value = value;
+      this.chosenLabel = label;
+      this.chosen = true;
+      this.$refs.input.value = '';
       this.close();
     },
     clear() {
-      if (this.$refs.value) this.$refs.value.value = '';
+      this.$refs.value.value = '';
       this.chosen = false;
       this.chosenLabel = '';
       this.close();
@@ -401,6 +433,12 @@ document.addEventListener('alpine:init', () => {
     // only filters, so without that row an analyst cannot undo a selection —
     // emptying the input and leaving restores the committed label via close().
     clearable: config.clearable === true,
+    // The Cedant field passes { creatable: true }: a typed name that matches no
+    // option gets a last menu row that stages it — as the <select>'s "new"
+    // option plus the hidden new_cedant_name input — and the server writes the
+    // cedant when the submission saves (P-06).
+    creatable: config.creatable === true,
+    pendingHint: '',
     options: [],
     init() {
       this.$el.classList.add('ta--ready');
@@ -412,7 +450,12 @@ document.addEventListener('alpine:init', () => {
     get filteredOptions() {
       const term = this.query.trim().toLowerCase();
       if (!term) return this.options;
-      return this.options.filter((o) => o.label.toLowerCase().includes(term));
+      const matches = this.options.filter((o) => o.label.toLowerCase().includes(term));
+      if (!this.creatable || this.options.some((o) => o.label.toLowerCase() === term)) {
+        return matches;
+      }
+      const name = this.query.trim();
+      return [...matches, { value: '', create: name, label: `Add cedant “${name}”` }];
     },
     get placeholder() {
       const blank = this.select.querySelector('option[value=""]');
@@ -431,6 +474,10 @@ document.addEventListener('alpine:init', () => {
       if (this.clearable) this.options.unshift({ value: '', label: 'None' });
       const current = this.select.selectedOptions[0];
       this.query = current && current.value ? current.textContent.trim() : '';
+      if (this.creatable) {
+        const staged = this.select.value === 'new' ? this.$refs.newName.value : '';
+        this.pendingHint = staged ? 'New cedant — added when you save this submission.' : '';
+      }
       this.isOpen = false;
       this.activeIndex = -1;
     },
@@ -478,9 +525,30 @@ document.addEventListener('alpine:init', () => {
     },
     pick(opt) {
       if (!opt) return;
-      this.select.value = opt.dataset.value;
+      // Alpine renders data-create="" on every row, not only the create row.
+      if (opt.dataset.create) {
+        this.stage(opt.dataset.create);
+      } else {
+        this.select.value = opt.dataset.value;
+        if (this.creatable && opt.dataset.value !== 'new') this.unstage();
+      }
       this.select.dispatchEvent(new Event('change', { bubbles: true }));
       this.sync();
+    },
+    stage(name) {
+      let staged = this.select.querySelector('option[value="new"]');
+      if (!staged) {
+        staged = new Option('', 'new');
+        this.select.add(staged);
+      }
+      staged.textContent = name;
+      this.select.value = 'new';
+      this.$refs.newName.value = name;
+    },
+    unstage() {
+      const staged = this.select.querySelector('option[value="new"]');
+      if (staged) staged.remove();
+      this.$refs.newName.value = '';
     },
   }));
 
@@ -1440,9 +1508,27 @@ document.addEventListener('click', (e) => {
   const dtable = scope.querySelector('.dtable');
   const ep = dtable ? null : scope.querySelector('table.ep');
   if (!dtable && !ep) { showToast('Nothing to copy yet.', 'warning'); return; }
-  navigator.clipboard.writeText(dtable ? tableToTsv(dtable) : epToTsv(ep)).then(
-    () => showToast('Table copied — paste into Excel.', 'success'),
-    () => showToast('Couldn’t reach the clipboard.', 'error'));
+  const tsv = dtable ? tableToTsv(dtable) : epToTsv(ep);
+  const copied = () => showToast('Table copied — paste into Excel.', 'success');
+  const failed = () => showToast('Couldn’t reach the clipboard.', 'error');
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(tsv).then(copied, failed);
+    return;
+  }
+  // navigator.clipboard exists only in a secure context (HTTPS or localhost);
+  // a plain-HTTP origin falls back to the legacy copy command.
+  const area = document.createElement('textarea');
+  area.value = tsv;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (err) { /* ok stays false */ }
+  area.remove();
+  btn.focus();
+  (ok ? copied : failed)();
 });
 
 // The checked ids travel in tick order — kept per section by a document-level

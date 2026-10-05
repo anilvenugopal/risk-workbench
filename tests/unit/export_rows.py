@@ -10,6 +10,7 @@ from datetime import date, datetime
 from sqlalchemy import text
 
 from db import execute_command, execute_one, get_connection
+from tests.unit.conftest import cedant_id
 
 NOW = "2026-09-10 08:00:00"
 
@@ -18,10 +19,11 @@ def seed_submission(user_id: str, *, name: str = "TY2604_Deal", inception: str =
                     treaty_year: int | None = 2026, crm_ids: tuple[str, ...] = ("CRM-1",)) -> str:
     submission_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, treaty_year, "
+        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_id, treaty_year, "
         "status_code, inserted_at, updated_at, inserted_by, updated_by) "
-        "VALUES (:id, :u, :n, 'Cedant Co', :ty, 'ACTIVE', :now, :now, :u, :u)",
-        {"id": submission_id, "u": user_id, "n": name, "ty": treaty_year, "now": NOW},
+        "VALUES (:id, :u, :n, :ced, :ty, 'ACTIVE', :now, :now, :u, :u)",
+        {"id": submission_id, "u": user_id, "n": name, "ced": cedant_id("Cedant Co"),
+         "ty": treaty_year, "now": NOW},
         connection="WORKBENCH")
     expiration = f"{int(inception[:4])}-12-31"
     for index, crm_id in enumerate(crm_ids):
