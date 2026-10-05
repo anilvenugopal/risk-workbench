@@ -174,8 +174,6 @@
 </td></tr>
 </table>
 
-<p>Article 11 of the constitution allows synchronous job submission on the request path. The code does not use that today: every submit runs in a worker, and the poller resubmits failed analysis jobs.</p>
-
 <h2 id="job-lifecycle">Job lifecycle</h2>
 
 <p>Two tables track background work. They have no foreign key between them.</p>
@@ -212,29 +210,6 @@
 </table>
 
 <p>Analysts can cancel or resubmit an <code>rwb_job</code> on the RWB Jobs page; see <a href="07-configuration-and-observability.html#health">page 7</a>. The operator steps are on <a href="08-deployed-environment.html#runbook">page 8</a>.</p>
-
-<h2 id="architecture-rules">Architecture rules</h2>
-
-<p>The binding rules are the 13 articles of <a href="../../.specify/memory/constitution.md">.specify/memory/constitution.md</a> (v4.3.0). <code>/speckit-analyze</code> treats a violation of any article as critical.</p>
-
-<table>
-<tr><th>Article</th><th>Rule in one line</th></tr>
-<tr><td>1</td><td>The navigation manifest, <code>app/nav/manifest.py</code>, is the one place that defines pages, the rail, the sidebar, breadcrumbs, and search.</td></tr>
-<tr><td>2</td><td>What the analyst can do next is computed in code; EDMs, portfolios, analyses, and treaties are looked up in Risk Modeler by name, and profiles and event rate schemes by Risk Modeler id.</td></tr>
-<tr><td>3</td><td>Internal categorical values are rows in <code>*_kind</code> tables; only external status mirrors and the <code>stage</code> schema in CIC's database may use plain text.</td></tr>
-<tr><td>4</td><td><code>submission.status_code</code> is event-sourced through <code>submission_status_event</code>; every other status is updated in place.</td></tr>
-<tr><td>5</td><td>A mechanical follow-up step runs automatically; a step that needs judgment waits for the analyst's click.</td></tr>
-<tr><td>6</td><td>There is no row-level security; roles gate functions, not rows.</td></tr>
-<tr><td>7</td><td>All SQL goes through the <code>db/</code> package: bound parameters through <code>db.execute()</code>, and a separately imported trusted-script path.</td></tr>
-<tr><td>8</td><td>Pages are rendered on the server with FastAPI, Jinja2, and HTMX; Alpine.js only for small client behaviour.</td></tr>
-<tr><td>9</td><td>Styling extends the ITCSS design system through named tokens, with no hard-coded colours.</td></tr>
-<tr><td>10</td><td>The <code>rwb_job</code> table is the queue; each job type has its own Dramatiq queue, and the heartbeat reconciler stays.</td></tr>
-<tr><td>11</td><td>Risk Modeler polling and result work runs only in the poller and workers; DATABRIDGE is read only through irp-integration.</td></tr>
-<tr><td>12</td><td>Behaviour is tested in three tiers: unit, SQL Server, and Risk Modeler sandbox.</td></tr>
-<tr><td>13</td><td>Sign-in is Entra ID with a password fallback; the session cookie holds only the session id; every state-changing request carries a CSRF token.</td></tr>
-</table>
-
-<p>Where the code departs from these rules today is listed under known debt on <a href="09-path-to-production.html#known-debt">page 9</a>.</p>
 
 <nav><a href="index.html">Index</a> · Previous: <a href="01-overview.html">1. Overview</a> · Next: <a href="03-data.html">3. Data</a></nav>
 </body>
