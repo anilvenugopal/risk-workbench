@@ -126,8 +126,10 @@ Revision `0005` loads the cedant list from `db/bootstrap/seed/cedants.xlsx`
 once. The committed file holds only its `Cedant` header until the client's
 list arrives, so `0005` adds no cedants. When the client sends a list, replace
 that file and run
-`cd /rms && .venv/bin/python infra/scripts/load_cedants.py`; it adds only the
-names not already in the `cedant` table.
+`cd /rms && set -a && source infra/.env && set +a && .venv/bin/python infra/scripts/load_cedants.py`;
+it adds only the names not already in the `cedant` table. The script reads
+the database settings from the environment, not from `infra/.env`, so the
+`source` is needed.
 
 ### One-time rebuild of a database built before the 0001 freeze
 
@@ -313,11 +315,20 @@ Each queue gets its own `worker-<queue>.pid`/`worker-<queue>.log`. The queue
 list is derived from the code (`python -m app.workers.queues`), never
 hand-copied into either script. `rhel9-worker-health.sh` reports each
 queue's live/dead state (PID-file + independent process-scan) for
-before/after inspection around a start or stop. `rhel9-ssh-deploy.sh` now
-drain-checks `rwb_job` (`rhel9-drain-check.sh`, step 4 above) before installing
-new code — an operator still stops the workers (`rhel9-stop.sh`) beforehand
-and starts them again (`rhel9-start.sh`) afterward; the deploy script itself
-still does not stop/start them.
+before/after inspection around a start or stop. The deploy script does not
+stop or start the app, so an operator deploys in this order:
+
+1. Run `APP_DIR=/rms bash infra/scripts/rhel9/rhel9-drain-check.sh` on the
+   server while the workers are still running, so `pending` and `running`
+   `rwb_job` rows can finish.
+2. Stop the app with `rhel9-stop.sh`.
+3. Run `rhel9-ssh-deploy.sh`.
+4. Start the app with `rhel9-start.sh`.
+
+`rhel9-ssh-deploy.sh` runs its own drain check (step 4 above), but only after
+rsync has replaced the code and after the operator has stopped the workers.
+A `pending` row left at stop time can never clear then, and the deploy stops
+after `DRAIN_TIMEOUT_SECS`.
 
 - **Accounts**: this runbook uses `cinreadmd` to both deploy and run the
   app. Production uses one account to deploy (owns the app directory, holds

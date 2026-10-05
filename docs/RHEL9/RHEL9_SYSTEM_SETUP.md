@@ -159,11 +159,11 @@ was verified — confirm them live rather than trusting a number written here.
 ### A note on `python3` / `python` aliasing — do not do this
 
 It might seem natural to make `python3` (or a bare `python`) point at 3.14
-system-wide via `alternatives`/`update-alternatives`. **Don't** — this project
-uses `uv` (see [SCAFFOLDING.md](../SCAFFOLDING.md)) to manage its virtual
-environment, which finds or downloads the exact Python version a project
-needs and builds an isolated `.venv/` with it, untouched by whatever the
-system's `python3` symlink points to. Changing the system-wide default would
+system-wide via `alternatives`/`update-alternatives`. **Don't** —
+`rhel9-app-install.sh` builds `.venv/` with `python3.14 -m venv` (override
+with `PYTHON_BIN`) and installs `requirements.txt` into it with
+`pip install --require-hashes`, so the app never uses the system's `python3`
+symlink. Changing the system-wide default would
 affect every user and script on the box for no benefit to this project, and
 risks breaking other tooling that expects RHEL's default 3.9.
 
@@ -171,17 +171,6 @@ A personal, non-default `python` → `python3` shell alias (for typing
 convenience only, in your own `~/.bashrc`) is fine and needs no sudo — RHEL
 ships no bare `python` command by default. This is optional and unrelated to
 the project's dependency management.
-
-### Optional: install `uv`
-
-`uv` is a dependency *installer*. Optionally install it to manage the project's virtual environment:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-See [SCAFFOLDING.md](../SCAFFOLDING.md) for how the project uses `uv` day to day, and [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) for how a
-`uv.lock`-built environment can be applied without `uv` present there, with a workaround.
 
 ---
 
