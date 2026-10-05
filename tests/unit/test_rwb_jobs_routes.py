@@ -145,7 +145,7 @@ class TestRwbJobsPage:
 
         resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
         assert resp.status_code == 200
-        assert stamped.isoformat(sep=' ')[:16] in resp.text
+        assert f'<time data-utc="{stamped.isoformat(sep=" ")}"' in resp.text
         assert "2m 1" in resp.text or "2m 0" in resp.text  # ~2m14s, allow test-run skew
 
     def test_table_fragment(self, iteration2_db):

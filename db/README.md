@@ -2,8 +2,8 @@
 
 One package handles **connection management, SQL Server + Windows/Kerberos
 authentication, and SQL execution** for every target — the Workbench's own
-database *and* external sources like Databridge/Moody's. Targets are just named
-connections; there is no second helper.
+database and the exposure and loss databases (`WORKBENCH`, `EXPOSURE`, `LOSS`).
+Targets are just named connections; there is no second helper.
 
 It uses **SQLAlchemy Core as a connection pool and execution surface only — no
 ORM.** You keep writing SQL.
@@ -16,12 +16,13 @@ ORM.** You keep writing SQL.
 | Parameters | **Bound** (`:name`) — sent separately from SQL | `{{ param }}` **substituted into text** |
 | Returns | `list[dict]`, scalar, rowcount | pandas DataFrame(s) |
 | May receive user input? | **Yes** — injection-safe by construction | **Never** — trusted/curated SQL only |
-| Use for | **All application data access** | External data scripts (Databridge), worker-side |
+| Use for | **All application data access** | Curated team-owned scripts, never the web layer (today only `infra/scripts/bootstrap_loss.py`, against `LOSS`) |
 | Multi-result-set / GO batches | no | yes |
 
-The split is by *safety*, not by target: both Databridge and the Workbench can be
-queried by the safe path; the script path is reserved for curated external scripts
-that need DataFrames and multiple result sets. The script path is **not** exported
+The split is by *safety*, not by target; the script path is reserved for curated
+scripts that need DataFrames and multiple result sets. DATABRIDGE is not reached
+through `db/` at all: its reads go through irp-integration's
+`databridge.execute_query_from_file` (constitution Article 11). The script path is **not** exported
 from the top-level package — import it explicitly from `db.scripts` so its use is
 always visible in review. It must never be imported by the web layer and must
 never touch the app's own tables.
@@ -34,14 +35,10 @@ Each target is a named connection:
 MSSQL_WORKBENCH_SERVER=localhost
 MSSQL_WORKBENCH_USER=raw_app
 MSSQL_WORKBENCH_PASSWORD=...
-MSSQL_WORKBENCH_DATABASE=raw_db
+MSSQL_WORKBENCH_DATABASE=rwb_workbench
 
-MSSQL_DATABRIDGE_SERVER=...databridge.rms-pe.com
-MSSQL_DATABRIDGE_USER=Modeling_Automation
-MSSQL_DATABRIDGE_PASSWORD=...
-
-MSSQL_ASSURANT_SERVER=...database.cead.prd
-MSSQL_ASSURANT_AUTH_TYPE=WINDOWS        # Kerberos; no USER/PASSWORD
+MSSQL_LOSS_SERVER=...
+MSSQL_LOSS_AUTH_TYPE=WINDOWS            # optional: Kerberos; no USER/PASSWORD
 ```
 
 Global / pool / Kerberos:
@@ -70,23 +67,21 @@ Application code (always the safe path):
 from db import execute, execute_one, execute_command
 
 rows = execute("SELECT * FROM submission WHERE status_code = :s",
-               {"s": "open"}, connection="WORKBENCH")
+               {"s": "ACTIVE"}, connection="WORKBENCH")
 
-execute_command("UPDATE submission SET status_code = :s WHERE id = :id",
-                {"s": "closed", "id": 7}, connection="WORKBENCH")
+execute_command("UPDATE contract SET contract_status_code = :s WHERE id = :id",
+                {"s": "WON", "id": contract_id}, connection="WORKBENCH")
 ```
 
-External data scripts (worker-side only, trusted SQL):
+`submission.status_code` is event-sourced: change it through
+`app/services/submission_service.set_status()`, never with a bare `UPDATE`.
+
+Trusted scripts (never the web layer):
 
 ```python
-from db.scripts import execute_script_file, display_result_sets
+from db.scripts import execute_script_file
 
-dfs = execute_script_file(
-    "control_totals/3d_RMS_EDM_Control_Totals.sql",
-    params={"DATE_VALUE": "202503", "CYCLE_TYPE": "Quarterly"},
-    connection="DATABRIDGE",
-)
-display_result_sets(dfs)
+execute_script_file(BOOTSTRAP_DIR / "loss_schema.sql", connection="LOSS")
 ```
 
 ## Files
@@ -107,7 +102,7 @@ db/
 
 - `sqlalchemy>=2.0` (pool/engine; no ORM)
 - `pyodbc` + **Microsoft ODBC Driver 18 for SQL Server**
-- `pandas`, `pyarrow` — required for `db.elt`
+- `pandas`, `pyarrow` — required by `import db`, because `db/__init__.py` imports `db.elt`
 - `pandas`, `numpy` — also used by the `db.scripts` path
 
 ## ELT: bulk load and enrichment (`db/elt.py`)
@@ -131,7 +126,7 @@ rows_inserted = upload_parquet(
     file_path="/data/incoming/trades_2026_Q1.parquet",
     table_name="trades_landing",
     schema="stage",
-    connection="WORKBENCH",
+    connection="LOSS",
 )
 ```
 
@@ -184,7 +179,7 @@ df = pd.DataFrame({
 
 rows_updated = enrich(
     df,
-    table_name="submission",
+    table_name="example_scores",
     key_fields="elt_data_key",
     connection="WORKBENCH",
 )
@@ -210,7 +205,7 @@ names the *DataFrame's* column, not the target's:
 ```python
 enrich(
     df,                      # has "src_id", "src_score"
-    "submission",            # has "elt_data_key", "risk_score"
+    "example_scores",        # has "elt_data_key", "risk_score"
     key_fields="src_id",
     column_mapping={"src_id": "elt_data_key", "src_score": "risk_score"},
 )

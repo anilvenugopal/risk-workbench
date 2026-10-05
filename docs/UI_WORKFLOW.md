@@ -42,7 +42,7 @@ Preview CSS is written to stand alone in one file; the real thing has a componen
 - Preview approved (if it needed one).
 - Happy path runs end-to-end on the dev stack — including any worker/poller hop the story
   needs (don't call a queue-backed story "done" without watching a job complete).
-- Unit tests pass (`pytest tests/unit`).
+- Unit tests pass (`uv run pytest tests/unit`).
 - You've clicked the running feature.
 
 Then the next slice starts.
@@ -50,6 +50,6 @@ Then the next slice starts.
 ## Advisory: class-convention drift
 
 Two modal conventions exist today — `.modal-*` (`components.css`, the shared kit) vs
-`.modal__*` (`packages.css`, feature CSS). When a screen touches these, pick one and stick
+`.bo-modal__*` (`details.css`, feature CSS). When a screen touches these, pick one and stick
 with it; unreconciled divergence is a direct source of "it didn't come out like the mockup."
 Advisory — not a required artifact.

@@ -1,6 +1,7 @@
 {# Engine version is not listed among the metadata fields — the merged
    table's Engine column carries it, and a collapsed value is never restated
    here. #}
+{% from "partials/time_macros.html" import local_time %}
 {%- import 'partials/analysis_row_macros.html' as row -%}
 {# The id keeps +N more open across the grid's poll: app.js restores every
    details[id] after a swap. #}
@@ -23,8 +24,7 @@
   <p class="row-src"><b class="row-src__name">{{ a.full_name or a.name or '—' }}</b>
     &middot; Analysis: <b>{{ a.app_analysis_id or '—' }}</b>
     {%- if submitted %}
-    &middot; Submitted: <b><time data-utc="{{ submitted }}"
-      title="{{ submitted }}">{{ submitted }}</time></b>{% endif %}
+    &middot; Submitted: <b>{{ local_time(submitted) }}</b>{% endif %}
     {%- if a.rdm_name is defined and a.rdm_name %}
     &middot; RDM: <b>{{ a.rdm_name }}</b>{% endif %}</p>
 

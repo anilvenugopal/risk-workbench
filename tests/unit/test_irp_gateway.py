@@ -12,7 +12,7 @@ plain analysis comes back with ``groupType='ANLS'`` — NOT a ``'GROUP'`` litera
 whose marker fields never spell "GROUP". ``isGroup`` is now the authoritative
 marker; the literal spellings stay as fallback for payloads that omit it.
 ``exposureResourceId``/``exposureResourceType`` are confirmed RESPONSE
-properties (IRP_INTEGRATION_FOLLOWUPS.md §8 resolved).
+properties.
 
 ``_RealGateway`` is constructed directly with a stub client injected into
 ``_irp`` — no wheel import, no env, no HTTP.

@@ -25,7 +25,7 @@ import json
 import logging
 import re
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Collection, Sequence
 
 from sqlalchemy import text
@@ -134,6 +134,16 @@ class SummaryRewritten(BreakoutRefused):
 class StaleSummary(BreakoutRefused):
     """Risk Modeler moved under the stored summary — ``stampDate`` mismatch,
     missing stored stamp, or freshness unverifiable (FR-002a)."""
+
+
+class NameRefused(BreakoutRefused):
+    """One or more confirmed quick-breakout names can't be used (P-33).
+    ``errors`` holds the reason per refused breakout value."""
+
+    def __init__(self, errors: dict[str, str]) -> None:
+        super().__init__("Some names can't be used — fix the flagged rows and "
+                         "confirm again.")
+        self.errors = errors
 
 
 # ── Gate (Article 12 must-test) ──────────────────────────────────────────────────
@@ -862,6 +872,27 @@ def _live_portfolio_names(edm_id: Any) -> set[str]:
     return {r["name"] for r in rows}
 
 
+def _portfolio_name_refusal(name: str, *, noun: str, live: Collection[str],
+                            taken: Collection[str],
+                            batch_scope: str) -> str | None:
+    """Why ``name`` (already stripped) can't be a new portfolio's name, or
+    ``None``. ``live`` and ``taken`` hold CASEFOLDED names — the EDM's live
+    portfolios and the names already accepted in this cart or breakout; Risk
+    Modeler rejects a duplicate name without distinguishing case."""
+    if not name:
+        return f"every {noun.lower()} needs a name"
+    if len(name) > PORTFOLIO_NAME_MAX:
+        return f"{noun.lower()} names cap at {PORTFOLIO_NAME_MAX} characters"
+    if not name_check.is_valid_name(name):
+        return name_check.name_rule_message(noun)
+    folded = name.casefold()
+    if folded in live or folded in taken:
+        where = "in this EDM" if folded in live else batch_scope
+        return (f"a portfolio named {name!r} already exists {where} — "
+                "choose a different name")
+    return None
+
+
 def compose_plan(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
                  source_name: str, source_portfolio_irp_id: str,
                  dimension: str) -> list[SubPortfolioPlan]:
@@ -946,12 +977,15 @@ def _confirm_preconditions(edm_id: Any, portfolio_id: Any,
 
 def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
                      summary_as_of: str | None,
+                     names: Sequence[tuple[str, str]],
                      actor_id: Any) -> BreakoutRequested | None:
     """The quick confirm: the shared preconditions
     (``_confirm_preconditions``) with the dimension-eligibility shape check,
-    then build and persist the approved plan and enqueue idempotently. Returns
-    the job id with the plan size, or ``None`` when a live job already exists
-    (UI: "already running")."""
+    then the analyst's names, then build and persist the approved plan and
+    enqueue idempotently. ``names`` pairs each to-be-created entry's breakout
+    value with the name the analyst confirmed (P-33). Returns the job id with
+    the plan size, or ``None`` when a live job already exists (UI: "already
+    running")."""
     def _dimension_eligible(gate: BreakoutGate) -> None:
         eligibility = next(
             (d for d in gate.dimensions if d.dimension == dimension), None)
@@ -967,11 +1001,33 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
 
     # Build and persist the approved plan — composed ONCE, here; from this
     # point the plan is authoritative and the worker executes it verbatim
-    # (AGENTS.md rule 8 / R10 / P-14).
+    # (AGENTS.md rule 8 / R10 / P-14). Already-created entries keep their
+    # composed name: the worker skips them.
     plan = compose_plan(gate, edm_id=edm_id, portfolio_id=portfolio_id,
                         source_name=gate.source_name,
                         source_portfolio_irp_id=gate.source_irp_id,
                         dimension=dimension)
+    editable = [p for p in plan if not p.exists]
+    confirmed = {v: n.strip() for v, n in names}
+    if set(confirmed) != {p.value for p in editable}:
+        raise GateRefused("the posted names don't match this breakout — "
+                          "review the names and confirm again")
+    live = {n.casefold() for n in _live_portfolio_names(edm_id)}
+    taken: set[str] = set()
+    errors: dict[str, str] = {}
+    for p in editable:
+        name = confirmed[p.value]
+        refusal = _portfolio_name_refusal(
+            name, noun="Portfolio", live=live, taken=taken,
+            batch_scope="in this breakout")
+        if refusal:
+            errors[p.value] = refusal
+        else:
+            taken.add(name.casefold())
+    if errors:
+        raise NameRefused(errors)
+    plan = [p if p.exists else replace(p, name=confirmed[p.value])
+            for p in plan]
     input_data = {
         "edm_id": str(edm_id), "portfolio_id": str(portfolio_id),
         "dimension": dimension, "actor_id": str(actor_id),
@@ -1106,7 +1162,7 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
         raise GateRefused("the source portfolio has no Risk Modeler id — "
                           "Sync the EDM, then retry")
     live = {n.casefold() for n in _live_portfolio_names(edm_id)}
-    taken = set(live)
+    taken: set[str] = set()
     existing = _group_rows(portfolio_id)
     live_keys = _existing_breakout_values(portfolio_id, "custom")
     plans: list[GroupPlan] = []
@@ -1114,14 +1170,7 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
         if not isinstance(g, dict):
             raise GateRefused("malformed breakout")
         label = g.get("label")
-        if not isinstance(label, str) or not label.strip():
-            raise GateRefused("every breakout needs a name")
-        label = label.strip()
-        if len(label) > PORTFOLIO_NAME_MAX:
-            raise GateRefused(
-                f"breakout names cap at {PORTFOLIO_NAME_MAX} characters")
-        if not name_check.is_valid_name(label):
-            raise GateRefused(name_check.name_rule_message("Breakout"))
+        label = label.strip() if isinstance(label, str) else ""
         filters = _validate_group_filters(gate, g.get("filters"))
         key = compute_group_key(filters)
         if any(p.key == key for p in plans):
@@ -1129,14 +1178,15 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
                 f"two breakouts in the cart have the same members — a breakout "
                 f"is its member set, so {label!r} duplicates an earlier row")
         row = existing.get(key)
+        # An adopted member set may re-confirm the name its own portfolio
+        # already carries.
+        own = {str(row["name"]).casefold()} if row is not None else set()
+        refusal = _portfolio_name_refusal(
+            label, noun="Breakout", live=live - own, taken=taken - own,
+            batch_scope="in the cart")
+        if refusal:
+            raise GateRefused(refusal)
         name = label
-        own_name = (row is not None
-                    and name.casefold() == str(row["name"]).casefold())
-        if name.casefold() in taken and not own_name:
-            where = ("in this EDM" if name.casefold() in live
-                     else "in the cart")
-            raise GateRefused(f"a portfolio named {name!r} already exists "
-                              f"{where} — choose a different name")
         number = _compose_group_number(name)
         taken.add(name.casefold())
         overlap = [p.label for p in plans
@@ -1448,6 +1498,7 @@ __all__ = [
     "PORTFOLIO_NAME_MAX", "PORTFOLIO_NUMBER_MAX", "LARGE_FANOUT_THRESHOLD",
     "MISSING_SUMMARY_REASON", "REFRESH_IN_FLIGHT_REASON",
     "BreakoutRefused", "GateRefused", "SummaryRewritten", "StaleSummary",
+    "NameRefused",
     "display_value",
     "BreakoutValue", "DimensionCoverage", "DimensionEligibility",
     "BreakoutGate", "evaluate_gate",

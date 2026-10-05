@@ -248,7 +248,7 @@ class AnalysisMetadata:
     pointer the R9 linkage promotes when the type is ``PORTFOLIO`` and the
     group marker (FR-035). ``is_group`` is derived HERE from RM's payload so
     the how-to-detect-a-group question lives in one file — the exact marker
-    field is unconfirmed against the sandbox (IRP_INTEGRATION_FOLLOWUPS.md)."""
+    field is unconfirmed against the sandbox."""
     payload: dict = field(default_factory=dict)
     exposure_resource_id: str | None = None
     exposure_resource_type: str | None = None
@@ -996,7 +996,7 @@ class _RealGateway:
     def get_portfolio_exposure(self, *, edm_irp_id: int,
                                portfolio_irp_id: int) -> ExposureDetail:
         # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/metrics —
-        # needs BOTH ids (confirmed vs wheel 0.2.1; IRP_INTEGRATION_FOLLOWUPS.md).
+        # needs BOTH ids (confirmed vs wheel 0.2.1).
         # Payload stored verbatim as the JSON snapshot (R2). A non-dict response
         # is a FAILED read, never an empty success — the worker's per-portfolio
         # except must skip it rather than overwrite a prior good snapshot.
@@ -1028,7 +1028,7 @@ class _RealGateway:
     def get_edm_exposure_summary(self, *, edm_name: str,
                                  edm_irp_id: int) -> dict[str, dict]:
         # Per-EDM DataBridge SQL aggregate (geography/LOB/currency — none
-        # of which any RM REST endpoint returns; IRP_INTEGRATION_FOLLOWUPS §6).
+        # of which any RM REST endpoint returns).
         # Interim implementation: the requested wheel method
         # (get_portfolio_exposure_summary) doesn't exist yet, so the gateway
         # runs the repo-owned set-based scripts (sql/databridge/) through the
@@ -1183,8 +1183,7 @@ class _RealGateway:
         # marker (FR-035). The live payload (first real sync, 2026-07-24) carries
         # a first-class ``isGroup`` boolean — authoritative when present; a plain
         # analysis says groupType='ANLS', so the 'GROUP'-literal spellings below
-        # stay only as fallback for payloads that omit isGroup
-        # (IRP_INTEGRATION_FOLLOWUPS.md §7).
+        # stay only as fallback for payloads that omit isGroup.
         data = self._client().analysis.get_analysis_by_id(analysis_id)
         if not isinstance(data, dict):
             # A failed read, never an empty success — the worker counts it as a

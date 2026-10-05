@@ -211,7 +211,6 @@
   border-top: 1px solid var(--border-faint); display: flex; flex-direction: column; gap: 3px; }
 .deal-history__item { display: flex; align-items: center; gap: var(--space-2);
   font-size: var(--fs-caption); color: var(--text-tertiary); }
-.deal-history__at { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* ── Contracts: one row per contract, on the deal card and the create form ── */
 .contract-band { border-top: 1px solid var(--border-default); padding: var(--space-3) var(--space-4); }
