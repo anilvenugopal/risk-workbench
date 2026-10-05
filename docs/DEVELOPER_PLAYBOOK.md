@@ -97,6 +97,8 @@ docker compose -f infra/docker-compose.yml logs -f sqlserver
 ```powershell
 docker compose -f infra/docker-compose.yml exec linux-box python scripts/bootstrap_db.py
 docker compose -f infra/docker-compose.yml exec linux-box alembic upgrade head
+docker compose -f infra/docker-compose.yml exec linux-box python scripts/seed_db.py
+docker compose -f infra/docker-compose.yml exec linux-box python scripts/bootstrap_loss.py
 ```
 
 ### Step 6 — Verify
@@ -206,6 +208,8 @@ make wsl-start
 ```bash
 make wsl-db-bootstrap
 make wsl-db-migrate
+make wsl-db-seed
+make wsl-bootstrap-loss
 ```
 
 ### Step 10 — Start development processes

@@ -264,7 +264,7 @@ wrong, not the code.
 
 ### Agents: never start, stop, or rebuild containers
 
-`make dev-up`, `make sqlserver-up`, `docker compose up`, `make db-rebuild` and
+`make start`, `make wsl-start`, `docker compose up`, `make db-rebuild` and
 friends change the developer's running environment and are the developer's call, not
 an agent's. If a tier cannot run because `linux-box` is down, **say so and stop** —
 report which tiers ran, which did not, and what the developer needs to run. Never

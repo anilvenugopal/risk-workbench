@@ -176,6 +176,14 @@ Once those are done, the script handles:
 
 If it fails, read the error, fix it, and run it again — every step is idempotent.
 
+Then seed the kind tables and the dev admin `admin@example.com`, and set up
+`rwb_loss`:
+
+```bash
+make wsl-db-seed
+make wsl-bootstrap-loss
+```
+
 ### Step 8 — Verify
 
 ```bash
