@@ -8,11 +8,11 @@
    the server stops emitting the trigger and polling ends on its own (mirrors
    partials/library_table.html).
 
-   The poll takes the filter form's request lock, so a poll is skipped while a
-   filter request is in flight and a filter request waits for a running poll.
-   If a poll swapped this element under a filter request, htmx would throw on
-   the detached target and never release the form's lock, so no later filter
-   change would be sent. #}
+   The poll and the pager links take the filter form's request lock, so a poll
+   or page click is skipped while another request is in flight and a filter
+   request waits for a running one. If one request swapped this element under
+   another, htmx would throw on the detached target and never release the
+   form's lock, so no later filter change would be sent. #}
 <div id="irp-jobs-live"
   {%- if live %}
   hx-get="/workflows/irp-jobs/table?{{ list_query }}" hx-trigger="every {{ ui_poll_interval_secs }}s"
@@ -59,13 +59,13 @@
     {% if page > 1 %}
     <a class="btn-sm" rel="prev" href="{{ stem }}{{ page - 1 }}"
        hx-get="{{ stem }}{{ page - 1 }}" hx-target="#irp-jobs-live"
-       hx-swap="outerHTML" hx-push-url="true">‹ Prev</a>
+       hx-swap="outerHTML" hx-push-url="true" hx-sync="#irp-jobs-filters:drop">‹ Prev</a>
     {% endif %}
     <span class="pager__at">Page {{ page }}</span>
     {% if has_next %}
     <a class="btn-sm" rel="next" href="{{ stem }}{{ page + 1 }}"
        hx-get="{{ stem }}{{ page + 1 }}" hx-target="#irp-jobs-live"
-       hx-swap="outerHTML" hx-push-url="true">Next ›</a>
+       hx-swap="outerHTML" hx-push-url="true" hx-sync="#irp-jobs-filters:drop">Next ›</a>
     {% endif %}
   </nav>
   {% endif %}
