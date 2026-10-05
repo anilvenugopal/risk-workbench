@@ -9,7 +9,7 @@
      swap, so fields keep focus. It carries no page, so any filter change lands
      on page 1. app.js fills tz with the browser's zone, which turns the two
      dates into local days. #}
-  <form class="filters" method="get" action="/workflows/irp-jobs"
+  <form id="irp-jobs-filters" class="filters" method="get" action="/workflows/irp-jobs"
         hx-get="/workflows/irp-jobs" hx-trigger="input delay:300ms, submit, filter-picked"
         hx-target="#irp-jobs-live" hx-swap="outerHTML"
         hx-push-url="true">

@@ -6,11 +6,17 @@
    While any row on this page is non-terminal, the wrapper polls its own render
    with the same filters and page and swaps itself; once every row is terminal
    the server stops emitting the trigger and polling ends on its own (mirrors
-   partials/library_table.html). #}
+   partials/library_table.html).
+
+   The poll takes the filter form's request lock, so a poll is skipped while a
+   filter request is in flight and a filter request waits for a running poll.
+   If a poll swapped this element under a filter request, htmx would throw on
+   the detached target and never release the form's lock, so no later filter
+   change would be sent. #}
 <div id="irp-jobs-live"
   {%- if live %}
   hx-get="/workflows/irp-jobs/table?{{ list_query }}" hx-trigger="every {{ ui_poll_interval_secs }}s"
-  hx-target="this" hx-swap="outerHTML"
+  hx-target="this" hx-swap="outerHTML" hx-sync="#irp-jobs-filters:drop"
   {%- endif %}>
 
   {% if date_error %}
