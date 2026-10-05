@@ -78,6 +78,8 @@
 
 <p>Three status columns are plain text because they copy Risk Modeler's own values: <code>irp_job.status</code>, <code>irp_edm.status</code>, and <code>irp_rdm.status</code>.</p>
 
+<p>What the <code>rwb_job</code> requestor, link, and context kinds mean is <a href="#rwb-job-references">below</a>.</p>
+
 <p>How to change a kind table's values is on <a href="07-configuration-and-observability.html#settings-kind-tables">page 7</a>.</p>
 
 <p>Submission status is event-sourced. It is the only event-sourced status.</p>
@@ -89,6 +91,82 @@
 </ul>
 
 <p>Every other status, including <code>contract.contract_status_code</code>, <code>rwb_job.status_code</code>, and <code>irp_analysis.status_code</code>, is updated in place.</p>
+
+<h2 id="rwb-job-references">rwb_job: the requestor, link, and context columns</h2>
+
+<p><code>rwb_job</code> holds one row per background job the Workbench runs in a Dramatiq worker (<a href="02-application-architecture.html#job-lifecycle">page 2</a>). Each row has three pairs of columns that point at other rows. In each pair, the <code>_type</code> column names the kind of row and the <code>_id</code> column holds that row's id. No <code>_id</code> column has a foreign key, because the table it points into depends on the <code>_type</code> value. Each <code>_type</code> column has a foreign key to its kind table in the list above.</p>
+
+<table>
+<tr><th>Columns</th><th>Answers</th><th>Read by</th></tr>
+<tr><td><code>requestor_type</code>, <code>requestor_id</code></td><td>Who or what asked for this job.</td><td>The unique constraint below. Also the pages that show a job's progress, which find the job by its requestor.</td></tr>
+<tr><td><code>link_type</code>, <code>link_id</code></td><td>Which EDM, RDM, or submission the job belongs to.</td><td>The RWB Jobs page only.</td></tr>
+<tr><td><code>context_type</code>, <code>context_id</code></td><td>Which row the worker acts on.</td><td>Nothing.</td></tr>
+</table>
+
+<h3 id="rwb-job-unique">The unique constraint</h3>
+
+<p><code>rwb_job</code> has one unique constraint, <code>uq_rwb_job_requestor_type</code>, on three columns: <code>requestor_type</code>, <code>requestor_id</code>, and <code>rwb_job_type</code>. One requestor can have at most one row of each job type, for the life of the database. The constraint does not compare <code>input_data</code>, and there is no request hash. Two requests with the same three values are the same job, even if their inputs differ.</p>
+
+<p>Two functions in <code>app/services/rwb_job_service.py</code> insert rows. They differ in what they do when a row with the same three values already exists:</p>
+<table>
+<tr><th>Function</th><th>When a row with the same three values exists</th><th>Used by</th></tr>
+<tr><td><code>enqueue_rwb_job</code></td><td>Inserts nothing and returns <code>None</code>, whatever the existing row's status.</td><td>The poller and workers, so that a Risk Modeler job seen finishing twice, or a Dramatiq message delivered twice, queues the next job once. Also the analyst actions whose requestor id is new on every click (see below).</td></tr>
+<tr><td><code>ensure_pending_rwb_job</code></td><td>If the row is <code>succeeded</code> or <code>failed</code>: resets it to <code>pending</code>, adds 1 to <code>attempt_count</code>, replaces <code>input_data</code>, and clears <code>error_detail</code>, <code>output_data</code>, and <code>completed_at</code>. If the row is <code>pending</code>, <code>running</code>, or <code>cancelled</code>: does nothing and returns <code>None</code>.</td><td>Analyst actions that re-run work on an existing EDM, RDM, portfolio, or analysis, and the Resubmit button on the RWB Jobs page.</td></tr>
+</table>
+
+<p>A re-run therefore reuses the earlier row. The table keeps only the latest attempt of each job, and the earlier attempt's <code>error_detail</code> is overwritten.</p>
+
+<p>Whether an analyst action creates a new row or reuses one depends on what the code puts in <code>requestor_id</code>:</p>
+<ul>
+<li>A new UUID on every click: a new row every time. Execute analyses (<code>execute_analysis_batch</code>), group analyses (<code>submit_grouping</code>), and export results (<code>submit_results_export</code>) work this way. An analyst can run the same portfolio and template again while an earlier run is still going.</li>
+<li>The id of an existing EDM, RDM, or portfolio: the same row every time. Upload, hazard lookup, breakout, and refreshing an EDM's details work this way. A second click while the first job is <code>pending</code> or <code>running</code> does nothing.</li>
+</ul>
+
+<h3 id="rwb-job-requestor">requestor_type values</h3>
+
+<table>
+<tr><th><code>requestor_type</code></th><th>Who asked for the job</th><th>What <code>requestor_id</code> holds, by job type</th></tr>
+<tr><td><code>analyst_request</code></td><td>An analyst, by clicking a button. <code>requestor_id</code> is never the analyst; the analyst's <code>app_user.id</code> is in <code>inserted_by</code>.</td><td>
+<ul>
+<li><code>upload_edm</code>, <code>backfill_edm_detail</code>: <code>irp_edm.id</code></li>
+<li><code>upload_rdm</code>, <code>backfill_rdm_analyses</code>: <code>irp_rdm.id</code></li>
+<li><code>run_geohaz</code>, <code>run_breakout_lob</code>, <code>run_breakout_state</code>, <code>run_breakout_country</code>, <code>run_breakout_peril</code>: <code>irp_portfolio.id</code></li>
+<li><code>execute_analysis_batch</code>: the execution id, a new UUID for each Execute click. It is not any table's primary key. The worker copies it to <code>irp_analysis.execution_id</code> on each analysis it creates.</li>
+<li><code>submit_grouping</code>: the grouping request id, a new UUID for each Group click. No table stores it.</li>
+<li><code>submit_results_export</code>: the export id, a new UUID for each export. The loss database stores it in <code>stage.rwb_loss_result_manifest.export_id</code>.</li>
+<li><code>sync_irp_metadata</code>: the fixed id <code>00000000-0000-0000-0000-000000000009</code>, so there is only ever one metadata sync row.</li>
+</ul></td></tr>
+<tr><td><code>irp_job</code></td><td>The poller, when a Risk Modeler job reaches a terminal status.</td><td><code>irp_job.id</code> of that Risk Modeler job.
+<ul>
+<li><code>backfill_edm_detail</code>: after an <code>import_edm</code> or <code>geohaz</code> job</li>
+<li><code>backfill_rdm_analyses</code>: after an <code>import_rdm</code> job</li>
+<li><code>finalize_analysis</code>: after an <code>analysis</code> or <code>grouping</code> job</li>
+<li><code>stage_results_export</code>: after an <code>export</code> job</li>
+</ul></td></tr>
+<tr><td><code>rwb_job</code></td><td>Another <code>rwb_job</code>, as its next step.</td><td><code>rwb_job.id</code> of the job that queued it.
+<ul>
+<li><code>backfill_edm_detail</code>: queued by <code>run_breakout_*</code></li>
+<li><code>load_results_export</code>: queued by <code>stage_results_export</code></li>
+</ul></td></tr>
+<tr><td><code>breakout_group</code></td><td>An analyst, by confirming a custom breakout cart. The Workbench writes one <code>breakout_group</code> row per group in the cart, then one job per row.</td><td><code>run_breakout_custom</code>: <code>breakout_group.id</code></td></tr>
+<tr><td><code>irp_analysis</code></td><td>Code that needs one analysis processed.</td><td><code>irp_analysis.id</code>.
+<ul>
+<li><code>finalize_analysis</code>: when an analyst imports an analysis that already exists in Risk Modeler</li>
+<li><code>retrieve_analysis_results</code>: queued by <code>finalize_analysis</code>; by <code>backfill_rdm_analyses</code>, once for each analysis in the RDM; or when an analyst asks for results again</li>
+</ul></td></tr>
+</table>
+
+<h3 id="rwb-job-link">link_type values</h3>
+
+<p><code>link_type</code> is <code>edm</code>, <code>rdm</code>, or <code>submission</code>, and <code>link_id</code> is that row's id in <code>irp_edm</code>, <code>irp_rdm</code>, or <code>submission</code>. For an analysis job, the link follows where the analysis came from: its EDM for an analysis the Workbench ran, its RDM for an analysis imported with an RDM, and its submission for a group analysis. <code>not_applicable</code>, with a null <code>link_id</code>, is used by <code>sync_irp_metadata</code> and <code>submit_results_export</code>.</p>
+
+<p>The RWB Jobs page uses the link to show the EDM or RDM name on each row. Its submission search finds a job through the link: directly for <code>submission</code>, and through <code>submission_edm</code> or <code>submission_rdm</code> for <code>edm</code> and <code>rdm</code>. A job with <code>not_applicable</code> never matches a submission search.</p>
+
+<h3 id="rwb-job-context">context_type values</h3>
+
+<p><code>context_type</code> names the row the worker changes: <code>edm</code>, <code>rdm</code>, <code>portfolio</code>, <code>breakout_group</code>, <code>irp_analysis</code>, <code>execution</code>, or <code>result_export</code>. <code>context_id</code> is that row's id. Both are null for <code>sync_irp_metadata</code>. Every insert writes the pair and Resubmit copies it, but no query reads it.</p>
+
+<p>The context columns came from <a href="../CR/CR_04c__RWB_JOB_LINK_AND_CONTEXT.md">CR-04c</a>. Its second phase was to move the unique constraint and the page lookups from the requestor columns to the context columns, so that the same work asked for by two different requestors would share one row. That phase was not done. Today one EDM can have two <code>backfill_edm_detail</code> rows: one from an analyst (<code>analyst_request</code>) and one queued after a breakout (<code>rwb_job</code>). <code>edm_service.sync_detail</code> checks both before it queues another.</p>
 
 <h2 id="data-access">Data access</h2>
 

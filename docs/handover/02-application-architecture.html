@@ -182,7 +182,7 @@
 
 <table>
 <tr><th>Table</th><th>Tracks</th><th>Status column and values</th></tr>
-<tr><td><code>rwb_job</code></td><td>Work the Workbench runs itself in a Dramatiq worker. Unique on <code>(requestor_type, requestor_id, rwb_job_type)</code>, so enqueuing the same work twice creates one row.</td><td><code>status_code</code>, a key into <code>rwb_job_status_kind</code>: <code>pending</code>, <code>running</code>, <code>succeeded</code>, <code>failed</code>, <code>cancelled</code></td></tr>
+<tr><td><code>rwb_job</code></td><td>Work the Workbench runs itself in a Dramatiq worker. Unique on <code>(requestor_type, requestor_id, rwb_job_type)</code>, so enqueuing the same work twice creates one row. What the requestor columns and the other type and id columns mean is on <a href="03-data.html#rwb-job-references">page 3</a>.</td><td><code>status_code</code>, a key into <code>rwb_job_status_kind</code>: <code>pending</code>, <code>running</code>, <code>succeeded</code>, <code>failed</code>, <code>cancelled</code></td></tr>
 <tr><td><code>irp_job</code></td><td>One Risk Modeler job. <code>irp_id</code> is Risk Modeler's job id. <code>irp_job_type</code> is one of <code>import_edm</code>, <code>import_rdm</code>, <code>geohaz</code>, <code>analysis</code>, <code>grouping</code>, <code>export</code>.</td><td><code>status</code>, plain text copied from Risk Modeler (for example <code>QUEUED</code>, <code>FINISHED</code>, <code>FAILED</code>, <code>CANCELLED</code>), plus the app's own <code>SUBMISSION FAILED</code> and <code>SUBMISSION RETRYING</code></td></tr>
 </table>
 
