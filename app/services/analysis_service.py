@@ -608,6 +608,8 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
 
 # The analysis' latest tracked irp_job (T-07) — the row that carries the status
 # label and the submission attempt count. Joined by both own-executed reads.
+# Only the jobs that run the analysis count: a results export also links its
+# irp_job to the analysis.
 _LATEST_JOB_JOIN = """
     LEFT JOIN (
         SELECT id, irp_analysis_id, status, progress, submission_attempt_count,
@@ -617,6 +619,7 @@ _LATEST_JOB_JOIN = """
                ) AS row_num
         FROM irp_job
         WHERE irp_analysis_id IS NOT NULL
+          AND irp_job_type IN ('analysis', 'grouping')
     ) j ON j.irp_analysis_id = a.id AND j.row_num = 1
 """
 
