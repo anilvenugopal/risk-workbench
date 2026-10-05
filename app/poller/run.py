@@ -482,7 +482,8 @@ def _retry_submission(row: dict) -> None:
             "UPDATE irp_job SET irp_id = :irp, status = 'QUEUED', "
             "submission_attempt_count = submission_attempt_count + 1, "
             "last_submission_response = :resp, completed_at = NULL, "
-            "updated_at = :now WHERE id = :id AND status = 'SUBMISSION RETRYING'"
+            "submitted_at = :now, updated_at = :now "
+            "WHERE id = :id AND status = 'SUBMISSION RETRYING'"
         ), {"irp": irp_id, "resp": json.dumps(request_body), "now": now,
             "id": row["id"]})
         resource_uri = request_body.get("resourceUri")
