@@ -164,7 +164,6 @@
 </ul>
 </td><td>
 <ul>
-<li>Every Risk Modeler job submission: imports, analyses, GeoHaz, grouping, exports, and portfolio creation.</li>
 <li>Every job status check (poller only).</li>
 <li>Result retrieval: EP, statistics, and treaties.</li>
 <li>Every other DATABRIDGE read.</li>
@@ -173,6 +172,8 @@
 </ul>
 </td></tr>
 </table>
+
+<p>Article 11 of the constitution also allows a Risk Modeler job submission in a route handler. The code does not use that: every submission (imports, analyses, GeoHaz, grouping, exports, and portfolio creation) runs in a worker, and the poller resubmits failed analysis jobs.</p>
 
 <h2 id="job-lifecycle">Job lifecycle</h2>
 

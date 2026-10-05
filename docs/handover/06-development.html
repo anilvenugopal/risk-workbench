@@ -45,7 +45,7 @@
 <tr><td><code>make shell</code></td><td></td><td>A bash shell inside <code>linux-box</code>.</td></tr>
 <tr><td><code>make db-bootstrap</code></td><td><code>make wsl-db-bootstrap</code></td><td>Create <code>rwb_workbench</code>, <code>rwb_exposure</code>, and <code>rwb_loss</code> if missing.</td></tr>
 <tr><td><code>make db-migrate</code></td><td><code>make wsl-db-migrate</code></td><td><code>alembic upgrade head</code>.</td></tr>
-<tr><td></td><td><code>make wsl-db-seed</code></td>Seed the kind tables (safe to re-run) and, when <code>APP_ENV=development</code>, the dev admin <code>admin@example.com</code>.</td></tr>
+<tr><td></td><td><code>make wsl-db-seed</code></td><td>Seed the kind tables (safe to re-run) and, when <code>APP_ENV=development</code>, the dev admin <code>admin@example.com</code>.</td></tr>
 <tr><td><code>make bootstrap-loss</code></td><td><code>make wsl-bootstrap-loss</code></td><td>Create CIC's tables and the <code>stage</code> schema in <code>rwb_loss</code>, and seed <code>dbo.Client</code> and the historical event lookup.</td></tr>
 <tr><td><code>make db-rebuild</code></td><td><code>make wsl-db-rebuild</code></td><td>Destructive: drop the three databases, migrate, seed, and bootstrap the loss database. Asks for <code>yes</code>.</td></tr>
 <tr><td><code>make load-cedants</code></td><td><code>make wsl-load-cedants</code></td><td>Add the cedant names in an Excel file that are not already in <code>cedant</code>. <code>FILE=</code> picks the file; the default is <code>db/bootstrap/seed/cedants.xlsx</code>.</td></tr>
@@ -73,7 +73,7 @@
 <tr><td><code>sweep-export-archives.sh</code></td><td>Deletes old export archives. See <a href="08-deployed-environment.html#runbook">page 8</a>.</td></tr>
 <tr><td><code>mail_smoke_test.py</code></td><td>Sends one test email through Graph.</td></tr>
 <tr><td><code>generate-requirements.sh</code></td><td>Regenerates <code>requirements.txt</code>, or checks it with <code>--check</code>.</td></tr>
-<tr><td><code>patches/</code></td>Six SQL patches that added the CR-04c <code>rwb_job</code> link and context columns to databases created before those columns existed. Revision <code>0001</code> now includes them; a new database does not need the patches.</td></tr>
+<tr><td><code>patches/</code></td><td>Six SQL patches that added the CR-04c <code>rwb_job</code> link and context columns to databases created before those columns existed. Revision <code>0001</code> now includes them; a new database does not need the patches.</td></tr>
 <tr><td><code>rhel9/</code></td><td>Server setup, deploy, start, stop, and health scripts. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
 </table>
 
