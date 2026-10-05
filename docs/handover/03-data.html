@@ -42,12 +42,12 @@
 
 <h2 id="workbench-schema">Workbench schema</h2>
 
-<p>Revision <code>0001</code> creates 44 tables and the view <code>v_contract</code>. Every table and column is described in <a href="../DATA_MODEL.md">docs/DATA_MODEL.md</a>.</p>
+<p>Revision <code>0001</code> creates 44 tables and the view <code>v_contract</code>. Revision <code>0004</code> adds <code>cedant</code>. Every table and column is described in <a href="../DATA_MODEL.md">docs/DATA_MODEL.md</a>.</p>
 
 <table>
 <tr><th>Area</th><th>Tables</th></tr>
 <tr><td>Users and sign-in</td><td><code>app_user</code>, <code>user_role</code>, <code>user_session</code>, <code>login_attempt</code></td></tr>
-<tr><td>Submissions</td><td><code>submission</code>, <code>contract</code>, <code>submission_status_event</code>, <code>submission_edm</code>, <code>submission_rdm</code>, view <code>v_contract</code></td></tr>
+<tr><td>Submissions</td><td><code>submission</code>, <code>cedant</code>, <code>contract</code>, <code>submission_status_event</code>, <code>submission_edm</code>, <code>submission_rdm</code>, view <code>v_contract</code></td></tr>
 <tr><td>Risk Modeler entities</td><td><code>irp_edm</code>, <code>irp_rdm</code>, <code>irp_portfolio</code>, <code>breakout_group</code>, <code>irp_treaty</code>, <code>irp_analysis</code>, <code>irp_analysis_group_member</code></td></tr>
 <tr><td>Jobs</td><td><code>irp_job</code>, <code>irp_job_resource</code>, <code>rwb_job</code>, <code>rwb_job_heartbeat</code></td></tr>
 <tr><td>Reference data cache</td><td><code>irp_model_profile</code>, <code>irp_output_profile</code>, <code>irp_event_rate_scheme</code>, <code>irp_currency</code>, <code>irp_currency_scheme</code>, <code>irp_currency_scheme_vintage</code></td></tr>
@@ -190,7 +190,7 @@
 <li>Alembic manages <code>WORKBENCH</code> only. <code>alembic/env.py</code> builds the database URL from the same <code>MSSQL_WORKBENCH_*</code> variables as the app.</li>
 <li><code>alembic/env.py</code> has no model metadata, so <code>--autogenerate</code> does not work. Write <code>upgrade()</code> and <code>downgrade()</code> by hand with <code>op.*</code>.</li>
 <li><code>alembic/versions/0001_initial.py</code> is the base revision. It is frozen; never edit it.</li>
-<li>Revision ids are four-digit numbers. The head is <code>0003</code>, so the next is <code>0004</code>.</li>
+<li>Revision ids are four-digit numbers. The next id is one more than the head that <code>uv run alembic heads</code> shows.</li>
 <li>Any kind-table rows a change needs go in the same revision as the table or column that uses them.</li>
 </ul>
 
@@ -199,11 +199,13 @@
 <tr><td><code>0001</code></td><td>The full schema and every kind-table seed row.</td></tr>
 <tr><td><code>0002</code></td><td>Adds <code>model_profile_irp_id</code>, <code>output_profile_irp_id</code>, and <code>event_rate_scheme_irp_id</code> to <code>analysis_template</code>.</td></tr>
 <tr><td><code>0003</code></td><td>Adds <code>irp_job.progress</code>.</td></tr>
+<tr><td><code>0004</code></td><td>Adds the <code>cedant</code> table, creating one cedant for each distinct <code>submission.cedant_name</code>. Replaces <code>submission.cedant_name</code> with <code>submission.cedant_id</code> and rebuilds <code>v_contract</code> to join <code>cedant</code>.</td></tr>
+<tr><td><code>0005</code></td><td>Adds the cedant names in <code>db/bootstrap/seed/cedants.xlsx</code> that are not already in <code>cedant</code>. The committed file holds only its header, so it adds none until the client's list replaces it.</td></tr>
 </table>
 
 <table>
 <tr><th>Command</th><th>What it does</th></tr>
-<tr><td><code>uv run alembic revision -m "&lt;what changes&gt;" --rev-id 0004</code></td><td>Creates a new revision file. Runs from any shell; needs no database.</td></tr>
+<tr><td><code>uv run alembic revision -m "&lt;what changes&gt;" --rev-id NNNN</code></td><td>Creates a new revision file. Runs from any shell; needs no database.</td></tr>
 <tr><td><code>uv run alembic heads</code></td><td>Shows the head revisions. <code>main</code> must have exactly one.</td></tr>
 <tr><td><code>make db-migrate</code> (Docker) or <code>make wsl-db-migrate</code> (WSL2)</td><td>Runs <code>alembic upgrade head</code>.</td></tr>
 </table>

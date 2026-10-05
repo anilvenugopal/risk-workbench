@@ -198,7 +198,7 @@ merged (2026-09-29). Never edit it.
 Every `rwb_workbench` schema change is a new Alembic revision:
 
 ```bash
-uv run alembic revision -m "<what changes>" --rev-id 0004   # next four-digit id; runs from any host shell, no database needed
+uv run alembic revision -m "<what changes>" --rev-id NNNN   # one more than `uv run alembic heads`; runs from any host shell, no database needed
 make db-migrate                                              # alembic upgrade head inside linux-box (make wsl-db-migrate on WSL2)
 ```
 

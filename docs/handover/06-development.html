@@ -48,6 +48,7 @@
 <tr><td></td><td><code>make wsl-db-seed</code></td>Seed the kind tables (safe to re-run) and, when <code>APP_ENV=development</code>, the dev admin <code>admin@example.com</code>.</td></tr>
 <tr><td><code>make bootstrap-loss</code></td><td><code>make wsl-bootstrap-loss</code></td><td>Create CIC's tables and the <code>stage</code> schema in <code>rwb_loss</code>, and seed <code>dbo.Client</code> and the historical event lookup.</td></tr>
 <tr><td><code>make db-rebuild</code></td><td><code>make wsl-db-rebuild</code></td><td>Destructive: drop the three databases, migrate, seed, and bootstrap the loss database. Asks for <code>yes</code>.</td></tr>
+<tr><td><code>make load-cedants</code></td><td><code>make wsl-load-cedants</code></td><td>Add the cedant names in an Excel file that are not already in <code>cedant</code>. <code>FILE=</code> picks the file; the default is <code>db/bootstrap/seed/cedants.xlsx</code>.</td></tr>
 <tr><td><code>make seed-demo</code></td><td><code>make wsl-seed-demo</code></td><td>Demo submissions and contracts for the search screens.</td></tr>
 <tr><td></td><td><code>make wsl-user-setup</code></td><td>The interactive user CLI.</td></tr>
 <tr><td><code>make test</code>, <code>make test-sql</code></td><td><code>make wsl-test</code>, <code>make wsl-test-sql</code></td><td>The unit and SQL Server test tiers.</td></tr>
@@ -65,6 +66,7 @@
 <tr><td><code>check-port.sh</code></td><td>Shows which process holds a port.</td></tr>
 <tr><td><code>bootstrap_db.py</code>, <code>reset_db.py</code>, <code>seed_db.py</code></td><td>Create, drop and recreate, and seed the app databases.</td></tr>
 <tr><td><code>bootstrap_loss.py</code></td><td>Set up <code>rwb_loss</code>. Refuses to run unless <code>MSSQL_LOSS_DATABASE=rwb_loss</code>, so it cannot touch CIC's database. <code>--reset-stage</code> drops the <code>stage</code> tables first.</td></tr>
+<tr><td><code>load_cedants.py</code></td><td>Add cedant names from an Excel file. Revision <code>0005</code> loads the committed file once; run this script when the client sends a new list.</td></tr>
 <tr><td><code>seed_demo_submissions.py</code></td><td>Demo data for the search screens.</td></tr>
 <tr><td><code>user_setup.py</code>, <code>run_user_setup.sh</code></td><td>The user CLI (<code>provision</code>, <code>create</code>, <code>reset</code>, <code>list</code>) and its wrapper.</td></tr>
 <tr><td><code>bulk_update_contract_status.sql</code></td><td>The script CIC runs to update <code>contract.contract_status_code</code> from <code>dbo.CRMContractStatus</code>.</td></tr>

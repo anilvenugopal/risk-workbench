@@ -253,7 +253,7 @@ base revision, frozen when spec 017 merged (2026-09-29). Never edit it. Every
 schema change is a new revision:
 
 ```bash
-uv run alembic revision -m "add contract broker column" --rev-id 0004   # next four-digit id; no database needed
+uv run alembic revision -m "add contract broker column" --rev-id NNNN   # one more than `uv run alembic heads`; no database needed
 make wsl-db-migrate                                                      # alembic upgrade head (Docker: make db-migrate)
 ```
 
