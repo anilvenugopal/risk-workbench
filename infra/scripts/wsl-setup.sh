@@ -43,6 +43,7 @@ fi
 # ── Step 1: Python deps ───────────────────────────────────────────────────────
 echo "=== Step 1: Python dependencies ==="
 uv sync --frozen
+mkdir -p "$EXPORT_ARCHIVE_DIR" "$EXPORT_STAGING_DIR"
 echo ""
 
 # ── Step 2: SQL Server and Redis ──────────────────────────────────────────────

@@ -30,6 +30,10 @@ export MSSQL_WORKBENCH_SERVER=localhost
 export MSSQL_EXPOSURE_SERVER=localhost
 export MSSQL_LOSS_SERVER=localhost
 
+# The infra/.env export paths are linux-box paths; WSL2 uses the repo's data/.
+export EXPORT_ARCHIVE_DIR="$SCRIPT_DIR/../../data/export_archive"
+export EXPORT_STAGING_DIR="$SCRIPT_DIR/../../data/staging"
+
 export RWB_CONTAINER_RUNTIME="${RWB_CONTAINER_RUNTIME:-docker}"
 if [ "$RWB_CONTAINER_RUNTIME" != docker ] && [ "$RWB_CONTAINER_RUNTIME" != podman ]; then
     echo "ERROR: RWB_CONTAINER_RUNTIME in infra/.env must be docker or podman, not '$RWB_CONTAINER_RUNTIME'." >&2
