@@ -17,17 +17,19 @@
 
 <table>
 <tr><th></th><th>Full Docker stack</th><th>WSL2 native</th></tr>
-<tr><td>Use when</td><td>Working on Windows without WSL2</td><td>Day-to-day development in WSL2</td></tr>
-<tr><td>Runs in Docker</td><td>Two Compose services in <code>infra/docker-compose.yml</code>: <code>linux-box</code> (nginx, uvicorn, Redis, one worker per queue, poller) and <code>sqlserver</code> (SQL Server 2022)</td><td><code>sqlserver</code> only</td></tr>
-<tr><td>Runs natively</td><td>Nothing</td><td>uvicorn, Redis, workers, and poller, each from its own <code>make</code> target</td></tr>
+<tr><td>Use when</td><td>Only on a machine that cannot run WSL2</td><td>Day-to-day development in a WSL2 Ubuntu or RHEL9 distro</td></tr>
+<tr><td>Runs in a container</td><td>Two Compose services in <code>infra/docker-compose.yml</code>: <code>linux-box</code> (nginx, uvicorn, Redis, one worker per queue, poller) and <code>sqlserver</code> (SQL Server 2022)</td><td>SQL Server only: the <code>sqlserver</code> Compose service under Docker Desktop, or a Podman container named <code>sqlserver</code>. <code>RWB_CONTAINER_RUNTIME</code> in <code>infra/.env</code> picks <code>docker</code> or <code>podman</code>.</td></tr>
+<tr><td>Runs natively</td><td>Nothing</td><td>uvicorn, Redis (Valkey on RHEL9), workers, and poller, each from its own <code>make</code> target</td></tr>
 <tr><td>Start</td><td><code>make start</code>, then open <code>http://localhost</code></td><td><code>make wsl-start</code>, then <code>make wsl-app</code>, <code>make wsl-workers</code>, <code>make wsl-poller</code>; open <code>http://localhost:8000</code></td></tr>
-<tr><td>First time</td><td>After the stack is up: <code>make db-bootstrap</code>, <code>make db-migrate</code>, then <code>python scripts/seed_db.py</code> in <code>make shell</code>, then <code>make bootstrap-loss</code></td><td>Install uv, ODBC Driver 18, and Redis, then <code>make wsl-setup</code>, <code>make wsl-db-seed</code>, <code>make wsl-bootstrap-loss</code></td></tr>
+<tr><td>First time</td><td>After the stack is up: <code>make db-bootstrap</code>, <code>make db-migrate</code>, then <code>python scripts/seed_db.py</code> in <code>make shell</code>, then <code>make bootstrap-loss</code></td><td>Install uv, ODBC Driver 18, Redis or Valkey, and Docker Desktop or Podman, then <code>make wsl-setup</code></td></tr>
 <tr><td>How the database host is set</td><td><code>MSSQL_*_SERVER=sqlserver</code> from <code>infra/.env</code></td><td><code>infra/scripts/wsl-env.sh</code> overrides the three servers to <code>localhost</code>; leave <code>infra/.env</code> unchanged</td></tr>
 </table>
 
+<p>After the first-time setup, sign in as <code>admin@example.com</code> with password <code>Admin1234567!</code>. <code>infra/scripts/seed_db.py</code> creates this admin only when <code>APP_ENV=development</code>, which is the <code>infra/.env.example</code> default.</p>
+
 <p>Where each process logs in each setup is on <a href="07-configuration-and-observability.html#logging">page 7</a>.</p>
 
-<p>Step-by-step setup is in <a href="../SCAFFOLDING.md">docs/SCAFFOLDING.md</a> (WSL2) and <a href="../DEVELOPER_PLAYBOOK.md">docs/DEVELOPER_PLAYBOOK.md</a> (Docker, VS Code, and debugging). To debug with breakpoints in Docker, set <code>APP_DEBUG=1</code> in <code>infra/.env</code> and run <code>make start</code>; uvicorn then waits for a debugger on port 5678.</p>
+<p>Step-by-step setup for both is in <a href="../LOCAL_DEV_SETUP.md">docs/LOCAL_DEV_SETUP.md</a>. To debug with breakpoints in Docker, set <code>APP_DEBUG=1</code> in <code>infra/.env</code> and run <code>make start</code>; uvicorn then waits for a debugger on port 5678.</p>
 
 <h2 id="make-targets">Make targets and scripts</h2>
 
@@ -45,7 +47,7 @@
 <tr><td><code>make shell</code></td><td></td><td>A bash shell inside <code>linux-box</code>.</td></tr>
 <tr><td><code>make db-bootstrap</code></td><td><code>make wsl-db-bootstrap</code></td><td>Create <code>rwb_workbench</code>, <code>rwb_exposure</code>, and <code>rwb_loss</code> if missing.</td></tr>
 <tr><td><code>make db-migrate</code></td><td><code>make wsl-db-migrate</code></td><td><code>alembic upgrade head</code>.</td></tr>
-<tr><td></td><td><code>make wsl-db-seed</code></td><td>Seed the kind tables (safe to re-run) and, when <code>APP_ENV=development</code>, the dev admin <code>admin@example.com</code>.</td></tr>
+<tr><td></td><td><code>make wsl-db-seed</code></td><td>Seed the kind tables (safe to re-run) and, when <code>APP_ENV=development</code>, the dev admin <code>admin@example.com</code> with password <code>Admin1234567!</code>.</td></tr>
 <tr><td><code>make bootstrap-loss</code></td><td><code>make wsl-bootstrap-loss</code></td><td>Create CIC's tables and the <code>stage</code> schema in <code>rwb_loss</code>, and seed <code>dbo.Client</code> and the historical event lookup.</td></tr>
 <tr><td><code>make db-rebuild</code></td><td><code>make wsl-db-rebuild</code></td><td>Destructive: drop the three databases, migrate, seed, and bootstrap the loss database. Asks for <code>yes</code>.</td></tr>
 <tr><td><code>make load-cedants</code></td><td><code>make wsl-load-cedants</code></td><td>Add the cedant names in an Excel file that are not already in <code>cedant</code>. <code>FILE=</code> picks the file; the default is <code>db/bootstrap/seed/cedants.xlsx</code>.</td></tr>
@@ -61,7 +63,7 @@
 <tr><th>Script</th><th>What it does</th></tr>
 <tr><td><code>start-all.sh</code>, <code>stop-all.sh</code></td><td>Start or stop every process inside <code>linux-box</code>. <code>start-all.sh</code> is the container's entry point.</td></tr>
 <tr><td><code>wsl-env.sh</code></td><td>Sourced by the WSL2 targets: exports <code>infra/.env</code> and points the database servers at <code>localhost</code>.</td></tr>
-<tr><td><code>wsl-setup.sh</code>, <code>wsl-start.sh</code></td><td>First-time WSL2 setup, and starting SQL Server and Redis.</td></tr>
+<tr><td><code>wsl-setup.sh</code>, <code>wsl-start.sh</code></td><td>First-time WSL2 setup (start, create, migrate, and seed all three databases), and starting SQL Server and Redis.</td></tr>
 <tr><td><code>wsl-workers.sh</code>, <code>wsl-worker-logs.sh</code>, <code>wsl-worker-health.sh</code></td><td>Background workers, their logs, and their health in WSL2.</td></tr>
 <tr><td><code>check-port.sh</code></td><td>Shows which process holds a port.</td></tr>
 <tr><td><code>bootstrap_db.py</code>, <code>reset_db.py</code>, <code>seed_db.py</code></td><td>Create, drop and recreate, and seed the app databases.</td></tr>
@@ -73,8 +75,7 @@
 <tr><td><code>sweep-export-archives.sh</code></td><td>Deletes old export archives. See <a href="08-deployed-environment.html#runbook">page 8</a>.</td></tr>
 <tr><td><code>mail_smoke_test.py</code></td><td>Sends one test email through Graph.</td></tr>
 <tr><td><code>generate-requirements.sh</code></td><td>Regenerates <code>requirements.txt</code>, or checks it with <code>--check</code>.</td></tr>
-<tr><td><code>patches/</code></td><td>Six SQL patches that added the CR-04c <code>rwb_job</code> link and context columns to databases created before those columns existed. Revision <code>0001</code> now includes them; a new database does not need the patches.</td></tr>
-<tr><td><code>rhel9/</code></td><td>Server setup, deploy, start, stop, and health scripts. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
+<tr><td><code>deploy/</code></td><td>Server setup, deploy, start, stop, and health scripts. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
 </table>
 
 <h2 id="dependencies">Dependencies</h2>
@@ -91,7 +92,7 @@
 <ol>
 <li><code>bash infra/scripts/generate-requirements.sh</code> runs <code>uv export --frozen --no-dev</code> and writes <code>requirements.txt</code>: hashed pins, no dev tools, first line <code>-e .</code>.</li>
 <li>Commit it with the dependency change. <code>bash infra/scripts/generate-requirements.sh --check</code> fails if it is out of date. CI does not run the check.</li>
-<li>On the server, <code>infra/scripts/rhel9/rhel9-app-install.sh</code> removes the <code>-e .</code> line and runs <code>pip install --require-hashes</code>, then installs the project itself.</li>
+<li>On the server, <code>infra/scripts/deploy/rhel9-app-install.sh</code> removes the <code>-e .</code> line and runs <code>pip install --require-hashes</code>, then installs the project itself.</li>
 </ol>
 
 <h2 id="ai-tooling">AI tooling</h2>

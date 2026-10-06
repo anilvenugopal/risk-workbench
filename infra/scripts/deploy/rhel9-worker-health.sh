@@ -3,9 +3,9 @@
 # on RHEL9 (CR-004), for repeatable before/after inspection around
 # rhel9-start.sh/rhel9-stop.sh.
 #
-# Run directly on RHEL9 — not over SSH, not from Ubuntu (same rule as
-# rhel9-start.sh/rhel9-stop.sh). Uses .venv/bin/python directly, not `uv run`
-# — RHEL9 has no uv, same reason rhel9-start.sh calls venv binaries directly.
+# Runs on: the server.
+# Needs:   APP_DIR; $APP_DIR/infra/.env; .venv (the server has no uv). Optional
+#          PID_DIR (default /var/lib/risk-workbench/pids).
 #
 # Reports two independent things per queue, since one can be true without the
 # other after an unclean stop:
@@ -13,10 +13,7 @@
 #   PROCESS-SCAN: finds a running `dramatiq app.workers.entrypoint -Q <queue>`
 #   process directly via ps, independent of whether its PID file exists.
 #
-# Usage:
-#   APP_DIR=/rms bash infra/scripts/rhel9/rhel9-worker-health.sh
-#   PID_DIR=/var/lib/risk-workbench/pids bash ... (default shown)
-#   bash ... --queue upload_edm   # filter to one queue
+# Usage:   APP_DIR=/rms bash infra/scripts/deploy/rhel9-worker-health.sh [--queue upload_edm]
 
 set -uo pipefail
 # No "-e" — report on every queue even if one lookup fails, same posture as

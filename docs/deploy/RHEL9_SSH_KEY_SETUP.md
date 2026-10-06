@@ -4,6 +4,8 @@ How to generate an SSH key pair and use it to log into the RHEL9 server
 without a password — needed for any deployment mechanism that logs in
 remotely (a local test from Ubuntu/Windows, or a real CI/CD pipeline).
 
+Before this: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md). Local development needs no SSH key.
+
 **The rule that never changes**: the **private** key stays on whichever
 machine is *initiating* the connection (never shared, never leaves that
 machine). The **public** key goes onto the machine being connected to —
@@ -79,10 +81,8 @@ of it. Treat the private key file itself as a real secret.
 The public key must land in a specific file on RHEL9:
 `~/.ssh/authorized_keys` for the account being logged into. `ssh-copy-id`
 is the normal tool for this, but it needs password auth to work the first
-time — which RHEL9 doesn't allow — so use the same file-transfer approach
-already established for this project (see
-[RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) for why a direct `scp`
-between these two WSL2 distros didn't work either).
+time — which RHEL9 doesn't allow — so copy the public key through the
+Windows-shared folder instead.
 
 On **Ubuntu**, copy only the **public** key (never the private one) to the
 Windows-shared folder:
@@ -249,7 +249,7 @@ steps:
   inputs:
     sshEndpoint: myServerSshConnection   # name of the SSH service connection
     runOptions: 'commands'
-    commands: 'cd /rms && bash infra/scripts/rhel9/rhel9-app-install.sh'
+    commands: 'cd /rms && bash infra/scripts/deploy/rhel9-app-install.sh'
 ```
 
 A sibling task, `CopyFilesOverSSH@0`, handles file transfer using the same
@@ -285,3 +285,7 @@ Sources: [Service connections - Azure Pipelines](https://learn.microsoft.com/en-
 | Windows 11 → RHEL9 | `%USERPROFILE%\.ssh\risk-workbench-deploy` | plain `ssh -i` | Documented, not tested |
 | GitHub Actions | GitHub-encrypted secret, injected at run time | `webfactory/ssh-agent` (third-party) | Researched, not implemented |
 | Azure DevOps | SSH service connection | `SSH@0` task (first-party) | Researched, not implemented |
+
+## Next
+
+[RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md), or [RHEL9_QUICKSTART.md](RHEL9_QUICKSTART.md) section 7.

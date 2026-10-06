@@ -3,15 +3,14 @@
 # or a timeout is hit (CR-004). Run after stopping the per-queue worker
 # processes (rhel9-stop.sh), before deploying new code.
 #
-# Run directly on RHEL9 — not over SSH, not from Ubuntu (same rule as
-# rhel9-start.sh/rhel9-stop.sh). Uses .venv/bin/python directly, not `uv run`.
+# Runs on: the server; rhel9-ssh-deploy.sh runs it before installing.
+# Needs:   APP_DIR; $APP_DIR/infra/.env; .venv (not uv). Optional
+#          DRAIN_TIMEOUT_SECS, DRAIN_POLL_INTERVAL_SECS.
 #
 # Reads only rwb_job via the app's own db.execute — no dependency on
 # Dramatiq/Redis, since rwb_job is the queue of record (app/workers/dispatch.py).
 #
-# Usage:
-#   APP_DIR=/rms bash infra/scripts/rhel9/rhel9-drain-check.sh
-#   DRAIN_TIMEOUT_SECS=600 DRAIN_POLL_INTERVAL_SECS=10 bash ...
+# Usage:   APP_DIR=/rms bash infra/scripts/deploy/rhel9-drain-check.sh
 
 set -uo pipefail
 # No "-e" — this script's own control flow (poll, check, loop) handles its

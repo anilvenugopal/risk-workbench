@@ -6,7 +6,9 @@
 # script is only relevant on a machine that opted into the Podman/local
 # SQL Server option; its absence is a normal, expected state elsewhere.
 #
-# Usage: APP_DIR=/rms bash rhel9-start-podman-mssql.sh
+# Runs on: a WSL2 RHEL9 rehearsal distro only.
+# Needs:   APP_DIR; MSSQL_SA_PASSWORD from $APP_DIR/infra/.env.
+# Usage:   APP_DIR=/rms bash infra/scripts/deploy/rhel9-start-podman-mssql.sh
 
 set -uo pipefail
 

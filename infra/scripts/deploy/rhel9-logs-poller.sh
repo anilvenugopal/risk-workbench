@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # rhel9-logs-poller.sh — tail the poller log on RHEL9.
 #
-# Run directly on RHEL9 — not over SSH, not from Ubuntu (same rule as every
-# other rhel9-*.sh script).
-#
-# Usage:
-#   bash infra/scripts/rhel9/rhel9-logs-poller.sh
+# Runs on: the server.
+# Usage:   bash infra/scripts/deploy/rhel9-logs-poller.sh
 
 set -uo pipefail
 

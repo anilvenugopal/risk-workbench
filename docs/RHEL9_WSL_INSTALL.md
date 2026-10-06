@@ -1,20 +1,9 @@
 # RHEL9 WSL Install
 
-Installs a real Red Hat Enterprise Linux 9.8 distro under WSL2 on Windows,
-alongside your existing Ubuntu WSL2 distro. Ubuntu is not touched by any step
-below — this creates a second, separate distro.
-
-This is a one-time, per-developer, Windows-side setup. Run it yourself; no
-infra request needed for any step here (registration uses your own free Red
-Hat Developer subscription, not a corporate one).
-
-Covers: getting the RHEL9 image, installing it as a WSL2 distro, verifying it
-boots, registering it with Red Hat, and creating your personal login account.
-
-Does **not** cover: installing project dependencies (Python, Redis, the ODBC
-driver, etc.) — see [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md). Does not
-cover cloning the repo or running the app — see
-[SCAFFOLDING.md](../SCAFFOLDING.md) and [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md).
+Installs Red Hat Enterprise Linux 9.8 as a separate WSL2 distro (an existing
+Ubuntu distro is untouched), registers it with your free Red Hat Developer
+subscription, and creates your login account. One-time, per developer; no
+infra request needed.
 
 ---
 
@@ -31,8 +20,7 @@ Neither limit matters for local development.
 This gets you the actual RHEL9 userspace — same package names, same `dnf`
 behavior, same defaults as the real server — with none of the binary-rebuild
 questions a distro like AlmaLinux would raise, and none of the networking/
-filesystem friction a separate virtual machine would add on top of the
-Docker Desktop WSL2 integration you already use for SQL Server.
+filesystem friction a separate virtual machine would add.
 
 ---
 
@@ -191,7 +179,7 @@ sudo usermod -aG wheel cinreadmd
 `useradd` also assigns `cinreadmd` a subuid/subgid range (visible in `/etc/subuid`/`/etc/subgid`) —
 the ID range rootless Podman needs. RHEL9's `/etc/login.defs` sets
 `SUB_UID_COUNT`/`SUB_GID_COUNT` to auto-assign this to every new account.
-See [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md#optional-podman--local-sql-server) for where this matters.
+See [RHEL9_SYSTEM_SETUP.md](deploy/RHEL9_SYSTEM_SETUP.md#optional-podman--local-sql-server) for where this matters.
 
 Verify:
 
@@ -210,12 +198,11 @@ then print `root`.
 
 ## Result
 
-- A real RHEL9.8 WSL2 distro named `RHEL9`, separate from your existing
-  Ubuntu distro.
+- A RHEL9.8 WSL2 distro named `RHEL9`.
 - Registered with Red Hat via your free Developer Subscription.
 - A personal, password-protected, sudo-capable account (`cinreadmd`) for all
   further work — matching the no-standing-sudo reality of the production
   server.
 
-Next: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) to install project
-dependencies (Python 3.14, Redis, the ODBC driver, nginx, build tools).
+Next: [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) for local development, or
+[deploy/RHEL9_SYSTEM_SETUP.md](deploy/RHEL9_SYSTEM_SETUP.md) to rehearse a deployment.

@@ -150,8 +150,8 @@ processes; every other target below runs inside `linux-box` and needs the stack
 already up. Starting it is the developer's call, not an agent's (see
 [Testing](#testing)):
 ```bash
-make start           # start full Docker stack (partner / Windows)
-make wsl-start       # start SQL Server (Docker) + Redis only (WSL2 native mode)
+make start           # start full Docker stack (machines without WSL2)
+make wsl-start       # start SQL Server (Docker or Podman) + Redis only (WSL2 native mode)
 make wsl-app         # uvicorn --reload natively in WSL2
 make shell           # bash inside linux-box
 make db-migrate      # alembic upgrade head on rwb_workbench
@@ -166,7 +166,7 @@ For debugpy on :5678, set `APP_DEBUG=1` in `infra/.env` and run `make start`;
 The unit tier is the exception: `uv run pytest tests/unit` runs from any host shell
 with no container and no database. Prefer it over `make test`.
 
-See [docs/SCAFFOLDING.md](docs/SCAFFOLDING.md) for full setup and debugging tutorial.
+See [docs/LOCAL_DEV_SETUP.md](docs/LOCAL_DEV_SETUP.md) for full setup and debugging tutorial.
 
 ## Architecture Rules (Summary)
 
