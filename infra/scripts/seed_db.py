@@ -10,7 +10,7 @@ Inserts:
     Only inserted in development (APP_ENV=development).
 
 Dev only, never the server.
-Usage: make wsl-db-seed   (Docker-only: make db-rebuild)
+Usage: make wsl-db-seed   (Docker-only: make shell, then python scripts/seed_db.py)
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run_user_setup.sh — interactive user provisioning CLI for Risk Workbench.
 #
-# Usage: make wsl-user-setup      server: cd /rms && ./infra/scripts/run_user_setup.sh
+# Usage: make wsl-user-setup      server: cd /rms && bash infra/scripts/run_user_setup.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 if [ -n "${WSL_DISTRO_NAME:-}" ]; then

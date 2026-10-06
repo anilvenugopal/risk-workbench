@@ -79,7 +79,7 @@ cd ~/projects/risk-workbench
 cp infra/.env.example infra/.env
 ```
 
-Open `infra/.env` and set two values:
+Open `infra/.env` and set three values:
 
 ```ini
 # Generate this with: python3 -c "import secrets; print(secrets.token_hex(32))"
@@ -89,7 +89,7 @@ SESSION_SECRET_KEY=<paste 64-char hex string here>
 MSSQL_SA_PASSWORD=<your password here>
 
 # docker or podman
-RWB_CONTAINER_RUNTIME=podman
+RWB_CONTAINER_RUNTIME=docker
 ```
 
 Leave everything else as-is for local development.

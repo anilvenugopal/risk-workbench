@@ -81,7 +81,7 @@
 <tr><td>Deactivate / reactivate</td><td><code>POST /admin/users/{id}/deactivate</code>, <code>/reactivate</code></td><td>Blocks or restores sign-in and ends the user's sessions. An admin cannot deactivate themselves. Users are never deleted.</td><td>"This analyst has left CIC."</td></tr>
 </table>
 
-<p>The same actions, plus creating the first admin, are available from the command line with <code>make wsl-user-setup</code> or <code>infra/scripts/run_user_setup.sh</code>. The steps for each case are in <a href="../USER_PROVISIONING.md">docs/USER_PROVISIONING.md</a>.</p>
+<p>The same actions, plus creating the first admin, are available from the command line with <code>make wsl-user-setup</code> or <code>bash infra/scripts/run_user_setup.sh</code>. The steps for each case are in <a href="../USER_PROVISIONING.md">docs/USER_PROVISIONING.md</a>.</p>
 
 <h2 id="env-reference">Environment variable reference</h2>
 
@@ -146,7 +146,7 @@
 <tr><td>uvicorn</td><td>Container output: <code>make logs</code></td><td>The terminal running <code>make wsl-app</code></td><td><code>/var/lib/risk-workbench/uvicorn.log</code></td></tr>
 <tr><td>Worker for queue <i>q</i></td><td><code>/workspace/.dev-logs/worker-<i>q</i>.log</code></td><td><code>.dev-logs/worker-<i>q</i>.log</code> (with <code>make wsl-workers</code>), or the terminal (with <code>make wsl-worker</code>)</td><td><code>/var/lib/risk-workbench/worker-<i>q</i>.log</code></td></tr>
 <tr><td>Poller</td><td><code>/workspace/.dev-logs/poller.log</code></td><td>The terminal running <code>make wsl-poller</code></td><td><code>/var/lib/risk-workbench/poller.log</code></td></tr>
-<tr><td>Redis / Valkey</td><td><code>/workspace/.dev-logs/redis.log</code></td><td><code>/tmp/rwb-redis.log</code></td><td><code>/var/lib/risk-workbench/valkey/valkey.log</code></td></tr>
+<tr><td>Redis / Valkey</td><td><code>/workspace/.dev-logs/redis.log</code></td><td><code>/tmp/rwb-redis.log</code>, or <code>/tmp/rwb-valkey.log</code> on a RHEL9 distro</td><td><code>/var/lib/risk-workbench/valkey/valkey.log</code></td></tr>
 <tr><td>nginx</td><td>Container output</td><td>Not used</td><td>The system nginx log locations; <code>site.conf</code> sets none</td></tr>
 </table>
 
