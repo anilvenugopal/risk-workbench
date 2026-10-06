@@ -29,3 +29,8 @@ svg.diagram {
   height: auto;
   margin: 1rem 0;
 }
+
+ul.checklist {
+  list-style: none;
+  padding-left: 0;
+}

@@ -116,7 +116,7 @@
 <li>Every state-changing form carries a <code>csrf_token</code> signed with <code>SESSION_SECRET_KEY</code>.</li>
 </ul>
 
-<p>The password fallback stores bcrypt hashes in <code>app_user.password_hash</code>. <code>POST /auth/login</code> accepts a password whatever <code>AUTH_MODE</code> is set to; <code>AUTH_MODE</code> only hides the form. This is blocker B13 on <a href="09-path-to-production.html#blockers">page 9</a>. In the deployed environment only password sign-in works today (B7).</p>
+<p>Password sign-in is the production sign-in for v1; Entra sign-in is optional (C8 on <a href="09-path-to-production.html#c8">page 9</a>). Passwords are stored as bcrypt hashes in <code>app_user.password_hash</code>. <code>POST /auth/login</code> accepts a password whatever <code>AUTH_MODE</code> is set to; <code>AUTH_MODE</code> only hides the form, so turning password sign-in off needs the code change in C8.</p>
 
 <p>Setup and reference:</p>
 <ul>
