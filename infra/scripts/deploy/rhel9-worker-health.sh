@@ -14,7 +14,7 @@
 #   process directly via ps, independent of whether its PID file exists.
 #
 # Usage:
-#   APP_DIR=/rms bash infra/scripts/rhel9/rhel9-worker-health.sh
+#   APP_DIR=/rms bash infra/scripts/deploy/rhel9-worker-health.sh
 #   PID_DIR=/var/lib/risk-workbench/pids bash ... (default shown)
 #   bash ... --queue upload_edm   # filter to one queue
 

@@ -5,7 +5,7 @@
 # other rhel9-*.sh script).
 #
 # Usage:
-#   bash infra/scripts/rhel9/rhel9-logs-poller.sh
+#   bash infra/scripts/deploy/rhel9-logs-poller.sh
 
 set -uo pipefail
 

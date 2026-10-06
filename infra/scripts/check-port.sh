@@ -4,7 +4,7 @@
 # Standalone: works identically whichever machine you run it on (Ubuntu,
 # RHEL9, or any other Linux box) — no SSH, no cross-machine calls. If
 # you're on WSL2 and suspect the OTHER distro is holding a port (they
-# share one IP — see docs/RHEL9_SYSTEM_SETUP.md's Redis/Valkey section),
+# share one IP — see docs/deploy/RHEL9_SYSTEM_SETUP.md's Redis/Valkey section),
 # run this SAME script over there too and compare; this script only ever
 # reports what it can see from wherever it's actually running.
 #
@@ -86,7 +86,7 @@ if [ -z "$PROC_NAME" ]; then
     echo "Port $PORT is bound, but no owning process is visible from here."
     echo ""
     echo "Confirmed cause on a WSL2 machine sharing its IP with another"
-    echo "distro (see docs/RHEL9_SYSTEM_SETUP.md's Redis/Valkey section):"
+    echo "distro (see docs/deploy/RHEL9_SYSTEM_SETUP.md's Redis/Valkey section):"
     echo "this machine's kernel can see the port is taken at the network"
     echo "level, but the actual process runs in the OTHER distro — it has"
     echo "no visibility into that distro's process list at all, so the"

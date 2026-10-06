@@ -27,7 +27,7 @@
 
 <p>Where each process logs in each setup is on <a href="07-configuration-and-observability.html#logging">page 7</a>.</p>
 
-<p>Step-by-step setup is in <a href="../SCAFFOLDING.md">docs/SCAFFOLDING.md</a> (WSL2) and <a href="../DEVELOPER_PLAYBOOK.md">docs/DEVELOPER_PLAYBOOK.md</a> (Docker, VS Code, and debugging). To debug with breakpoints in Docker, set <code>APP_DEBUG=1</code> in <code>infra/.env</code> and run <code>make start</code>; uvicorn then waits for a debugger on port 5678.</p>
+<p>Step-by-step setup is in <a href="../LOCAL_DEV_SETUP.md">docs/LOCAL_DEV_SETUP.md</a> (WSL2) and <a href="../DEVELOPER_PLAYBOOK.md">docs/DEVELOPER_PLAYBOOK.md</a> (Docker, VS Code, and debugging). To debug with breakpoints in Docker, set <code>APP_DEBUG=1</code> in <code>infra/.env</code> and run <code>make start</code>; uvicorn then waits for a debugger on port 5678.</p>
 
 <h2 id="make-targets">Make targets and scripts</h2>
 
@@ -74,7 +74,7 @@
 <tr><td><code>mail_smoke_test.py</code></td><td>Sends one test email through Graph.</td></tr>
 <tr><td><code>generate-requirements.sh</code></td><td>Regenerates <code>requirements.txt</code>, or checks it with <code>--check</code>.</td></tr>
 <tr><td><code>patches/</code></td><td>Six SQL patches that added the CR-04c <code>rwb_job</code> link and context columns to databases created before those columns existed. Revision <code>0001</code> now includes them; a new database does not need the patches.</td></tr>
-<tr><td><code>rhel9/</code></td><td>Server setup, deploy, start, stop, and health scripts. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
+<tr><td><code>deploy/</code></td><td>Server setup, deploy, start, stop, and health scripts. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
 </table>
 
 <h2 id="dependencies">Dependencies</h2>
@@ -91,7 +91,7 @@
 <ol>
 <li><code>bash infra/scripts/generate-requirements.sh</code> runs <code>uv export --frozen --no-dev</code> and writes <code>requirements.txt</code>: hashed pins, no dev tools, first line <code>-e .</code>.</li>
 <li>Commit it with the dependency change. <code>bash infra/scripts/generate-requirements.sh --check</code> fails if it is out of date. CI does not run the check.</li>
-<li>On the server, <code>infra/scripts/rhel9/rhel9-app-install.sh</code> removes the <code>-e .</code> line and runs <code>pip install --require-hashes</code>, then installs the project itself.</li>
+<li>On the server, <code>infra/scripts/deploy/rhel9-app-install.sh</code> removes the <code>-e .</code> line and runs <code>pip install --require-hashes</code>, then installs the project itself.</li>
 </ol>
 
 <h2 id="ai-tooling">AI tooling</h2>

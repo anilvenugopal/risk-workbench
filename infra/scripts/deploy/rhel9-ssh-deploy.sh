@@ -45,7 +45,7 @@ case "$SSH_KEY" in
         ;;
 esac
 
-# This script lives in infra/scripts/rhel9/ — three levels below the repo
+# This script lives in infra/scripts/deploy/ — three levels below the repo
 # root.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$REPO_ROOT"
@@ -126,7 +126,7 @@ echo "=== 2. Verify prerequisites (remote) ==="
 # anything is on disk to check with.
 ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" \
     "APP_DIR=$DEPLOY_DIR DEPLOY_USER=\$(whoami) PYTHON_PKG=$PYTHON_PKG \
-     bash $DEPLOY_DIR/infra/scripts/rhel9/rhel9-check-prereqs.sh"
+     bash $DEPLOY_DIR/infra/scripts/deploy/rhel9-check-prereqs.sh"
 
 echo ""
 echo "=== 2.a. Drain check (remote) ==="
@@ -136,7 +136,7 @@ echo "=== 2.a. Drain check (remote) ==="
 # itself. Aborts the deploy on timeout rather than installing/migrating over
 # work still in flight.
 ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" \
-    "APP_DIR=$DEPLOY_DIR bash $DEPLOY_DIR/infra/scripts/rhel9/rhel9-drain-check.sh"
+    "APP_DIR=$DEPLOY_DIR bash $DEPLOY_DIR/infra/scripts/deploy/rhel9-drain-check.sh"
 
 echo ""
 echo "=== 3. Install dependencies and run migrations (remote) ==="
@@ -149,13 +149,13 @@ echo "=== 3. Install dependencies and run migrations (remote) ==="
 # because we always cd'd into the app directory by hand first — this
 # one-line SSH command needs to do that explicitly instead.
 ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" \
-    "cd $DEPLOY_DIR && PYTHON_BIN=$PYTHON_PKG bash infra/scripts/rhel9/rhel9-app-install.sh"
+    "cd $DEPLOY_DIR && PYTHON_BIN=$PYTHON_PKG bash infra/scripts/deploy/rhel9-app-install.sh"
 
 echo ""
 echo "=== 4. Reload nginx (remote, pre-authorized, no password) ==="
 # Relies on TWO one-time sudoers grants from rhel9-setup.sh: writing the
 # config file (tee /etc/nginx/conf.d/risk-workbench.conf) and reloading
-# nginx (systemctl reload nginx) — see docs/RHEL9/RHEL9_DEPLOYMENT.md Step 0. If
+# nginx (systemctl reload nginx) — see docs/deploy/RHEL9_DEPLOYMENT.md Step 0. If
 # this fails with a password prompt, one of those grants is missing.
 ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" bash -s -- "$DEPLOY_DIR" << 'REMOTE_NGINX'
 set -euo pipefail
@@ -178,7 +178,7 @@ if ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" "curl -sf http://127.0.0.1:80/api/health"
 else
     echo "  WARNING: health check did not return success. The app may not" >&2
     echo "  have restarted yet — restarting uvicorn/worker/poller is still" >&2
-    echo "  a manual step (see docs/RHEL9/RHEL9_DEPLOYMENT.md Open items)." >&2
+    echo "  a manual step (see docs/deploy/RHEL9_DEPLOYMENT.md Open items)." >&2
 fi
 
 echo ""
@@ -187,5 +187,5 @@ echo "NOTE: this script drains the rwb_job queues (step 2.5) but does NOT"
 echo "stop or start uvicorn/the per-queue workers/the poller itself. Before"
 echo "running this script, stop them (rhel9-stop.sh) so the drain check has"
 echo "something to confirm; after it completes, start them again"
-echo "(rhel9-start.sh). See docs/RHEL9/RHEL9_DEPLOYMENT.md Open items —"
+echo "(rhel9-start.sh). See docs/deploy/RHEL9_DEPLOYMENT.md Open items —"
 echo "systemd units for these processes are still unbuilt, deliberately."

@@ -6,10 +6,10 @@ build tools, and `rsync`.
 
 This prepares a deployment target: the production server, or a WSL2 RHEL9
 distro used to rehearse a deployment. For local development on RHEL9, skip
-this document and follow [SCAFFOLDING.md](../SCAFFOLDING.md); it installs
+this document and follow [LOCAL_DEV_SETUP.md](../LOCAL_DEV_SETUP.md); it installs
 only what development needs.
 
-Prerequisite on WSL2: [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) completed —
+Prerequisite on WSL2: [RHEL9_WSL_INSTALL.md](../RHEL9_WSL_INSTALL.md) completed —
 registered RHEL9 distro, `cinreadmd` created with sudo, locale fixed.
 
 ## Do this
@@ -17,18 +17,18 @@ registered RHEL9 distro, `cinreadmd` created with sudo, locale fixed.
 Run the setup script, then the check script to confirm it worked:
 
 ```bash
-DEPLOY_USER=cinreadmd APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup.sh
+DEPLOY_USER=cinreadmd APP_DIR=/rms bash infra/scripts/deploy/rhel9-setup.sh
 ```
 
 Verify it worked with:
 ```bash
 APP_DIR=/rms DEPLOY_USER=cinreadmd PYTHON_PKG=python3.14 \
-    bash infra/scripts/rhel9/rhel9-check-prereqs.sh
+    bash infra/scripts/deploy/rhel9-check-prereqs.sh
 ```
 
-- [rhel9-setup.sh](../../infra/scripts/rhel9/rhel9-setup.sh) installs
+- [rhel9-setup.sh](../../infra/scripts/deploy/rhel9-setup.sh) installs
   everything below. Safe to re-run — it checks state before acting.
-- [rhel9-check-prereqs.sh](../../infra/scripts/rhel9/rhel9-check-prereqs.sh)
+- [rhel9-check-prereqs.sh](../../infra/scripts/deploy/rhel9-check-prereqs.sh)
   is read-only — checks every package, command, permission, and (once
   `infra/.env` exists) network reachability. Safe to run repeatedly, from
   the server or a pipeline.
@@ -61,7 +61,7 @@ git --version
 ### Production considerations
 
 **Decided**: this project's deploy mechanism is push-based —
-[rhel9-ssh-deploy.sh](../../infra/scripts/rhel9/rhel9-ssh-deploy.sh) pushes code to
+[rhel9-ssh-deploy.sh](../../infra/scripts/deploy/rhel9-ssh-deploy.sh) pushes code to
 the server via `rsync` over SSH; the server never runs `git clone`/`git
 pull` against GitHub and does not need GitHub credentials. Installing Python
 dependencies still needs PyPI access unless the packages are staged on the
@@ -189,7 +189,7 @@ the ordering matters (`unixODBC-devel` needs the repo registered first).*
 sudo curl -fsSL https://packages.microsoft.com/config/rhel/9/prod.repo -o /etc/yum.repos.d/mssql-release.repo
 ```
 
-The RHEL equivalent of SCAFFOLDING.md's
+The RHEL equivalent of LOCAL_DEV_SETUP.md's
 `packages.microsoft.com/config/ubuntu/24.04/prod.list` step — a `.repo` file
 (dnf/yum's config format) in `/etc/yum.repos.d/`, the directory `dnf` scans
 for repo definitions. Microsoft publishes this RHEL9-specific repo directly;
@@ -255,7 +255,7 @@ it too.
 *Package install automated by rhel9-setup.sh section 2 ("System
 packages") — it installs `valkey`, per the decision below. Starting it
 with the right flags (AOF, a writable `--dir`) is scripted:
-`infra/scripts/rhel9/rhel9-start.sh` section 2 starts `valkey-server` with
+`infra/scripts/deploy/rhel9-start.sh` section 2 starts `valkey-server` with
 `--appendonly yes --appendfsync everysec --dir /var/lib/risk-workbench/valkey`.*
 
 ### Which one, and why
@@ -500,11 +500,11 @@ one before starting the other. Diagnose with
 ### Order of operations
 
 ```bash
-DEPLOY_USER=cinreadmd APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup.sh  # once
+DEPLOY_USER=cinreadmd APP_DIR=/rms bash infra/scripts/deploy/rhel9-setup.sh  # once
 cp <your .env> infra/.env                             # once
-DEPLOY_USER=cinreadmd APP_DIR=/rms bash infra/scripts/rhel9/rhel9-setup-podman-mssql.sh  # once, if wanted
-APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start.sh         # every session
-APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start-podman-mssql.sh  # every session, if wanted
+DEPLOY_USER=cinreadmd APP_DIR=/rms bash infra/scripts/deploy/rhel9-setup-podman-mssql.sh  # once, if wanted
+APP_DIR=/rms bash infra/scripts/deploy/rhel9-start.sh         # every session
+APP_DIR=/rms bash infra/scripts/deploy/rhel9-start-podman-mssql.sh  # every session, if wanted
 ```
 
 `rhel9-setup-podman-mssql.sh` installs Podman and creates the SQL Server
@@ -521,7 +521,7 @@ checks for this and assigns it if missing.
 **Confirmed**: this is normally already done for you. RHEL9's
 `/etc/login.defs` sets `SUB_UID_COUNT`/`SUB_GID_COUNT`, so `useradd`
 assigns every new account a subuid/subgid range automatically — see
-[RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md). `rhel9-setup-podman-mssql.sh`
+[RHEL9_WSL_INSTALL.md](../RHEL9_WSL_INSTALL.md). `rhel9-setup-podman-mssql.sh`
 assigns a range (`usermod --add-subuids`) only when the account has none.
 
 ### `podman create` vs `podman start` vs `podman run`

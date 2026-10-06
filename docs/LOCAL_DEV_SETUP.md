@@ -33,7 +33,7 @@ WSL2 Development                          Production (Linux server)
 
 The same five processes run in development and production. In development they
 are started manually (one terminal each). In production
-`infra/scripts/rhel9/rhel9-start.sh` starts them with `nohup`; nginx alone is a
+`infra/scripts/deploy/rhel9-start.sh` starts them with `nohup`; nginx alone is a
 systemd service. The commands are identical — only the launcher changes.
 
 **Redis is durable (AOF) in all environments.** `appendonly yes`,
@@ -54,7 +54,7 @@ Docker — see [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md).
 - WSL2 running one of:
   - Ubuntu 22.04 or later
   - RHEL9, which matches the deployed server. Install it with
-    [RHEL9/RHEL9_WSL_INSTALL.md](RHEL9/RHEL9_WSL_INSTALL.md), then
+    [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md), then
     `sudo dnf install -y git make`.
 - A container runtime for SQL Server, on either distro:
   - Podman, installed in Step 4. The client runs Podman.
@@ -63,7 +63,7 @@ Docker — see [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md).
 - VS Code with the WSL extension (`ms-vscode-remote.remote-wsl`)
 
 Every `make wsl-*` target works on both distros and with both runtimes. Local development does not
-need `infra/scripts/rhel9/rhel9-setup.sh` or the rest of `docs/RHEL9/`
+need `infra/scripts/deploy/rhel9-setup.sh` or the rest of `docs/deploy/`
 after the WSL install: those prepare a deployment target (`/rms`, nginx,
 sudoers rules).
 
@@ -422,7 +422,7 @@ inside `linux-box`. That directory is not a volume, so the AOF file does not
 survive recreating the container.
 
 **Production (RHEL9, Valkey):**
-`infra/scripts/rhel9/rhel9-start.sh` starts:
+`infra/scripts/deploy/rhel9-start.sh` starts:
 ```
 valkey-server --port 6379 --bind 127.0.0.1 --appendonly yes --appendfsync everysec \
     --dir /var/lib/risk-workbench/valkey --logfile /var/lib/risk-workbench/valkey/valkey.log

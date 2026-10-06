@@ -120,7 +120,7 @@ format:   ## [Docker] Run ruff formatter
 
 wsl-setup:   ## [WSL2] First run: start SQL Server + Redis, then create, migrate and seed all 3 databases
 	@echo "  Prerequisites: uv, ODBC Driver 18, Redis/Valkey, Docker/Podman must be installed first."
-	@echo "  See docs/SCAFFOLDING.md Steps 2-4 if this is your first time."
+	@echo "  See docs/LOCAL_DEV_SETUP.md Steps 2-4 if this is your first time."
 	@echo ""
 	bash infra/scripts/wsl-setup.sh
 

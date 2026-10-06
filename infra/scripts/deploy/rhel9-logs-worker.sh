@@ -6,8 +6,8 @@
 # invoked directly, same as rhel9-start.sh/rhel9-stop.sh.
 #
 # Usage:
-#   bash infra/scripts/rhel9/rhel9-logs-worker.sh upload_edm
-#   bash infra/scripts/rhel9/rhel9-logs-worker.sh          # lists queue names and exits
+#   bash infra/scripts/deploy/rhel9-logs-worker.sh upload_edm
+#   bash infra/scripts/deploy/rhel9-logs-worker.sh          # lists queue names and exits
 
 set -uo pipefail
 
@@ -27,7 +27,7 @@ if [ -z "$QUEUE" ]; then
     source infra/.env
     set +a
 
-    echo "Usage: bash infra/scripts/rhel9/rhel9-logs-worker.sh <queue>" >&2
+    echo "Usage: bash infra/scripts/deploy/rhel9-logs-worker.sh <queue>" >&2
     echo "" >&2
     echo "Available queues:" >&2
     .venv/bin/python -m app.workers.queues >&2

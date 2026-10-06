@@ -146,13 +146,13 @@ wsl --install
 Reboot when prompted. After reboot, WSL2 will finish installing Ubuntu.
 Set a username and password when asked.
 
-**RHEL9:** follow [RHEL9/RHEL9_WSL_INSTALL.md](RHEL9/RHEL9_WSL_INSTALL.md).
+**RHEL9:** follow [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md).
 It ends with a personal account in a distro named `RHEL9`.
 
 ### Step 2 — Install Docker Desktop with WSL2 backend (Docker only)
 
 Skip this step if you run SQL Server under Podman (the client's choice), which
-[SCAFFOLDING.md](SCAFFOLDING.md) Step 4 installs on either distro.
+[LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) Step 4 installs on either distro.
 
 1. Install [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)
 2. In Docker Desktop → Settings → Resources → WSL Integration:
@@ -174,7 +174,7 @@ VS Code opens connected to WSL2. All terminals in VS Code are now Linux shells.
 
 ### Step 5 — First-time setup
 
-Follow [SCAFFOLDING.md](SCAFFOLDING.md) First-Time Setup. It clones the repo,
+Follow [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) First-Time Setup. It clones the repo,
 installs uv, the ODBC driver, Redis (Valkey on RHEL9) and Podman, then runs
 `make wsl-setup`, which starts SQL Server and Redis and creates, migrates, and
 seeds all three databases.

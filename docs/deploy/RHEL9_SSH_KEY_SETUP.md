@@ -81,7 +81,7 @@ The public key must land in a specific file on RHEL9:
 is the normal tool for this, but it needs password auth to work the first
 time — which RHEL9 doesn't allow — so use the same file-transfer approach
 already established for this project (see
-[RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) for why a direct `scp`
+[RHEL9_WSL_INSTALL.md](../RHEL9_WSL_INSTALL.md) for why a direct `scp`
 between these two WSL2 distros didn't work either).
 
 On **Ubuntu**, copy only the **public** key (never the private one) to the
@@ -249,7 +249,7 @@ steps:
   inputs:
     sshEndpoint: myServerSshConnection   # name of the SSH service connection
     runOptions: 'commands'
-    commands: 'cd /rms && bash infra/scripts/rhel9/rhel9-app-install.sh'
+    commands: 'cd /rms && bash infra/scripts/deploy/rhel9-app-install.sh'
 ```
 
 A sibling task, `CopyFilesOverSSH@0`, handles file transfer using the same

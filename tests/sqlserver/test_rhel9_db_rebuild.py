@@ -34,7 +34,7 @@ def test_rebuild_survives_unknown_table_and_foreign_key(scratch_database):
         result = run_against_database(
             [
                 sys.executable,
-                "infra/scripts/rhel9/drop_workbench_tables.py",
+                "infra/scripts/deploy/drop_workbench_tables.py",
                 "--yes",
             ],
             scratch_database,

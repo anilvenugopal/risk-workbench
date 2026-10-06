@@ -2,9 +2,9 @@
 
 Condensed end-to-end sequence for setting up a RHEL9 deployment target (the
 server, or a WSL2 RHEL9 distro used to rehearse a deployment) and deploying to
-it. For local development on RHEL9, see [SCAFFOLDING.md](../SCAFFOLDING.md)
+it. For local development on RHEL9, see [LOCAL_DEV_SETUP.md](../LOCAL_DEV_SETUP.md)
 instead. For explanations and troubleshooting, see
-[RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md),
+[RHEL9_WSL_INSTALL.md](../RHEL9_WSL_INSTALL.md),
 [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md),
 [RHEL9_SSH_KEY_SETUP.md](RHEL9_SSH_KEY_SETUP.md), and
 [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) — this file only lists commands
@@ -19,7 +19,7 @@ not use it, so substitute the server's own address.
 
 ## 1. Install RHEL9 (only on WSL2)
 
-Covered in [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md): create a free Red
+Covered in [RHEL9_WSL_INSTALL.md](../RHEL9_WSL_INSTALL.md): create a free Red
 Hat Developer account, build a RHEL9 WSL image via Red Hat's Image
 Builder, install it with `wsl --install --from-file`, register it with
 `subscription-manager`, fix the locale gap, and create a personal
@@ -55,7 +55,7 @@ ssh -i ~/.ssh/risk-workbench-deploy cinreadmd@172.19.253.47 "echo ok"
 
 ## 3. One-time system setup (run on RHEL9, as `cinreadmd`)
 
-Copy `infra/scripts/rhel9/rhel9-setup.sh` to the server first (the repo
+Copy `infra/scripts/deploy/rhel9-setup.sh` to the server first (the repo
 isn't cloned yet at this point), `chmod +x` it, then:
 
 ```bash
@@ -97,17 +97,17 @@ sudo cat /etc/sudoers.d/risk-workbench-nginx-conf-write
 
 Skip this if pointing at a real, separately-hosted SQL Server instead.
 
-On a fresh server `/rms/infra/scripts/rhel9/` does not exist until the first
+On a fresh server `/rms/infra/scripts/deploy/` does not exist until the first
 deploy (Section 7), so create it before copying the script:
 
 ```bash
 ssh -i ~/.ssh/risk-workbench-deploy cinreadmd@172.19.253.47 \
     "mkdir -p /rms/infra/scripts/rhel9"
 scp -i ~/.ssh/risk-workbench-deploy \
-    infra/scripts/rhel9/rhel9-setup-podman-mssql.sh \
-    cinreadmd@172.19.253.47:/rms/infra/scripts/rhel9/
+    infra/scripts/deploy/rhel9-setup-podman-mssql.sh \
+    cinreadmd@172.19.253.47:/rms/infra/scripts/deploy/
 ssh -i ~/.ssh/risk-workbench-deploy cinreadmd@172.19.253.47 \
-    "APP_DIR=/rms DEPLOY_USER=cinreadmd bash /rms/infra/scripts/rhel9/rhel9-setup-podman-mssql.sh"
+    "APP_DIR=/rms DEPLOY_USER=cinreadmd bash /rms/infra/scripts/deploy/rhel9-setup-podman-mssql.sh"
 ```
 
 Installs Podman, does the one-time rootless setup, and **creates** (does
@@ -120,7 +120,7 @@ network connectivity to whatever `infra/.env` points at, container or not.
 
 ```bash
 ssh -i ~/.ssh/risk-workbench-deploy cinreadmd@172.19.253.47 \
-    "APP_DIR=/rms DEPLOY_USER=cinreadmd PYTHON_PKG=python3.14 bash /rms/infra/scripts/rhel9/rhel9-check-prereqs.sh"
+    "APP_DIR=/rms DEPLOY_USER=cinreadmd PYTHON_PKG=python3.14 bash /rms/infra/scripts/deploy/rhel9-check-prereqs.sh"
 ```
 
 On a fresh server this script exists only after the first deploy (Section 7),
@@ -139,7 +139,7 @@ network reachability. Read-only — safe to run anytime.
 DEPLOY_HOST=cinreadmd@172.19.253.47 \
 DEPLOY_DIR=/rms \
 SSH_KEY=~/.ssh/risk-workbench-deploy \
-bash infra/scripts/rhel9/rhel9-ssh-deploy.sh
+bash infra/scripts/deploy/rhel9-ssh-deploy.sh
 ```
 
 `SSH_KEY` must not contain spaces. Pushes git-tracked files via `rsync`
@@ -150,9 +150,9 @@ rows to drain, installs dependencies, runs migrations, and reloads nginx. RHEL9 
 **Pull-based (run directly on RHEL9) — manual/local alternative:**
 
 ```bash
-APP_DIR=/rms BRANCH=main bash infra/scripts/rhel9/rhel9-pull-code.sh
-APP_DIR=/rms DEPLOY_USER=cinreadmd PYTHON_PKG=python3.14 bash infra/scripts/rhel9/rhel9-check-prereqs.sh
-PYTHON_BIN=python3.14 bash infra/scripts/rhel9/rhel9-app-install.sh
+APP_DIR=/rms BRANCH=main bash infra/scripts/deploy/rhel9-pull-code.sh
+APP_DIR=/rms DEPLOY_USER=cinreadmd PYTHON_PKG=python3.14 bash infra/scripts/deploy/rhel9-check-prereqs.sh
+PYTHON_BIN=python3.14 bash infra/scripts/deploy/rhel9-app-install.sh
 ```
 
 `rhel9-app-install.sh` takes `PYTHON_BIN`, not `BRANCH` — it doesn't fetch
@@ -163,9 +163,9 @@ already on disk. Must be run from inside `/rms`.
 
 ```bash
 ssh -i ~/.ssh/risk-workbench-deploy cinreadmd@172.19.253.47 \
-    "APP_DIR=/rms bash /rms/infra/scripts/rhel9/rhel9-start.sh"
+    "APP_DIR=/rms bash /rms/infra/scripts/deploy/rhel9-start.sh"
 ssh -i ~/.ssh/risk-workbench-deploy cinreadmd@172.19.253.47 \
-    "APP_DIR=/rms bash /rms/infra/scripts/rhel9/rhel9-stop.sh"
+    "APP_DIR=/rms bash /rms/infra/scripts/deploy/rhel9-stop.sh"
 ```
 
 Starts/stops Valkey, uvicorn, one Dramatiq worker process per queue (one per
@@ -185,7 +185,7 @@ Check worker health at any point (before/after start or stop) with:
 
 ```bash
 ssh -i ~/.ssh/risk-workbench-deploy cinreadmd@172.19.253.47 \
-    "APP_DIR=/rms bash /rms/infra/scripts/rhel9/rhel9-worker-health.sh"
+    "APP_DIR=/rms bash /rms/infra/scripts/deploy/rhel9-worker-health.sh"
 ```
 
 Lists every queue with its PID-file status and an independent process-scan
@@ -197,8 +197,8 @@ Tail one queue's worker log or the poller log directly on the host (no
 Makefile on RHEL9 — plain scripts, same as `rhel9-start.sh`/`rhel9-stop.sh`):
 
 ```bash
-APP_DIR=/rms bash infra/scripts/rhel9/rhel9-logs-worker.sh upload_edm
-bash infra/scripts/rhel9/rhel9-logs-poller.sh
+APP_DIR=/rms bash infra/scripts/deploy/rhel9-logs-worker.sh upload_edm
+bash infra/scripts/deploy/rhel9-logs-poller.sh
 ```
 
 Run `rhel9-logs-worker.sh` with no queue name to list the available queues.
@@ -208,8 +208,8 @@ doesn't exist yet — usually meaning that worker/the poller isn't running.
 ## 9. (Optional, WSL2-only) Start/stop the local SQL Server container
 
 ```bash
-APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start-podman-mssql.sh
-bash infra/scripts/rhel9/rhel9-stop-podman-mssql.sh
+APP_DIR=/rms bash infra/scripts/deploy/rhel9-start-podman-mssql.sh
+bash infra/scripts/deploy/rhel9-stop-podman-mssql.sh
 ```
 
 `rhel9-stop-podman-mssql.sh` takes no arguments. Check logs with

@@ -11,7 +11,7 @@
 
 <h1>8. Deployed environment</h1>
 
-<p>The repository describes a RHEL9 deployment and contains the scripts for it. It does not record which servers exist, their hostnames, or what version runs on them. The scripts and runbooks use the account <code>cinreadmd</code> and the app directory <code>/rms</code>, which are the values on the deployed server. Their examples also use the address <code>172.19.253.47</code>. That is the WSL2 address of the RHEL9 VM used to test the scripts (<a href="../RHEL9/RHEL9_SSH_KEY_SETUP.md">RHEL9_SSH_KEY_SETUP.md</a>); the deployed environment does not use it.</p>
+<p>The repository describes a RHEL9 deployment and contains the scripts for it. It does not record which servers exist, their hostnames, or what version runs on them. The scripts and runbooks use the account <code>cinreadmd</code> and the app directory <code>/rms</code>, which are the values on the deployed server. Their examples also use the address <code>172.19.253.47</code>. That is the WSL2 address of the RHEL9 VM used to test the scripts (<a href="../deploy/RHEL9_SSH_KEY_SETUP.md">RHEL9_SSH_KEY_SETUP.md</a>); the deployed environment does not use it.</p>
 
 <h2 id="topology">Topology</h2>
 
@@ -73,7 +73,7 @@
 <table>
 <tr><th>Component</th><th>Where the repo puts it</th><th>To confirm</th></tr>
 <tr><td>nginx</td><td>The app server, as a systemd service owned by infra. The app's server block is <code>/etc/nginx/conf.d/risk-workbench.conf</code>, written from <code>deploy/nginx/site.conf</code>. In the deployed environment the app cannot be reached through nginx on port 80 (B1 on <a href="09-path-to-production.html#blockers">page 9</a>).</td><td>The server's hostname and the URL analysts use. Whether HTTPS ends at nginx or a load balancer (<a href="#https">Enabling HTTPS</a>).</td></tr>
-<tr><td>uvicorn, Valkey, workers, poller</td><td>The same server, started with <code>nohup</code> by <code>infra/scripts/rhel9/rhel9-start.sh</code> as the run account (<a href="#accounts">Accounts</a>). They have no systemd units, by decision: the team that maintains the Linux server runs <code>rhel9-start.sh</code> after each restart (<a href="#runbook">runbook</a>).</td><td>Whether all run on one server.</td></tr>
+<tr><td>uvicorn, Valkey, workers, poller</td><td>The same server, started with <code>nohup</code> by <code>infra/scripts/deploy/rhel9-start.sh</code> as the run account (<a href="#accounts">Accounts</a>). They have no systemd units, by decision: the team that maintains the Linux server runs <code>rhel9-start.sh</code> after each restart (<a href="#runbook">runbook</a>).</td><td>Whether all run on one server.</td></tr>
 <tr><td>Python</td><td>Python 3.14 from RHEL9 AppStream (<code>PYTHON_PKG</code> and <code>PYTHON_BIN</code> default to <code>python3.14</code>), with a <code>.venv</code> in the app directory. Docker dev and CI use Python 3.12.</td><td></td></tr>
 <tr><td>Workbench database and loss repository</td><td>One CIC SQL Server holds both (spec 014 O-05). The connection is set in <code>infra/.env</code>. The <code>LOSS</code> connection points at <code>CRE_Trial_ELT_Repository</code>, a trial repository (B5 on <a href="09-path-to-production.html#blockers">page 9</a>).</td><td>The SQL Server hostname, the Workbench database name, the production loss repository, and the logins.</td></tr>
 <tr><td><code>EXPOSURE</code> database</td><td>See <a href="03-data.html#databases">page 3</a>.</td><td>Whether it is created at CIC.</td></tr>
@@ -139,14 +139,14 @@
 
 <p>Today the code is copied onto the server by hand; no CD process runs the scripts below (B2 on <a href="09-path-to-production.html#blockers">page 9</a>). <code>rhel9-app-install.sh</code> fails at <code>pip install</code> because the server may not connect to PyPI (B3).</p>
 
-<p>The runbooks are in <code>docs/RHEL9/</code>:</p>
+<p>The runbooks are in <code>docs/deploy/</code>:</p>
 <table>
 <tr><th>Runbook</th><th>Covers</th></tr>
-<tr><td><a href="../RHEL9/RHEL9_QUICKSTART.md">RHEL9_QUICKSTART.md</a></td><td>The whole sequence as short commands. Start here.</td></tr>
-<tr><td><a href="../RHEL9/RHEL9_SYSTEM_SETUP.md">RHEL9_SYSTEM_SETUP.md</a></td><td>The one-time server setup and why each package is needed.</td></tr>
-<tr><td><a href="../RHEL9/RHEL9_DEPLOYMENT.md">RHEL9_DEPLOYMENT.md</a></td><td>Each deployment step, the push-based deploy, and the open items.</td></tr>
-<tr><td><a href="../RHEL9/RHEL9_SSH_KEY_SETUP.md">RHEL9_SSH_KEY_SETUP.md</a></td><td>The deploy SSH key.</td></tr>
-<tr><td><a href="../RHEL9/RHEL9_WSL_INSTALL.md">RHEL9_WSL_INSTALL.md</a></td><td>A RHEL9 distro under WSL2, for local development or for rehearsing the deploy scripts.</td></tr>
+<tr><td><a href="../deploy/RHEL9_QUICKSTART.md">RHEL9_QUICKSTART.md</a></td><td>The whole sequence as short commands. Start here.</td></tr>
+<tr><td><a href="../deploy/RHEL9_SYSTEM_SETUP.md">RHEL9_SYSTEM_SETUP.md</a></td><td>The one-time server setup and why each package is needed.</td></tr>
+<tr><td><a href="../deploy/RHEL9_DEPLOYMENT.md">RHEL9_DEPLOYMENT.md</a></td><td>Each deployment step, the push-based deploy, and the open items.</td></tr>
+<tr><td><a href="../deploy/RHEL9_SSH_KEY_SETUP.md">RHEL9_SSH_KEY_SETUP.md</a></td><td>The deploy SSH key.</td></tr>
+<tr><td><a href="../RHEL9_WSL_INSTALL.md">RHEL9_WSL_INSTALL.md</a></td><td>A RHEL9 distro under WSL2, for local development or for rehearsing the deploy scripts.</td></tr>
 </table>
 
 <p>One-time setup, on the server:</p>
@@ -159,10 +159,10 @@
 
 <p>Each deployment:</p>
 <ol>
-<li>On the server, make sure no job is in flight: <code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-drain-check.sh</code> while the workers are still running, or check Workflows → RWB Jobs.</li>
-<li>On the server, as the run account, stop the app: <code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-stop.sh</code>.</li>
-<li>From a developer machine or CI runner with the code checked out: <code>DEPLOY_HOST=&lt;user&gt;@&lt;host&gt; DEPLOY_DIR=/rms SSH_KEY=&lt;key&gt; bash infra/scripts/rhel9/rhel9-ssh-deploy.sh</code>.</li>
-<li>On the server, as the run account, start the app: <code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start.sh</code>, then check <code>/api/health</code> and <code>rhel9-worker-health.sh</code>.</li>
+<li>On the server, make sure no job is in flight: <code>APP_DIR=/rms bash infra/scripts/deploy/rhel9-drain-check.sh</code> while the workers are still running, or check Workflows → RWB Jobs.</li>
+<li>On the server, as the run account, stop the app: <code>APP_DIR=/rms bash infra/scripts/deploy/rhel9-stop.sh</code>.</li>
+<li>From a developer machine or CI runner with the code checked out: <code>DEPLOY_HOST=&lt;user&gt;@&lt;host&gt; DEPLOY_DIR=/rms SSH_KEY=&lt;key&gt; bash infra/scripts/deploy/rhel9-ssh-deploy.sh</code>.</li>
+<li>On the server, as the run account, start the app: <code>APP_DIR=/rms bash infra/scripts/deploy/rhel9-start.sh</code>, then check <code>/api/health</code> and <code>rhel9-worker-health.sh</code>.</li>
 </ol>
 
 <p><code>rhel9-ssh-deploy.sh</code> runs these steps over SSH and stops at the first failure:</p>
@@ -178,13 +178,13 @@
 
 <p>Two things to know about this order. The code is already replaced by the time the drain check runs. And the drain check runs after the workers are stopped, so any <code>pending</code> row left at stop time can never clear and the deploy stops at the timeout. That is why step 1 of each deployment drains first. The deploy does not restart the app; the health check at the end reports the old processes or none.</p>
 
-<p>The pull-based alternative, run on the server, is <code>APP_DIR=/rms BRANCH=&lt;branch&gt; bash infra/scripts/rhel9/rhel9-pull-code.sh</code> (it refuses if the checkout has local changes unless given <code>--stash</code> or <code>--force</code>), then <code>rhel9-app-install.sh</code>. It needs GitHub access from the server.</p>
+<p>The pull-based alternative, run on the server, is <code>APP_DIR=/rms BRANCH=&lt;branch&gt; bash infra/scripts/deploy/rhel9-pull-code.sh</code> (it refuses if the checkout has local changes unless given <code>--stash</code> or <code>--force</code>), then <code>rhel9-app-install.sh</code>. It needs GitHub access from the server.</p>
 
-<p>Other scripts in <code>infra/scripts/rhel9/</code>:</p>
+<p>Other scripts in <code>infra/scripts/deploy/</code>:</p>
 <table>
 <tr><th>Script</th><th>What it does</th></tr>
 <tr><td><code>rhel9-check-prereqs.sh</code></td><td>Read-only check of packages, directory ownership, the nginx reload grant, the ODBC driver, and SQL Server reachability.</td></tr>
-<tr><td><code>rhel9-db-rebuild.sh</code>, <code>drop_workbench_tables.py</code></td><td>Destructive: drops every Workbench table and runs the migrations again. Only for a database created before <code>0001</code> was frozen; see <a href="../RHEL9/RHEL9_DEPLOYMENT.md">RHEL9_DEPLOYMENT.md</a>.</td></tr>
+<tr><td><code>rhel9-db-rebuild.sh</code>, <code>drop_workbench_tables.py</code></td><td>Destructive: drops every Workbench table and runs the migrations again. Only for a database created before <code>0001</code> was frozen; see <a href="../deploy/RHEL9_DEPLOYMENT.md">RHEL9_DEPLOYMENT.md</a>.</td></tr>
 <tr><td><code>rhel9-worker-health.sh</code>, <code>rhel9-logs-worker.sh</code>, <code>rhel9-logs-poller.sh</code></td><td>Worker health and following logs.</td></tr>
 <tr><td><code>rhel9-setup-podman-mssql.sh</code>, <code>rhel9-start-podman-mssql.sh</code>, <code>rhel9-stop-podman-mssql.sh</code></td><td>A local SQL Server container under Podman, for the WSL2 test VM only.</td></tr>
 </table>
@@ -195,12 +195,12 @@
 
 <table>
 <tr><th>Task</th><th>Steps</th></tr>
-<tr><td>Start</td><td><code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-start.sh</code>. Starts Valkey, uvicorn, one worker per queue, and the poller, in that order. It refuses if port 8000 is in use, so stop first if anything is running. nginx is not touched.</td></tr>
-<tr><td>Stop</td><td><code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-stop.sh</code>. Stops uvicorn, every worker, the poller, then Valkey. It waits 35 seconds per process; a worker still finishing a job after that is reported, not killed. Jobs it interrupts are reset to <code>pending</code> by the poller after the next start.</td></tr>
-<tr><td>After a server restart</td><td>The team that maintains the Linux server runs these steps after every restart (B9 on <a href="09-path-to-production.html#blockers">page 9</a>). Before a planned restart, run <code>APP_DIR=/rms bash /rms/infra/scripts/rhel9/rhel9-stop.sh</code> if possible, so running jobs can finish. After the server is back, check the shared drive is mounted; exports fail while <code>EXPORT_ARCHIVE_DIR</code> is missing. Then, as the run account, run <code>APP_DIR=/rms bash /rms/infra/scripts/rhel9/rhel9-start.sh</code>, and check that <code>curl -s http://127.0.0.1:8000/api/health</code> shows <code>ok</code> for <code>db_workbench</code>, <code>db_loss</code>, and <code>redis</code>. The top-level <code>"status"</code> is always <code>ok</code>. The poller resets any job the restart interrupted to <code>pending</code>, and a worker picks it up again.</td></tr>
+<tr><td>Start</td><td><code>APP_DIR=/rms bash infra/scripts/deploy/rhel9-start.sh</code>. Starts Valkey, uvicorn, one worker per queue, and the poller, in that order. It refuses if port 8000 is in use, so stop first if anything is running. nginx is not touched.</td></tr>
+<tr><td>Stop</td><td><code>APP_DIR=/rms bash infra/scripts/deploy/rhel9-stop.sh</code>. Stops uvicorn, every worker, the poller, then Valkey. It waits 35 seconds per process; a worker still finishing a job after that is reported, not killed. Jobs it interrupts are reset to <code>pending</code> by the poller after the next start.</td></tr>
+<tr><td>After a server restart</td><td>The team that maintains the Linux server runs these steps after every restart (B9 on <a href="09-path-to-production.html#blockers">page 9</a>). Before a planned restart, run <code>APP_DIR=/rms bash /rms/infra/scripts/deploy/rhel9-stop.sh</code> if possible, so running jobs can finish. After the server is back, check the shared drive is mounted; exports fail while <code>EXPORT_ARCHIVE_DIR</code> is missing. Then, as the run account, run <code>APP_DIR=/rms bash /rms/infra/scripts/deploy/rhel9-start.sh</code>, and check that <code>curl -s http://127.0.0.1:8000/api/health</code> shows <code>ok</code> for <code>db_workbench</code>, <code>db_loss</code>, and <code>redis</code>. The top-level <code>"status"</code> is always <code>ok</code>. The poller resets any job the restart interrupted to <code>pending</code>, and a worker picks it up again.</td></tr>
 <tr><td>Load the client's cedant list</td><td>Replace <code>/rms/db/bootstrap/seed/cedants.xlsx</code> with the client's file (one column headed <code>Cedant</code>). Then run <code>cd /rms &amp;&amp; set -a &amp;&amp; source infra/.env &amp;&amp; set +a &amp;&amp; .venv/bin/python infra/scripts/load_cedants.py</code>. It adds only the names not already in <code>cedant</code>, ignoring case, and never renames or deletes one. The script reads the database settings from the environment, not from <code>infra/.env</code>, so the <code>source</code> is needed. Revision <code>0005</code> loads the same file once during migration.</td></tr>
 <tr><td>Restart after an <code>infra/.env</code> change</td><td>Stop, then start. There is no script to restart a single process.</td></tr>
-<tr><td>A dead worker</td><td>Run <code>APP_DIR=/rms bash infra/scripts/rhel9/rhel9-worker-health.sh</code>. Read <code>/var/lib/risk-workbench/worker-&lt;queue&gt;.log</code> for the cause. Then stop and start. The poller resets that queue's interrupted job to <code>pending</code> once its heartbeat is older than <code>RWB_HEARTBEAT_STALE_SECS</code>, and the new worker picks it up.</td></tr>
+<tr><td>A dead worker</td><td>Run <code>APP_DIR=/rms bash infra/scripts/deploy/rhel9-worker-health.sh</code>. Read <code>/var/lib/risk-workbench/worker-&lt;queue&gt;.log</code> for the cause. Then stop and start. The poller resets that queue's interrupted job to <code>pending</code> once its heartbeat is older than <code>RWB_HEARTBEAT_STALE_SECS</code>, and the new worker picks it up.</td></tr>
 <tr><td>A stuck <code>rwb_job</code></td><td>Find it on Workflows → RWB Jobs. Dead (no heartbeat): it is reset automatically once its queue has a live worker. <code>pending</code> and never picked up: that queue's worker is not running. <code>running</code> with a live heartbeat: it ends at its Dramatiq time limit; if it must end sooner, kill that queue's worker (PID in <code>/var/lib/risk-workbench/pids/worker-&lt;queue&gt;.pid</code>), then start it again. <code>failed</code>: Resubmit on the page. See <a href="02-application-architecture.html#job-lifecycle">page 2</a>.</td></tr>
 <tr><td>A stuck <code>irp_job</code></td><td>The poller checks it on every pass until Risk Modeler reports a final status; Workflows → IRP Jobs shows the status Risk Modeler returns. There is no action in the Workbench to cancel it. Check the job in Risk Modeler. A failed analysis submission is retried automatically, then the analysis shows as error.</td></tr>
 <tr><td>Export archive sweep</td><td><code>EXPORT_ARCHIVE_DIR=&lt;dir&gt; bash infra/scripts/sweep-export-archives.sh --older-than 90</code> lists the <code>{export_id}/{irp_analysis_id}</code> archive folders older than 90 days. Add <code>--delete</code> to delete them; empty <code>{export_id}</code> folders are removed too. Nothing schedules it (B8 on <a href="09-path-to-production.html#blockers">page 9</a>). The script header suggests a nightly cron line: <code>0 2 * * * EXPORT_ARCHIVE_DIR=/mnt/lossshare/export_archive bash /rms/infra/scripts/sweep-export-archives.sh --older-than 90 --delete</code>.</td></tr>

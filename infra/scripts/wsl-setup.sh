@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # wsl-setup.sh — first-time database setup for the WSL2 dev environment.
 #
-# Prerequisites (install by hand first — docs/SCAFFOLDING.md Steps 2-4):
+# Prerequisites (install by hand first — docs/LOCAL_DEV_SETUP.md Steps 2-4):
 #   1. uv
 #   2. ODBC Driver 18 for SQL Server
 #   3. redis-server (Ubuntu) or valkey-server (RHEL9)
@@ -38,7 +38,7 @@ require() {
     for cmd in "$@"; do
         command -v "$cmd" > /dev/null 2>&1 && return
     done
-    echo "ERROR: none of '$*' found. See docs/SCAFFOLDING.md First-Time Setup." >&2
+    echo "ERROR: none of '$*' found. See docs/LOCAL_DEV_SETUP.md First-Time Setup." >&2
     exit 1
 }
 require uv
@@ -48,7 +48,7 @@ require "$RWB_CONTAINER_RUNTIME"
 
 if ! odbcinst -q -d | grep -qF "[ODBC Driver 18 for SQL Server]"; then
     echo "ERROR: ODBC Driver 18 not installed." >&2
-    echo "       Run Step 3 in docs/SCAFFOLDING.md." >&2
+    echo "       Run Step 3 in docs/LOCAL_DEV_SETUP.md." >&2
     exit 1
 fi
 

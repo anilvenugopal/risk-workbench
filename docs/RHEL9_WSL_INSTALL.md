@@ -14,10 +14,10 @@ boots, registering it with Red Hat, and creating your personal login account.
 Does **not** cover installing project dependencies or running the app. What
 comes next depends on what the distro is for:
 
-- **Local development:** [SCAFFOLDING.md](../SCAFFOLDING.md) First-Time Setup.
+- **Local development:** [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) First-Time Setup.
   It installs only what development needs and ends with `make wsl-setup`.
-- **Rehearsing a deployment:** [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md),
-  then [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md). These prepare the distro
+- **Rehearsing a deployment:** [RHEL9_SYSTEM_SETUP.md](deploy/RHEL9_SYSTEM_SETUP.md),
+  then [RHEL9_DEPLOYMENT.md](deploy/RHEL9_DEPLOYMENT.md). These prepare the distro
   the way the production server is prepared (`/rms`, nginx, sudoers rules).
 
 ---
@@ -194,7 +194,7 @@ sudo usermod -aG wheel cinreadmd
 `useradd` also assigns `cinreadmd` a subuid/subgid range (visible in `/etc/subuid`/`/etc/subgid`) —
 the ID range rootless Podman needs. RHEL9's `/etc/login.defs` sets
 `SUB_UID_COUNT`/`SUB_GID_COUNT` to auto-assign this to every new account.
-See [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md#optional-podman--local-sql-server) for where this matters.
+See [RHEL9_SYSTEM_SETUP.md](deploy/RHEL9_SYSTEM_SETUP.md#optional-podman--local-sql-server) for where this matters.
 
 Verify:
 
@@ -220,6 +220,6 @@ then print `root`.
   further work — matching the no-standing-sudo reality of the production
   server.
 
-Next: [SCAFFOLDING.md](../SCAFFOLDING.md) First-Time Setup for local
-development, or [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) to prepare the
+Next: [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) First-Time Setup for local
+development, or [RHEL9_SYSTEM_SETUP.md](deploy/RHEL9_SYSTEM_SETUP.md) to prepare the
 distro as a deployment target.

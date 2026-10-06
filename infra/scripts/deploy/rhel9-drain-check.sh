@@ -10,7 +10,7 @@
 # Dramatiq/Redis, since rwb_job is the queue of record (app/workers/dispatch.py).
 #
 # Usage:
-#   APP_DIR=/rms bash infra/scripts/rhel9/rhel9-drain-check.sh
+#   APP_DIR=/rms bash infra/scripts/deploy/rhel9-drain-check.sh
 #   DRAIN_TIMEOUT_SECS=600 DRAIN_POLL_INTERVAL_SECS=10 bash ...
 
 set -uo pipefail

@@ -5,7 +5,7 @@
 # deleted. Stop the application before running the script. The rebuild creates
 # no user accounts.
 #
-# Usage: APP_DIR=/rms bash infra/scripts/rhel9/rhel9-db-rebuild.sh
+# Usage: APP_DIR=/rms bash infra/scripts/deploy/rhel9-db-rebuild.sh
 
 set -euo pipefail
 
@@ -33,7 +33,7 @@ echo "Every table in $DATABASE will be dropped and recreated."
 echo "Stop the application before continuing."
 echo ""
 
-.venv/bin/python infra/scripts/rhel9/drop_workbench_tables.py
+.venv/bin/python infra/scripts/deploy/drop_workbench_tables.py
 .venv/bin/python -m alembic upgrade head
 
 echo ""

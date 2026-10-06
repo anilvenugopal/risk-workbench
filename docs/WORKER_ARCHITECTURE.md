@@ -134,7 +134,7 @@ dramatiq app.workers.entrypoint -Q upload_edm --processes 1 --threads 2
 - **Dev, native WSL2**: `make wsl-worker QUEUE=<name>` — one foreground
   terminal per queue you want running (no PID file; the terminal is the
   log). `make wsl-worker-list` shows the available names.
-- **RHEL9** (`infra/scripts/rhel9/rhel9-start.sh`): same loop, `nohup`, PID
+- **RHEL9** (`infra/scripts/deploy/rhel9-start.sh`): same loop, `nohup`, PID
   files under `/var/lib/risk-workbench/pids/`.
 
 Check what's actually running, on either dev path, without trusting the

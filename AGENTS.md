@@ -166,7 +166,7 @@ For debugpy on :5678, set `APP_DEBUG=1` in `infra/.env` and run `make start`;
 The unit tier is the exception: `uv run pytest tests/unit` runs from any host shell
 with no container and no database. Prefer it over `make test`.
 
-See [docs/SCAFFOLDING.md](docs/SCAFFOLDING.md) for full setup and debugging tutorial.
+See [docs/LOCAL_DEV_SETUP.md](docs/LOCAL_DEV_SETUP.md) for full setup and debugging tutorial.
 
 ## Architecture Rules (Summary)
 

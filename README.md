@@ -2,4 +2,4 @@
 
 Analyst workbench for catastrophe reinsurance workflows over Moody's Risk Modeler.
 
-See [docs/SCAFFOLDING.md](docs/SCAFFOLDING.md) to get started.
+See [docs/LOCAL_DEV_SETUP.md](docs/LOCAL_DEV_SETUP.md) to get started.

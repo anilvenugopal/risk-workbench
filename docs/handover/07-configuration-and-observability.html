@@ -150,15 +150,15 @@
 <tr><td>nginx</td><td>Container output</td><td>Not used</td><td>The system nginx log locations; <code>site.conf</code> sets none</td></tr>
 </table>
 
-<p>On RHEL9, <code>rhel9-start.sh</code> appends to each log file when it starts the process, so a restart keeps the earlier lines. Nothing rotates the logs. Nothing collects the logs (B6 on <a href="09-path-to-production.html#blockers">page 9</a>). <code>infra/scripts/rhel9/rhel9-logs-worker.sh &lt;queue&gt;</code> and <code>rhel9-logs-poller.sh</code> follow a log.</p>
+<p>On RHEL9, <code>rhel9-start.sh</code> appends to each log file when it starts the process, so a restart keeps the earlier lines. Nothing rotates the logs. Nothing collects the logs (B6 on <a href="09-path-to-production.html#blockers">page 9</a>). <code>infra/scripts/deploy/rhel9-logs-worker.sh &lt;queue&gt;</code> and <code>rhel9-logs-poller.sh</code> follow a log.</p>
 
 <h2 id="health">Health and monitoring</h2>
 
 <table>
 <tr><th>Check</th><th>What it tells you</th></tr>
 <tr><td><code>GET /api/health</code></td><td>JSON with <code>db_workbench</code>, <code>db_exposure</code>, <code>db_loss</code> (each <code>ok</code> or an error), <code>redis</code>, and <code>env</code>. No sign-in needed. It always returns HTTP 200 and <code>"status": "ok"</code>, even when a check fails, so read the individual fields. It does not check the workers, the poller, Risk Modeler, or DATABRIDGE.</td></tr>
-<tr><td><code>make wsl-worker-health</code>; <code>infra/scripts/rhel9/rhel9-worker-health.sh [--queue q]</code></td><td>For every queue, whether its PID file points at a live process, and a separate process scan. Exits 0 if any queue is alive, 1 if none is.</td></tr>
-<tr><td><code>infra/scripts/rhel9/rhel9-drain-check.sh</code></td><td>Waits until no <code>rwb_job</code> row is <code>pending</code> or <code>running</code>. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
+<tr><td><code>make wsl-worker-health</code>; <code>infra/scripts/deploy/rhel9-worker-health.sh [--queue q]</code></td><td>For every queue, whether its PID file points at a live process, and a separate process scan. Exits 0 if any queue is alive, 1 if none is.</td></tr>
+<tr><td><code>infra/scripts/deploy/rhel9-drain-check.sh</code></td><td>Waits until no <code>rwb_job</code> row is <code>pending</code> or <code>running</code>. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
 <tr><td>Workflows → RWB Jobs, <code>/workflows/rwb-jobs</code></td><td>The 50 most recent <code>rwb_job</code> rows, filterable by submission, owner (defaults to you), job type, and status. A <code>running</code> row with no recent heartbeat shows as dead ("worker stopped heartbeating"). Cancel works on <code>pending</code>, <code>failed</code>, or dead rows; Resubmit works on <code>failed</code> rows and reuses the same row. A live <code>running</code> job cannot be stopped from the page. Any signed-in user can use it.</td></tr>
 <tr><td>Workflows → IRP Jobs, <code>/workflows/irp-jobs</code></td><td>The 50 most recent <code>irp_job</code> rows: type, entity, Risk Modeler status, progress, submitter, attempts. Read-only.</td></tr>
 </table>

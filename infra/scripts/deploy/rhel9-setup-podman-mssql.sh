@@ -19,7 +19,7 @@
 # Same port (1433) as Ubuntu's SQL Server — deliberate, so infra/.env never
 # needs environment-specific values. Consequence: RHEL9's and Ubuntu's SQL
 # Server containers cannot both be reachable at once, since this machine's
-# WSL2 distros share one IP (see docs/RHEL9_SYSTEM_SETUP.md's Redis/Valkey
+# WSL2 distros share one IP (see docs/deploy/RHEL9_SYSTEM_SETUP.md's Redis/Valkey
 # section for the same conflict pattern). Stop one before starting the
 # other — see infra/scripts/check-port.sh to diagnose which is holding it.
 #
