@@ -19,8 +19,7 @@
 #
 # Reports and deletes nothing unless --delete is given.
 #
-# Runs on: the host that mounts EXPORT_ARCHIVE_DIR — the server, by hand or cron.
-# Needs:   EXPORT_ARCHIVE_DIR (or --dir); no .env, uv or .venv.
+# Runs on the server (the host that mounts EXPORT_ARCHIVE_DIR), by hand or cron.
 # Usage:
 #   bash infra/scripts/sweep-export-archives.sh                        # report, 90 days
 #   bash infra/scripts/sweep-export-archives.sh --older-than 30

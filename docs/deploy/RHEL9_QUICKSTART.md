@@ -1,14 +1,11 @@
 # RHEL9 Quickstart
 
-Condensed end-to-end sequence for setting up a RHEL9 deployment target (the
-server, or a WSL2 RHEL9 distro used to rehearse a deployment) and deploying to
-it. For local development on RHEL9, see [LOCAL_DEV_SETUP.md](../LOCAL_DEV_SETUP.md)
-instead. For explanations and troubleshooting, see
-[RHEL9_WSL_INSTALL.md](../RHEL9_WSL_INSTALL.md),
+Commands, in order, to set up and deploy to the RHEL9 server or a WSL2 RHEL9
+rehearsal distro. Not for local development
+([LOCAL_DEV_SETUP.md](../LOCAL_DEV_SETUP.md)). Explanations:
 [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md),
-[RHEL9_SSH_KEY_SETUP.md](RHEL9_SSH_KEY_SETUP.md), and
-[RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) — this file only lists commands
-in order.
+[RHEL9_SSH_KEY_SETUP.md](RHEL9_SSH_KEY_SETUP.md),
+[RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md).
 
 `cinreadmd` (the account) and `/rms` (the app directory) are the values on
 the deployed server. `172.19.253.47` is the WSL2 address of the RHEL9 test
@@ -240,8 +237,5 @@ print(conn.execute('SELECT @@VERSION').fetchone()[0])
 
 ## Next
 
-After the first deployment:
-
-- Finish the Entra configuration: [ENTRA_SETUP.md](../ENTRA_SETUP.md).
-- Create the first admin: [USER_PROVISIONING.md](../USER_PROVISIONING.md)
-  (`./infra/scripts/run_user_setup.sh` on the server).
+[ENTRA_SETUP.md](../ENTRA_SETUP.md), then the first admin with
+[USER_PROVISIONING.md](../USER_PROVISIONING.md).

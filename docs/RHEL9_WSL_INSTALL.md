@@ -1,24 +1,9 @@
 # RHEL9 WSL Install
 
-Installs a real Red Hat Enterprise Linux 9.8 distro under WSL2 on Windows.
-If you already have an Ubuntu WSL2 distro, no step below touches it — this
-creates a second, separate distro.
-
-This is a one-time, per-developer, Windows-side setup. Run it yourself; no
-infra request needed for any step here (registration uses your own free Red
-Hat Developer subscription, not a corporate one).
-
-Covers: getting the RHEL9 image, installing it as a WSL2 distro, verifying it
-boots, registering it with Red Hat, and creating your personal login account.
-
-Does **not** cover installing project dependencies or running the app. What
-comes next depends on what the distro is for:
-
-- **Local development:** [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) First-Time Setup.
-  It installs only what development needs and ends with `make wsl-setup`.
-- **Rehearsing a deployment:** [RHEL9_SYSTEM_SETUP.md](deploy/RHEL9_SYSTEM_SETUP.md),
-  then [RHEL9_DEPLOYMENT.md](deploy/RHEL9_DEPLOYMENT.md). These prepare the distro
-  the way the production server is prepared (`/rms`, nginx, sudoers rules).
+Installs Red Hat Enterprise Linux 9.8 as a separate WSL2 distro (an existing
+Ubuntu distro is untouched), registers it with your free Red Hat Developer
+subscription, and creates your login account. One-time, per developer; no
+infra request needed.
 
 ---
 
@@ -213,13 +198,11 @@ then print `root`.
 
 ## Result
 
-- A real RHEL9.8 WSL2 distro named `RHEL9`, separate from any other WSL2
-  distro.
+- A RHEL9.8 WSL2 distro named `RHEL9`.
 - Registered with Red Hat via your free Developer Subscription.
 - A personal, password-protected, sudo-capable account (`cinreadmd`) for all
   further work — matching the no-standing-sudo reality of the production
   server.
 
-Next: [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) First-Time Setup for local
-development, or [RHEL9_SYSTEM_SETUP.md](deploy/RHEL9_SYSTEM_SETUP.md) to prepare the
-distro as a deployment target.
+Next: [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) for local development, or
+[deploy/RHEL9_SYSTEM_SETUP.md](deploy/RHEL9_SYSTEM_SETUP.md) to rehearse a deployment.

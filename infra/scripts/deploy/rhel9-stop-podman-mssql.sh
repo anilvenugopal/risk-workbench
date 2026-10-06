@@ -5,8 +5,7 @@
 # Exits quietly (not an error) if Podman isn't installed, or if the
 # container isn't running — both are normal states, not failures.
 #
-# Runs on: a WSL2 RHEL9 distro used to rehearse a deployment. Never production.
-# Needs:   nothing.
+# Runs on: a WSL2 RHEL9 rehearsal distro only.
 # Usage:   bash infra/scripts/deploy/rhel9-stop-podman-mssql.sh
 
 set -uo pipefail

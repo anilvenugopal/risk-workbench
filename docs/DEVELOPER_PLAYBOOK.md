@@ -1,10 +1,8 @@
 # Developer Playbook
 ## Risk Workbench — Claude Code + SpecKit on Windows / WSL2
 
-**Use this when** you set up VS Code, Claude Code and SpecKit, or develop with
-Docker only, without WSL2 (Option A).
-**Not this:** the WSL2 setup steps are in [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md);
-Option B below hands off to it. Deploying to the server →
+VS Code, Claude Code and SpecKit setup, and Docker-only development (Option A).
+WSL2 setup steps are in [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md). Deploying:
 [deploy/RHEL9_QUICKSTART.md](deploy/RHEL9_QUICKSTART.md).
 
 ---
@@ -132,8 +130,7 @@ You should see JSON with `status`, `db_workbench`, `db_exposure`, `db_loss`,
 5. Open a terminal in VS Code (`Ctrl+Backtick`). You are now inside the
    Linux container — same as if you had SSHed into a Linux server.
 
-Next: add users with [USER_PROVISIONING.md](USER_PROVISIONING.md) (the dev admin
-`admin@example.com` is already seeded), then [Claude Code Setup](#claude-code-setup).
+Next: [USER_PROVISIONING.md](USER_PROVISIONING.md), then [Claude Code Setup](#claude-code-setup).
 
 ---
 
@@ -141,7 +138,7 @@ Next: add users with [USER_PROVISIONING.md](USER_PROVISIONING.md) (the dev admin
 
 WSL2 gives you a real Linux shell. VS Code connects to it natively.
 This gives faster file system performance and a closer match to production.
-Use Ubuntu or RHEL9; RHEL9 matches the deployed server.
+RHEL9 matches the deployed server; Ubuntu also works.
 
 ### Step 1 — Install a WSL2 distro
 
@@ -154,12 +151,10 @@ Reboot when prompted. After reboot, WSL2 will finish installing Ubuntu.
 Set a username and password when asked.
 
 **RHEL9:** follow [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md).
-It ends with a personal account in a distro named `RHEL9`.
 
-### Step 2 — Install Docker Desktop with WSL2 backend (Docker only)
+### Step 2 — Install Docker Desktop with WSL2 backend
 
-Skip this step if you run SQL Server under Podman (the client's choice), which
-[LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) Step 4 installs on either distro.
+Skip if you use Podman (installed in [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) Step 4).
 
 1. Install [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)
 2. In Docker Desktop → Settings → Resources → WSL Integration:
@@ -173,24 +168,13 @@ Skip this step if you run SQL Server under Podman (the client's choice), which
 
 ### Step 4 — Open VS Code in your distro
 
-In VS Code, press `Ctrl+Shift+P` → "WSL: Connect to WSL using Distro..." and
-pick `Ubuntu` or `RHEL9`. "WSL: New Window" opens the default distro, which is
-Ubuntu if you installed it first.
+`Ctrl+Shift+P` → "WSL: Connect to WSL using Distro..." → `Ubuntu` or `RHEL9`.
+VS Code terminals are now Linux shells.
 
-VS Code opens connected to WSL2. All terminals in VS Code are now Linux shells.
+### Step 5 — Setup and daily workflow
 
-### Step 5 — First-time setup
-
-Follow [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) First-Time Setup. It clones the repo,
-installs uv, the ODBC driver, Redis (Valkey on RHEL9) and Podman, then runs
-`make wsl-setup`, which starts SQL Server and Redis and creates, migrates, and
-seeds all three databases.
-
-### Step 6 — Start development processes
-
-Follow [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md#daily-workflow) Daily Workflow:
-`make wsl-start`, then `make wsl-app`, `make wsl-poller` and `make wsl-workers`
-in their own terminals.
+Continue with [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md) First-Time Setup, then
+its [Daily Workflow](LOCAL_DEV_SETUP.md#daily-workflow).
 
 ---
 

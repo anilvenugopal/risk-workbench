@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # wsl-env.sh — sourced by other infra scripts to load infra/.env safely.
 #
-# Runs on: a WSL2 dev checkout; sourced by every make wsl-* target and wsl-*.sh.
-# Needs:   infra/.env.
-# Usage:   source infra/scripts/wsl-env.sh
+# Usage: source infra/scripts/wsl-env.sh
 #
 # Why a script instead of Makefile $(shell ...):
 #   - Makefile variable expansion exposes values in process listings and output

@@ -3,7 +3,7 @@
 # worker, poller, nginx), and VERIFY each one actually stopped rather than
 # assuming a stop signal worked.
 #
-# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`, as the run account.
+# Runs on: the server, as the run account.
 # Needs:   APP_DIR; $APP_DIR/infra/.env; .venv. Optional PID_DIR.
 # Usage:   APP_DIR=/rms bash infra/scripts/deploy/rhel9-stop.sh
 #

@@ -1,27 +1,11 @@
 #!/usr/bin/env bash
 # wsl-setup.sh — first-time database setup for the WSL2 dev environment.
 #
-# Runs on: a WSL2 dev checkout (make wsl-setup).
-# Needs:   the prerequisites below; uv.
-# Usage:   make wsl-setup
+# Usage: make wsl-setup
 #
-# Prerequisites (install by hand first — docs/LOCAL_DEV_SETUP.md Steps 2-4):
-#   1. uv
-#   2. ODBC Driver 18 for SQL Server
-#   3. redis-server (Ubuntu) or valkey-server (RHEL9)
-#   4. docker (Docker Desktop's WSL integration) or podman, as named by
-#      RWB_CONTAINER_RUNTIME in infra/.env
-#   5. infra/.env populated  (cp infra/.env.example infra/.env, then edit)
-#
-# This script:
-#   - uv sync (install Python deps)
-#   - Start SQL Server and Redis, and wait for SQL Server (wsl-start.sh)
-#   - Create rwb_workbench, rwb_exposure, rwb_loss (skips existing)
-#   - Run Alembic migrations on rwb_workbench
-#   - Seed the kind tables and the dev admin
-#   - Apply CIC's table mirror and the stage schema to rwb_loss, and seed it
-#
-# Safe to re-run: every step checks state before acting.
+# Prerequisites (docs/LOCAL_DEV_SETUP.md Steps 1-4): infra/.env, uv,
+# ODBC Driver 18, redis-server or valkey-server, docker or podman.
+# Idempotent.
 
 set -euo pipefail
 

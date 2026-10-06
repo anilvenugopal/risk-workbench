@@ -4,13 +4,9 @@ Installs the system-level packages Risk Workbench needs to run: git, Python
 3.14, the Microsoft ODBC Driver 18 for SQL Server, Valkey (Redis), nginx,
 build tools, and `rsync`.
 
-This prepares a deployment target: the production server, or a WSL2 RHEL9
-distro used to rehearse a deployment. For local development on RHEL9, skip
-this document and follow [LOCAL_DEV_SETUP.md](../LOCAL_DEV_SETUP.md); it installs
-only what development needs.
-
-Prerequisite on WSL2: [RHEL9_WSL_INSTALL.md](../RHEL9_WSL_INSTALL.md) completed —
-registered RHEL9 distro, `cinreadmd` created with sudo, locale fixed.
+For the server or a WSL2 rehearsal distro, not local development
+([LOCAL_DEV_SETUP.md](../LOCAL_DEV_SETUP.md)). On WSL2, do
+[RHEL9_WSL_INSTALL.md](../RHEL9_WSL_INSTALL.md) first.
 
 ## Do this
 
@@ -304,14 +300,8 @@ each distro its own IP and avoid the conflict entirely) because a NAT switch
 is a machine-wide WSL2 setting affecting every distro, not something scoped
 to this project.
 
-```bash
-# In the other distro's checkout, before starting this distro's Valkey:
-make wsl-stop
-```
-
-`make wsl-stop` stops the Redis or Valkey that `make wsl-start` launched. If
-the other distro also runs a packaged Redis service, stop that too
-(`sudo systemctl stop redis-server` on Ubuntu).
+Run `make wsl-stop` in the other distro's checkout (and
+`sudo systemctl stop redis-server` if Ubuntu runs Redis as a service).
 
 If you need both environments' full stacks running at once, switching WSL2
 to NAT mode (`networkingMode=NAT` in `%UserProfile%\.wslconfig`, then
@@ -485,14 +475,11 @@ make --version   # GNU Make 4.3
 
 ## Optional: Podman + local SQL Server
 
-For rehearsing a deployment on a WSL2 RHEL9 distro only. Production's SQL
-Server is a separate, already-existing instance outside this box, never
-containerized as part of deployment. Not part of `rhel9-setup.sh` — three
-standalone scripts. Local development does not use them: with
-`RWB_CONTAINER_RUNTIME=podman`, `make wsl-start` creates its own Podman
-container named `sqlserver`, and reuses this one if it already exists.
+WSL2 rehearsal only; production's SQL Server is a separate host. Not part of
+`rhel9-setup.sh`. Local development does not need these scripts
+(`make wsl-start` creates its own Podman container).
 
-Same port (1433) as the `sqlserver` service in `infra/docker-compose.yml`, so `infra/.env` never needs
+Same port (1433) as the dev container, so `infra/.env` never needs
 environment-specific values. Consequence: only one of the two can be
 reachable at a time (same shared-IP conflict as Redis/Valkey above) — stop
 one before starting the other. Diagnose with
@@ -596,5 +583,4 @@ actual problem.
 
 ## Next
 
-1. The deploy SSH key: [RHEL9_SSH_KEY_SETUP.md](RHEL9_SSH_KEY_SETUP.md).
-2. The first deployment: [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md).
+[RHEL9_SSH_KEY_SETUP.md](RHEL9_SSH_KEY_SETUP.md), then [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md).

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # rhel9-logs-worker.sh — tail one queue's Dramatiq worker log on RHEL9 (CR-004).
 #
-# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`.
+# Runs on: the server.
 # Needs:   APP_DIR; a queue name. With no queue name it lists the queues, which
 #          needs $APP_DIR/infra/.env and .venv.
 # Usage:   APP_DIR=/rms bash infra/scripts/deploy/rhel9-logs-worker.sh upload_edm

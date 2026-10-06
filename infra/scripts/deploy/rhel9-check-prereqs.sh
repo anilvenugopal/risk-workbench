@@ -6,7 +6,7 @@
 # pipeline (over SSH), as a pre-flight check before pulling code or
 # installing dependencies.
 #
-# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`; rhel9-ssh-deploy.sh runs it first.
+# Runs on: the server; rhel9-ssh-deploy.sh runs it first.
 # Needs:   APP_DIR, DEPLOY_USER, PYTHON_PKG (default python3.14); reads
 #          $APP_DIR/infra/.env when present. No sudo.
 # Usage:   APP_DIR=/rms DEPLOY_USER=cinreadmd PYTHON_PKG=python3.14 \

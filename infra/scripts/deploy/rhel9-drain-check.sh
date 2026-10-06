@@ -3,7 +3,7 @@
 # or a timeout is hit (CR-004). Run after stopping the per-queue worker
 # processes (rhel9-stop.sh), before deploying new code.
 #
-# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`; rhel9-ssh-deploy.sh runs it before installing.
+# Runs on: the server; rhel9-ssh-deploy.sh runs it before installing.
 # Needs:   APP_DIR; $APP_DIR/infra/.env; .venv (not uv). Optional
 #          DRAIN_TIMEOUT_SECS, DRAIN_POLL_INTERVAL_SECS.
 #

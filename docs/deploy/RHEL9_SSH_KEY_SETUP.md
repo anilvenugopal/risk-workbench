@@ -4,8 +4,7 @@ How to generate an SSH key pair and use it to log into the RHEL9 server
 without a password — needed for any deployment mechanism that logs in
 remotely (a local test from Ubuntu/Windows, or a real CI/CD pipeline).
 
-**Before this:** [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md). Local
-development needs no SSH key; see [LOCAL_DEV_SETUP.md](../LOCAL_DEV_SETUP.md).
+Before this: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md). Local development needs no SSH key.
 
 **The rule that never changes**: the **private** key stays on whichever
 machine is *initiating* the connection (never shared, never leaves that
@@ -289,5 +288,4 @@ Sources: [Service connections - Azure Pipelines](https://learn.microsoft.com/en-
 
 ## Next
 
-Deploy with [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md), or the short command
-list in [RHEL9_QUICKSTART.md](RHEL9_QUICKSTART.md) section 7.
+[RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md), or [RHEL9_QUICKSTART.md](RHEL9_QUICKSTART.md) section 7.

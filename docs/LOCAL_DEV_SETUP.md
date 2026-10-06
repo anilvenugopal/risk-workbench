@@ -1,10 +1,9 @@
 # Local Development Setup (WSL2)
 
-**Use this when** you develop in a WSL2 distro on Windows: Ubuntu, or RHEL9 to
-match the deployed server, with SQL Server under Docker or Podman.
-**Not this:** Docker only, without WSL2 → [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md)
-Option A. Deploying to the server → [deploy/RHEL9_QUICKSTART.md](deploy/RHEL9_QUICKSTART.md).
-**Before this:** on RHEL9, [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md).
+For development in a WSL2 Ubuntu or RHEL9 distro. On RHEL9, do
+[RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) first. Docker only, without WSL2:
+[DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md) Option A. Deploying:
+[deploy/RHEL9_QUICKSTART.md](deploy/RHEL9_QUICKSTART.md).
 
 ---
 
@@ -49,33 +48,20 @@ also runs a reconciler sweep each cycle to recover any `rwb_job` rows stuck in
 `running` with a stale heartbeat — it is folded into the same poller process,
 so the five-process count is unchanged.
 
-A container is used in development **only for SQL Server**, run by Docker or
-rootless Podman. Everything else runs directly in your WSL2 shell.
-Docker-only development (Windows without WSL2) runs everything, including the
-app, inside Docker — see [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md) Option A.
+Only SQL Server runs in a container (Docker or Podman). Everything else runs in
+your WSL2 shell.
 
 ---
 
 ## What You Need Before Starting
 
-- WSL2 running one of:
-  - Ubuntu 22.04 or later
-  - RHEL9, which matches the deployed server. Install it with
-    [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md), then
-    `sudo dnf install -y git make`.
-- A container runtime for SQL Server, on either distro:
-  - Podman, installed in Step 4. The client runs Podman.
-  - Docker Desktop for Windows, with its WSL2 integration enabled for the
-    distro.
+- WSL2 running Ubuntu 22.04+ or RHEL9 (on RHEL9: `sudo dnf install -y git make`)
+- Podman (installed in Step 4; the client's choice) or Docker Desktop with WSL2
+  integration enabled for the distro
 - VS Code with the WSL extension (`ms-vscode-remote.remote-wsl`)
 
-Every `make wsl-*` target works on both distros and with both runtimes. Local
-development uses nothing in `infra/scripts/deploy/` or `docs/deploy/`: those
-prepare and run a deployment target (`/rms`, nginx, sudoers rules).
-
-All WSL2 distros share one network address. If you have both Ubuntu and RHEL9,
-run `make wsl-stop` in one before `make wsl-start` in the other, or ports 1433
-and 6379 collide.
+WSL2 distros share one IP. With both Ubuntu and RHEL9, `make wsl-stop` in one
+before `make wsl-start` in the other, or ports 1433 and 6379 collide.
 
 ---
 
@@ -102,7 +88,7 @@ SESSION_SECRET_KEY=<paste 64-char hex string here>
 # Must be 8+ chars, upper + lower + digit + symbol (SQL Server requirement)
 MSSQL_SA_PASSWORD=<your password here>
 
-# docker or podman: the tool `make wsl-start` runs SQL Server with
+# docker or podman
 RWB_CONTAINER_RUNTIME=podman
 ```
 
@@ -120,9 +106,6 @@ source ~/.bashrc
 Verify: `uv --version` should print a version number.
 
 ### Step 3 — Install the ODBC Driver 18 for SQL Server
-
-pyodbc (the Python SQL Server library) requires this driver to be installed
-on the system. This is a Microsoft package.
 
 **RHEL9:**
 
@@ -156,20 +139,15 @@ Verify: `odbcinst -j` should show a config file path without errors.
 
 ### Step 4 — Install Redis (and Podman)
 
-Redis is the message broker for Dramatiq background workers. RHEL9 ships
-Valkey, the Redis fork the deployed server runs; `make wsl-start` uses
-whichever is installed. Skip `podman` if you use Docker Desktop.
+RHEL9 ships Valkey instead of Redis; `make wsl-start` uses whichever is
+installed. Skip `podman` if you use Docker Desktop.
 
 ```bash
 sudo apt-get install -y redis-server podman  # Ubuntu
 sudo dnf install -y valkey podman            # RHEL9
 ```
 
-Verify: `redis-server --version` (Ubuntu) or `valkey-server --version` (RHEL9)
-should print a version number.
-
-**Redis must run with AOF durability** so acknowledged enqueues survive a broker
-crash. The `make wsl-start` command starts Redis with AOF enabled (see below).
+Verify: `redis-server --version` or `valkey-server --version`.
 
 ### Step 5 — Run first-time setup
 
@@ -177,19 +155,10 @@ crash. The `make wsl-start` command starts Redis with AOF enabled (see below).
 make wsl-setup
 ```
 
-Steps 2–4 are prerequisites; the script stops with the name of anything
-missing. It then:
-- Runs `uv sync`, which creates `.venv/` and downloads Python if the system has
-  no 3.12 or later
-- Starts SQL Server and Redis (`make wsl-start`) and waits for SQL Server.
-  Under Podman the first run creates a container named `sqlserver`.
-- Creates `rwb_workbench`, `rwb_exposure`, `rwb_loss` (skips if they exist)
-- Runs Alembic migrations on `rwb_workbench`
-- Seeds the kind tables and the dev admin `admin@example.com`
-- Applies the dev mirror of CIC's loss tables and the `stage` schema to
-  `rwb_loss`, and seeds it
-
-If it fails, read the error, fix it, and run it again — every step is idempotent.
+Runs `uv sync`, `make wsl-start`, creates the three databases, migrates
+`rwb_workbench`, seeds it (including the dev admin `admin@example.com`), and
+bootstraps `rwb_loss`. It stops on a missing prerequisite. Idempotent; fix the
+error and rerun.
 
 ### Step 6 — Verify
 
@@ -197,42 +166,25 @@ If it fails, read the error, fix it, and run it again — every step is idempote
 make wsl-app
 ```
 
-Open http://localhost:8000/api/health in a browser.
-You should see JSON with `status`, `db_workbench`, `db_exposure`, `db_loss`,
-`redis` and `env` keys.
+Open http://localhost:8000/api/health; each `db_*` and `redis` field should be `ok`.
 
 ### Next
 
-- Add users or reset a password: [USER_PROVISIONING.md](USER_PROVISIONING.md).
-  `make wsl-setup` already seeded the dev admin `admin@example.com`.
-- Set up VS Code, Claude Code and SpecKit:
-  [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md#claude-code-setup).
-- Before changing code, read [AGENTS.md](../AGENTS.md).
+- Users: [USER_PROVISIONING.md](USER_PROVISIONING.md)
+- VS Code, Claude Code, SpecKit: [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md#claude-code-setup)
+- Before changing code: [AGENTS.md](../AGENTS.md)
 
 ---
 
 ## Daily Workflow
 
 ```bash
-make wsl-start        # SQL Server + Redis; returns once SQL Server is ready
+make wsl-start                              # SQL Server + Redis; waits for SQL Server
+make wsl-app                                # terminal 1, :8000
+make wsl-poller                             # terminal 2
+make wsl-workers && make wsl-worker-logs    # terminal 3
+make wsl-stop                               # end of day; data persists
 ```
-
-Then open 3 terminals:
-
-```
-Terminal 1          Terminal 2        Terminal 3
-──────────────      ──────────────    ─────────────────────────────────────
-make wsl-app        make wsl-poller   make wsl-workers && make wsl-worker-logs
-(web app, :8000)    (IRP poller)      (one worker per queue, in the background)
-```
-
-```bash
-# End of day — stop SQL Server container and Redis
-make wsl-stop
-```
-
-SQL Server data persists across restarts in the container's volume (`infra_mssql-data`
-under Docker, `rwb-mssql-data` under Podman).
 
 ---
 
@@ -244,8 +196,8 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 
 | Command | What it does |
 |---|---|
-| `make wsl-setup` | First run: `uv sync`, `wsl-start`, then create, migrate and seed all 3 databases. Idempotent. |
-| `make wsl-start` | Start SQL Server (Docker or Podman) + Redis/Valkey (with AOF: `--appendonly yes --appendfsync everysec`) and wait for SQL Server. Idempotent. |
+| `make wsl-setup` | First run: `uv sync`, `wsl-start`, create, migrate and seed all 3 databases. Idempotent. |
+| `make wsl-start` | Start SQL Server and Redis/Valkey (AOF on); wait for SQL Server. Idempotent. |
 | `make wsl-stop` | Stop SQL Server container and Redis. |
 | `make wsl-app` | Start uvicorn with live reload on port 8000. |
 | `make wsl-workers` | Start every queue's Dramatiq worker in the background (`make wsl-worker QUEUE=<name>` starts one in the foreground). |

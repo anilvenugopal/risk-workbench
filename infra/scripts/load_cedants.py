@@ -6,13 +6,9 @@ this after the client sends a new list. A name already in the table (case
 ignored) is skipped, so a second run inserts nothing, and no cedant is renamed
 or deleted.
 
-Runs on: a WSL2 dev checkout (make wsl-load-cedants), inside linux-box
-         (make load-cedants), or the server, from APP_DIR.
-Needs:   MSSQL_* in the environment (the make target loads infra/.env; on the
-         server, source infra/.env first); uv in WSL2, .venv on the server.
-Usage:   make wsl-load-cedants FILE=path/to/cedants.xlsx   (FILE is optional)
-         server: cd /rms && set -a && source infra/.env && set +a &&
-                 .venv/bin/python infra/scripts/load_cedants.py
+Usage, dev:    make wsl-load-cedants [FILE=path/to/cedants.xlsx]   (Docker-only: make load-cedants)
+Usage, server: cd /rms && set -a && source infra/.env && set +a &&
+               .venv/bin/python infra/scripts/load_cedants.py
 """
 
 from __future__ import annotations

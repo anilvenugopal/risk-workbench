@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # rhel9-ssh-deploy.sh — push-based deployment to RHEL9 over SSH.
 #
-# Runs on: a dev machine or CI runner with the code checked out — NOT on the
-#          server. RHEL9 never talks to GitHub or any package index directly;
-#          it only receives files pushed to it and runs the deploy/ scripts
-#          this script triggers over SSH.
+# Runs on: a dev machine or CI runner with the code checked out, not the
+#          server. The server never talks to GitHub.
 # Needs:   DEPLOY_HOST, DEPLOY_DIR, SSH_KEY (no spaces); optional PYTHON_PKG;
 #          rsync and ssh locally; infra/.env already on the server.
 #

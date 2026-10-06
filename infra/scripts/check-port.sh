@@ -8,9 +8,7 @@
 # run this SAME script over there too and compare; this script only ever
 # reports what it can see from wherever it's actually running.
 #
-# Runs on: any Linux shell — a WSL2 dev distro or the server.
-# Needs:   a port number. Uses `sudo -n ss` for process names when allowed.
-# Usage:   bash infra/scripts/check-port.sh 6379
+# Usage: bash infra/scripts/check-port.sh 6379
 
 set -euo pipefail
 

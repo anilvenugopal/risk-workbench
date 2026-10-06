@@ -5,9 +5,8 @@ Actions:
   create      Create a new user (OIDC pre-provisioned or password account)
   reset       Reset the password for a password-auth user
 
-Runs on: a WSL2 dev checkout or the server, normally through run_user_setup.sh.
-Needs:   infra/.env, loaded by this script; InquirerPy and rich (the dev group).
-Usage:   make wsl-user-setup      server: cd /rms && ./infra/scripts/run_user_setup.sh
+Needs InquirerPy and rich (the dev group). Loads infra/.env itself.
+Usage: make wsl-user-setup      server: cd /rms && ./infra/scripts/run_user_setup.sh
 """
 from __future__ import annotations
 

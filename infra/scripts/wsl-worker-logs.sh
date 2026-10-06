@@ -2,8 +2,6 @@
 # wsl-worker-logs.sh — live tail of the per-queue worker logs written by
 # wsl-workers.sh, all in one terminal, each line prefixed with its queue name.
 #
-# Runs on: a WSL2 dev checkout (make wsl-worker-logs).
-# Needs:   infra/.env through wsl-env.sh; uv.
 # Usage:
 #   bash infra/scripts/wsl-worker-logs.sh                    # every queue
 #   bash infra/scripts/wsl-worker-logs.sh --queue upload_edm # one queue

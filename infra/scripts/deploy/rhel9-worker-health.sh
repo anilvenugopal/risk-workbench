@@ -3,7 +3,7 @@
 # on RHEL9 (CR-004), for repeatable before/after inspection around
 # rhel9-start.sh/rhel9-stop.sh.
 #
-# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`.
+# Runs on: the server.
 # Needs:   APP_DIR; $APP_DIR/infra/.env; .venv (the server has no uv). Optional
 #          PID_DIR (default /var/lib/risk-workbench/pids).
 #

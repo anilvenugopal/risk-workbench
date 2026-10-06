@@ -5,8 +5,7 @@ where `uv` is a developer tool only (see [AGENTS.md](../../AGENTS.md)).
 
 Prerequisite: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) completed — git,
 Python 3.14, ODBC Driver 18, Redis/Valkey, nginx, gcc/g++/make, rsync all
-installed. The short command list is [RHEL9_QUICKSTART.md](RHEL9_QUICKSTART.md).
-For local development, see [LOCAL_DEV_SETUP.md](../LOCAL_DEV_SETUP.md) instead.
+installed. Commands only: [RHEL9_QUICKSTART.md](RHEL9_QUICKSTART.md).
 
 The account `cinreadmd` and the app directory `/rms` used below are the
 values on the deployed server.
@@ -318,8 +317,5 @@ after `DRAIN_TIMEOUT_SECS`.
 
 ## Next
 
-After the first deployment:
-
-- Finish the Entra configuration: [ENTRA_SETUP.md](../ENTRA_SETUP.md).
-- Create the first admin: [USER_PROVISIONING.md](../USER_PROVISIONING.md)
-  (`./infra/scripts/run_user_setup.sh` on the server).
+[ENTRA_SETUP.md](../ENTRA_SETUP.md), then the first admin with
+[USER_PROVISIONING.md](../USER_PROVISIONING.md).

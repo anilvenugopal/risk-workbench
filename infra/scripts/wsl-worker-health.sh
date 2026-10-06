@@ -13,9 +13,6 @@
 #   terminal per queue, no PID file at all): finds running
 #   `dramatiq app.workers.entrypoint -Q <queue>` processes directly via ps.
 #
-# Runs on: a WSL2 dev checkout (make wsl-worker-health). The server uses
-#          deploy/rhel9-worker-health.sh.
-# Needs:   infra/.env through wsl-env.sh; PID_DIR (default .dev-pids); uv.
 # Usage:
 #   bash infra/scripts/wsl-worker-health.sh                  # both modes, default PID_DIR
 #   PID_DIR=/path/to/pids bash infra/scripts/wsl-worker-health.sh
