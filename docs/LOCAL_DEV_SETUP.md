@@ -2,7 +2,7 @@
 
 For development in a WSL2 Ubuntu or RHEL9 distro. On RHEL9, do
 [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) first. Docker only, without WSL2:
-[DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md) Option A. Deploying:
+[Docker-only stack](#docker-only-stack-no-wsl2). Deploying:
 [deploy/RHEL9_QUICKSTART.md](deploy/RHEL9_QUICKSTART.md).
 
 ---
@@ -181,7 +181,6 @@ or `both`. Both are the `infra/.env.example` defaults.
 ### Next
 
 - Users: [USER_PROVISIONING.md](USER_PROVISIONING.md)
-- VS Code, Claude Code, SpecKit: [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md#claude-code-setup)
 - Before changing code: [AGENTS.md](../AGENTS.md)
 
 ---
@@ -219,7 +218,18 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 | `make wsl-db-rebuild` | **Destructive.** Drop and recreate all 3 databases (runs `wsl-bootstrap-loss` last). |
 | `make wsl-bootstrap-loss` | Apply the dev mirror of CIC's five loss tables and the `stage` schema to `rwb_loss`, then seed `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS`. Idempotent. |
 
-### Docker-only commands (Windows without WSL2)
+### Docker-only stack (no WSL2)
+
+Use this only on a machine that cannot run WSL2. It runs the whole Workbench in
+Docker Desktop, as the `linux-box` (nginx, uvicorn, Redis, workers, poller) and
+`sqlserver` containers.
+
+Create `infra/.env` as in Step 1, then run `make start`; the first build takes a
+few minutes. The first time, once SQL Server is up, run `make db-bootstrap` and
+`make db-migrate`, then `python scripts/seed_db.py` inside `make shell`, then
+`make bootstrap-loss`. Open `http://localhost`. For breakpoints, set
+`APP_DEBUG=1` in `infra/.env` and run `make start`; uvicorn then waits for a
+debugger on port 5678.
 
 | Command | What it does |
 |---|---|

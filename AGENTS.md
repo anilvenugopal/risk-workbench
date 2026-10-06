@@ -150,7 +150,7 @@ processes; every other target below runs inside `linux-box` and needs the stack
 already up. Starting it is the developer's call, not an agent's (see
 [Testing](#testing)):
 ```bash
-make start           # start full Docker stack (partner / Windows)
+make start           # start full Docker stack (machines without WSL2)
 make wsl-start       # start SQL Server (Docker or Podman) + Redis only (WSL2 native mode)
 make wsl-app         # uvicorn --reload natively in WSL2
 make shell           # bash inside linux-box
