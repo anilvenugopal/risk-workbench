@@ -150,7 +150,7 @@
 <tr><td>nginx</td><td>Container output</td><td>Not used</td><td>The system nginx log locations; <code>site.conf</code> sets none</td></tr>
 </table>
 
-<p>On RHEL9, <code>rhel9-start.sh</code> appends to each log file when it starts the process, so a restart keeps the earlier lines. Nothing rotates the logs. Nothing collects the logs (B6 on <a href="09-path-to-production.html#blockers">page 9</a>). <code>infra/scripts/deploy/rhel9-logs-worker.sh &lt;queue&gt;</code> and <code>rhel9-logs-poller.sh</code> follow a log.</p>
+<p>On RHEL9, <code>rhel9-start.sh</code> appends to each log file when it starts the process, so a restart keeps the earlier lines. Nothing rotates the logs. Nothing collects the logs (C7 on <a href="09-path-to-production.html#c7">page 9</a>). <code>infra/scripts/deploy/rhel9-logs-worker.sh &lt;queue&gt;</code> and <code>rhel9-logs-poller.sh</code> follow a log.</p>
 
 <h2 id="health">Health and monitoring</h2>
 
