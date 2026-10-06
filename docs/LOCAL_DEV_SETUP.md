@@ -58,10 +58,47 @@ your WSL2 shell.
 - WSL2 running Ubuntu 22.04+ or RHEL9 (on RHEL9: `sudo dnf install -y git make`)
 - Podman (installed in Step 4; the client's choice) or Docker Desktop with WSL2
   integration enabled for the distro
-- VS Code with the WSL extension (`ms-vscode-remote.remote-wsl`)
+- VS Code on Windows, connected to the distro ([Connect VS Code to WSL2](#connect-vs-code-to-wsl2))
 
 WSL2 distros share one IP. With both Ubuntu and RHEL9, `make wsl-stop` in one
 before `make wsl-start` in the other, or ports 1433 and 6379 collide.
+
+---
+
+## Connect VS Code to WSL2
+
+VS Code runs on Windows and opens the repo inside the distro through the WSL
+extension. Its terminals, Python interpreter, test runner and extensions then
+run in the distro, where `make wsl-*` runs.
+
+1. Install [VS Code](https://code.visualstudio.com/) on Windows, not inside the
+   distro. In PowerShell, install the WSL extension:
+   ```powershell
+   code --install-extension ms-vscode-remote.remote-wsl
+   ```
+2. In VS Code, `Ctrl+Shift+P` → **WSL: Connect to WSL using Distro...** → the
+   distro (`wsl -l -v` lists the names, such as `Ubuntu` or `RHEL9`). The first
+   connection installs the VS Code Server in the distro under `~/.vscode-server`.
+   The bottom-left corner of the window then shows `WSL: <distro>`.
+3. Open a terminal with ``Ctrl+` ``. It is a shell in the distro; do the
+   First-Time Setup below in it.
+4. After Step 1, **File → Open Folder** → `~/projects/risk-workbench`. Keep the
+   repo in the distro's own file system, not under `/mnt/c/`: WSL2 reads files
+   on the Windows drive slowly. From a terminal in the distro, `code .` in the
+   repo opens the same window.
+5. Extensions install either on Windows or in the distro. In the WSL window,
+   open Extensions and choose **Install in WSL: \<distro\>** for:
+   - Python (`ms-python.python`)
+   - Python Debugger (`ms-python.debugpy`)
+   - Ruff (`charliermarsh.ruff`): `.vscode/settings.json` formats and fixes
+     imports with it on save
+   - Better Jinja (`samuelcolvin.jinjahtml`) for `app/templates/`
+6. After Step 5 creates `.venv`, VS Code uses `.venv/bin/python`
+   (`.vscode/settings.json`). If the status bar shows another interpreter,
+   `Ctrl+Shift+P` → **Python: Select Interpreter** → `./.venv/bin/python`.
+
+Each distro has its own VS Code Server and extensions. With both Ubuntu and
+RHEL9, install the extensions in each.
 
 ---
 
