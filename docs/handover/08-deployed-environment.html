@@ -184,7 +184,6 @@
 <table>
 <tr><th>Script</th><th>What it does</th></tr>
 <tr><td><code>rhel9-check-prereqs.sh</code></td><td>Read-only check of packages, directory ownership, the nginx reload grant, the ODBC driver, and SQL Server reachability.</td></tr>
-<tr><td><code>rhel9-db-rebuild.sh</code>, <code>drop_workbench_tables.py</code></td><td>Destructive: drops every Workbench table and runs the migrations again. Only for a database created before <code>0001</code> was frozen; see <a href="../deploy/RHEL9_DEPLOYMENT.md">RHEL9_DEPLOYMENT.md</a>.</td></tr>
 <tr><td><code>rhel9-worker-health.sh</code>, <code>rhel9-logs-worker.sh</code>, <code>rhel9-logs-poller.sh</code></td><td>Worker health and following logs.</td></tr>
 <tr><td><code>rhel9-setup-podman-mssql.sh</code>, <code>rhel9-start-podman-mssql.sh</code>, <code>rhel9-stop-podman-mssql.sh</code></td><td>A local SQL Server container under Podman, for the WSL2 test VM only.</td></tr>
 </table>

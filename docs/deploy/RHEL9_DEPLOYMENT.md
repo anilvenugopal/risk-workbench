@@ -132,36 +132,6 @@ it adds only the names not already in the `cedant` table. The script reads
 the database settings from the environment, not from `infra/.env`, so the
 `source` is needed.
 
-### One-time rebuild of a database built before the 0001 freeze
-
-Until spec 017 merged (2026-09-29), `alembic/versions/0001_initial.py` was
-edited in place. A database that recorded `0001` as applied before the
-freeze holds an older shape, and the next revision would run on top of it.
-The RHEL9 database has not been rebuilt since the freeze. Do this once,
-before the first deploy that ships a revision after `0001`:
-
-1. Confirm the database predates the freeze. `NULL` means it does:
-
-   ```sql
-   SELECT OBJECT_ID('dbo.contract');
-   ```
-
-2. Stop the application (`rhel9-stop.sh`), then rebuild. Every table and
-   row in the Workbench database is deleted:
-
-   ```bash
-   APP_DIR=/rms bash infra/scripts/deploy/rhel9-db-rebuild.sh
-   ```
-
-3. Provision each account again:
-
-   ```bash
-   cd /rms && .venv/bin/python infra/scripts/user_setup.py
-   ```
-
-From then on every schema change is a new revision, and the `alembic upgrade
-head` in `rhel9-app-install.sh` applies it.
-
 ## 5. Start Redis/Valkey
 
 ```bash
