@@ -34,6 +34,7 @@ export MSSQL_LOSS_SERVER=localhost
 export EXPORT_ARCHIVE_DIR="$SCRIPT_DIR/../../data/export_archive"
 export EXPORT_STAGING_DIR="$SCRIPT_DIR/../../data/staging"
 export SHARED_DRIVE_ROOT="$SCRIPT_DIR/../../data/shared_drive"
+mkdir -p "$EXPORT_ARCHIVE_DIR" "$EXPORT_STAGING_DIR" "$SHARED_DRIVE_ROOT"
 
 export RWB_CONTAINER_RUNTIME="${RWB_CONTAINER_RUNTIME:-docker}"
 if [ "$RWB_CONTAINER_RUNTIME" != docker ] && [ "$RWB_CONTAINER_RUNTIME" != podman ]; then
