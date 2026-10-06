@@ -116,6 +116,9 @@ cd ~/projects/risk-workbench
 cp infra/.env.example infra/.env
 ```
 
+If `git clone` fails with an SSL certificate error, see
+[SSL certificate errors](#ssl-certificate-errors-behind-a-corporate-proxy).
+
 Open `infra/.env` and set three values:
 
 ```ini
@@ -478,6 +481,62 @@ wasteful). The single-poller dev topology enforces this naturally.
 ---
 
 ## Troubleshooting
+
+### SSL certificate errors behind a corporate proxy
+
+A proxy that inspects HTTPS traffic (Zscaler, for example) replaces each
+site's certificate with one signed by its own root CA. Windows trusts that root
+CA; a new WSL2 distro does not, so `git clone`, `curl` and `dnf` fail with a
+certificate error.
+
+1. In the distro, check who issued the certificate GitHub presents:
+
+   ```bash
+   openssl s_client -connect github.com:443 -servername github.com </dev/null 2>/dev/null | grep -E '^(subject|issuer)='
+   ```
+
+   GitHub's own certificate is issued by Sectigo or DigiCert. Any other issuer
+   is the proxy; note its name for the next step.
+
+2. In PowerShell on Windows, export the proxy's root CA. Replace `*Zscaler*`
+   with the issuer name from step 1:
+
+   ```powershell
+   $c = Get-ChildItem Cert:\LocalMachine\Root | Where-Object Subject -like '*Zscaler*' | Select-Object -First 1
+   New-Item -ItemType Directory -Force C:\temp | Out-Null
+   Export-Certificate -Cert $c -FilePath C:\temp\corp-root.cer -Type CERT
+   ```
+
+   If `$c` is empty, search `Cert:\CurrentUser\Root` instead.
+
+3. In the distro, add the root CA to the system trust store:
+
+   ```bash
+   sudo openssl x509 -inform der -in /mnt/c/temp/corp-root.cer -out /etc/pki/ca-trust/source/anchors/corp-root.pem
+   sudo update-ca-trust extract
+   ```
+
+   `git`, `curl`, `dnf` and `uv` then trust the proxy. Continue from
+   `git clone` in Step 1.
+
+4. Python's HTTP clients do not read the system trust store. After Step 1
+   creates `infra/.env`, add these lines so Risk Modeler calls (`requests`),
+   S3 uploads (`boto3`) and Microsoft Graph email (`httpx`) use it:
+
+   ```ini
+   REQUESTS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+   AWS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+   SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt
+   ```
+
+   The path exists only on RHEL9. Do not add these lines to an `infra/.env`
+   that the Docker `linux-box` container also reads.
+
+On Python 3.13 and later, Risk Modeler calls can still fail with
+`Basic Constraints of CA cert not marked critical`. Python rejects a root CA
+that leaves Basic Constraints non-critical, and the Zscaler root does.
+[premiumiq/irp-integration#40](https://github.com/premiumiq/irp-integration/issues/40)
+tracks the fix.
 
 ### `libodbc.so.2: cannot open shared object file`
 
