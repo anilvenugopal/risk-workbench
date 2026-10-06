@@ -43,18 +43,33 @@ also runs a reconciler sweep each cycle to recover any `rwb_job` rows stuck in
 `running` with a stale heartbeat — it is folded into the same poller process,
 so the five-process count is unchanged.
 
-Docker is used in development **only for SQL Server**. Everything else runs
-directly in your WSL2 shell. Your partner (Windows, no WSL2) runs everything
-including the app inside Docker — see [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md).
+A container is used in development **only for SQL Server**, run by Docker or
+rootless Podman. Everything else runs directly in your WSL2 shell. Your partner (Windows, no WSL2) runs everything including the app inside
+Docker — see [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md).
 
 ---
 
 ## What You Need Before Starting
 
-- WSL2 running Ubuntu 22.04 or 24.04
-- Docker Desktop for Windows with the WSL2 integration enabled
+- WSL2 running one of:
+  - Ubuntu 22.04 or later
+  - RHEL9, which matches the deployed server. Install it with
+    [RHEL9/RHEL9_WSL_INSTALL.md](RHEL9/RHEL9_WSL_INSTALL.md), then
+    `sudo dnf install -y git make`.
+- A container runtime for SQL Server, on either distro:
+  - Podman, installed in Step 4. The client runs Podman.
+  - Docker Desktop for Windows, with its WSL2 integration enabled for the
+    distro.
 - VS Code with the WSL extension (`ms-vscode-remote.remote-wsl`)
-- Git
+
+Every `make wsl-*` target works on both distros and with both runtimes. Local development does not
+need `infra/scripts/rhel9/rhel9-setup.sh` or the rest of `docs/RHEL9/`
+after the WSL install: those prepare a deployment target (`/rms`, nginx,
+sudoers rules).
+
+All WSL2 distros share one network address. If you have both Ubuntu and RHEL9,
+run `make wsl-stop` in one before `make wsl-start` in the other, or ports 1433
+and 6379 collide.
 
 ---
 
@@ -80,6 +95,9 @@ SESSION_SECRET_KEY=<paste 64-char hex string here>
 
 # Must be 8+ chars, upper + lower + digit + symbol (SQL Server requirement)
 MSSQL_SA_PASSWORD=<your password here>
+
+# docker or podman: the tool `make wsl-start` runs SQL Server with
+RWB_CONTAINER_RUNTIME=podman
 ```
 
 Leave everything else as-is for local development.
@@ -98,9 +116,17 @@ Verify: `uv --version` should print a version number.
 ### Step 3 — Install the ODBC Driver 18 for SQL Server
 
 pyodbc (the Python SQL Server library) requires this driver to be installed
-on the system. This is a Microsoft package, installed via apt.
+on the system. This is a Microsoft package.
 
-Microsoft only publishes packages up to Ubuntu 24.04. The 24.04 package
+**RHEL9:**
+
+```bash
+sudo curl -fsSL https://packages.microsoft.com/config/rhel/9/prod.repo \
+    -o /etc/yum.repos.d/mssql-release.repo
+sudo ACCEPT_EULA=Y dnf install -y msodbcsql18 unixODBC-devel
+```
+
+**Ubuntu:** Microsoft only publishes packages up to Ubuntu 24.04. The 24.04 package
 installs and runs correctly on Ubuntu 26.04 and later — use the URL below
 regardless of your Ubuntu version.
 
@@ -122,69 +148,44 @@ sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
 
 Verify: `odbcinst -j` should show a config file path without errors.
 
-### Step 4 — Install Redis
+### Step 4 — Install Redis (and Podman)
 
-Redis is the message broker for Dramatiq background workers. In production it
-is installed the same way on the Linux server.
+Redis is the message broker for Dramatiq background workers. RHEL9 ships
+Valkey, the Redis fork the deployed server runs; `make wsl-start` uses
+whichever is installed. Skip `podman` if you use Docker Desktop.
 
 ```bash
-sudo apt-get install -y redis-server
+sudo apt-get install -y redis-server podman  # Ubuntu
+sudo dnf install -y valkey podman            # RHEL9
 ```
 
-Verify: `redis-server --version` should print a version number.
+Verify: `redis-server --version` (Ubuntu) or `valkey-server --version` (RHEL9)
+should print a version number.
 
 **Redis must run with AOF durability** so acknowledged enqueues survive a broker
 crash. The `make wsl-start` command starts Redis with AOF enabled (see below).
-Verify after start: `redis-cli CONFIG GET appendonly` should return `yes`.
 
-### Step 5 — Install Python dependencies
-
-```bash
-cd ~/projects/risk-workbench
-uv sync
-```
-
-This creates `.venv/` in the project directory and installs all Python packages
-listed in `pyproject.toml`. Takes 1–2 minutes on first run.
-
-Verify: `uv run python --version` should print Python 3.12 or later.
-
-### Step 6 — Start SQL Server and Redis
+### Step 5 — Run first-time setup
 
 ```bash
-make wsl-start
+make wsl-setup
 ```
 
-This starts the SQL Server Docker container and Redis (with AOF durability
-enabled). SQL Server takes about 30 seconds to be ready on first start.
-`make wsl-start` does not wait for it; `make wsl-setup` does.
-
-To verify Redis AOF is active: `redis-cli INFO persistence | grep aof_enabled`
-should print `aof_enabled:1`.
-
-### Step 7 — Create databases and run migrations
-
-```bash
-bash infra/scripts/wsl-setup.sh
-```
-
-This is the automated setup script. Steps 2–5 above are prerequisites for it.
-Once those are done, the script handles:
-- Confirming SQL Server is ready
-- Creating `rwb_workbench`, `rwb_exposure`, `rwb_loss` (skips if they exist)
-- Running Alembic migrations on `rwb_workbench`
+Steps 2–4 are prerequisites; the script stops with the name of anything
+missing. It then:
+- Runs `uv sync`, which creates `.venv/` and downloads Python if the system has
+  no 3.12 or later
+- Starts SQL Server and Redis (`make wsl-start`) and waits for SQL Server.
+  Under Podman the first run creates a container named `sqlserver`.
+- Creates `rwb_workbench`, `rwb_exposure`, `rwb_loss` (skips if they exist)
+- Runs Alembic migrations on `rwb_workbench`
+- Seeds the kind tables and the dev admin `admin@example.com`
+- Applies the dev mirror of CIC's loss tables and the `stage` schema to
+  `rwb_loss`, and seeds it
 
 If it fails, read the error, fix it, and run it again — every step is idempotent.
 
-Then seed the kind tables and the dev admin `admin@example.com`, and set up
-`rwb_loss`:
-
-```bash
-make wsl-db-seed
-make wsl-bootstrap-loss
-```
-
-### Step 8 — Verify
+### Step 6 — Verify
 
 ```bash
 make wsl-app
@@ -212,7 +213,8 @@ In the morning, open 4 terminals and run one command in each. That's it.
 make wsl-stop
 ```
 
-SQL Server data persists in the Docker volume across restarts.
+SQL Server data persists across restarts in the container's volume (`infra_mssql-data`
+under Docker, `rwb-mssql-data` under Podman).
 
 ---
 
@@ -224,7 +226,8 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 
 | Command | What it does |
 |---|---|
-| `make wsl-start` | Start SQL Server (Docker) + Redis (with AOF: `--appendonly yes --appendfsync everysec`). Idempotent. |
+| `make wsl-setup` | First run: `uv sync`, `wsl-start`, then create, migrate and seed all 3 databases. Idempotent. |
+| `make wsl-start` | Start SQL Server (Docker or Podman) + Redis/Valkey (with AOF: `--appendonly yes --appendfsync everysec`) and wait for SQL Server. Idempotent. |
 | `make wsl-stop` | Stop SQL Server container and Redis. |
 | `make wsl-app` | Start uvicorn with live reload on port 8000. |
 | `make wsl-workers` | Start every queue's Dramatiq worker in the background (`make wsl-worker QUEUE=<name>` starts one in the foreground). |
@@ -404,11 +407,12 @@ is a multiple of the heartbeat interval — never tied to how long a job takes.
 
 ### Redis AOF — all environments
 
-**Dev (WSL2 native `redis-server`):**
+**Dev (WSL2 native `redis-server`, `valkey-server` on RHEL9):**
 `make wsl-start` starts Redis as:
 ```
 redis-server --appendonly yes --appendfsync everysec --dir /tmp --logfile /tmp/rwb-redis.log
 ```
+On RHEL9 the command is `valkey-server` and the log is `/tmp/rwb-valkey.log`.
 The AOF file is under `/tmp`, so it does not survive a reboot of the WSL2 VM.
 
 **Partner / Docker (`linux-box`):**
@@ -426,7 +430,7 @@ valkey-server --port 6379 --bind 127.0.0.1 --appendonly yes --appendfsync everys
 Leave `auto-aof-rewrite-percentage` and `auto-aof-rewrite-min-size` at
 defaults (self-compacting; the AOF file tracks live queue size, not history).
 
-**Verify AOF is active:**
+**Verify AOF is active** (`valkey-cli` on RHEL9):
 ```bash
 redis-cli CONFIG GET appendonly   # → appendonly / yes
 redis-cli INFO persistence | grep aof_enabled  # → aof_enabled:1
@@ -458,18 +462,21 @@ The SQL Server container was previously started with a different password than
 what is in `infra/.env`. The password is baked into the container's data volume
 at first start and does not change when you update `.env`.
 
-Fix:
+Fix (deletes all SQL Server data):
 ```bash
+# Docker
 docker compose -f infra/docker-compose.yml --env-file infra/.env down
 docker volume rm infra_mssql-data
-make wsl-start
-make wsl-db-bootstrap
-make wsl-db-migrate
+# Podman
+podman rm -f sqlserver
+podman volume rm rwb-mssql-data
+
+make wsl-setup
 ```
 
-### `redis-server: command not found`
+### `redis-server: command not found` / `valkey-server: command not found`
 
-Redis is not installed. Run Step 4 of First-Time Setup.
+Redis (Valkey on RHEL9) is not installed. Run Step 4 of First-Time Setup.
 
 ### `uv: command not found`
 
@@ -482,7 +489,8 @@ SQL Server takes 20–30 seconds on first start (it initialises the data files).
 If it exceeds 90 seconds, check the container logs:
 
 ```bash
-docker compose -f infra/docker-compose.yml logs sqlserver | tail -20
+docker compose -f infra/docker-compose.yml logs sqlserver | tail -20   # Docker
+podman logs --tail 20 sqlserver                                      # Podman
 ```
 
 Common causes: password complexity failure (must have upper + lower + digit +

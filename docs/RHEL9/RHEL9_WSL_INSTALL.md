@@ -1,8 +1,8 @@
 # RHEL9 WSL Install
 
-Installs a real Red Hat Enterprise Linux 9.8 distro under WSL2 on Windows,
-alongside your existing Ubuntu WSL2 distro. Ubuntu is not touched by any step
-below — this creates a second, separate distro.
+Installs a real Red Hat Enterprise Linux 9.8 distro under WSL2 on Windows.
+If you already have an Ubuntu WSL2 distro, no step below touches it — this
+creates a second, separate distro.
 
 This is a one-time, per-developer, Windows-side setup. Run it yourself; no
 infra request needed for any step here (registration uses your own free Red
@@ -11,10 +11,14 @@ Hat Developer subscription, not a corporate one).
 Covers: getting the RHEL9 image, installing it as a WSL2 distro, verifying it
 boots, registering it with Red Hat, and creating your personal login account.
 
-Does **not** cover: installing project dependencies (Python, Redis, the ODBC
-driver, etc.) — see [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md). Does not
-cover cloning the repo or running the app — see
-[SCAFFOLDING.md](../SCAFFOLDING.md) and [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md).
+Does **not** cover installing project dependencies or running the app. What
+comes next depends on what the distro is for:
+
+- **Local development:** [SCAFFOLDING.md](../SCAFFOLDING.md) First-Time Setup.
+  It installs only what development needs and ends with `make wsl-setup`.
+- **Rehearsing a deployment:** [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md),
+  then [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md). These prepare the distro
+  the way the production server is prepared (`/rms`, nginx, sudoers rules).
 
 ---
 
@@ -31,8 +35,7 @@ Neither limit matters for local development.
 This gets you the actual RHEL9 userspace — same package names, same `dnf`
 behavior, same defaults as the real server — with none of the binary-rebuild
 questions a distro like AlmaLinux would raise, and none of the networking/
-filesystem friction a separate virtual machine would add on top of the
-Docker Desktop WSL2 integration you already use for SQL Server.
+filesystem friction a separate virtual machine would add.
 
 ---
 
@@ -210,12 +213,13 @@ then print `root`.
 
 ## Result
 
-- A real RHEL9.8 WSL2 distro named `RHEL9`, separate from your existing
-  Ubuntu distro.
+- A real RHEL9.8 WSL2 distro named `RHEL9`, separate from any other WSL2
+  distro.
 - Registered with Red Hat via your free Developer Subscription.
 - A personal, password-protected, sudo-capable account (`cinreadmd`) for all
   further work — matching the no-standing-sudo reality of the production
   server.
 
-Next: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) to install project
-dependencies (Python 3.14, Redis, the ODBC driver, nginx, build tools).
+Next: [SCAFFOLDING.md](../SCAFFOLDING.md) First-Time Setup for local
+development, or [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) to prepare the
+distro as a deployment target.

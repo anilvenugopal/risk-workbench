@@ -4,11 +4,13 @@ Installs the system-level packages Risk Workbench needs to run: git, Python
 3.14, the Microsoft ODBC Driver 18 for SQL Server, Valkey (Redis), nginx,
 build tools, and `rsync`.
 
-Prerequisite: [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) completed —
-registered RHEL9 distro, `cinreadmd` created with sudo, locale fixed.
+This prepares a deployment target: the production server, or a WSL2 RHEL9
+distro used to rehearse a deployment. For local development on RHEL9, skip
+this document and follow [SCAFFOLDING.md](../SCAFFOLDING.md); it installs
+only what development needs.
 
-This covers system packages only. For `uv` and running the app for
-development, see [SCAFFOLDING.md](../SCAFFOLDING.md).
+Prerequisite on WSL2: [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) completed —
+registered RHEL9 distro, `cinreadmd` created with sudo, locale fixed.
 
 ## Do this
 
@@ -482,11 +484,12 @@ make --version   # GNU Make 4.3
 
 ## Optional: Podman + local SQL Server
 
-Local dev/testing convenience only. Production's SQL Server is a separate,
-already-existing instance outside this box, never containerized as part of
-deployment. Not part of `rhel9-setup.sh` — three standalone scripts, run
-only if you want RHEL9 to have its own SQL Server instead of reaching
-across to Ubuntu's.
+For rehearsing a deployment on a WSL2 RHEL9 distro only. Production's SQL
+Server is a separate, already-existing instance outside this box, never
+containerized as part of deployment. Not part of `rhel9-setup.sh` — three
+standalone scripts. Local development does not use them: with
+`RWB_CONTAINER_RUNTIME=podman`, `make wsl-start` creates its own Podman
+container named `sqlserver`, and reuses this one if it already exists.
 
 Same port (1433) as Ubuntu's Docker SQL Server, so `infra/.env` never needs
 environment-specific values. Consequence: only one of the two can be

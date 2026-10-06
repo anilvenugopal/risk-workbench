@@ -134,10 +134,11 @@ You should see JSON with `status`, `db_workbench`, `db_exposure`, `db_loss`,
 
 WSL2 gives you a real Linux shell. VS Code connects to it natively.
 This gives faster file system performance and a closer match to production.
+Use Ubuntu or RHEL9; RHEL9 matches the deployed server.
 
-### Step 1 — Install WSL2
+### Step 1 — Install a WSL2 distro
 
-In PowerShell (as Administrator):
+**Ubuntu:** in PowerShell (as Administrator):
 ```powershell
 wsl --install
 ```
@@ -145,11 +146,17 @@ wsl --install
 Reboot when prompted. After reboot, WSL2 will finish installing Ubuntu.
 Set a username and password when asked.
 
-### Step 2 — Install Docker Desktop with WSL2 backend
+**RHEL9:** follow [RHEL9/RHEL9_WSL_INSTALL.md](RHEL9/RHEL9_WSL_INSTALL.md).
+It ends with a personal account in a distro named `RHEL9`.
+
+### Step 2 — Install Docker Desktop with WSL2 backend (Docker only)
+
+Skip this step if you run SQL Server under Podman (the client's choice), which
+[SCAFFOLDING.md](SCAFFOLDING.md) Step 4 installs on either distro.
 
 1. Install [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)
 2. In Docker Desktop → Settings → Resources → WSL Integration:
-   - Enable "Ubuntu" (your WSL2 distro)
+   - Enable your WSL2 distro (`Ubuntu` or `RHEL9`)
 3. Confirm in your WSL2 terminal: `docker version` should work.
 
 ### Step 3 — Install VS Code and the WSL extension
@@ -157,62 +164,22 @@ Set a username and password when asked.
 1. Install [VS Code on Windows](https://code.visualstudio.com/)
 2. Install the WSL extension: `code --install-extension ms-vscode-remote.remote-wsl`
 
-### Step 4 — Open your project in WSL2
+### Step 4 — Open VS Code in your distro
 
-In VS Code, press `Ctrl+Shift+P` → "WSL: New Window"
-
-Or from your WSL2 terminal:
-```bash
-cd ~/projects
-git clone <repo-url> risk-workbench
-cd risk-workbench
-code .
-```
+In VS Code, press `Ctrl+Shift+P` → "WSL: Connect to WSL using Distro..." and
+pick `Ubuntu` or `RHEL9`. "WSL: New Window" opens the default distro, which is
+Ubuntu if you installed it first.
 
 VS Code opens connected to WSL2. All terminals in VS Code are now Linux shells.
 
-### Step 5 — Install Python toolchain in WSL2
+### Step 5 — First-time setup
 
-In your VS Code terminal (which is now a Linux shell):
+Follow [SCAFFOLDING.md](SCAFFOLDING.md) First-Time Setup. It clones the repo,
+installs uv, the ODBC driver, Redis (Valkey on RHEL9) and Podman, then runs
+`make wsl-setup`, which starts SQL Server and Redis and creates, migrates, and
+seeds all three databases.
 
-```bash
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc   # or close and reopen terminal
-```
-
-### Step 6 — Configure environment
-
-```bash
-cp infra/.env.example infra/.env
-```
-
-Leave `MSSQL_*_SERVER=sqlserver` in `infra/.env`: every WSL2 make target
-sources `infra/scripts/wsl-env.sh`, which points the three servers at
-`localhost`. Changing them in `.env` would break the Docker mode.
-
-### Step 7 — Install Python dependencies
-
-```bash
-uv sync
-```
-
-### Step 8 — Start SQL Server and Redis
-
-```bash
-make wsl-start
-```
-
-### Step 9 — Bootstrap and migrate
-
-```bash
-make wsl-db-bootstrap
-make wsl-db-migrate
-make wsl-db-seed
-make wsl-bootstrap-loss
-```
-
-### Step 10 — Start development processes
+### Step 6 — Start development processes
 
 Open 3 terminals in VS Code (`Ctrl+Backtick`, then split):
 
@@ -228,6 +195,8 @@ make wsl-poller       # IRP poller
 ```
 
 Open http://localhost:8000/api/health — you should see JSON with a `status` key.
+
+After a restart, run `make wsl-start` first.
 
 ---
 
@@ -330,6 +299,7 @@ discuss it rather than overriding.
 make start              # Start full Docker stack
 make stop               # Stop everything (data preserved)
 make wsl-start          # Start SQL Server + Redis only (WSL2 native mode)
+make wsl-setup          # WSL2 first run: start, create, migrate, seed all 3 databases
 
 # Logs
 make logs                # uvicorn log stream

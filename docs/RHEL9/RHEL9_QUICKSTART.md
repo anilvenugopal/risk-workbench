@@ -1,7 +1,9 @@
 # RHEL9 Quickstart
 
-Condensed end-to-end sequence for setting up a WSL2 RHEL9 instance and
-deploying to it. For explanations and troubleshooting, see
+Condensed end-to-end sequence for setting up a RHEL9 deployment target (the
+server, or a WSL2 RHEL9 distro used to rehearse a deployment) and deploying to
+it. For local development on RHEL9, see [SCAFFOLDING.md](../SCAFFOLDING.md)
+instead. For explanations and troubleshooting, see
 [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md),
 [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md),
 [RHEL9_SSH_KEY_SETUP.md](RHEL9_SSH_KEY_SETUP.md), and

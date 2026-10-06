@@ -4,13 +4,14 @@
 # variables, and port as Ubuntu's infra/docker-compose.yml SQL Server
 # service; data directory differs deliberately (see below).
 #
-# Local dev/testing convenience ONLY. Production's SQL Server is a
-# separate, already-existing instance outside this box — never something
-# this project containerizes for real deployment.
+# Deployment rehearsal on a WSL2 RHEL9 distro ONLY. Production's SQL Server
+# is a separate, already-existing instance outside this box — never something
+# this project containerizes for real deployment. Local development uses
+# `make wsl-start`, which creates its own 'sqlserver' container (or reuses
+# this one).
 #
 # Standalone and optional: nothing else in this project depends on this
-# script having been run. Use it only if you want RHEL9 to have its own
-# SQL Server rather than reaching across to Ubuntu's.
+# script having been run.
 #
 # Creates the container but does NOT start it — start it explicitly with
 # rhel9-start-podman-mssql.sh, every time, including the first time.
