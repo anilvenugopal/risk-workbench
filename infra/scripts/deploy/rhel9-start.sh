@@ -4,10 +4,10 @@
 # trying to bind it — so a conflict fails with a clear, specific message
 # instead of a cryptic bind error partway through startup.
 #
-# Run directly on RHEL9 — not over SSH, not from Ubuntu.
-#
-# Assumes rhel9-app-install.sh has already been run (dependencies
-# installed, .venv exists) and infra/.env is in place.
+# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`, as the run account.
+# Needs:   APP_DIR; $APP_DIR/infra/.env; .venv from rhel9-app-install.sh.
+#          Optional PID_DIR, RWB_WORKER_PROCESSES, RWB_WORKER_THREADS.
+# Usage:   APP_DIR=/rms bash infra/scripts/deploy/rhel9-start.sh
 
 set -euo pipefail
 

@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # wsl-stop.sh — stop the SQL Server container and Redis started by wsl-start.sh.
+#
+# Runs on: a WSL2 dev checkout (make wsl-stop).
+# Needs:   infra/.env through wsl-env.sh; RWB_CONTAINER_RUNTIME.
+# Usage:   make wsl-stop
 
 set -uo pipefail
 

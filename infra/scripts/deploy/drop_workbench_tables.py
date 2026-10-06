@@ -8,6 +8,10 @@ Server for the installed tables avoids that mismatch.
 The script prints every table and requires the operator to type the configured
 database name before executing any DDL. ``--yes`` exists for the automated
 scratch-database test; the RHEL9 rebuild command does not pass it.
+
+Runs on: the RHEL9 server, through rhel9-db-rebuild.sh; also the SQL Server test tier.
+Needs:   MSSQL_WORKBENCH_* in the environment (rhel9-db-rebuild.sh sources infra/.env); .venv.
+Usage:   APP_DIR=/rms bash infra/scripts/deploy/rhel9-db-rebuild.sh
 """
 
 from __future__ import annotations

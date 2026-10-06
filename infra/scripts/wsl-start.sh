@@ -3,6 +3,10 @@
 # SQL Server accepts connections.
 # Idempotent: SQL Server and Redis are no-ops if already running.
 #
+# Runs on: a WSL2 dev checkout (make wsl-start, wsl-setup.sh).
+# Needs:   infra/.env through wsl-env.sh; MSSQL_SA_PASSWORD, RWB_CONTAINER_RUNTIME.
+# Usage:   make wsl-start
+#
 # RWB_CONTAINER_RUNTIME in infra/.env picks docker (the default) or podman for
 # SQL Server. Redis is `redis-server` on Ubuntu and `valkey-server` on RHEL9.
 

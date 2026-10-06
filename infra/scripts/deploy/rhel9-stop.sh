@@ -3,7 +3,9 @@
 # worker, poller, nginx), and VERIFY each one actually stopped rather than
 # assuming a stop signal worked.
 #
-# Run directly on RHEL9 — not over SSH, not from Ubuntu.
+# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`, as the run account.
+# Needs:   APP_DIR; $APP_DIR/infra/.env; .venv. Optional PID_DIR.
+# Usage:   APP_DIR=/rms bash infra/scripts/deploy/rhel9-stop.sh
 #
 # Why verification matters: confirmed directly tonight that a plain stop
 # command can silently fail to take effect — Ubuntu's Redis is managed by

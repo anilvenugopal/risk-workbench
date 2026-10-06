@@ -6,9 +6,11 @@ Alembic upgrade and seed_db are run by the Makefile targets after this script.
 NEVER touches DATABRIDGE — that database is Moody's-managed and is never
 created, dropped, or migrated by this application.
 
-Run via Makefile (preferred):
-    make wsl-db-rebuild     # WSL2 native
-    make db-rebuild         # Docker
+Runs on: a WSL2 dev checkout (make wsl-db-rebuild) or inside linux-box
+         (make db-rebuild). Never on the server.
+Needs:   MSSQL_SA_PASSWORD and MSSQL_* in the environment (the make target
+         loads infra/.env); uv in WSL2.
+Usage:   make wsl-db-rebuild          (Docker-only: make db-rebuild)
 """
 
 from __future__ import annotations

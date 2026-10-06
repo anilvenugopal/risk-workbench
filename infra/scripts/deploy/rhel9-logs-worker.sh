@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 # rhel9-logs-worker.sh — tail one queue's Dramatiq worker log on RHEL9 (CR-004).
 #
-# Run directly on RHEL9 — not over SSH, not from Ubuntu (same rule as every
-# other rhel9-*.sh script). No Makefile wrapper exists on RHEL9, so this is
-# invoked directly, same as rhel9-start.sh/rhel9-stop.sh.
-#
-# Usage:
-#   bash infra/scripts/deploy/rhel9-logs-worker.sh upload_edm
-#   bash infra/scripts/deploy/rhel9-logs-worker.sh          # lists queue names and exits
+# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`.
+# Needs:   APP_DIR; a queue name. With no queue name it lists the queues, which
+#          needs $APP_DIR/infra/.env and .venv.
+# Usage:   APP_DIR=/rms bash infra/scripts/deploy/rhel9-logs-worker.sh upload_edm
 
 set -uo pipefail
 

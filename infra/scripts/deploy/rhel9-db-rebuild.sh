@@ -5,7 +5,9 @@
 # deleted. Stop the application before running the script. The rebuild creates
 # no user accounts.
 #
-# Usage: APP_DIR=/rms bash infra/scripts/deploy/rhel9-db-rebuild.sh
+# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`.
+# Needs:   APP_DIR; $APP_DIR/infra/.env; .venv.
+# Usage:   APP_DIR=/rms bash infra/scripts/deploy/rhel9-db-rebuild.sh
 
 set -euo pipefail
 

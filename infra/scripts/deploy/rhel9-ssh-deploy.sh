@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # rhel9-ssh-deploy.sh — push-based deployment to RHEL9 over SSH.
 #
-# Runs from wherever this script is invoked (a dev machine, or a CI/CD
-# runner) — NOT on the RHEL9 server itself. RHEL9 never talks to GitHub or
-# any package index directly; it only receives files pushed to it and runs
-# commands this script triggers remotely over SSH.
+# Runs on: a dev machine or CI runner with the code checked out — NOT on the
+#          server. RHEL9 never talks to GitHub or any package index directly;
+#          it only receives files pushed to it and runs the deploy/ scripts
+#          this script triggers over SSH.
+# Needs:   DEPLOY_HOST, DEPLOY_DIR, SSH_KEY (no spaces); optional PYTHON_PKG;
+#          rsync and ssh locally; infra/.env already on the server.
 #
 # This deliberately does NOT call rhel9-pull-code.sh — that script is for
 # the separate, local/manual "log into the server and git pull yourself"
@@ -22,7 +24,7 @@
 #   DEPLOY_HOST=cinreadmd@172.19.253.47 \
 #   DEPLOY_DIR=/rms \
 #   SSH_KEY=~/.ssh/risk-workbench-deploy \
-#   ./rhel9-ssh-deploy.sh
+#   bash infra/scripts/deploy/rhel9-ssh-deploy.sh
 
 set -euo pipefail
 

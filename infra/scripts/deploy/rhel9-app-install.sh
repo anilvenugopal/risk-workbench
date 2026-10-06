@@ -13,11 +13,10 @@
 # developers (see infra/scripts/generate-requirements.sh) and arrives with
 # the rest of the code; this script never installs or calls uv itself.
 #
-# Run this directly on the RHEL9 box, in the app's own directory
-# (e.g. /rms), AFTER the code has already been synced there.
-#
-# Usage: PYTHON_BIN=python3.14 ./rhel9-app-install.sh
-#   (run from inside the app directory, e.g. /rms)
+# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`; rhel9-ssh-deploy.sh runs it after the rsync push.
+# Needs:   the app directory as the working directory; infra/.env there;
+#          PYTHON_BIN (default python3.14). Creates .venv; no uv.
+# Usage:   cd /rms && PYTHON_BIN=python3.14 bash infra/scripts/deploy/rhel9-app-install.sh
 
 set -euo pipefail
 

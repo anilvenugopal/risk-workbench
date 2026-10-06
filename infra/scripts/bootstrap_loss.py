@@ -15,7 +15,11 @@ tables are never dropped (contracts/load-procedure.md §4).
 Refuses to run unless MSSQL_LOSS_DATABASE is rwb_loss: at CIC the five tables
 are theirs and the DBA installs loss_schema.sql by hand.
 
-Run via Makefile: make bootstrap-loss (Docker) or make wsl-bootstrap-loss (WSL2).
+Runs on: a WSL2 dev checkout (make wsl-bootstrap-loss, wsl-setup.sh) or inside
+         linux-box (make bootstrap-loss). Never on the server.
+Needs:   MSSQL_LOSS_* in the environment, MSSQL_LOSS_DATABASE=rwb_loss (the
+         make target loads infra/.env); uv in WSL2.
+Usage:   make wsl-bootstrap-loss      (Docker-only: make bootstrap-loss)
 """
 
 from __future__ import annotations

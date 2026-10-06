@@ -9,9 +9,11 @@ Inserts:
     (bcrypt cost 12, must_change_password=False, role=admin)
     Only inserted in development (APP_ENV=development).
 
-Run via Makefile (preferred):
-    make wsl-db-rebuild     # WSL2 native
-    make db-rebuild         # Docker
+Runs on: a WSL2 dev checkout (make wsl-db-seed, wsl-setup.sh, CI) or inside
+         linux-box (make db-rebuild). Never on the server.
+Needs:   APP_ENV and MSSQL_* in the environment (the make target loads
+         infra/.env); uv in WSL2.
+Usage:   make wsl-db-seed
 """
 
 from __future__ import annotations

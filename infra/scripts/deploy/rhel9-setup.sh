@@ -2,10 +2,11 @@
 # rhel9-setup.sh — one-time RHEL9 server prep. Idempotent: every step checks
 # current state before acting, safe to re-run.
 #
-# Run as a user with sudo (setup phase only — the app itself never needs
-# standing sudo once this script finishes).
-#
-# Usage: DEPLOY_USER=cinreadmd APP_DIR=/rms ./rhel9-setup.sh
+# Runs on: the RHEL9 server (or a rehearsal distro), once, as a user with sudo
+#          (the app itself never needs standing sudo once this finishes). Not
+#          for local development: see docs/LOCAL_DEV_SETUP.md.
+# Needs:   DEPLOY_USER, APP_DIR; optional PYTHON_PKG (default python3.14); sudo.
+# Usage:   DEPLOY_USER=cinreadmd APP_DIR=/rms bash infra/scripts/deploy/rhel9-setup.sh
 
 # "set" changes how THIS script behaves — like flipping safety switches
 # before driving, not a real-world plumbing/water thing.

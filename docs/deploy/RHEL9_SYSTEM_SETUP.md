@@ -297,20 +297,21 @@ Valkey, or this project — it would affect any port both distros' dev stacks
 try to bind (redis, the app itself on 80/8000, etc.) if you ever ran full
 stacks in both distros at the same time.
 
-**Resolution used on WSL2:** stop Ubuntu's Redis before starting RHEL9's, and
-vice versa — don't run both distros' full stacks simultaneously on the same
+**Resolution used on WSL2:** stop the other distro's stack before starting
+this one's — don't run both distros' full stacks simultaneously on the same
 ports. Chosen over switching WSL2 to NAT networking mode (which would give
 each distro its own IP and avoid the conflict entirely) because a NAT switch
 is a machine-wide WSL2 setting affecting every distro, not something scoped
 to this project.
 
-```powershell
-# From Windows PowerShell, before starting RHEL9's Valkey:
-wsl -d Ubuntu-26.04 -- sudo systemctl stop redis-server
-
-# To resume Ubuntu development afterward:
-wsl -d Ubuntu-26.04 -- sudo systemctl start redis-server
+```bash
+# In the other distro's checkout, before starting this distro's Valkey:
+make wsl-stop
 ```
+
+`make wsl-stop` stops the Redis or Valkey that `make wsl-start` launched. If
+the other distro also runs a packaged Redis service, stop that too
+(`sudo systemctl stop redis-server` on Ubuntu).
 
 If you need both environments' full stacks running at once, switching WSL2
 to NAT mode (`networkingMode=NAT` in `%UserProfile%\.wslconfig`, then
@@ -491,7 +492,7 @@ standalone scripts. Local development does not use them: with
 `RWB_CONTAINER_RUNTIME=podman`, `make wsl-start` creates its own Podman
 container named `sqlserver`, and reuses this one if it already exists.
 
-Same port (1433) as Ubuntu's Docker SQL Server, so `infra/.env` never needs
+Same port (1433) as the `sqlserver` service in `infra/docker-compose.yml`, so `infra/.env` never needs
 environment-specific values. Consequence: only one of the two can be
 reachable at a time (same shared-IP conflict as Redis/Valkey above) — stop
 one before starting the other. Diagnose with
@@ -592,3 +593,8 @@ it — the container starts, permissions apply correctly, and data persists
 as expected regardless. A real fix exists (`sudo mount --make-rshared /`)
 but is unverified and not applied, since the warning hasn't caused an
 actual problem.
+
+## Next
+
+1. The deploy SSH key: [RHEL9_SSH_KEY_SETUP.md](RHEL9_SSH_KEY_SETUP.md).
+2. The first deployment: [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md).

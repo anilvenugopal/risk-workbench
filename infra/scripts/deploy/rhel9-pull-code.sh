@@ -10,6 +10,8 @@
 # So .env and similar are simply invisible to this script's checks; they
 # are never at risk and never need special-casing here.
 #
+# Runs on: the RHEL9 server (or a rehearsal distro), logged in or through `ssh host '...'`. The manual alternative to rhel9-ssh-deploy.sh.
+# Needs:   APP_DIR; REPO_URL and BRANCH; git access to GitHub from the server.
 # Usage:
 #   APP_DIR=/rms \
 #   REPO_URL=https://github.com/anilvenugopal/risk-workbench.git \

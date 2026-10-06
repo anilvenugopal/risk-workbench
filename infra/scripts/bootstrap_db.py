@@ -7,8 +7,11 @@ cannot run inside a transaction.
 NEVER run this against the production SQL Server. Production databases are
 provisioned once by the DBA with least-privilege app logins.
 
-Run:  python -m infra.scripts.bootstrap_db
-  or: python scripts/bootstrap_db.py   (from inside linux-box)
+Runs on: a WSL2 dev checkout (make wsl-db-bootstrap, wsl-setup.sh, CI) or
+         inside linux-box (make db-bootstrap). Never on the server.
+Needs:   MSSQL_SA_PASSWORD and MSSQL_* in the environment (the make target
+         loads infra/.env); uv in WSL2.
+Usage:   make wsl-db-bootstrap        (Docker-only: make db-bootstrap)
 """
 
 from __future__ import annotations

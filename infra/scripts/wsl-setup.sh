@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # wsl-setup.sh — first-time database setup for the WSL2 dev environment.
 #
+# Runs on: a WSL2 dev checkout (make wsl-setup).
+# Needs:   the prerequisites below; uv.
+# Usage:   make wsl-setup
+#
 # Prerequisites (install by hand first — docs/LOCAL_DEV_SETUP.md Steps 2-4):
 #   1. uv
 #   2. ODBC Driver 18 for SQL Server

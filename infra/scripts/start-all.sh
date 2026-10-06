@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # start-all.sh — start every process on the Linux box.
 #
-# This script runs inside the linux-box container in dev. In production, each
-# block below maps 1:1 to a systemd unit file. The commands are identical.
+# Runs on: inside the linux-box container only; it is the container's CMD
+#          (infra/Dockerfile.dev). The server uses deploy/rhel9-start.sh.
+# Needs:   the container's env (infra/.env through docker-compose env_file).
+# Usage:   make start
 #
 # Process layout (mirrors production):
 #   redis-server   → background daemon

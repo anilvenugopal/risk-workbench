@@ -1,4 +1,10 @@
-# Risk Workbench — Developer Setup Guide
+# Local Development Setup (WSL2)
+
+**Use this when** you develop in a WSL2 distro on Windows: Ubuntu, or RHEL9 to
+match the deployed server, with SQL Server under Docker or Podman.
+**Not this:** Docker only, without WSL2 → [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md)
+Option A. Deploying to the server → [deploy/RHEL9_QUICKSTART.md](deploy/RHEL9_QUICKSTART.md).
+**Before this:** on RHEL9, [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md).
 
 ---
 
@@ -28,7 +34,7 @@ WSL2 Development                          Production (Linux server)
   dramatiq       make wsl-worker          dramatiq       (rhel9-start.sh)
   poller         make wsl-poller          poller         (rhel9-start.sh)
 
-  SQL Server ─── Docker container   ≡    SQL Server ─── separate host
+  SQL Server ─── Docker or Podman  ≡    SQL Server ─── separate host
 ```
 
 The same five processes run in development and production. In development they
@@ -44,8 +50,9 @@ also runs a reconciler sweep each cycle to recover any `rwb_job` rows stuck in
 so the five-process count is unchanged.
 
 A container is used in development **only for SQL Server**, run by Docker or
-rootless Podman. Everything else runs directly in your WSL2 shell. Your partner (Windows, no WSL2) runs everything including the app inside
-Docker — see [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md).
+rootless Podman. Everything else runs directly in your WSL2 shell.
+Docker-only development (Windows without WSL2) runs everything, including the
+app, inside Docker — see [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md) Option A.
 
 ---
 
@@ -62,10 +69,9 @@ Docker — see [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md).
     distro.
 - VS Code with the WSL extension (`ms-vscode-remote.remote-wsl`)
 
-Every `make wsl-*` target works on both distros and with both runtimes. Local development does not
-need `infra/scripts/deploy/rhel9-setup.sh` or the rest of `docs/deploy/`
-after the WSL install: those prepare a deployment target (`/rms`, nginx,
-sudoers rules).
+Every `make wsl-*` target works on both distros and with both runtimes. Local
+development uses nothing in `infra/scripts/deploy/` or `docs/deploy/`: those
+prepare and run a deployment target (`/rms`, nginx, sudoers rules).
 
 All WSL2 distros share one network address. If you have both Ubuntu and RHEL9,
 run `make wsl-stop` in one before `make wsl-start` in the other, or ports 1433
@@ -195,18 +201,30 @@ Open http://localhost:8000/api/health in a browser.
 You should see JSON with `status`, `db_workbench`, `db_exposure`, `db_loss`,
 `redis` and `env` keys.
 
+### Next
+
+- Add users or reset a password: [USER_PROVISIONING.md](USER_PROVISIONING.md).
+  `make wsl-setup` already seeded the dev admin `admin@example.com`.
+- Set up VS Code, Claude Code and SpecKit:
+  [DEVELOPER_PLAYBOOK.md](DEVELOPER_PLAYBOOK.md#claude-code-setup).
+- Before changing code, read [AGENTS.md](../AGENTS.md).
+
 ---
 
 ## Daily Workflow
 
-```
-Terminal 1          Terminal 2       Terminal 3        Terminal 4
-──────────────      ────────────     ─────────────     ────────────
-make wsl-start      make wsl-app     make wsl-workers  make wsl-poller
-(infrastructure)    (web app)        (bg workers)      (IRP poller)
+```bash
+make wsl-start        # SQL Server + Redis; returns once SQL Server is ready
 ```
 
-In the morning, open 4 terminals and run one command in each. That's it.
+Then open 3 terminals:
+
+```
+Terminal 1          Terminal 2        Terminal 3
+──────────────      ──────────────    ─────────────────────────────────────
+make wsl-app        make wsl-poller   make wsl-workers && make wsl-worker-logs
+(web app, :8000)    (IRP poller)      (one worker per queue, in the background)
+```
 
 ```bash
 # End of day — stop SQL Server container and Redis
@@ -222,7 +240,7 @@ under Docker, `rwb-mssql-data` under Podman).
 
 All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 
-### WSL2 commands (your daily use)
+### WSL2 commands
 
 | Command | What it does |
 |---|---|
@@ -239,7 +257,7 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 | `make wsl-db-rebuild` | **Destructive.** Drop and recreate all 3 databases (runs `wsl-bootstrap-loss` last). |
 | `make wsl-bootstrap-loss` | Apply the dev mirror of CIC's five loss tables and the `stage` schema to `rwb_loss`, then seed `dbo.Client` and `dbo.Lookup_RMS_HistoricalRDS`. Idempotent. |
 
-### Docker commands (partner / Windows users)
+### Docker-only commands (Windows without WSL2)
 
 | Command | What it does |
 |---|---|
@@ -415,7 +433,7 @@ redis-server --appendonly yes --appendfsync everysec --dir /tmp --logfile /tmp/r
 On RHEL9 the command is `valkey-server` and the log is `/tmp/rwb-valkey.log`.
 The AOF file is under `/tmp`, so it does not survive a reboot of the WSL2 VM.
 
-**Partner / Docker (`linux-box`):**
+**Docker-only (`linux-box`):**
 There is no separate Redis service. `infra/scripts/start-all.sh` starts
 `redis-server --appendonly yes --appendfsync everysec --dir /workspace/.dev-logs`
 inside `linux-box`. That directory is not a volume, so the AOF file does not

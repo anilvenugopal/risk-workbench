@@ -102,7 +102,7 @@ deploy (Section 7), so create it before copying the script:
 
 ```bash
 ssh -i ~/.ssh/risk-workbench-deploy cinreadmd@172.19.253.47 \
-    "mkdir -p /rms/infra/scripts/rhel9"
+    "mkdir -p /rms/infra/scripts/deploy"
 scp -i ~/.ssh/risk-workbench-deploy \
     infra/scripts/deploy/rhel9-setup-podman-mssql.sh \
     cinreadmd@172.19.253.47:/rms/infra/scripts/deploy/
@@ -111,7 +111,8 @@ ssh -i ~/.ssh/risk-workbench-deploy cinreadmd@172.19.253.47 \
 ```
 
 Installs Podman, does the one-time rootless setup, and **creates** (does
-not start) a SQL Server container identical to Ubuntu's Docker setup,
+not start) a SQL Server container with the same image, environment and port
+as the `sqlserver` service in `infra/docker-compose.yml`,
 bind-mounted to `/var/lib/risk-workbench/mssql`. Start it before deploying
 (Section 9) — the prerequisite check in the next section tests real
 network connectivity to whatever `infra/.env` points at, container or not.
@@ -236,3 +237,11 @@ conn = pyodbc.connect(
 print(conn.execute('SELECT @@VERSION').fetchone()[0])
 "
 ```
+
+## Next
+
+After the first deployment:
+
+- Finish the Entra configuration: [ENTRA_SETUP.md](../ENTRA_SETUP.md).
+- Create the first admin: [USER_PROVISIONING.md](../USER_PROVISIONING.md)
+  (`./infra/scripts/run_user_setup.sh` on the server).

@@ -11,6 +11,8 @@
 # Only workers started here have a PID file, so only those can be stopped here.
 # `make wsl-worker-health` finds any others by process scan.
 #
+# Runs on: a WSL2 dev checkout (make wsl-workers, make wsl-workers-stop).
+# Needs:   infra/.env through wsl-env.sh; RWB_WORKER_PROCESSES, RWB_WORKER_THREADS; uv.
 # Usage:
 #   bash infra/scripts/wsl-workers.sh          # start (skips queues already up)
 #   bash infra/scripts/wsl-workers.sh stop

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # stop-all.sh — graceful shutdown of all background processes.
-# Run this before `docker compose down` if you want clean log flush.
+# Runs on: inside the linux-box container only.
+# Needs:   the PID files start-all.sh wrote under /workspace/.dev-pids.
+# Usage:   docker compose -f infra/docker-compose.yml exec linux-box bash scripts/stop-all.sh
+#          before `make stop`, if you want a clean log flush.
 
 set -euo pipefail
 

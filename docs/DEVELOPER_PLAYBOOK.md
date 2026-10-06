@@ -1,14 +1,18 @@
 # Developer Playbook
 ## Risk Workbench — Claude Code + SpecKit on Windows / WSL2
 
-This guide gets a new developer contributing to the Risk Workbench from
-Windows or WSL2 using VS Code, Claude Code, and SpecKit.
+**Use this when** you set up VS Code, Claude Code and SpecKit, or develop with
+Docker only, without WSL2 (Option A).
+**Not this:** the WSL2 setup steps are in [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md);
+Option B below hands off to it. Deploying to the server →
+[deploy/RHEL9_QUICKSTART.md](deploy/RHEL9_QUICKSTART.md).
 
 ---
 
 ## What You're Setting Up
 
-The Risk Workbench runs as two Docker containers:
+Option B (WSL2, recommended) runs only SQL Server in a container and everything
+else in your WSL2 shell. Option A runs the Workbench as two Docker containers:
 
 ```
 ┌─ linux-box ──────────────────────────┐   ┌─ sqlserver ──────────────┐
@@ -128,6 +132,9 @@ You should see JSON with `status`, `db_workbench`, `db_exposure`, `db_loss`,
 5. Open a terminal in VS Code (`Ctrl+Backtick`). You are now inside the
    Linux container — same as if you had SSHed into a Linux server.
 
+Next: add users with [USER_PROVISIONING.md](USER_PROVISIONING.md) (the dev admin
+`admin@example.com` is already seeded), then [Claude Code Setup](#claude-code-setup).
+
 ---
 
 ## Option B: Windows with WSL2 (Recommended for active development)
@@ -181,22 +188,9 @@ seeds all three databases.
 
 ### Step 6 — Start development processes
 
-Open 3 terminals in VS Code (`Ctrl+Backtick`, then split):
-
-```bash
-# Terminal 1
-make wsl-app          # uvicorn --reload
-
-# Terminal 2
-make wsl-workers      # one dramatiq worker per queue, in the background
-
-# Terminal 3
-make wsl-poller       # IRP poller
-```
-
-Open http://localhost:8000/api/health — you should see JSON with a `status` key.
-
-After a restart, run `make wsl-start` first.
+Follow [LOCAL_DEV_SETUP.md](LOCAL_DEV_SETUP.md#daily-workflow) Daily Workflow:
+`make wsl-start`, then `make wsl-app`, `make wsl-poller` and `make wsl-workers`
+in their own terminals.
 
 ---
 

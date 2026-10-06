@@ -1,5 +1,11 @@
 # infra/scripts/mail_smoke_test.py
-"""Send one test email via Graph. Usage: uv run python scripts/mail_smoke_test.py you@premiumiq.com"""
+"""Send one test email via Graph.
+
+Runs on: a WSL2 dev checkout. No make target.
+Needs:   MAIL_* in the environment (it does not load infra/.env); uv.
+Usage:   bash -c 'source infra/scripts/wsl-env.sh &&
+             uv run python infra/scripts/mail_smoke_test.py you@premiumiq.com'
+"""
 
 import sys
 

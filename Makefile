@@ -2,7 +2,7 @@
 #
 # Two developer setups, same targets where possible:
 #
-#   DOCKER (your partner, Windows)
+#   DOCKER-ONLY (Windows without WSL2)
 #     All processes run inside the linux-box container alongside SQL Server.
 #     One command starts everything. Nothing to install locally.
 #     Targets: start, stop, logs, shell, db-*, test, lint
@@ -14,8 +14,8 @@
 #     Faster reload and debugger attach.
 #     Targets: wsl-setup, wsl-start, wsl-stop, wsl-db-*, wsl-test, lint
 #
-# Production uses the same commands as wsl-* but via systemd units.
-# See infra/scripts/start-all.sh for the mapping.
+# Production runs the same processes from infra/scripts/deploy/rhel9-start.sh
+# (nohup, no make, no uv); only nginx is a systemd service there.
 
 .PHONY: help \
         start stop logs shell \
@@ -109,8 +109,9 @@ format:   ## [Docker] Run ruff formatter
 
 # ══ WSL2 TARGETS ══════════════════════════════════════════════════════════════
 # Use these for day-to-day development in WSL2.
-# SQL Server runs in Docker. Everything else (app, Redis, workers, poller)
-# runs directly in your WSL2 shell — same processes as production.
+# SQL Server runs in a Docker or Podman container. Everything else (app,
+# Redis, workers, poller) runs directly in your WSL2 shell — same processes as
+# production.
 #
 # All env loading and idempotency logic lives in infra/scripts/*.sh, not here.
 # Makefile targets are thin dispatchers only — no secrets, no env parsing.
