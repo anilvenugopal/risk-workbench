@@ -137,7 +137,30 @@
 
 <h2 id="deployment">Deployment process</h2>
 
-<p>Today the code is copied onto the server by hand; no CD process runs the scripts below (B2 on <a href="09-path-to-production.html#blockers">page 9</a>). <code>rhel9-app-install.sh</code> fails at <code>pip install</code> because the server may not connect to PyPI (B3).</p>
+<p>Today the code is copied onto the server by hand (<a href="#manual-deployment">Manual deployment</a>); no CD process runs the scripts below (B2 on <a href="09-path-to-production.html#blockers">page 9</a>). <code>rhel9-app-install.sh</code> fails at <code>pip install</code> because the server may not connect to PyPI (B3).</p>
+
+<h3 id="manual-deployment">Manual deployment</h3>
+
+<p>Your own account on the server (for example <code>bbaile4</code>) uploads a zip of the repository. <code>cinreadmd</code> then stops the app, copies the new code into <code>/rms</code>, and starts the app.</p>
+
+<ol>
+<li>On your machine, clone the repository, or pull the latest commit into an existing clone.</li>
+<li>Compress the repository folder itself, not its contents, to a zip file such as <code>risk-workbench.zip</code>. Step 9 expects one top-level <code>risk-workbench</code> folder in the zip.</li>
+<li>Upload the zip as your own account: <code>scp "C:\path\to\risk-workbench.zip" bbaile4@&lt;host&gt;:/rms</code>.</li>
+<li>SSH into the server as your own account and make the zip readable by <code>cinreadmd</code>: <code>chmod 644 /rms/risk-workbench.zip</code>.</li>
+<li>Switch to the run account: <code>su cinreadmd</code>.</li>
+<li>Stop the app: <code>APP_DIR=/rms bash /rms/infra/scripts/deploy/rhel9-stop.sh</code>.</li>
+<li>Create the directory to unzip into: <code>mkdir -p /tmp/risk-workbench-deploy</code>.</li>
+<li>Check that <code>cinreadmd</code> can read the zip: <code>unzip -l /rms/risk-workbench.zip</code> lists its files.</li>
+<li>Unzip: <code>unzip -o /rms/risk-workbench.zip -d /tmp/risk-workbench-deploy</code>.</li>
+<li>Delete the Git history and your local settings file from the unzipped copy: <code>rm -rf /tmp/risk-workbench-deploy/risk-workbench/.git</code> and <code>rm -f /tmp/risk-workbench-deploy/risk-workbench/infra/.env</code>. Deleting <code>infra/.env</code> keeps the next step from overwriting the server's <code>/rms/infra/.env</code>.</li>
+<li>Copy the new code over the app directory: <code>cp -a /tmp/risk-workbench-deploy/risk-workbench/. /rms/</code>.</li>
+<li>Apply the Alembic revisions. The server has no <code>uv</code>, so source <code>infra/.env</code> and run Alembic from <code>.venv</code>, as <code>rhel9-app-install.sh</code> does: <code>cd /rms &amp;&amp; set -a &amp;&amp; source infra/.env &amp;&amp; set +a &amp;&amp; .venv/bin/alembic upgrade head</code>.</li>
+<li>Start the app: <code>APP_DIR=/rms bash /rms/infra/scripts/deploy/rhel9-start.sh</code>, then check <code>curl -s http://127.0.0.1:8000/api/health</code>.</li>
+<li>Clean up: <code>rm -rf /tmp/risk-workbench-deploy</code> and <code>rm /rms/risk-workbench.zip</code>.</li>
+</ol>
+
+<p>These steps do not run <code>rhel9-app-install.sh</code>, so they install no package from <code>requirements.txt</code>. <code>cp -a</code> deletes nothing: a file removed from the repository stays in <code>/rms</code>. It also copies every file in the zip, gitignored or not, so zip a checkout with no <code>.venv</code>, or it overwrites files in <code>/rms/.venv</code>. <code>rhel9-stop.sh</code> interrupts any running job; the poller resets it to <code>pending</code> after the start.</p>
 
 <p>The runbooks are in <code>docs/deploy/</code>:</p>
 <table>
