@@ -21,7 +21,7 @@ WORKSPACE=/workspace
 LOG_DIR=$WORKSPACE/.dev-logs
 PID_DIR=$WORKSPACE/.dev-pids
 
-mkdir -p "$LOG_DIR" "$PID_DIR" "$EXPORT_ARCHIVE_DIR" "$EXPORT_STAGING_DIR"
+mkdir -p "$LOG_DIR" "$PID_DIR" "$EXPORT_ARCHIVE_DIR" "$EXPORT_STAGING_DIR" "$SHARED_DRIVE_ROOT"
 
 # ── 1. Redis (AOF durability required) ───────────────────────────────────────
 # appendonly yes + appendfsync everysec ensures acknowledged Dramatiq enqueues

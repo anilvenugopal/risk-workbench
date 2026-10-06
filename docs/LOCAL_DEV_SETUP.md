@@ -196,7 +196,7 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 
 | Command | What it does |
 |---|---|
-| `make wsl-setup` | First run: `uv sync`, create `data/export_archive` and `data/staging`, `wsl-start`, create, migrate and seed all 3 databases. Idempotent. |
+| `make wsl-setup` | First run: `uv sync`, create `data/export_archive`, `data/staging` and `data/shared_drive`, `wsl-start`, create, migrate and seed all 3 databases. Idempotent. |
 | `make wsl-start` | Start SQL Server and Redis/Valkey (AOF on); wait for SQL Server. Idempotent. |
 | `make wsl-stop` | Stop SQL Server container and Redis. |
 | `make wsl-app` | Start uvicorn with live reload on port 8000. |
