@@ -168,6 +168,16 @@ make wsl-app
 
 Open http://localhost:8000/api/health; each `db_*` and `redis` field should be `ok`.
 
+Then open http://localhost:8000 and sign in with the dev admin:
+
+| Email | Password |
+|---|---|
+| `admin@example.com` | `Admin1234567!` |
+
+`infra/scripts/seed_db.py` creates this admin only when `APP_ENV=development`,
+and the login page shows the password form only when `AUTH_MODE` is `password`
+or `both`. Both are the `infra/.env.example` defaults.
+
 ### Next
 
 - Users: [USER_PROVISIONING.md](USER_PROVISIONING.md)

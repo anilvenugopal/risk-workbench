@@ -25,6 +25,8 @@
 <tr><td>How the database host is set</td><td><code>MSSQL_*_SERVER=sqlserver</code> from <code>infra/.env</code></td><td><code>infra/scripts/wsl-env.sh</code> overrides the three servers to <code>localhost</code>; leave <code>infra/.env</code> unchanged</td></tr>
 </table>
 
+<p>After the first-time setup, sign in as <code>admin@example.com</code> with password <code>Admin1234567!</code>. <code>infra/scripts/seed_db.py</code> creates this admin only when <code>APP_ENV=development</code>, which is the <code>infra/.env.example</code> default.</p>
+
 <p>Where each process logs in each setup is on <a href="07-configuration-and-observability.html#logging">page 7</a>.</p>
 
 <p>Step-by-step setup is in <a href="../LOCAL_DEV_SETUP.md">docs/LOCAL_DEV_SETUP.md</a> (WSL2) and <a href="../DEVELOPER_PLAYBOOK.md">docs/DEVELOPER_PLAYBOOK.md</a> (Docker, VS Code, and debugging). To debug with breakpoints in Docker, set <code>APP_DEBUG=1</code> in <code>infra/.env</code> and run <code>make start</code>; uvicorn then waits for a debugger on port 5678.</p>
@@ -45,7 +47,7 @@
 <tr><td><code>make shell</code></td><td></td><td>A bash shell inside <code>linux-box</code>.</td></tr>
 <tr><td><code>make db-bootstrap</code></td><td><code>make wsl-db-bootstrap</code></td><td>Create <code>rwb_workbench</code>, <code>rwb_exposure</code>, and <code>rwb_loss</code> if missing.</td></tr>
 <tr><td><code>make db-migrate</code></td><td><code>make wsl-db-migrate</code></td><td><code>alembic upgrade head</code>.</td></tr>
-<tr><td></td><td><code>make wsl-db-seed</code></td><td>Seed the kind tables (safe to re-run) and, when <code>APP_ENV=development</code>, the dev admin <code>admin@example.com</code>.</td></tr>
+<tr><td></td><td><code>make wsl-db-seed</code></td><td>Seed the kind tables (safe to re-run) and, when <code>APP_ENV=development</code>, the dev admin <code>admin@example.com</code> with password <code>Admin1234567!</code>.</td></tr>
 <tr><td><code>make bootstrap-loss</code></td><td><code>make wsl-bootstrap-loss</code></td><td>Create CIC's tables and the <code>stage</code> schema in <code>rwb_loss</code>, and seed <code>dbo.Client</code> and the historical event lookup.</td></tr>
 <tr><td><code>make db-rebuild</code></td><td><code>make wsl-db-rebuild</code></td><td>Destructive: drop the three databases, migrate, seed, and bootstrap the loss database. Asks for <code>yes</code>.</td></tr>
 <tr><td><code>make load-cedants</code></td><td><code>make wsl-load-cedants</code></td><td>Add the cedant names in an Excel file that are not already in <code>cedant</code>. <code>FILE=</code> picks the file; the default is <code>db/bootstrap/seed/cedants.xlsx</code>.</td></tr>
