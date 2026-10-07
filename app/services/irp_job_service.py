@@ -241,7 +241,7 @@ def record_submission_failure(
     return job_id
 
 
-# Rows per page of the /workflows/irp-jobs monitor — submission_service.PAGE_SIZE.
+# Rows per page of the /workflows/irp-jobs monitor.
 PAGE_SIZE = 50
 
 # Every value Risk Modeler or the Workbench writes to irp_job.status, for the

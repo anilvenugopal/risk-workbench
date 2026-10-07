@@ -1,4 +1,4 @@
-"""Index irp_job for the filtered, paged IRP jobs list (issue 179).
+"""Index irp_job for the filtered, paged IRP jobs list.
 
 Revision ID: 0006
 Revises: 0005

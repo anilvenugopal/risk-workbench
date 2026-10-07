@@ -26,7 +26,6 @@ _NAV_KEY = "workflows.irp_jobs"
 # The table fragment's element id; a request naming it as its HTMX target gets
 # the table alone, skipping the picker reads htmx would only discard.
 _LIST_TARGET = "irp-jobs-live"
-_DATE_LABELS = {"submitted_from": "Submitted from", "completed_by": "Completed by"}
 
 
 def _templates(request: Request):
@@ -58,36 +57,35 @@ def _list_context(request: Request) -> dict:
                  if v.strip() == "any" or _as_uuid(v) == v.strip().lower()]
     submitted_by = ([str(request.state.user.id)] if not by_params
                     else [] if "any" in by_params else by_params)
-    texts = {key: (params.get(key) or "").strip() for key in _DATE_LABELS}
+    texts = {key: (params.get(key) or "").strip()
+             for key in ("submitted_from", "completed_by")}
     tz = (params.get("tz") or "").strip()
     zone = _zone(tz)
     page = max(1, _parse_int(params.get("page")) or 1)
 
     error = None
-    days: dict[str, date | None] = {}
-    bounds: dict[str, datetime | None] = {}
-    for key, text in texts.items():
-        days[key] = bounds[key] = None
-        if not text:
-            continue
-        try:
-            days[key] = date.fromisoformat(text)
+    from_day = by_day = from_bound = by_bound = None
+    try:
+        if texts["submitted_from"]:
+            from_day = date.fromisoformat(texts["submitted_from"])
+            from_bound = _utc_midnight(from_day, zone)
+    except (ValueError, OverflowError):
+        error = "Submitted from is not a valid date."
+    try:
+        if texts["completed_by"]:
+            by_day = date.fromisoformat(texts["completed_by"])
             # Completed by is inclusive, so its bound is the next local midnight.
-            bounds[key] = _utc_midnight(
-                days[key] + timedelta(days=1 if key == "completed_by" else 0), zone)
-        except (ValueError, OverflowError):
-            days[key] = None
-            error = error or f"{_DATE_LABELS[key]} is not a valid date."
-    if error is None and days["submitted_from"] and days["completed_by"] \
-            and days["submitted_from"] > days["completed_by"]:
+            by_bound = _utc_midnight(by_day + timedelta(days=1), zone)
+    except (ValueError, OverflowError):
+        error = error or "Completed by is not a valid date."
+    if error is None and from_day and by_day and from_day > by_day:
         error = "Submitted from is later than Completed by."
 
     rows, has_next = [], False
     if error is None:
         rows, has_next = irp_job_service.list_jobs(
             job_types=job_types, statuses=statuses, submitted_by=submitted_by,
-            submitted_from=bounds["submitted_from"],
-            completed_before=bounds["completed_by"], page=page)
+            submitted_from=from_bound, completed_before=by_bound, page=page)
 
     filter_values = {"job_type": job_types, "status": statuses,
                      "submitted_by": submitted_by or ["any"], **texts}
