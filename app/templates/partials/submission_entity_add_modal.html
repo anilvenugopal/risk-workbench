@@ -52,9 +52,25 @@
         <form method="post" action="/submissions/{{ submission.id }}/{{ entity_plural }}/attach" hx-post="/submissions/{{ submission.id }}/{{ entity_plural }}/attach"
               hx-target="#submission-{{ kind }}-section" hx-swap="outerHTML"
               hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
-              @htmx:after-request="if ($event.detail.requestConfig.verb === 'post' && $event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()">
+              @htmx:after-request="if ($event.detail.requestConfig.verb === 'post' && $event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()"
+              x-data="entityPicks()">
           <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-          {% include "partials/submission_entity_candidates.html" %}
+          <div class="bo-custom__cols">
+            <div class="bo-custom__opts">
+              {% include "partials/submission_entity_candidates.html" %}
+            </div>
+            <div class="bo-picked" aria-label="Selected {{ entity_kind }}s">
+              <div class="bo-picked__empty" x-show="!picks.length">Nothing selected yet</div>
+              <div class="bo-picked__chips" x-show="picks.length" x-cloak>
+                <template x-for="p in picks" :key="p.id">
+                  <button class="bo-picked__chip" type="button" :title="'Remove ' + p.name" @click="unpick(p.id)">
+                    <span x-text="p.name"></span><span class="bo-picked__x">×</span>
+                    <input type="hidden" name="entity_ids" :value="p.id">
+                  </button>
+                </template>
+              </div>
+            </div>
+          </div>
           <div class="modal-footer entity-modal-footer">
             <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
             <button class="modal-btn modal-btn--primary" type="submit">Add selected</button>
