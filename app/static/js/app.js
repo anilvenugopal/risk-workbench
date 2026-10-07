@@ -1460,7 +1460,8 @@ document.addEventListener('grouping-submitted', (e) => {
 let _analysesRestore = null;
 document.addEventListener('htmx:beforeSwap', (e) => {
   const target = e.detail.target;
-  if (!target || !target.hasAttribute
+  // A 204 fires beforeSwap with shouldSwap false and no afterSwap follows.
+  if (!e.detail.shouldSwap || !target || !target.hasAttribute
       || !target.hasAttribute('data-restore-open')) return;
   _analysesRestore = {
     id: target.id,
