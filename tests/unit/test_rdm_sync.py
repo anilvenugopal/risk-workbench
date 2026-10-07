@@ -488,10 +488,11 @@ def test_broker_table_uses_the_merged_analyses_column_set(monkeypatch):
 
     html = _client().get("/rdms/rdm-1").text
 
-    for header in ("Peril", "Region", "Engine", "Currency", "Status",
-                   "Submitted", "Risk Modeler"):
+    for header in ("Status", "Risk Modeler"):
         assert f'<span class="l">{header}</span>' in html
-    assert "AAL &middot;" in html
+    for key in ("peril", "region", "engine", "currency", "aal", "submitted"):
+        assert f'hx-get="/rdms/rdm-1/body?sort={key}&amp;' in html
+    assert 'data-value="AAL · Pre-Cat Net"' in html
     assert '<span class="l dt-span2">Analysis</span>' in html
     # no checkbox column — selection lives in the merged section, not here
     assert 'name="analysis_ids"' not in html
@@ -511,8 +512,66 @@ def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
         analyses=[analysis_service.BrokerAnalysis(
             id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R")])
     _stub_reads(monkeypatch, sync_status="running", analyses=[grp])
-    r = _client().get("/rdms/rdm-1/body")
+    r = _client().get("/rdms/rdm-1/body", headers={"HX-Trigger": "rdm-detail"})
     assert r.status_code == 204
+
+
+def test_body_sort_click_mid_sync_renders(monkeypatch):
+    grp = analysis_service.BrokerAnalysisGroup(
+        rdm_id="rdm-1", rdm_name="R", rdm_irp_id=88,
+        analyses=[analysis_service.BrokerAnalysis(
+            id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R")])
+    _stub_reads(monkeypatch, sync_status="running", analyses=[grp])
+    r = _client().get("/rdms/rdm-1/body?sort=peril&dir=asc")
+    assert r.status_code == 200
+    assert 'id="rdm-detail"' in r.text
+
+
+def _peril_group() -> analysis_service.BrokerAnalysisGroup:
+    return analysis_service.BrokerAnalysisGroup(
+        rdm_id="rdm-1", rdm_name="R", rdm_irp_id=88,
+        analyses=[analysis_service.BrokerAnalysis(
+            id=f"a{i}", irp_id=str(i), name=name, rdm_id="rdm-1", rdm_name="R",
+            created_at=created_at,
+            display=analysis_service.AnalysisSettings(peril=peril))
+            for i, (name, peril, created_at) in enumerate((
+                ("wind", "WS", "2026-02-01T09:00:00"),
+                ("quake", "EQ", "2026-01-01T09:00:00"),
+                ("flood", "FL", "2026-03-01T09:00:00")))])
+
+
+def _row_names(html: str) -> list[str]:
+    return sorted(("wind", "quake", "flood"),
+                  key=lambda n: html.index(f'data-value="{n}"'))
+
+
+def test_body_sorts_broker_rows_by_the_clicked_header(monkeypatch):
+    _stub_reads(monkeypatch, sync_status="running")
+    monkeypatch.setattr(analysis_service, "list_broker_analyses",
+                        lambda *, rdm_id: [_peril_group()])
+
+    default = _client().get("/rdms/rdm-1/body").text
+    ascending = _client().get("/rdms/rdm-1/body?sort=peril&dir=asc").text
+    descending = _client().get("/rdms/rdm-1/body?sort=peril&dir=desc").text
+
+    assert _row_names(default) == ["flood", "wind", "quake"]
+    assert _row_names(ascending) == ["quake", "flood", "wind"]
+    assert _row_names(descending) == ["wind", "flood", "quake"]
+    assert 'hx-get="/rdms/rdm-1/body?sort=peril&amp;dir=asc" hx-trigger' in ascending
+    assert 'hx-get="/rdms/rdm-1/body" hx-trigger' in default
+
+
+def test_contextual_body_sorts_broker_rows(monkeypatch):
+    monkeypatch.setattr(
+        rdm_service, "get_contextual_rdm_detail",
+        lambda **kwargs: {**_contextual_detail(), "analyses": [_peril_group()]})
+
+    html = _client().get(
+        "/submissions/submission-a/rdms/rdm-1/body?sort=peril&dir=desc").text
+
+    assert _row_names(html) == ["wind", "flood", "quake"]
+    assert ('hx-post="/submissions/submission-a/rdms/rdm-1/sync'
+            '?sort=peril&amp;dir=desc"') in html
 
 
 def test_body_poll_partial_live_while_importing(monkeypatch):
