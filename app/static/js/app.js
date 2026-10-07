@@ -1669,3 +1669,29 @@ document.addEventListener('htmx:responseError', (e) => {
 document.addEventListener('htmx:sendError', () => {
   showToast('Network error — please check your connection and try again.', 'error');
 });
+
+// A plain POST navigates away, so the first one locks every other plain-post
+// submit on the page until the next page load. A slow redirect otherwise lets a
+// second click create a second export batch.
+let plainPost = null;
+document.addEventListener('submit', (e) => {
+  const form = e.target;
+  // hx-post forms and forms whose own handler cancelled the submit arrive here
+  // already prevented; only a real browser navigation is locked.
+  if (e.defaultPrevented || form.method !== 'post') return;
+  if (plainPost) { e.preventDefault(); return; }
+  const btn = e.submitter;
+  plainPost = { btn, label: btn && btn.textContent };
+  if (!btn) return;
+  btn.textContent = 'Submitting…';
+  // Disabled after the browser has read the submitter into the form data;
+  // a disabled submitter's name/value would be left out of the post.
+  setTimeout(() => { btn.disabled = true; });
+});
+// Back/forward cache restores the page with the lock still set.
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted || !plainPost) return;
+  const { btn, label } = plainPost;
+  if (btn) { btn.textContent = label; btn.disabled = false; }
+  plainPost = null;
+});
