@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10. Deployment checklist — Risk Analysis Workbench handover</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Index</a> · Previous: <a href="09-path-to-production.html">9. Path to production</a></nav>
+
+<h1>10. Deployment checklist</h1>
+
+<p>From an empty RHEL9 server to the Workbench running. Commands: <a href="../deploy/RHEL9_QUICKSTART.md">RHEL9_QUICKSTART.md</a>. "To fill in" marks a value CIC supplies.</p>
+
+<h2 id="server">1. Server</h2>
+
+<ul class="checklist">
+<li><input type="checkbox"> A RHEL9 server. To fill in: hostname and IP address.</li>
+</ul>
+
+<h2 id="accounts">2. Accounts</h2>
+
+<table>
+<tr><th></th><th>Account</th><th>Created by</th><th>Needs</th></tr>
+<tr><td><input type="checkbox"></td><td>A Linux account on the app server for each person who deploys</td><td>CIC infra</td><td>SSH login to the app server, sudo on it, <code>su cinreadmd</code>, write access to <code>/rms</code></td></tr>
+<tr><td><input type="checkbox"></td><td><code>cinreadmd</code>, a Linux account on the app server that deploys the code and runs the app</td><td>CIC infra</td><td>Read access to <code>SHARED_DRIVE_ROOT</code>; write access to <code>EXPORT_ARCHIVE_DIR</code> and <code>EXPORT_STAGING_DIR</code>. <code>rhel9-setup.sh</code> gives it <code>/rms</code>, <code>/var/lib/risk-workbench/</code>, and the nginx sudoers rules.</td></tr>
+<tr><td><input type="checkbox"></td><td>SQL Server login for the Workbench database</td><td>CIC DBA</td><td><code>db_owner</code> on the Workbench database</td></tr>
+<tr><td><input type="checkbox"></td><td>SQL Server login for the loss repository</td><td>CIC DBA</td><td><code>SELECT</code> on <code>dbo.Client</code>, full rights on the <code>stage</code> schema, <code>EXECUTE</code> on <code>stage.usp_load_elt_result</code></td></tr>
+<tr><td><input type="checkbox"></td><td>Data Bridge login</td><td>CIC team member with Data Bridge admin access in Risk Modeler</td><td>Read-only access to the production tenant's Data Bridge database</td></tr>
+<tr><td><input type="checkbox"></td><td>Risk Modeler API key</td><td>CIC team member with admin access in Risk Modeler</td><td>Access to the production tenant</td></tr>
+</table>
+
+<h2 id="databases">3. Databases</h2>
+
+<ul class="checklist">
+<li><input type="checkbox"> An empty Workbench database on CIC's SQL Server, created by a CIC DBA. To fill in: its name.</li>
+<li><input type="checkbox"> The <code>stage</code> schema installed in CIC's loss repository from <code>db/bootstrap/loss_schema.sql</code>, by a CIC DBA with <code>db_owner</code> (<a href="03-data.html#stage-schema">page 3</a>).</li>
+</ul>
+
+<h2 id="firewall">4. Firewall rules</h2>
+
+<table>
+<tr><th></th><th>Source</th><th>Destination</th><th>Port</th><th>Purpose</th><th>When</th></tr>
+<tr><td><input type="checkbox"></td><td>Analysts' computers</td><td>App server</td><td>8000 (443 after <a href="09-path-to-production.html#c3">C3</a>)</td><td>Analysts open the app in a browser</td><td>Always</td></tr>
+<tr><td><input type="checkbox"></td><td>Computers of the people who deploy</td><td>App server</td><td>22</td><td>SSH and <code>scp</code> to copy the code to the server</td><td>Always</td></tr>
+<tr><td><input type="checkbox"></td><td>App server</td><td>RHEL package repositories: CIC's Satellite server or Red Hat's CDN. To fill in.</td><td>443</td><td><code>dnf install</code> in <code>rhel9-setup.sh</code></td><td>Setup</td></tr>
+<tr><td><input type="checkbox"></td><td>App server</td><td><code>packages.microsoft.com</code></td><td>443</td><td>ODBC Driver 18 install in <code>rhel9-setup.sh</code></td><td>Setup</td></tr>
+<tr><td><input type="checkbox"></td><td>App server</td><td><code>pypi.org</code>, <code>files.pythonhosted.org</code></td><td>443</td><td>Python package install in <code>rhel9-app-install.sh</code></td><td>First install only (<a href="09-path-to-production.html#c5">C5</a>)</td></tr>
+<tr><td><input type="checkbox"></td><td>App server</td><td>CIC SQL Server. To fill in.</td><td>4988</td><td>Workbench database and loss repository</td><td>Always</td></tr>
+<tr><td><input type="checkbox"></td><td>App server</td><td>Risk Modeler API for the production tenant. To fill in (development: <code>api-euw1.rms-ppe.com</code>).</td><td>443</td><td>Risk Modeler calls</td><td>Always</td></tr>
+<tr><td><input type="checkbox"></td><td>App server</td><td>Risk Modeler S3. To fill in.</td><td>443</td><td>EDM uploads and export downloads</td><td>Always</td></tr>
+<tr><td><input type="checkbox"></td><td>App server</td><td>Data Bridge SQL Server for the production tenant. To fill in.</td><td>1433</td><td>Data Bridge reads</td><td>Always</td></tr>
+<tr><td><input type="checkbox"></td><td>App server</td><td><code>login.microsoftonline.com</code></td><td>443</td><td>Entra sign-in</td><td>Only with Entra sign-in (<a href="09-path-to-production.html#c8">C8</a>)</td></tr>
+<tr><td><input type="checkbox"></td><td>App server</td><td>Kerberos KDC. To fill in.</td><td>88</td><td>Windows authentication to SQL Server</td><td>Only if a SQL Server connection uses Windows authentication</td></tr>
+</table>
+
+<ul class="checklist">
+<li><input type="checkbox"> The app server's public outbound IP address added to the Data Bridge allowlist, by a CIC team member with Data Bridge admin access in Risk Modeler.</li>
+<li><input type="checkbox"> Confirm whether outbound HTTPS passes through a TLS-inspecting proxy. If it does, see <a href="../LOCAL_DEV_SETUP.md#ssl-certificate-errors-behind-a-corporate-proxy">SSL certificate errors behind a corporate proxy</a> and <a href="https://github.com/premiumiq/irp-integration/issues/40">irp-integration issue #40</a>.</li>
+</ul>
+
+<h2 id="shared-drive">5. Directories</h2>
+
+<ul class="checklist">
+<li><input type="checkbox"> The broker file share mounted on the server, readable by <code>cinreadmd</code>.</li>
+<li><input type="checkbox"> <code>EXPORT_ARCHIVE_DIR</code> and <code>EXPORT_STAGING_DIR</code> created, writable by <code>cinreadmd</code>.</li>
+</ul>
+
+<h2 id="software">6. Software</h2>
+
+<p><code>rhel9-setup.sh</code> installs these with <code>dnf</code> (<a href="../deploy/RHEL9_SYSTEM_SETUP.md">RHEL9_SYSTEM_SETUP.md</a>):</p>
+
+<ul>
+<li>From RHEL's repositories: <code>git</code>, <code>python3.14</code>, <code>python3.14-devel</code>, <code>python3.14-pip</code>, <code>gcc</code>, <code>gcc-c++</code>, <code>make</code>, <code>nginx</code>, <code>valkey</code>, <code>gettext</code>, <code>rsync</code>, and <code>glibc-langpack-en</code> if needed.</li>
+<li>From Microsoft's repository: <code>unixODBC-devel</code>, <code>msodbcsql18</code>.</li>
+</ul>
+
+<p><code>rhel9-app-install.sh</code> installs the Python packages into <code>/rms/.venv</code>.</p>
+
+<h2 id="settings">7. Settings</h2>
+
+<p>Set in <code>/rms/infra/.env</code>, copied from <code>infra/.env.example</code>. Every other setting keeps its default (<a href="07-configuration-and-observability.html#env-reference">page 7</a>).</p>
+
+<table>
+<tr><th>Settings</th><th>Value</th></tr>
+<tr><td><code>MSSQL_WORKBENCH_*</code></td><td>CIC SQL Server hostname, port 4988, Workbench database name, Workbench login</td></tr>
+<tr><td><code>MSSQL_LOSS_*</code></td><td>CIC SQL Server hostname, port 4988, loss repository name, loss login</td></tr>
+<tr><td><code>MSSQL_DATABRIDGE_*</code></td><td>Data Bridge server, database, and login</td></tr>
+<tr><td><code>RISK_MODELER_BASE_URL</code>, <code>RISK_MODELER_RESOURCE_GROUP_ID</code>, <code>RISK_MODELER_API_KEY</code></td><td>Production tenant and API key. Leave <code>RISK_MODELER_TENANT_NAME</code>, <code>_USERNAME</code>, <code>_PASSWORD</code> empty.</td></tr>
+<tr><td><code>SESSION_SECRET_KEY</code></td><td><code>python3 -c "import secrets; print(secrets.token_hex(32))"</code></td></tr>
+<tr><td><code>AUTH_MODE</code></td><td><code>password</code></td></tr>
+<tr><td><code>APP_ENV</code></td><td><code>development</code> on HTTP; <code>production</code> after HTTPS (<a href="09-path-to-production.html#c3">C3</a>)</td></tr>
+<tr><td><code>SHARED_DRIVE_ROOT</code></td><td>The broker file share's mount point</td></tr>
+<tr><td><code>EXPORT_ARCHIVE_DIR</code>, <code>EXPORT_STAGING_DIR</code></td><td>The two export directories</td></tr>
+</table>
+
+<h2 id="install">8. Install and start</h2>
+
+<p>Step numbers refer to <a href="../deploy/RHEL9_QUICKSTART.md#1-one-time-server-setup">section 1 of RHEL9_QUICKSTART.md</a>.</p>
+
+<ol>
+<li><input type="checkbox"> Run <code>rhel9-setup.sh</code> (steps 1–2).</li>
+<li><input type="checkbox"> Copy the code into <code>/rms</code> (steps 3–4).</li>
+<li><input type="checkbox"> Write <code>/rms/infra/.env</code> (step 5).</li>
+<li><input type="checkbox"> Run <code>rhel9-app-install.sh</code> (step 7).</li>
+<li><input type="checkbox"> Write the nginx config (step 8).</li>
+<li><input type="checkbox"> Start the app and check <code>/api/health</code> (<a href="../deploy/RHEL9_QUICKSTART.md#3-start-stop-and-check-the-app">section 3</a>).</li>
+<li><input type="checkbox"> Create the first admin (<a href="../USER_PROVISIONING.md">USER_PROVISIONING.md</a>), then add the analysts.</li>
+<li><input type="checkbox"> Load the cedant list (<a href="08-deployed-environment.html#runbook">runbook on page 8</a>).</li>
+<li><input type="checkbox"> Give the server team the "After a server restart" steps in the runbook (<a href="09-path-to-production.html#c10">C10</a>).</li>
+</ol>
+
+<h2 id="before-production">9. Before production</h2>
+
+<ul class="checklist">
+<li><input type="checkbox"> <a href="09-path-to-production.html#c1">C1</a>: point <code>MSSQL_LOSS_*</code> at CIC's production loss repository.</li>
+<li><input type="checkbox"> <a href="09-path-to-production.html#c2">C2</a>: decide whether to use nginx, and fix it if so.</li>
+<li><input type="checkbox"> <a href="09-path-to-production.html#c3">C3</a>: set up HTTPS, or get CIC security's written acceptance of HTTP.</li>
+</ul>
+
+<nav><a href="index.html">Index</a> · Previous: <a href="09-path-to-production.html">9. Path to production</a></nav>
+</body>
+</html>

@@ -48,7 +48,7 @@ from app.services import (
     rdm_service,
     rwb_job_service,
 )
-from app.services._common import _utcnow
+from app.services._common import _as_datetime, _format_duration, _utcnow
 from app.workers import dispatch
 from db import execute, execute_one, get_connection
 
@@ -318,26 +318,6 @@ _SUMMARIZERS = {
 }
 
 
-def _fmt_elapsed(submitted_at) -> str:
-    """``4m22s``-style elapsed time since a naive-UTC stamp — a ``datetime`` from
-    SQL Server, an ISO string from the SQLite unit tier; ``?`` when unparseable."""
-    if isinstance(submitted_at, str):
-        try:
-            submitted_at = datetime.fromisoformat(submitted_at)
-        except ValueError:
-            return "?"
-    if not isinstance(submitted_at, datetime):
-        return "?"
-    secs = (_utcnow() - submitted_at).total_seconds()
-    if secs < 0:
-        return "?"
-    mins, s = divmod(int(secs), 60)
-    hours, mins = divmod(mins, 60)
-    if hours:
-        return f"{hours}h{mins:02d}m{s:02d}s"
-    return f"{mins}m{s:02d}s" if mins else f"{s}s"
-
-
 def _track_irp_jobs() -> None:
     """Track in-flight ``irp_job`` rows: one single-status ``get_*_job`` each, mirror
     the status in place, and on a terminal status backfill the entity + idempotently
@@ -404,9 +384,11 @@ def _track_irp_jobs() -> None:
                             if handler is not None:
                                 handler(conn, job, result.status, resolved)
                 if result.status in irp_job_service.TERMINAL:
+                    submitted = _as_datetime(job["submitted_at"])
+                    secs = (_utcnow() - submitted).total_seconds() if submitted else -1
                     logger.info("irp_job terminal: %s -> %s (after %s)",
                                 job["status"], result.status,
-                                _fmt_elapsed(job["submitted_at"]))
+                                _format_duration(secs) if secs >= 0 else "?")
                 elif result.status != job["status"]:
                     logger.info("irp_job status: %s -> %s",
                                 job["status"], result.status)
@@ -570,12 +552,7 @@ def _submission_retry() -> None:
     )
     now = _utcnow()
     for row in candidates:
-        completed_at = row["completed_at"]
-        if isinstance(completed_at, str):
-            try:
-                completed_at = datetime.fromisoformat(completed_at)
-            except ValueError:
-                completed_at = None
+        completed_at = _as_datetime(row["completed_at"])
         if completed_at is None:
             continue  # no failure timestamp to back off from yet
         eligible_at = completed_at + timedelta(

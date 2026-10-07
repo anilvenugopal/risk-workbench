@@ -52,6 +52,7 @@ from tests.unit.breakout_rows import (
     RM_STAMP,
     SUMMARY,
     breakout_jobs,
+    generated_names,
     mk_backfill_job,
     mk_breakout_job,
     mk_edm,
@@ -144,10 +145,16 @@ def _eligible_pair(fake_irp) -> tuple[str, str]:
 
 
 def _confirm(client, edm_id: str, pid: str, *, dimension: str = "lob",
-             as_of: str = AS_OF, htmx: bool = True, csrf: str | None = None):
+             as_of: str = AS_OF, htmx: bool = True, csrf: str | None = None,
+             names: list[tuple[str, str]] | None = None):
+    """POST the quick confirm. ``names`` defaults to the preview's prefilled
+    names, unedited."""
+    if names is None:
+        names = generated_names(edm_id, pid, dimension)
     return client.post(
         _url(edm_id, pid),
         data={"dimension": dimension, "summary_as_of": as_of,
+              "value": [v for v, _ in names], "name": [n for _, n in names],
               "csrf_token": csrf if csrf is not None else _csrf()},
         headers={"HX-Request": "true"} if htmx else {})
 
@@ -227,6 +234,22 @@ def test_modal_marks_existing_rows_as_already_created(routes_db, client):
          "now": datetime.utcnow()}, connection="WORKBENCH")
     r = client.get(_url(edm_id, pid))
     assert "already created" in r.text
+    # the already-created row is plain text; only the other row is editable
+    assert 'value="usfl_commercial_EQ_Comm"' not in r.text
+    assert 'name="value" value="EQ Comm"' not in r.text
+    assert 'name="value" value="FLD Comm"' in r.text
+
+
+def test_modal_rows_carry_name_inputs_prefilled_with_generated_names(
+        routes_db, client):
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    r = client.get(_url(edm_id, pid))
+    assert r.status_code == 200
+    for value, name in (("EQ Comm", "usfl_commercial_EQ_Comm"),
+                        ("FLD Comm", "usfl_commercial_FLD_Comm")):
+        assert f'name="value" value="{value}"' in r.text
+        assert f'name="name" value="{name}"' in r.text
 
 
 def test_modal_disclosures_in_every_form(routes_db, client):
@@ -456,6 +479,37 @@ def test_confirm_rewritten_summary_409_rerenders_fresh_preview(
     assert fake_irp.stamp_reads == []       # refused before the RM read
 
 
+@pytest.mark.parametrize("bad, reason", [
+    ("USFL_COMMERCIAL", "already exists in this EDM"),
+    ("usfl_commercial_eq_comm", "already exists in this breakout"),
+])
+def test_confirm_refuses_an_unusable_name_and_keeps_the_typed_names(
+        routes_db, client, fake_irp, bad, reason):
+    edm_id, pid = _eligible_pair(fake_irp)
+    r = _confirm(client, edm_id, pid, names=[
+        ("EQ Comm", "usfl_commercial_EQ_Comm"), ("FLD Comm", bad)])
+    assert r.status_code == 409
+    assert breakout_jobs() == []
+    assert "fix the flagged rows and confirm again" in r.text
+    # both typed names come back, and the reason sits under the FLD Comm row
+    assert 'name="name" value="usfl_commercial_EQ_Comm"' in r.text
+    assert f'name="name" value="{bad}"' in r.text
+    fld_row = r.text.split('name="value" value="FLD Comm"', 1)[1]
+    fld_row = fld_row.split('class="bo-row"', 1)[0]
+    assert reason in fld_row.replace("&#39;", "'")
+    assert 'data-nc' not in fld_row
+
+
+def test_confirm_refuses_names_for_values_outside_the_plan(
+        routes_db, client, fake_irp):
+    edm_id, pid = _eligible_pair(fake_irp)
+    r = _confirm(client, edm_id, pid,
+                 names=[("EQ Comm", "usfl_commercial_EQ_Comm")])
+    assert r.status_code == 409
+    assert "the posted names don&#39;t match this breakout" in r.text
+    assert breakout_jobs() == []
+
+
 def test_confirm_nojs_success_is_prg(routes_db, client, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     r = _confirm(client, edm_id, pid, htmx=False)
@@ -625,12 +679,16 @@ def test_breakout_name_check_renders_the_collision_fragment(
     assert 'data-nc="blocked"' in blocked.text
     flat = " ".join(blocked.text.split())
     assert "a portfolio with this name already exists in this EDM" in flat
-    assert "Adding is blocked" in flat
+    assert "Creating is blocked" in flat
     ok = client.get(url + "?group_label=Fresh")
     assert 'data-nc="ok"' in ok.text
     assert "this EDM" in ok.text
     pending = client.get(url + "?group_label=%20")
     assert "data-nc" not in pending.text
+    # a quick-breakout row checks through ``name`` and blocks creating
+    row = client.get(url + "?name=usfl_commercial")
+    assert 'data-nc="blocked"' in row.text
+    assert "Creating is blocked" in " ".join(row.text.split())
 
 
 def test_group_preview_refusal_retargets_the_error_slot(

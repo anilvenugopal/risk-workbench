@@ -19,8 +19,8 @@ Plain statements of what the workbench is and does, organized by workflow area. 
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Analysts sign in with SSO (Entra) in production. | Implemented |  |
-| Username/password login is a development-only fallback. | Implemented | Never reachable in production. |
+| Analysts sign in with a Workbench username and password in production. | Implemented |  |
+| Analysts can sign in with SSO (Entra) instead, once it is set up. | Implemented | Optional; not set up in the deployed environment. |
 | Every authenticated analyst sees every Submission. | Implemented | No row-level access control; roles gate functions, never rows. |
 | Submission ownership is a soft "my submissions" marker, not an access gate. | Implemented | See §1. |
 

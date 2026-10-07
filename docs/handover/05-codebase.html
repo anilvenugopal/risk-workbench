@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5. Codebase — Risk Analysis Workbench handover</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Index</a> · Previous: <a href="04-integrations.html">4. Integrations</a> · Next: <a href="06-development.html">6. Development</a></nav>
+
+<h1>5. Codebase</h1>
+
+<h2 id="repository-layout">Repository layout</h2>
+
+<table>
+<tr><th>Path</th><th>What it holds</th></tr>
+<tr><td><code>app/</code></td><td>The FastAPI application, the Dramatiq workers, and the poller. See <a href="#app-layout">Inside app/</a>.</td></tr>
+<tr><td><code>db/</code></td><td>The data-access package: connection pools, <code>db.execute()</code>, the trusted-script path, Parquet bulk load. <code>db/bootstrap/</code> holds the loss database DDL (<code>loss_dev_mirror.sql</code>, <code>loss_schema.sql</code>) and <code>seed/lookup_rms_historical_rds.csv</code>, the dev copy of CIC's historical event lookup.</td></tr>
+<tr><td><code>alembic/</code>, <code>alembic.ini</code></td><td>Migrations for the <code>WORKBENCH</code> database. See <a href="03-data.html#migrations">page 3</a>.</td></tr>
+<tr><td><code>sql/databridge/</code></td><td>The read-only SQL files run against DATABRIDGE through irp-integration.</td></tr>
+<tr><td><code>infra/</code></td><td><code>docker-compose.yml</code>, <code>Dockerfile.dev</code>, <code>.env.example</code>, and <code>scripts/</code>: dev start and stop scripts, database bootstrap and seed scripts, user setup, the export archive sweep, and <code>scripts/deploy/</code> for the server. See <a href="06-development.html#make-targets">page 6</a>.</td></tr>
+<tr><td><code>deploy/nginx/</code></td><td><code>nginx.conf</code> (the full config the Docker dev container runs) and <code>site.conf</code> (the server block installed on RHEL9).</td></tr>
+<tr><td><code>tests/</code></td><td><code>unit/</code>, <code>sqlserver/</code>, and <code>irp/</code>, plus the SQLite schema mirrors <code>iteration1_mirror.py</code> and <code>loss_mirror.py</code>. See <a href="#testing">Testing</a>.</td></tr>
+<tr><td><code>specs/</code></td><td>One folder per feature, with the SpecKit files for that feature. See <a href="01-overview.html#feature-map">page 1</a>.</td></tr>
+<tr><td><code>docs/</code></td><td>Product requirements, data model, setup guides, runbooks, change requests (<code>CR/</code>), design session notes, sequence diagrams, UI previews, and these handover pages.</td></tr>
+<tr><td><code>.specify/</code></td><td>SpecKit configuration, templates, scripts, and <code>memory/constitution.md</code>.</td></tr>
+<tr><td><code>.claude/</code></td><td>Claude Code settings and the SpecKit skills (<code>skills/speckit-*</code>).</td></tr>
+<tr><td><code>.github/workflows/ci.yml</code></td><td>The CI pipeline.</td></tr>
+<tr><td><code>.devcontainer/</code>, <code>.vscode/</code></td><td>Editor settings.</td></tr>
+<tr><td><code>reference/</code></td><td>The original clickable mock of the UI (<code>python serve.py</code>). Not part of the app.</td></tr>
+<tr><td><code>pocs/</code></td><td>Runnable proofs of concept for <code>db.elt.upload_parquet</code> and <code>db.elt.enrich</code>. Not part of the app.</td></tr>
+<tr><td><code>pyproject.toml</code>, <code>uv.lock</code>, <code>requirements.txt</code></td><td>Dependencies. See <a href="06-development.html#dependencies">page 6</a>.</td></tr>
+<tr><td><code>Makefile</code></td><td>Developer commands. Run <code>make help</code> for the list.</td></tr>
+<tr><td><code>AGENTS.md</code>, <code>CLAUDE.md</code></td><td>The rules for anyone changing the code, human or agent. <code>CLAUDE.md</code> only points to <code>AGENTS.md</code>.</td></tr>
+</table>
+
+<h2 id="app-layout">Inside app/</h2>
+
+<table>
+<tr><th>Path</th><th>What it holds</th></tr>
+<tr><td><code>main.py</code></td><td>Creates the FastAPI app, adds the session and request-logging middleware, registers the routers and the 404 and 500 pages.</td></tr>
+<tr><td><code>config.py</code></td><td>The <code>Settings</code> class: every setting the app reads through pydantic. See <a href="07-configuration-and-observability.html#env-reference">page 7</a>.</td></tr>
+<tr><td><code>routers/</code></td><td>One module per area: <code>shell</code> (home, workflows, results, search), <code>submissions</code>, <code>edms</code>, <code>rdms</code>, <code>portfolios</code>, <code>treaties</code>, <code>templates</code>, <code>rwb_jobs</code>, <code>shared_drive</code>, <code>admin</code>, <code>auth</code>, <code>health</code>. Modules starting with <code>_</code> are helpers shared by routers, not routers.</td></tr>
+<tr><td><code>services/</code></td><td>The business logic routers and workers call. <code>irp_gateway.py</code> is the only module that talks to Risk Modeler.</td></tr>
+<tr><td><code>workers/</code></td><td>Dramatiq actors in <code>*_jobs.py</code>, discovered automatically by <code>loader.py</code>. <code>runtime.py</code> runs a job (claim, heartbeat, complete). <code>queues.py</code> defines <code>@rwb_actor</code> and lists the queues. <code>entrypoint.py</code> is the Dramatiq entry point. <code>dummy_jobs.py</code> and <code>dummy_submit.py</code> are for manual testing.</td></tr>
+<tr><td><code>poller/run.py</code></td><td>The poller.</td></tr>
+<tr><td><code>templates/</code></td><td>Jinja2 templates: <code>base/</code> (shell, error page), <code>pages/</code> (one per page), <code>partials/</code> (HTMX fragments), <code>admin/</code>, <code>auth/</code>.</td></tr>
+<tr><td><code>static/</code></td><td>CSS (<code>tokens.css</code> holds the design tokens), <code>htmx.min.js</code>, <code>alpine.min.js</code>, <code>app.js</code>, and SVG icons.</td></tr>
+<tr><td><code>nav/manifest.py</code></td><td>The navigation manifest: rail, sidebar, breadcrumbs, page roles, and search entries.</td></tr>
+<tr><td><code>auth/</code></td><td><code>middleware.py</code> (session check on every request), <code>oidc.py</code> (MSAL), <code>password.py</code> (bcrypt and password rules), <code>csrf.py</code>, <code>provisioning.py</code> (creates a user at first Entra sign-in).</td></tr>
+<tr><td><code>notifications/email_sender.py</code></td><td>Graph email sending. Nothing calls it yet.</td></tr>
+<tr><td><code>logging_setup.py</code>, <code>log_context.py</code></td><td>Log format and the per-request and per-job context fields. See <a href="07-configuration-and-observability.html#logging">page 7</a>.</td></tr>
+</table>
+
+<p>To add a page: add a node to <code>app/nav/manifest.py</code>, a handler in a router, and a template. To add a background job type: see "Adding a new job type" in <a href="../WORKER_ARCHITECTURE.md">docs/WORKER_ARCHITECTURE.md</a>.</p>
+
+<h2 id="testing">Testing</h2>
+
+<table>
+<tr><th>Tier</th><th>Directory</th><th>Needs</th><th>Command</th></tr>
+<tr><td>Unit</td><td><code>tests/unit</code></td><td>Nothing</td><td><code>uv run pytest tests/unit</code></td></tr>
+<tr><td>SQL Server</td><td><code>tests/sqlserver</code></td><td>ODBC Driver 18 and a running SQL Server</td><td><code>make test-sql</code> (Docker) or <code>make wsl-test-sql</code> (WSL2)</td></tr>
+<tr><td>Risk Modeler sandbox</td><td><code>tests/irp</code></td><td>Risk Modeler credentials in the environment</td><td><code>uv run pytest tests/irp --run-irp</code>, from <code>make shell</code></td></tr>
+</table>
+
+<ul>
+<li>Always run tests with <code>uv run pytest</code>. A bare <code>pytest</code> fails with <code>ModuleNotFoundError</code> because the dependencies are in the uv environment.</li>
+<li>Tests in <code>tests/sqlserver</code> and <code>tests/irp</code> are skipped unless <code>--run-sqlserver</code> or <code>--run-irp</code> is passed (<code>tests/conftest.py</code>).</li>
+<li>The SQL Server tier fails from a Windows host shell even when SQL Server is up, because the ODBC driver and <code>MSSQL_*</code> variables live in <code>linux-box</code> or the WSL2 shell. If <code>tests/sqlserver/test_connectivity.py</code> fails, the environment is wrong, not the code.</li>
+</ul>
+
+<p>Unit tests use SQLite. The <code>iteration1_db</code> and <code>iteration2_db</code> fixtures in <code>tests/conftest.py</code> build the schema from <code>tests/iteration1_mirror.py</code> in memory, seed the kind tables, and call <code>register_engine("WORKBENCH", engine)</code>. The <code>loss_db</code> fixture does the same for <code>LOSS</code> from <code>tests/loss_mirror.py</code>. No unit test needs Redis or Risk Modeler: no Dramatiq sender is configured, and the gateway is replaced with a fake.</p>
+
+<p><code>tests/unit/test_architecture_guards.py</code> enforces several constitution rules by reading the source: no <code>poll_*_to_completion</code> calls, no gateway calls from routers, no DATABRIDGE read on the request path, and SQL only through <code>db/</code> in the export modules.</p>
+
+<p>CI is <code>.github/workflows/ci.yml</code>. It runs on pull requests to <code>main</code>, pushes to <code>main</code>, and manual dispatch, as two parallel jobs:</p>
+<table>
+<tr><th>Job</th><th>Steps</th></tr>
+<tr><td>Unit tests</td><td><code>uv sync --frozen</code>, then <code>make wsl-test</code>.</td></tr>
+<tr><td>SQL Server integration tests</td><td>Starts a SQL Server 2022 service container, installs ODBC Driver 18, runs <code>uv sync --frozen</code>, copies <code>infra/.env.example</code> to <code>infra/.env</code>, then <code>make wsl-db-bootstrap</code>, <code>wsl-db-migrate</code>, <code>wsl-db-seed</code>, and <code>wsl-test-sql</code>.</td></tr>
+</table>
+<p>The Risk Modeler sandbox tier is not in CI. CI never creates the loss tables; the loss tests in <code>tests/sqlserver</code> apply <code>db/bootstrap/loss_dev_mirror.sql</code> themselves.</p>
+
+<p>Report test results by tier and count, for example "unit tier, &lt;n&gt; passed; SQL Server tier not run". A change that adds <code>tests/sqlserver</code> tests is unverified until someone runs that tier.</p>
+
+<h2 id="conventions">Conventions</h2>
+
+<p><a href="../../AGENTS.md">AGENTS.md</a> is the one source of rules for changing the code. It applies to people and to coding agents. Its main rules:</p>
+<ul>
+<li>Make the smallest change that meets the requirement. No code for hypothetical needs, no abstraction with one caller, no unrelated clean-up.</li>
+<li>Comments explain constraints the code cannot show. They do not narrate the code or record its history; history goes in the feature's <code>research.md</code>.</li>
+<li>Write plainly: name the real table, route, or file; lead with the answer; keep descriptions proportional to the change. The section lists banned words.</li>
+<li>Commit subjects are at most 72 characters; the body says why. No AI attribution lines in commits or pull requests.</li>
+<li>Do not start, stop, or rebuild the developer's containers from an agent.</li>
+<li>Show a rendered HTML preview before building a screen with new layout, and build one user story at a time. See <a href="06-development.html#ui-workflow">page 6</a>.</li>
+</ul>
+
+<p>Lint and format with ruff: <code>make lint</code> and <code>make format</code> (Docker), or <code>uv run ruff check .</code> from any shell. The settings are in <code>pyproject.toml</code> (line length 100, Python 3.12).</p>
+
+<nav><a href="index.html">Index</a> · Previous: <a href="04-integrations.html">4. Integrations</a> · Next: <a href="06-development.html">6. Development</a></nav>
+</body>
+</html>

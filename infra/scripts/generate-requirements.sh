@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # generate-requirements.sh — regenerate requirements.txt from uv.lock.
 #
+# Usage: bash infra/scripts/generate-requirements.sh [--check]
+#
 # requirements.txt is what lets the RHEL9 production server install this
 # project's Python dependencies WITHOUT uv installed on the server itself
-# (see docs/RHEL9_SYSTEM_SETUP.md's "uv is not part of this document"
+# (see docs/deploy/RHEL9_SYSTEM_SETUP.md's "uv is not part of this document"
 # section for why uv is kept off the server). uv itself is only ever used
 # HERE, on a developer's machine or in CI where it's already available, to
 # produce this one plain file.

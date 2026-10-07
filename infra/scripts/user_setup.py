@@ -5,11 +5,8 @@ Actions:
   create      Create a new user (OIDC pre-provisioned or password account)
   reset       Reset the password for a password-auth user
 
-Usage:
-    uv run python infra/scripts/user_setup.py
-
-Environment: reads from infra/.env (same as other infra scripts).
-Requires: InquirerPy, rich  (uv sync --group dev)
+Loads infra/.env itself.
+Usage: make wsl-user-setup      server: cd /rms && bash infra/scripts/run_user_setup.sh
 """
 from __future__ import annotations
 

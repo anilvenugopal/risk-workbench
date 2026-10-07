@@ -1,8 +1,10 @@
 # Email Notifications — Graph API Setup and Send Module
 
 Covers provisioning the sender mailbox, registering Graph API access for
-app-only mail send, the `.env` keys, and the modular send function used by
-the worker, poller, and the scheduled batch-report job.
+app-only mail send, the `.env` keys, and the modular send function
+`app/notifications/email_sender.py`. No worker, poller, or route calls it yet;
+its only caller is `infra/scripts/mail_smoke_test.py`. Part 5 shows the
+planned call sites.
 
 This app already has one Entra app registration ("Governance", see
 [ENTRA_SETUP.md](ENTRA_SETUP.md)) used for OIDC login. Mail send needs a
@@ -157,9 +159,7 @@ MAIL_CLIENT_SECRET=
 MAIL_SENDER_ADDRESS=no-reply-rwb@premiumiq.com
 ```
 
-`app/config.py` already has placeholder `smtp_*`/`notify_*` fields from an
-earlier iteration (R10) that were never wired to any implementation — replace
-them, don't add alongside them:
+`app/config.py` has these fields:
 
 ```python
 # ── Email notifications (Graph API, app-only Mail.Send) ─────────────────────
@@ -177,10 +177,10 @@ def mail_enabled(self) -> bool:
     return bool(self.mail_tenant_id and self.mail_client_id and self.mail_client_secret)
 ```
 
-Remove `notify_channels`, `teams_webhook_url`, `smtp_host`, `smtp_port`,
-`smtp_from`, `notify_email_to` from `app/config.py` and the corresponding
-block from `infra/.env.example` — dead settings from a design that used SMTP
-instead of Graph.
+The older `notify_channels`, `teams_webhook_url`, `smtp_host`, `smtp_port`,
+`smtp_from` and `notify_email_to` fields are gone from `app/config.py`. Their
+`NOTIFY_*`, `TEAMS_WEBHOOK_URL` and `SMTP_*` keys remain in
+`infra/.env.example`, marked as read by no code.
 
 ---
 
@@ -268,8 +268,8 @@ caching internally, the same pattern `app/auth/oidc.py` relies on for its
 own flow.
 
 Why `to`/`cc`/`bcc`/`subject`/`html_body` as plain parameters instead of a
-dataclass or "message" object: three call sites (worker failure, poller
-failure, batch-report job), none needing more fields than this — a wrapper
+dataclass or "message" object: three planned call sites (worker failure, poller
+failure, batch-report job; none built yet), none needing more fields than this — a wrapper
 type would only rename this same argument list.
 
 ---
@@ -281,8 +281,8 @@ before wiring any call site, to confirm the app registration, secret, and
 access policy actually work end to end:
 
 ```python
-# scripts/mail_smoke_test.py
-"""Send one test email via Graph. Usage: uv run python scripts/mail_smoke_test.py you@premiumiq.com"""
+# infra/scripts/mail_smoke_test.py
+"""Send one test email via Graph. Usage: uv run python infra/scripts/mail_smoke_test.py you@premiumiq.com"""
 
 import sys
 

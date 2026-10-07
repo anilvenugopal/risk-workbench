@@ -10,10 +10,8 @@ the P-03 expiration default the app itself writes.
 Generation is deterministic: the same ``--count`` produces the same names, so
 ``--clear`` deletes a previous run before seeding again.
 
-Run via the Makefile:
-    make seed-demo                          # Docker
-    make wsl-seed-demo                      # WSL2
-    make seed-demo ARGS="--count 120 --clear"
+Dev only, never the server.
+Usage: make wsl-seed-demo ARGS="--count 120 --clear"   (Docker-only: make seed-demo)
 """
 
 from __future__ import annotations

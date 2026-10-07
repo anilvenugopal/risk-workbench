@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # wsl-env.sh — sourced by other infra scripts to load infra/.env safely.
 #
+# Usage: source infra/scripts/wsl-env.sh
+#
 # Why a script instead of Makefile $(shell ...):
 #   - Makefile variable expansion exposes values in process listings and output
 #   - Values with spaces (MSSQL_DRIVER="ODBC Driver 18...") break xargs-style loading
 #   - Sourcing in a child shell keeps secrets out of Make's variable space
 #
-# In WSL2 mode, SQL Server is reached via localhost (port mapped from Docker).
-# The app container uses "sqlserver" as the hostname (Docker internal DNS).
-# We override the three server vars here for WSL2.
+# In WSL2 mode, SQL Server is reached via localhost (port mapped from the
+# Docker or Podman container). The app container uses "sqlserver" as the
+# hostname (Docker internal DNS). We override the three server vars here for WSL2.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/../.env"
@@ -27,3 +29,15 @@ set +a
 export MSSQL_WORKBENCH_SERVER=localhost
 export MSSQL_EXPOSURE_SERVER=localhost
 export MSSQL_LOSS_SERVER=localhost
+
+# The infra/.env data paths are linux-box paths; WSL2 uses the repo's data/.
+export EXPORT_ARCHIVE_DIR="$SCRIPT_DIR/../../data/export_archive"
+export EXPORT_STAGING_DIR="$SCRIPT_DIR/../../data/staging"
+export SHARED_DRIVE_ROOT="$SCRIPT_DIR/../../data/shared_drive"
+mkdir -p "$EXPORT_ARCHIVE_DIR" "$EXPORT_STAGING_DIR" "$SHARED_DRIVE_ROOT"
+
+export RWB_CONTAINER_RUNTIME="${RWB_CONTAINER_RUNTIME:-docker}"
+if [ "$RWB_CONTAINER_RUNTIME" != docker ] && [ "$RWB_CONTAINER_RUNTIME" != podman ]; then
+    echo "ERROR: RWB_CONTAINER_RUNTIME in infra/.env must be docker or podman, not '$RWB_CONTAINER_RUNTIME'." >&2
+    exit 1
+fi

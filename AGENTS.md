@@ -145,25 +145,28 @@ Two rules for user-facing work — full detail in [docs/UI_WORKFLOW.md](docs/UI_
 - `linux-box` — runs nginx, uvicorn, redis, dramatiq workers, poller (mirrors production Linux server)
 - `sqlserver` — SQL Server 2022 Developer edition (mirrors separate SQL Server instance in prod)
 
-**Key commands** — every `make` target below runs inside `linux-box` and needs the
-stack already up. Starting it is the developer's call, not an agent's (see
+**Key commands** — `make start`, `make wsl-start` and `make wsl-app` start
+processes; every other target below runs inside `linux-box` and needs the stack
+already up. Starting it is the developer's call, not an agent's (see
 [Testing](#testing)):
 ```bash
-make dev-up          # start full Docker stack (partner / Windows)
-make sqlserver-up    # start SQL Server only (WSL2 native mode)
-make native-dev      # uvicorn --reload natively in WSL2
+make start           # start full Docker stack (machines without WSL2)
+make wsl-start       # start SQL Server (Docker or Podman) + Redis only (WSL2 native mode)
+make wsl-app         # uvicorn --reload natively in WSL2
 make shell           # bash inside linux-box
 make db-migrate      # alembic upgrade head on rwb_workbench
 make db-rebuild      # DESTRUCTIVE: drop/recreate 3 app DBs + migrate + seed
 make test            # unit tests
 make test-sql        # SQL Server integration tests (--run-sqlserver)
-make debug-up        # start with debugpy on :5678 for VS Code attach
 ```
+
+For debugpy on :5678, set `APP_DEBUG=1` in `infra/.env` and run `make start`;
+`infra/scripts/start-all.sh` then starts uvicorn under debugpy.
 
 The unit tier is the exception: `uv run pytest tests/unit` runs from any host shell
 with no container and no database. Prefer it over `make test`.
 
-See [docs/SCAFFOLDING.md](docs/SCAFFOLDING.md) for full setup and debugging tutorial.
+See [docs/LOCAL_DEV_SETUP.md](docs/LOCAL_DEV_SETUP.md) for full setup and debugging tutorial.
 
 ## Architecture Rules (Summary)
 
@@ -175,7 +178,7 @@ Full rules in the constitution. Key points for implementation:
 4. **Categoricals**: kind tables (`*_kind`) for all internal values. Plain VARCHAR only for the two Article 3 carve-outs: external-status mirror columns (listed there) and `CHECK`-constrained columns on tables the Workbench installs in a client-owned database (the `stage` schema in CIC's loss repository, Art. 3 v4.2.0).
 5. **IRP**: submission on request path is permitted, as is a bounded, single-analysis `get_analysis_metadata` read that answers a point-of-action validation the analyst is waiting on (Art. 11 v4.1.0). All other polling and result work MUST be in the poller/workers — never in route handlers. `poll_*_to_completion` FORBIDDEN in poller; use `get_*` single-status-check only.
 6. **Frontend**: FastAPI + Jinja2 + HTMX. No SPA. `hx-boost` for top-level nav. Alpine.js only for small client slivers.
-7. **Auth**: `AUTH_MODE=password` is a gated v1 fallback; never reachable in production. Session cookie contains session ID only.
+7. **Auth**: `AUTH_MODE=password` is the v1 production sign-in; Entra OIDC is optional. Session cookie contains session ID only.
 8. **Approved plans are immutable**: when an async operation follows a user preview or confirmation, the worker executes the plan the user approved. Persist it and run it — never silently recompute inputs at execution time.
 
 ## Three Databases
@@ -183,8 +186,8 @@ Full rules in the constitution. Key points for implementation:
 | Name | Env prefix | Purpose | Managed by |
 |---|---|---|---|
 | `rwb_workbench` | `MSSQL_WORKBENCH_*` | App state, workflow, audit | Alembic (`make db-migrate`) |
-| `rwb_exposure` | `MSSQL_EXPOSURE_*` | Exposure data (EDM/RDM) | Bootstrap SQL script |
-| `rwb_loss` | `MSSQL_LOSS_*` | Loss results | Bootstrap SQL script |
+| `rwb_exposure` | `MSSQL_EXPOSURE_*` | Reserved for exposure data; no tables yet | Created empty by `infra/scripts/bootstrap_db.py` |
+| `rwb_loss` | `MSSQL_LOSS_*` | Loss results (dev copy of CIC's loss repository) | Bootstrap SQL scripts (`infra/scripts/bootstrap_loss.py`) |
 | DATABRIDGE | `MSSQL_DATABRIDGE_*` | Moody's — read-only | **Read-only, only via irp-integration methods, worker-side** — except a bounded single-row point-of-action check, which may run on the request path and must fail open (constitution Art. 11 v3.2.0); never migrated/bootstrapped; never raw SQL from app code |
 
 ## Schema Changes
@@ -195,7 +198,7 @@ merged (2026-09-29). Never edit it.
 Every `rwb_workbench` schema change is a new Alembic revision:
 
 ```bash
-uv run alembic revision -m "<what changes>" --rev-id 0002   # next four-digit id; runs from any host shell, no database needed
+uv run alembic revision -m "<what changes>" --rev-id NNNN   # one more than `uv run alembic heads`; runs from any host shell, no database needed
 make db-migrate                                              # alembic upgrade head inside linux-box (make wsl-db-migrate on WSL2)
 ```
 
@@ -214,7 +217,8 @@ make db-migrate                                              # alembic upgrade h
 - `make db-rebuild` drops the three app databases and replays every revision. Use
   it only on a dev database whose data is disposable. It never replaces writing the
   revision.
-- `rwb_exposure` and `rwb_loss` stay on their bootstrap SQL scripts, not Alembic.
+- `rwb_exposure` and `rwb_loss` are not managed by Alembic. `rwb_exposure` is
+  created empty; `rwb_loss` uses the bootstrap SQL scripts in `db/bootstrap/`.
   DATABRIDGE is never in schema scope (no DDL/migrations/bootstrap; reads only via
   irp-integration, worker-side).
 
@@ -223,9 +227,9 @@ make db-migrate                                              # alembic upgrade h
 - Source is switchable via uv dependency groups — `make irp-pypi` (latest allowed stable PyPI release, production mode), `make irp-testpypi` (the pinned TestPyPI pre-release), `make irp-local` (editable checkout at `../../IRP/irp-integration`). `make irp-status` shows the active source and version; `uv.lock` records every resolved version. Confirm method signatures against the **active** wheel — it is pre-release and moves.
 - `IRPClient()` reads all config from env vars — no constructor args
 - Batch analysis: `submit_portfolio_analysis_jobs(list)` → `List[int]` (ordered, positional)
-- Single analysis: `submit_portfolio_analysis_job()` → `Tuple[int, request_body]`; store `request_body["resourceUri"]` as `irp_job.resource_uri` immediately — not available in completion response
-- Portfolio creation: `create_portfolio()` → sync (HTTP 201), writes `irp_portfolio_id` inline on request path
-- Poller uses: `get_edm_import_job()`, `get_analysis_job()`, etc. (single-status-check)
+- Single analysis: `submit_portfolio_analysis_job()` → `Tuple[int, request_body]`; store `request_body["resourceUri"]` as `irp_job_resource.resource_uri` immediately — not available in completion response
+- Portfolio creation: `create_portfolio()` → sync (HTTP 201), called worker-side by the `run_breakout_*` actors through `irp_gateway.create_sub_portfolio`
+- Poller uses: `import_job.get_import_job()`, `analysis.get_analysis_job()`, etc. (single-status-check)
 - `poll_*_to_completion()` — FORBIDDEN everywhere (blocks for minutes)
 
 ## Testing
@@ -260,7 +264,7 @@ wrong, not the code.
 
 ### Agents: never start, stop, or rebuild containers
 
-`make dev-up`, `make sqlserver-up`, `docker compose up`, `make db-rebuild` and
+`make start`, `make wsl-start`, `docker compose up`, `make db-rebuild` and
 friends change the developer's running environment and are the developer's call, not
 an agent's. If a tier cannot run because `linux-box` is down, **say so and stop** —
 report which tiers ran, which did not, and what the developer needs to run. Never

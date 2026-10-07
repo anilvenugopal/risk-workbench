@@ -15,6 +15,7 @@
    filtered view keeps polling filtered. The server stops emitting the trigger
    once every row is terminal, so polling ends on its own. The filter form swaps
    this same wrapper (hx-select), so filtering also keeps the fields focused. #}
+{% from "partials/time_macros.html" import local_time %}
 <div id="lib-live"
   {%- if live %}
   hx-get="{{ list_route }}/table?{{ query_string }}"
@@ -56,7 +57,7 @@
         {# An EDM synced from Risk Modeler has no source file — the import happened
            there, before the workbench saw it. #}
         <td class="lib-src">{% if row.source_file_path %}<span class="mono" title="{{ row.source_file_path }}">{{ row.source_file_path }}</span>{% else %}<span class="na">—</span>{% endif %}</td>
-        <td>{{ (row.inserted_at | string)[:10] if row.inserted_at else '' }}</td>
+        <td>{{ local_time(row.inserted_at) }}</td>
       </tr>
       {% else %}
         {% if is_filtered %}

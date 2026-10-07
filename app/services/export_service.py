@@ -29,7 +29,7 @@ from app.services import (
     submission_service,
     treaty_service,
 )
-from app.services._common import _parse_json_dict, _rm_ui_root, _uid, _utcnow
+from app.services._common import _as_datetime, _parse_json_dict, _rm_ui_root, _uid, _utcnow
 from app.workers import dispatch
 from db import (
     execute,
@@ -134,7 +134,8 @@ class ExportableAnalysis:
         return self.disabled_reason is None
 
     def aal_display(self, perspective_code: str) -> str:
-        return analysis_service.fmt_loss(self.aal.get(perspective_code))
+        value = self.aal.get(perspective_code)
+        return "—" if value is None else f"{value:,.0f}"
 
     @property
     def treaty_choices(self) -> list[TreatyChoice]:
@@ -632,17 +633,6 @@ def _analysis_rows(irp_analysis_ids: list[str]) -> dict[str, dict]:
 # ── retry and close ──────────────────────────────────────────────────────────
 
 RetryBranch = Literal["load", "stage", "submit"]
-
-
-def _as_datetime(value: Any) -> datetime | None:
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
 
 
 def retry_decision(manifest: dict, export_job: dict | None, archive_root: str,
