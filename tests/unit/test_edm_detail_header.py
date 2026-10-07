@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 
 from fastapi import FastAPI, Request
@@ -142,19 +143,63 @@ def test_direct_library_page_has_no_submission_context(monkeypatch):
     assert "/submissions/submission-a/edms/" not in response.text
 
 
-def test_direct_library_page_links_every_linked_submission(monkeypatch):
-    """FR-015 (note 35 D16): the meta line links the owning submissions from
-    the library route too, oldest first."""
+def _three_submissions() -> list[SubmissionRef]:
+    return [SubmissionRef(id=f"submission-{c}", name=f"Submission {c.upper()}")
+            for c in "abc"]
+
+
+def _names(html: str, submission_id: str) -> bool:
+    return f'in <a class="crumb" href="/submissions/{submission_id}">' in html
+
+
+def test_direct_library_page_names_the_oldest_submission_and_lists_all(monkeypatch):
     edm = _edm()
-    edm.submissions = [SubmissionRef(id="submission-a", name="Submission A"),
-                       SubmissionRef(id="submission-b", name="Submission B")]
+    edm.submissions = _three_submissions()
     monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: edm)
 
     html = _client().get("/edms/edm-1").text
 
-    first = html.index('in <a class="crumb" href="/submissions/submission-a">Submission A</a>')
-    second = html.index('in <a class="crumb" href="/submissions/submission-b">Submission B</a>')
-    assert first < second
+    assert _names(html, "submission-a")
+    assert ">+2</button>" in html
+    for c in "abc":
+        assert f'<a class="ta__opt" href="/submissions/submission-{c}">' in html
+
+
+def test_contextual_page_names_the_submission_it_was_opened_from(monkeypatch):
+    context = dataclasses.replace(
+        _context(), submission=SubmissionRef(id="submission-c", name="Submission C"))
+    context.edm.submissions = _three_submissions()
+    monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
+                        lambda **kwargs: context)
+
+    html = _client().get("/submissions/submission-c/edms/edm-1").text
+
+    assert _names(html, "submission-c")
+    assert ">+2</button>" in html
+    # The breakout confirm posts the submission back (see test_breakout_routes).
+    assert """hx-vals='{"submission_id": "submission-c"}'""" in html
+
+
+def test_one_submission_has_no_dropdown(monkeypatch):
+    edm = _edm()
+    edm.submissions = [SubmissionRef(id="submission-a", name="Submission A")]
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: edm)
+
+    html = _client().get("/edms/edm-1").text
+
+    assert _names(html, "submission-a")
+    assert "ta__opt" not in html
+
+
+def test_section_poll_names_the_submission_on_its_url(monkeypatch):
+    edm = _edm()
+    edm.submissions = _three_submissions()
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: edm)
+
+    html = _client().get(
+        "/edms/edm-1/portfolios-section?submission_id=submission-c").text
+
+    assert _names(html, "submission-c")
 
 
 def test_detail_renders_note_and_pauses_polling_while_editor_is_open(monkeypatch):
@@ -170,6 +215,7 @@ def test_detail_renders_note_and_pauses_polling_while_editor_is_open(monkeypatch
     assert "entity-note--editing" in response.text
     assert "!document.querySelector('#edm-detail .entity-note--editing')" in response.text
     assert "!document.querySelector('#edm-detail.edm-notes-open')" in response.text
+    assert "!document.querySelector('#edm-detail .sub-links--open')" in response.text
     # FR-027: Save/Cancel clear the notesOpen gate so the 3s poll resumes.
     assert 'x-on:entity-note-saved="notesOpen = false"' in response.text
     assert ("hx-on::after-request=\"if(event.detail.successful) "

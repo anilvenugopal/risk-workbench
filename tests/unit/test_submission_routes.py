@@ -967,6 +967,29 @@ def test_create_stores_the_chosen_link_and_the_detail_page_shows_its_name(client
         rf'<a href="/submissions/{target}">\s*TY2506_AmericanFamily\s*</a>', detail)
 
 
+def test_the_linked_to_detail_page_names_its_oldest_linker_and_lists_the_rest(client):
+    target = client.post("/submissions", data=_payload(
+        name="TY2506_Target")).headers["location"].rsplit("/", 1)[-1]
+    first = client.post("/submissions", data=_payload(
+        name="TY2606_FirstLinker", links_to_submission_id=target,
+    )).headers["location"].rsplit("/", 1)[-1]
+
+    detail = client.get(f"/submissions/{target}").text
+    assert (f'linked from <a class="crumb" href="/submissions/{first}">'
+            "TY2606_FirstLinker</a>") in detail
+    assert ">+1</button>" not in detail
+
+    second = client.post("/submissions", data=_payload(
+        name="TY2706_SecondLinker", links_to_submission_id=target,
+    )).headers["location"].rsplit("/", 1)[-1]
+    detail = client.get(f"/submissions/{target}").text
+    assert (f'linked from <a class="crumb" href="/submissions/{first}">'
+            "TY2606_FirstLinker</a>") in detail
+    assert ">+1</button>" in detail
+    assert f'<a class="ta__opt" href="/submissions/{first}">' in detail
+    assert f'<a class="ta__opt" href="/submissions/{second}">' in detail
+
+
 def test_create_stores_one_contract_per_row(client):
     res = client.post("/submissions", data=_payload(
         name="TY2606_CrmAtCreate", crm_ids="CRM-1, CRM-2"))

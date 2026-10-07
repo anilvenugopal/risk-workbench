@@ -7,6 +7,7 @@
    swaps the Edit link out of band, and a status change fires
    `modeling-status-changed`, which the EDM and RDM sections reload on. #}
 {% from "partials/time_macros.html" import local_time %}
+{% from "partials/submission_link_macros.html" import submission_links %}
 {% import "partials/form_macros.html" as forms %}
 <div id="deal-head"
      hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }">
@@ -19,6 +20,10 @@
       <span>links to
         <a href="/submissions/{{ submission.links_to_submission_id }}">
           {{ link_target.name if link_target else submission.links_to_submission_id }}</a></span>
+      {% endif %}
+      {% if linked_from %}
+      <span class="crumb__sep">·</span>
+      {{ submission_links('linked from', linked_from) }}
       {% endif %}
       {% if submission.directory_path %}
       <span class="crumb__sep">·</span>

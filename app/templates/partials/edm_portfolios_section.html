@@ -20,15 +20,14 @@
    through, carried on the poll URL so the GeoHaz form keeps its
    `submission_id` across a swap; the POST handler validates the pairing. #}
 {% set sync_url = sync_url | default('/edms/' ~ edm.id ~ '/sync') %}
-{% set gh_sub = gh_sub if gh_sub is defined
-     else (source_submission.id if source_submission else none) %}
+{% set gh_sub = gh_sub | default(source_submission.id if source_submission else none) %}
 {% set section_url = '/edms/' ~ edm.id ~ '/portfolios-section'
      ~ ('?submission_id=' ~ gh_sub if gh_sub else '') %}
 {% set bo_live = edm.breakout_running
      or (edm.breakout_banner and edm.breakout_banner.filling_in) %}
 <details class="sec" open id="edm-portfolios"
   {%- if bo_live %}
-  hx-get="{{ section_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s"
+  hx-get="{{ section_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s [!document.querySelector('#edm-detail .sub-links--open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <summary>
