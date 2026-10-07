@@ -866,3 +866,11 @@ def test_resolve_app_analysis_id_raises_on_no_match():
     gw, _ = _search_gw([])
     with pytest.raises(LookupError):
         gw.resolve_app_analysis_id(app_analysis_id=99999)
+
+
+def test_a_bearer_login_rejected_with_401_is_a_permanent_submit_failure():
+    from irp_integration.exceptions import IRPAuthenticationError  # noqa: PLC0415
+
+    exc = IRPAuthenticationError("Bearer login failed (status 401)", status_code=401)
+
+    assert irp_gateway.is_permanent_submit_failure(exc)
