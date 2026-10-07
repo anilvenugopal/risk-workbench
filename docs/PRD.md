@@ -490,14 +490,14 @@ Modeling status:
 |---|---|
 | `ACTIVE` | Open — fully editable: the analyst can edit its fields and contracts, set its directory, and add or remove EDM/RDM associations. |
 | `COMPLETED` | Closed for tracking purposes. The submission is **read-only** — all analyst-initiated edits, including EDM/RDM association changes, are blocked; viewing continues. Reopening to `ACTIVE` restores edit capability. |
-| `CANCELLED` | Withdrawn — the analyst is no longer pursuing it. Read-only in the same way as `COMPLETED`, and likewise reopenable to `ACTIVE` (with no delete, reopening is the recovery path for a mistaken cancel). |
+| `CANCELLED` | Withdrawn — the analyst is no longer pursuing it. Read-only in the same way as `COMPLETED`, and likewise reopenable to `ACTIVE` (reopening is the recovery path for a mistaken cancel). |
 
 Rules:
-- **Reopening to `ACTIVE` is allowed from either `COMPLETED` or `CANCELLED`** — set it back to `ACTIVE` and work resumes. Neither closed state is a one-way door; because there is no delete (below), reopening is also how a mistaken `CANCELLED` is recovered.
+- **Reopening to `ACTIVE` is allowed from either `COMPLETED` or `CANCELLED`** — set it back to `ACTIVE` and work resumes. Neither closed state is a one-way door; reopening is also how a mistaken `CANCELLED` is recovered.
 - **Both closed states are fully read-only.** `COMPLETED` and `CANCELLED` alike block edits to the submission's own fields, its contracts, and EDM/RDM associations. The only actions on a closed submission are viewing, reopening and setting a contract's Contract status (spec 017 P-12).
 - **No system-enforced precondition on any transition.** The analyst decides when a submission is done or withdrawn. The system does not block `ACTIVE → COMPLETED` because an import is still running.
 - **There is no file-inventory scanning to keep running on a `COMPLETED` submission** — the scanner subsystem is dropped (CR-003 M5, §8); the only ongoing operation is viewing.
-- **There is no delete, ever.** A submission can carry EDMs/RDMs with real Risk Modeler identity by the time anyone would want to remove it — deleting the row would orphan or mis-audit that Risk Modeler-side state. `CANCELLED` exists specifically as the "this isn't happening" outcome in place of a delete.
+- **Any analyst can archive a submission; only an admin can delete one** (issue #206). Archive works in every Modeling status and changes nothing but visibility: the submission leaves the Submissions list (the "Show archived" box lists it again) and the "links to" picker, and stays in search and on EDM/RDM pages. Unarchive reverses it. Delete removes the Workbench rows that exist only for the submission: contracts, Modeling status history, EDM/RDM associations, imported analyses and analysis groups, and their jobs. It keeps the EDMs and RDMs, everything in Risk Modeler and every export in the loss repository, and is refused while any job for the submission is unfinished.
 
 This replaces the prior `authoring_status` field, whose three-value guess (`draft`/`active`/`complete`) assumed a workflow-authoring lifecycle. `submission.status_code` describes the submission itself, independent of whatever job or workflow machinery runs underneath it.
 
@@ -1348,7 +1348,7 @@ touched.
 **In:**
 - §7 (Submission as the top-level deal: `cedant_name`/`treaty_type_code`/`inception_date`/`treaty_year`/`renews_from_submission_id`/`directory_path`, assigned analyst as soft owner, master-detail, list ergonomics)
 - §7.2 (`contract` — add, edit and remove contracts; set Contract status)
-- §7.2a (Modeling status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced; closed states are fully read-only and reopenable to `ACTIVE`; no delete)
+- §7.2a (Modeling status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced; closed states are fully read-only and reopenable to `ACTIVE`; archive and admin delete per §7.2a)
 - §7.2b (submission identity: surrogate `id` key, non-unique `name` label)
 - §6.1 (global roles gating functions) + §6.2 (analyst-centric "my submissions" filter)
 - **§9.4 Package structure (schema only, DATA_MODEL §4/§5):** the `package` and `submission_package` tables, the submission↔package M:N, the `package_id` FK on `irp_edm`/`irp_rdm` (bundle membership), soft-delete (`deleted_at`), plus the `db/` access functions and tests. Membership FKs live on `irp_edm`/`irp_rdm`, whose tables are created with the initial schema; their *entity management* (import, IRP) is Iteration 2. The **≥1-member rule is an app-enforced invariant** (no column CHECK — membership spans two child tables). **No package creation/sync/delete behavior here** — exercising a non-empty package waits for the EDM/RDM import plumbing in Iteration 2.

@@ -118,6 +118,8 @@ erDiagram
     string directory_path "nullable; per-deal shared-drive directory"
     int client_id "nullable; rwb_loss dbo.Client.ClientID — another database, no FK"
     string status_code FK "submission_status_kind; Modeling status, cached current"
+    datetime archived_at "nullable; set while archived"
+    uniqueidentifier archived_by FK "nullable; app_user who archived it"
     datetime inserted_at
     datetime updated_at
     uniqueidentifier inserted_by FK
@@ -192,7 +194,9 @@ erDiagram
 - **`client_id`** is `dbo.Client.ClientID` in `rwb_loss`, read over the `LOSS` connection and never a foreign key (another database). Optional; the Workbench never writes to the client list (spec 017 P-04).
 - **`links_to_submission_id`** is a manual, nullable self-reference to a related submission — usually last year's deal for the same cedant and treaty type, but not necessarily a renewal (design note 08 CR8, superseding the earlier `renews_from_submission_id`). Most deals have none. The analyst picks the related deal by name; a submission cannot link to itself (`ck_submission_no_self_link`).
 - **`submission.name` is NOT unique.** Two genuinely distinct deals can share every naming-convention attribute (same cedant, inception, treaty type) and differ only by the manual/optional CRM ID (design note 03 §4). The UUID `id` is the key; create and rename never compare the name with other submissions.
-- **Modeling status** (`status_code`) is `ACTIVE` / `COMPLETED` / `CANCELLED`, event-sourced, no system-enforced transition preconditions (`COMPLETED → ACTIVE` allowed). **There is no delete** — a submission can carry real Risk Modeler assets; `CANCELLED` is the withdrawal state.
+- **Modeling status** (`status_code`) is `ACTIVE` / `COMPLETED` / `CANCELLED`, event-sourced, no system-enforced transition preconditions (`COMPLETED → ACTIVE` allowed). `CANCELLED` is the withdrawal state.
+- **`archived_at` / `archived_by`** mark an archived submission (issue #206): hidden from the Submissions list and the "links to" picker. Archiving changes neither `status_code` nor `updated_at`.
+- **Delete** is admin-only (issue #206) and refused while any `irp_job`, `rwb_job` or export for the submission is unfinished. One transaction deletes the submission's `contract`, `submission_status_event`, `submission_edm` and `submission_rdm` rows, its `irp_analysis` rows (`submission_id` set: imported analyses and groups) with their `irp_analysis_group_member` rows, and the `rwb_job` rows that would act on them, then the `submission` row. `irp_job` rows stay with `requested_from_submission_id` and `irp_analysis_id` cleared, a linking submission's `links_to_submission_id` is cleared, and `upload_edm`/`upload_rdm` jobs stay with their EDM or RDM.
 - **Contract status** (`contract.contract_status_code`) is `OPEN` / `WON` / `LOST` from `contract_status_kind`, updated in place with the contract's `updated_at` concurrency check, no reason and no event row, in every Modeling status (spec 017 P-02, P-12). Every other contract write needs Modeling status Active.
 
 **Associations:**
