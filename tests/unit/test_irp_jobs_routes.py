@@ -82,12 +82,18 @@ def test_defaults_to_the_current_users_jobs(iteration2_db):
     assert "Analyst B" in resp.text
 
 
-def test_a_submitted_by_that_is_not_an_id_gets_the_default_view(iteration2_db):
+@pytest.mark.parametrize("value", [
+    lambda user: "me",
+    lambda user: str(user).replace("-", ""),
+    lambda user: f"urn:uuid:{user}",
+], ids=["word", "no-dashes", "urn"])
+def test_a_submitted_by_that_is_not_an_id_gets_the_default_view(iteration2_db, value):
     # SQL Server refuses to compare a non-UUID with irp_job.inserted_by
     _job("Mine", by=iteration2_db.user_a)
     _job("Theirs", by=iteration2_db.user_b)
 
-    resp = _client(iteration2_db.user_a).get("/workflows/irp-jobs?submitted_by=me")
+    resp = _client(iteration2_db.user_a).get(
+        f"/workflows/irp-jobs?submitted_by={value(iteration2_db.user_b)}")
     assert resp.status_code == 200
     assert "Mine" in resp.text
     assert "Theirs" not in resp.text

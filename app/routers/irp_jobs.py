@@ -55,7 +55,7 @@ def _list_context(request: Request) -> dict:
     job_types = [v.strip() for v in params.getlist("job_type") if v.strip()]
     statuses = [v.strip() for v in params.getlist("status") if v.strip()]
     by_params = [v.strip() for v in params.getlist("submitted_by")
-                 if v.strip() == "any" or _as_uuid(v)]
+                 if v.strip() == "any" or _as_uuid(v) == v.strip().lower()]
     submitted_by = ([str(request.state.user.id)] if not by_params
                     else [] if "any" in by_params else by_params)
     texts = {key: (params.get(key) or "").strip() for key in _DATE_LABELS}
