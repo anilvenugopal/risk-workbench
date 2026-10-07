@@ -1269,7 +1269,9 @@ def compose_group_preview(edm_id: Any, portfolio_id: Any, *,
     plans = compose_group_cart(gate, edm_id=edm_id, portfolio_id=portfolio_id,
                                groups=[*carted, new_group])
     plan = plans[-1]
-    if not plan.adopted and check_group_name(edm_id, plan.name).collides:
+    if (not plan.adopted and gate.edm_irp_id is not None
+            and name_check.check_portfolio_name(
+                exposure_irp_id=gate.edm_irp_id, name=plan.name).collides):
         raise GateRefused(f"a portfolio named {plan.name!r} already "
                           "exists in this EDM — choose a different name")
     if group_matches_no_accounts(gate, plan.filters):
