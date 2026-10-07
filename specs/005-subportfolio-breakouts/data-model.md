@@ -167,7 +167,7 @@ Source scripts, all read-only and worker-side through `irp-integration` (Article
 - §5 `irp_portfolio` block: add the three lineage columns + the "immediate source only" note + the filtered unique index; add `irp_portfolio ||--o{ irp_portfolio : "breakout lineage (nullable)"`.
 - Table index row for `breakout_dimension_kind`.
 - §5 note: "`irp_portfolio.inserted_by` populated for breakout-generated portfolios (first use)."
-- §5 `exposure_detail` note: the summary gains `breakout_values` and `account_total`, and `states` holds state codes.
+- §5 `exposure_detail` note: the summary gains `breakout_values` and `account_total`, each `state` value carries its `country`, and the summary has no separate `states` list.
 - Open-items list: strike "portfolio breakout lineage" if/where implied; no `irp_job_resource` change (breakouts create no `irp_job`).
 
 ## 8. Migration impact

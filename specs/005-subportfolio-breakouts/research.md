@@ -132,6 +132,8 @@ The confirm POST re-checks the gate server-side (409 + re-rendered fragment on f
 
 *(Resolved 2026-08-03. This entry previously deferred the vocabulary question to the spike.)*
 
+*(Revised 2026-10-02 by P-31: the value is `{country}-{Admin1Code}` — see [Session 2026-10-02](#session-2026-10-02).)*
+
 **Decision.** `Admin1Code` is the selection filter value, the stored `breakout_value`, the token in the generated name and number, and the value the analyst sees. `Admin1Name` travels alongside as a **nullable display label** and is **never synthesized from the code**.
 
 `sql/databridge/portfolio_states.sql` changes accordingly: it returns `Admin1Code` as the value and `MAX(Admin1Name)` as the label, groups by the code, and tests the **code** in the `WHERE`. The `COALESCE(NULLIF(Admin1Name,''), Admin1Code)` expression is removed from both places it appears.
