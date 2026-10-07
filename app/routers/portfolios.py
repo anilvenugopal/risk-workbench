@@ -26,6 +26,7 @@ from app.auth.csrf import validate_csrf_token
 from app.services import breakout_service, edm_service
 from app.services.breakout_service import (
     BreakoutRefused, GateRefused, NameRefused, StaleSummary, SummaryRewritten)
+from app.services.submission_filters import _as_uuid
 
 router = APIRouter()
 
@@ -73,7 +74,7 @@ def _modal(request: Request, edm_id: str, portfolio_id: str,
 
 
 def _breakout_started(request: Request, edm_id: str, count: int,
-                      submission_id: str):
+                      submission_id: str | None):
     """The success response both confirms share: the Portfolios section
     retargeted at ``#edm-portfolios`` (the form targets the modal mount, so the
     modal closes on 2xx) plus the "Breakout started" toast.
@@ -82,12 +83,7 @@ def _breakout_started(request: Request, edm_id: str, count: int,
     ``source_submission`` erases the submission breadcrumbs, the EDM picker,
     and the Broker analyses section from the contextual page. The section is
     also all a breakout changes (T-11), and it comes back with its own poll
-    trigger live because the enqueue just made ``breakout_running`` true.
-
-    ``submission_id`` is the contextual page's submission (empty on the
-    library page), posted by the modal mount's ``hx-vals``. It keeps the
-    section's poll URL and the meta line on that submission and, like the
-    section poll's, is not validated."""
+    trigger live because the enqueue just made ``breakout_running`` true."""
     edm = edm_service.get_edm_detail(edm_id)
     response = _partial(request, "partials/edm_portfolios_live.html",
                         {"edm": edm, "gh_sub": submission_id})
@@ -178,7 +174,8 @@ def breakout_confirm(
 
     if not is_htmx:
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-    return _breakout_started(request, edm_id, requested.planned, submission_id)
+    return _breakout_started(request, edm_id, requested.planned,
+                             _as_uuid(submission_id))
 
 
 def _carted_groups(form) -> list[dict]:
@@ -275,7 +272,7 @@ async def breakout_groups_confirm(request: Request, edm_id: str,
     if not is_htmx:
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
     return _breakout_started(request, edm_id, len(job_ids),
-                             str(form.get("submission_id") or ""))
+                             _as_uuid(form.get("submission_id")))
 
 
 __all__ = ["router"]

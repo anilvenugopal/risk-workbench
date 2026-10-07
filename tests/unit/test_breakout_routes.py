@@ -433,9 +433,18 @@ def test_confirm_success_returns_portfolios_section_with_toast_and_plan(
 def test_confirm_keeps_the_contextual_submission_on_the_section_poll(
         routes_db, client, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
-    r = _confirm(client, edm_id, pid, submission_id="submission-a")
-    assert f"/edms/{edm_id}/portfolios-section?submission_id=submission-a" in r.text
+    sub_id = "0b7e6f3a-2c4d-4e5f-8a9b-1c2d3e4f5a6b"
+    r = _confirm(client, edm_id, pid, submission_id=sub_id)
+    assert f"/edms/{edm_id}/portfolios-section?submission_id={sub_id}" in r.text
     assert "!document.querySelector('#edm-detail .sub-links--open')" in r.text
+
+
+def test_confirm_drops_a_submission_id_that_is_not_a_uuid(
+        routes_db, client, fake_irp):
+    edm_id, pid = _eligible_pair(fake_irp)
+    r = _confirm(client, edm_id, pid, submission_id="not-a-uuid")
+    assert f'hx-get="/edms/{edm_id}/portfolios-section"' in r.text
+    assert "?submission_id=" not in r.text
 
 
 def test_confirm_double_post_yields_one_job_and_409(routes_db, client, fake_irp):
@@ -788,8 +797,9 @@ def test_cart_confirm_keeps_the_contextual_submission_on_the_section_poll(
     edm_id, pid = _custom_pair(fake_irp)
     r = _confirm_cart(client, edm_id, pid,
                       [{"label": "A", "filters": {"state": ["US-TX"]}}],
-                      submission_id="submission-a")
-    assert f"/edms/{edm_id}/portfolios-section?submission_id=submission-a" in r.text
+                      submission_id="0b7e6f3a-2c4d-4e5f-8a9b-1c2d3e4f5a6b")
+    assert (f"/edms/{edm_id}/portfolios-section"
+            "?submission_id=0b7e6f3a-2c4d-4e5f-8a9b-1c2d3e4f5a6b") in r.text
 
 
 def test_cart_confirm_refusals_write_nothing(routes_db, client, fake_irp):
