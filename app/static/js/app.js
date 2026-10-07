@@ -1363,6 +1363,16 @@ document.addEventListener('htmx:afterSettle', (e) => {
   if (scroller && state.scrollTop !== null) scroller.scrollTop = state.scrollTop;
 });
 
+// Restoring an RDM group's `open` after the swap collapses it, then refetches
+// its rows. So every request names the open groups, and a route that re-renders
+// the Analyses section renders them open with their rows (open_rdm_ids in
+// app/routers/_analysis_rows.py). Other routes ignore the header.
+document.addEventListener('htmx:configRequest', (e) => {
+  const ids = [...document.querySelectorAll('details.dtable__rdm[open]')]
+    .map((group) => group.dataset.rdmId);
+  if (ids.length) e.detail.headers['X-Open-Rdms'] = ids.join(',');
+});
+
 // ── Toasts + global error surfacing ───────────────────────────────────────────
 // Nothing should fail silently: every HTMX response error / network error raises a
 // toast. HTMX drops non-2xx responses by default, so without this an error is

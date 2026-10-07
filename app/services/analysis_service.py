@@ -473,12 +473,18 @@ def sort_from_query(params) -> tuple[str, bool]:
     return sort, (params.get("dir") or "desc") != "asc"
 
 
-def sort_analyses(rows: list, sort: str, descending: bool) -> list:
-    """The built rows in header order. A ``sort`` outside ``SORT_KEYS`` — the
-    default ``submitted`` included — keeps the query order. Blank and missing
-    values land last in both directions — an em-dash row belongs at the bottom
-    whichever way the caret points."""
-    key = SORT_KEYS.get(sort)
+# Broker rows can sort on Submitted in Python: createDate is a string from the
+# settings_metadata JSON on both tiers.
+BROKER_SORT_KEYS = {**SORT_KEYS, "submitted": lambda a: a.created_at}
+
+
+def sort_analyses(rows: list, sort: str, descending: bool,
+                  keys: dict = SORT_KEYS) -> list:
+    """The built rows in header order. A ``sort`` outside ``keys`` — the
+    default ``submitted`` included for own rows — keeps the query order. Blank
+    and missing values land last in both directions — an em-dash row belongs at
+    the bottom whichever way the caret points."""
+    key = keys.get(sort)
     if key is None:
         return list(rows) if descending else list(reversed(rows))
     present, missing = [], []
@@ -486,6 +492,14 @@ def sort_analyses(rows: list, sort: str, descending: bool) -> list:
         (present if (key(row) or "").strip() else missing).append(row)
     present.sort(key=lambda a: key(a).strip().casefold(), reverse=descending)
     return present + missing
+
+
+def sort_broker_analyses(rows: list, sort: str, descending: bool) -> list:
+    """One RDM group's broker rows in header order, ties newest createDate
+    first. The default sort is createDate, newest first."""
+    by_date = sort_analyses(rows, "submitted", True, keys=BROKER_SORT_KEYS)
+    return sort_analyses(by_date, sort or "submitted", descending,
+                         keys=BROKER_SORT_KEYS)
 
 
 def analyses_hash(analyses: list, groups: list) -> str:

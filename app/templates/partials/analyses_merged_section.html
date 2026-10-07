@@ -185,11 +185,15 @@
       {% elif not analyses %}
       <div class="dtable__groupempty">{{ own_empty_text|default('No analyses executed from this EDM yet. Select portfolios above and choose <strong>Execute Suite</strong> or <strong>Execute Template</strong>.'|safe) }}</div>
       {% endif %}
+      {# A group the browser named open (X-Open-Rdms) renders open with its rows
+         and no lazy load: a parsed `open` attribute fires `toggle`. #}
       {% for rdm in groups %}
-      <details class="dtable__rdm" id="rdm-group-{{ rdm.rdm_id }}"
-        hx-get="{{ rdm_analyses_prefix }}/{{ rdm.rdm_id }}/analyses"
+      {% set rdm_open = rdm.rdm_id in (open_rdm_ids|default([])) %}
+      <details class="dtable__rdm" id="rdm-group-{{ rdm.rdm_id }}" data-rdm-id="{{ rdm.rdm_id }}"
+        {% if rdm_open %}open{% else %}
+        hx-get="{{ rdm_analyses_prefix }}/{{ rdm.rdm_id }}/analyses{{ '?' ~ sort_query if sort_query }}"
         hx-trigger="toggle[event.target.open] once"
-        hx-target="#rdm-analyses-{{ rdm.rdm_id }}" hx-swap="innerHTML">
+        hx-target="#rdm-analyses-{{ rdm.rdm_id }}" hx-swap="innerHTML"{% endif %}>
         <summary><div class="dtable__group">
           <span class="grp-caret">▸</span><span class="kind">RDM</span>
           <span class="name">{{ rdm.rdm_name }}</span>
@@ -199,7 +203,8 @@
              onclick="event.stopPropagation()">Open RDM &rarr;</a>
         </div></summary>
         <div id="rdm-analyses-{{ rdm.rdm_id }}">
-          <div class="dtable__groupempty">Analysis rows load when this RDM opens.</div></div>
+          {% if rdm_open %}{% with analyses = rdm.analyses %}{% include "partials/contextual_rdm_analyses.html" %}{% endwith %}
+          {% else %}<div class="dtable__groupempty">Analysis rows load when this RDM opens.</div>{% endif %}</div>
       </details>
       {% endfor %}
     </div>
