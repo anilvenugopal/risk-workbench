@@ -13,6 +13,8 @@ import json
 import uuid
 from dataclasses import replace
 
+import pytest
+
 from app.services import analysis_execution_service as svc
 from app.services import analysis_service, irp_gateway, rwb_job_service
 from app.workers import analysis_jobs
@@ -204,6 +206,25 @@ def test_every_item_failing_to_submit_fails_the_rwb_job(iteration2_db, fake_irp)
 
     job = _rwb_job_of(execution_id)
     assert job["status_code"] == "failed"
+
+
+@pytest.mark.parametrize(("http_status", "analysis_status"),
+                         [(400, "error"), (503, "pending")])
+def test_a_4xx_submit_ends_the_analysis_and_a_5xx_leaves_it_for_retry(
+        iteration2_db, fake_irp, http_status, analysis_status):
+    seed_currency()
+    edm_id = seed_edm()
+    portfolio_id = seed_portfolio(edm_id)
+    template_id = seed_template("Template_A")
+    fake_irp.submit_analysis_status_for["CRE_Portfolio_A_Template_A"] = http_status
+
+    _run_execution(edm_id=edm_id, portfolio_id=portfolio_id,
+                   template_ids=[template_id], actor_id=iteration2_db.user_a)
+    analysis_jobs.run_pending(worker_id="w1")
+
+    [analysis] = _analyses_for(edm_id)
+    assert analysis["status_code"] == analysis_status
+    assert f"HTTP {http_status}" in analysis["failure_reason"]
 
 
 # ── resume after reclaim ─────────────────────────────────────────────────────────

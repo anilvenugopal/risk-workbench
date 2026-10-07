@@ -291,7 +291,8 @@ def test_submission_failed_shows_attempt_count_and_stays_live_while_retrying(ite
     assert row.is_live is True  # status_code stays pending while retries remain
 
 
-def test_submission_failed_exhausted_flips_error_but_label_unchanged(iteration2_db):
+def test_submission_failed_exhausted_flips_error_and_drops_the_attempt_counter(
+        iteration2_db):
     edm = _edm()
     max_retries = app_settings.irp_submission_max_retries
     analysis = _executed(edm_id=edm, status_code="error",
@@ -299,7 +300,7 @@ def test_submission_failed_exhausted_flips_error_but_label_unchanged(iteration2_
     _job(analysis_id=analysis, status="SUBMISSION FAILED", attempts=max_retries)
 
     [row] = analysis_service.list_executed_analyses(edm_id=edm)
-    assert row.status_label == f"Failed to submit · attempt {max_retries}/{max_retries}"
+    assert row.status_label == "Failed to submit"
     assert row.is_live is False
 
 
