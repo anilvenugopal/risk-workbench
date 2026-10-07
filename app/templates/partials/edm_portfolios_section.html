@@ -20,8 +20,7 @@
    through, carried on the poll URL so the GeoHaz form keeps its
    `submission_id` across a swap; the POST handler validates the pairing. #}
 {% set sync_url = sync_url | default('/edms/' ~ edm.id ~ '/sync') %}
-{% set gh_sub = gh_sub if gh_sub is defined
-     else (source_submission.id if source_submission else none) %}
+{% set gh_sub = gh_sub | default(source_submission.id if source_submission else none) %}
 {% set section_url = '/edms/' ~ edm.id ~ '/portfolios-section'
      ~ ('?submission_id=' ~ gh_sub if gh_sub else '') %}
 {% set bo_live = edm.breakout_running

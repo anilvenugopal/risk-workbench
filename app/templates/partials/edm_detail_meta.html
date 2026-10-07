@@ -26,8 +26,7 @@
   {% if edm.submissions %}
   <span class="crumb__sep">·</span>
   {{ submission_links('in', edm.submissions,
-                      source_submission.id if source_submission
-                      else (gh_sub if gh_sub is defined else none)) }}
+                      gh_sub | default(source_submission.id if source_submission else none)) }}
   {% endif %}
   {% if edm.created_by_irp_job_irp_id %}
   <span class="crumb__sep">·</span>
