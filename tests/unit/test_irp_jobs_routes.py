@@ -135,7 +135,7 @@ def test_dates_are_local_days_in_the_browsers_zone(iteration2_db):
     assert "StillRunning" not in resp.text
 
 
-@pytest.mark.parametrize("tz", ["", "&tz=Nowhere/Atlantis"])
+@pytest.mark.parametrize("tz", ["", "&tz=Nowhere/Atlantis", "&tz=America"])
 def test_dates_fall_back_to_utc_days(iteration2_db, tz):
     _job("EarlyUtc", by=iteration2_db.user_a, submitted_at="2026-09-10 04:30:00")
     _job("DayBefore", by=iteration2_db.user_a, submitted_at="2026-09-09 23:30:00")

@@ -37,7 +37,7 @@ def _zone(name: str):
     """The browser's IANA zone, or UTC when it is missing or unknown."""
     try:
         return ZoneInfo(name)
-    except (ValueError, ZoneInfoNotFoundError):
+    except (ValueError, OSError, ZoneInfoNotFoundError):
         return UTC
 
 
