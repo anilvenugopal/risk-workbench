@@ -247,6 +247,8 @@ def contextual_sync(
     csrf_token: str = Form(...),
 ):
     url = f"/submissions/{submission_id}/rdms/{rdm_id}"
+    if request.url.query:
+        url += f"?{request.url.query}"
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(csrf_token):
         if is_htmx:
@@ -318,17 +320,20 @@ def sync(request: Request, rdm_id: str, csrf_token: str = Form(...)):
     # request path (Article 11). HTMX path: swap the #rdm-detail wrapper in place
     # (it then self-polls until the head lands). No-JS fallback: Post/Redirect/
     # Get, so a refresh never re-prompts a form re-submission.
+    url = f"/rdms/{rdm_id}"
+    if request.url.query:
+        url += f"?{request.url.query}"
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(csrf_token):
         if is_htmx:
             # Never swap a redirect-followed full page into the wrapper — force
             # a clean reload (which also mints fresh tokens).
             return Response(status_code=204, headers={"HX-Refresh": "true"})
-        return RedirectResponse(f"/rdms/{rdm_id}", status_code=303)
+        return RedirectResponse(url, status_code=303)
     rdm_service.sync_detail(rdm_id=rdm_id, actor_id=request.state.user.id)
     if is_htmx:
         return _body_partial(request, rdm_id)
-    return RedirectResponse(f"/rdms/{rdm_id}", status_code=303)
+    return RedirectResponse(url, status_code=303)
 
 
 @router.post("/rdms/{rdm_id}/retry")

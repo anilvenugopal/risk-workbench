@@ -363,15 +363,15 @@ def test_sync_route_bad_csrf_redirects_without_service_call(monkeypatch):
     assert calls == []
 
 
-def test_sync_route_nonhtmx_post_redirects_prg(monkeypatch):
+def test_sync_route_nonhtmx_post_redirects_prg_keeping_the_sort(monkeypatch):
     calls: list[dict] = []
     monkeypatch.setattr(rdm_service, "sync_detail",
                         lambda **kw: calls.append(kw) or "job-1")
     from app.auth.csrf import generate_csrf_token
-    r = _client().post("/rdms/rdm-1/sync",
+    r = _client().post("/rdms/rdm-1/sync?sort=aal&dir=asc",
                        data={"csrf_token": generate_csrf_token()})
     assert r.status_code == 303
-    assert r.headers["location"] == "/rdms/rdm-1"
+    assert r.headers["location"] == "/rdms/rdm-1?sort=aal&dir=asc"
     assert calls == [{"rdm_id": "rdm-1", "actor_id": "analyst-1"}]
 
 
