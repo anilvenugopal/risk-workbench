@@ -1455,11 +1455,13 @@ document.addEventListener('grouping-submitted', (e) => {
 // deleted or no longer deletable simply has no box to restore); one bubbling
 // change event makes analysisPicks() recount. Keyed by the section's own id;
 // data-restore-open marks the EDM page's Analyses section, the submission
-// page's Results section, and its Exports section (spec 014).
+// page's Results section, its Exports section (spec 014), and the RDM page's
+// #rdm-detail body.
 let _analysesRestore = null;
 document.addEventListener('htmx:beforeSwap', (e) => {
   const target = e.detail.target;
-  if (!target || !target.hasAttribute
+  // A 204 fires beforeSwap with shouldSwap false and no afterSwap follows.
+  if (!e.detail.shouldSwap || !target || !target.hasAttribute
       || !target.hasAttribute('data-restore-open')) return;
   _analysesRestore = {
     id: target.id,

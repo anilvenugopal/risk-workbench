@@ -298,6 +298,26 @@ def test_merged_section_sort_orders_the_rows_and_carries_the_status_filter(clien
             '&amp;dir=asc"' in html)
 
 
+def test_merged_section_sorts_by_aal_largest_first_with_no_aal_last(client):
+    edm_id = _seed_edm()
+    for name, aal in (("small", 1_000.0), ("large", 9_000.0)):
+        results = _extract()
+        results["perspectives"]["RL"]["aal"] = aal
+        _seed_executed(edm_id=edm_id, name=name, portfolio_name=name,
+                       loss_results=results)
+    _seed_executed(edm_id=edm_id, name="pending", portfolio_name="pending")
+
+    html = client.get(f"/edms/{edm_id}/analyses").text
+    descending = client.get(f"/edms/{edm_id}/analyses?sort=aal&dir=desc").text
+    ascending = client.get(f"/edms/{edm_id}/analyses?sort=aal&dir=asc").text
+
+    assert f'hx-get="/edms/{edm_id}/analyses?sort=aal&amp;dir=desc"' in html
+    assert (descending.index('data-value="large"') < descending.index('data-value="small"')
+            < descending.index('data-value="pending"'))
+    assert (ascending.index('data-value="small"') < ascending.index('data-value="large"')
+            < ascending.index('data-value="pending"'))
+
+
 def test_the_headers_are_clickable_from_the_page_and_body_routes_too(client):
     """Both render the section from a context that carries no sort state — the
     href is built in the template so they get working links anyway."""
@@ -325,7 +345,7 @@ def test_merged_section_columns_and_the_four_aal_states(client):
 
     # one column set (FR-010) — no EDM column on the EDM page
     for header in (">Portfolio</span>", ">Template</span>",
-                   ">AAL &middot; Pre-Cat Net</span>", ">Status</span>",
+                   'data-value="AAL · Pre-Cat Net"', ">Status</span>",
                    ">Risk Modeler</span>"):
         assert header in html
     # the five click-to-sort headers (note 27 D6) name themselves in data-value
