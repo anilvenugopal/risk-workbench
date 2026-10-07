@@ -57,7 +57,7 @@ from app.services import (
     shared_drive,
     submission_service,
 )
-from app.services._common import _parse_int, _uid
+from app.services._common import _parse_int, _rm_ui_root, _uid
 from app.services.analysis_execution_service import ExecutionGateError
 from app.services.cedant_service import CedantValidationError, NewCedant
 from app.services.submission_service import ContractInput, ContractInvalid
@@ -666,11 +666,14 @@ async def group_compose_submit(request: Request, submission_id: str):
 def _import_context(submission, entries, *, entry_value: str = "",
                     message: str | None = None,
                     message_kind: str = "error") -> dict:
+    root = _rm_ui_root()
     return {"submission": submission, "entries": entries,
             "entry_value": entry_value, "message": message,
             "message_kind": message_kind,
             "check_url": f"/submissions/{submission.id}/analyses/import/check",
-            "import_url": f"/submissions/{submission.id}/analyses/import"}
+            "import_url": f"/submissions/{submission.id}/analyses/import",
+            "rm_analyses_url": (f"{root}/riskmodeler/datasources/analysislist"
+                                if root else None)}
 
 
 def _retarget_import_body(response):
