@@ -1,0 +1,22 @@
+{# `label` and one named submission; with more, a "+N" button opens a menu
+   linking every one. Names the submission whose id is `current_id`, else the
+   first. `submissions`: objects with `.id` and `.name` (SubmissionRef). #}
+{%- macro submission_links(label, submissions, current_id=None) -%}
+{%- set named = (submissions | selectattr('id', 'equalto', current_id) | first)
+                if current_id else none -%}
+{%- set named = named or submissions[0] -%}
+<span class="sub-links" x-data="{ open: false }"
+      @click.outside="open = false" @keydown.escape="open = false">
+  {{- label }} <a class="crumb" href="/submissions/{{ named.id }}">{{ named.name }}</a>
+  {% if submissions | length > 1 %}
+  <button class="detail-note-toggle" type="button" aria-haspopup="true"
+          x-bind:aria-expanded="open" @click="open = !open"
+          title="Show all {{ submissions | length }}">+{{ submissions | length - 1 }}</button>
+  <div class="ta__menu ta__menu--popover" x-show="open" x-cloak>
+    {% for s in submissions %}
+    <a class="ta__opt" href="/submissions/{{ s.id }}">{{ s.name }}</a>
+    {% endfor %}
+  </div>
+  {%- endif %}
+</span>
+{%- endmacro -%}

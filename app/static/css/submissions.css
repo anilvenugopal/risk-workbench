@@ -151,6 +151,9 @@
 .ta__opt--create { border-top: 1px solid var(--border-default);
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   color: var(--color-brand); font-weight: var(--fw-medium); }
+/* The "+N" submission list on the submission, EDM, and RDM headers. */
+.sub-links { position: relative; }
+.ta__menu--popover { right: auto; min-width: 220px; }
 .ta__opt-main { display: block; }
 .ta__opt-meta { display: block; font-size: var(--fs-caption);
   color: var(--text-tertiary); margin-top: 1px; }

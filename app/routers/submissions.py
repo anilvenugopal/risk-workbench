@@ -807,6 +807,7 @@ def _head_context(submission, *, head_error: str | None = None) -> dict:
         "contracts": submission.contracts,
         "link_target": submission_service.get_submission(
             submission.links_to_submission_id),
+        "linked_from": submission_service.list_linking_submissions(submission.id),
         "analysts": auth_service.list_active_analysts(),
         "modeling_statuses": submission_service.status_kinds(),
         "contract_statuses": submission_service.contract_status_kinds(),

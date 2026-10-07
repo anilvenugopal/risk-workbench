@@ -1192,6 +1192,21 @@ def test_link_target_is_kept_across_an_edit_that_never_mentions_it(iteration1_db
     assert get_submission(sid).links_to_submission_id == target
 
 
+def test_linking_submissions_are_listed_oldest_first(iteration1_db):
+    target = _mk(iteration1_db, name="Linked to")
+    linkers = []
+    for name in ("First linker", "Second linker"):
+        _bump()
+        linkers.append(create_submission(
+            name=name, cedant_id=cedant_id("American Family"),
+            links_to_submission_id=target, data_vintage="2026-06-30",
+            actor_id=iteration1_db.user_a))
+    assert [(s.id, s.name) for s in svc.list_linking_submissions(target)] == [
+        (linkers[0], "First linker"), (linkers[1], "Second linker")]
+    assert svc.list_linking_submissions(linkers[0]) == []
+    assert svc.list_linking_submissions("not-a-uuid") == []
+
+
 def test_blank_treaty_year_stays_blank(iteration1_db):
     """P-20 (note 33 D8): the treaty year is entered by hand; nothing fills a
     blank one from the contracts or the data vintage."""
