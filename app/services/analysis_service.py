@@ -475,8 +475,8 @@ SORT_KEYS = {
 
 
 def sort_from_query(params) -> tuple[str, bool]:
-    """The grid's ``?sort=``/``?dir=`` pair as ``(sort, descending)``, for both
-    the submission and EDM Analyses sections."""
+    """The grid's ``?sort=``/``?dir=`` pair as ``(sort, descending)``, for the
+    submission and EDM Analyses sections and the RDM page's broker analyses."""
     sort = (params.get("sort") or "").strip()
     return sort, (params.get("dir") or "desc") != "asc"
 

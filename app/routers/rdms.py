@@ -155,7 +155,8 @@ def _sorted(request: Request, ctx: dict) -> dict:
     for group in ctx["analyses"]:
         group.analyses = analysis_service.sort_broker_analyses(
             group.analyses, sort, descending)
-    return {**ctx, "sort": sort, "sort_desc": descending}
+    ctx.update(sort=sort, sort_desc=descending)
+    return ctx
 
 
 # htmx names the polling element in HX-Trigger. A sort click comes from a button
