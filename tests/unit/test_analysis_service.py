@@ -1335,6 +1335,37 @@ def test_sort_analyses_default_and_unknown_keys_keep_the_query_order():
     assert analysis_service.sort_analyses(rows, "submitted", False) == rows[::-1]
 
 
+def _sortable_broker(name, created_at=None, peril=None):
+    return analysis_service.BrokerAnalysis(
+        id=str(uuid.uuid4()), irp_id="1", name=name, rdm_id="r", rdm_name="R",
+        created_at=created_at,
+        display=analysis_service.AnalysisSettings(peril=peril))
+
+
+def test_sort_broker_analyses_defaults_to_create_date_newest_first():
+    rows = [_sortable_broker("old", "2026-01-01T09:00:00"),
+            _sortable_broker("none"),
+            _sortable_broker("new", "2026-03-01T09:00:00")]
+
+    default = analysis_service.sort_broker_analyses(rows, "", True)
+    ascending = analysis_service.sort_broker_analyses(rows, "submitted", False)
+
+    assert [a.name for a in default] == ["new", "old", "none"]
+    assert [a.name for a in ascending] == ["old", "new", "none"]
+
+
+def test_sort_broker_analyses_breaks_ties_on_create_date_newest_first():
+    rows = [_sortable_broker("wind-old", "2026-01-01T09:00:00", "WS"),
+            _sortable_broker("quake", "2026-02-01T09:00:00", "EQ"),
+            _sortable_broker("wind-new", "2026-03-01T09:00:00", "WS")]
+
+    ascending = analysis_service.sort_broker_analyses(rows, "peril", False)
+    descending = analysis_service.sort_broker_analyses(rows, "peril", True)
+
+    assert [a.name for a in ascending] == ["quake", "wind-new", "wind-old"]
+    assert [a.name for a in descending] == ["wind-new", "wind-old", "quake"]
+
+
 # ── spec 015: the run details the expanded row reads (FR-001/FR-006/FR-013) ────
 
 def _broker_row(submission: str, name: str, settings: dict | None,
