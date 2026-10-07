@@ -26,7 +26,7 @@
 {%- macro geo_line(heading, entries) -%}
   {%- set names = [] -%}
   {%- for e in entries -%}{%- set _ = names.append(e.get('label') or e.get('value')) -%}{%- endfor -%}
-  <div>{{ heading }}: {% if names %}{{ capped(names) }}{% else %}<span class="na">&mdash;</span>{% endif %}</div>
+  <div><strong>{{ heading }}:</strong> {% if names %}{{ capped(names) }}{% else %}<span class="na">&mdash;</span>{% endif %}</div>
 {%- endmacro -%}
 {%- set d = p.exposure_detail or {} -%}
 {%- set m = d.get('metrics') or {} -%}

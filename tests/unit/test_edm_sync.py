@@ -643,13 +643,13 @@ def test_expanded_row_groups_states_under_their_country(monkeypatch):
     body = html[html.index("<dt>Geography</dt>"):]
     lines = re.findall(r"<div>(.*?)</div>", body[:body.index("</dd>")])
 
-    assert lines[0] == "BE: Antwerpen, BE-21"
-    assert lines[1].startswith("DE: DE-000, ") and "DE-099" in lines[1]
+    assert lines[0] == "<strong>BE:</strong> Antwerpen, BE-21"
+    assert lines[1].startswith("<strong>DE:</strong> DE-000, ") and "DE-099" in lines[1]
     assert "DE-100" not in lines[1]
     assert "… +5 more not shown" in lines[1]
-    assert lines[2] == 'MX: <span class="na">&mdash;</span>'
-    assert lines[3] == "NL: Groningen"
-    assert lines[4] == "—: -TX"
+    assert lines[2] == '<strong>MX:</strong> <span class="na">&mdash;</span>'
+    assert lines[3] == "<strong>NL:</strong> Groningen"
+    assert lines[4] == "<strong>—:</strong> -TX"
     assert len(lines) == 5
     assert "<dt>Countries" not in html and "<dt>States" not in html
 
