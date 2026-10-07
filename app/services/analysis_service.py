@@ -368,6 +368,8 @@ class ExecutedAnalysis:
         if self.run_state == "submitting":
             return "Submitting…"
         if self.run_state == "submit_failed":
+            if self.status_code == "error":
+                return "Failed to submit"
             return (f"Failed to submit · attempt {self.submission_attempt_count}/"
                     f"{settings.irp_submission_max_retries}")
         return self.job_status.capitalize()

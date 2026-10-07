@@ -164,7 +164,7 @@ def _submit_one(*, edm_id: str, edm_name: str, execution_id: str, portfolio: dic
     }
     try:
         irp_id, request_body = irp_gateway.submit_portfolio_analysis(**submit_kwargs)
-    except Exception as exc:  # noqa: BLE001 — SUBMISSION FAILED, retried by the poller batch
+    except Exception as exc:  # noqa: BLE001 — SUBMISSION FAILED; the poller retries all but a 4xx
         logger.warning("analysis submit failed for %s: %s", claimed["name"], exc)
         irp_job_service.record_submission_failure(
             irp_job_type="analysis", requested_from_submission_id=submission_id,
@@ -172,8 +172,10 @@ def _submit_one(*, edm_id: str, edm_name: str, execution_id: str, portfolio: dic
             irp_analysis_id=claimed["id"], payload=submit_kwargs,
             request_params=submit_kwargs, actor_id=actor_id)
         execute_command(
-            "UPDATE irp_analysis SET failure_reason = :r, updated_at = :now "
-            "WHERE id = :id",
+            "UPDATE irp_analysis SET failure_reason = :r, updated_at = :now"
+            + (", status_code = 'error'"
+               if irp_gateway.is_permanent_submit_failure(exc) else "")
+            + " WHERE id = :id",
             {"r": str(exc), "now": _utcnow(), "id": claimed["id"]},
             connection="WORKBENCH")
         return "submission_failed"

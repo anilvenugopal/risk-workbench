@@ -54,6 +54,15 @@ from app.services._common import _utcnow
 
 logger = logging.getLogger(__name__)
 
+
+def is_permanent_submit_failure(exc: BaseException) -> bool:
+    """Whether Risk Modeler rejected the submit itself, so resending the same
+    request fails the same way: an HTTP 4xx other than 429. A connection error,
+    a 5xx or a failure with no HTTP status stays retryable."""
+    if not isinstance(exc, IRPAPIError) or exc.status_code is None:
+        return False
+    return 400 <= exc.status_code < 500 and exc.status_code != 429
+
 # Repo-owned, read-only DataBridge scripts — the per-EDM summary aggregates
 # (get_edm_exposure_summary) and the per-portfolio breakout selection and
 # member-count reads (select_breakout_accounts / populate_sub_portfolio) —
@@ -1845,4 +1854,5 @@ __all__ = [
     "GroupingProblem",
     "GroupingTreaty", "SimulationSetOption",
     "IRPIntegrationError", "IRPAPIError", "IRPGroupingValidationError",
+    "is_permanent_submit_failure",
 ]
