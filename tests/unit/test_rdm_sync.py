@@ -434,15 +434,40 @@ def test_detail_links_to_hidden_notes_between_source_and_submissions(monkeypatch
     source_start = html.index("/share/legacy.mdf")
     link_start = html.index(">View Notes</button>")
     first = html.index('in <a class="crumb" href="/submissions/submission-a">Submission A</a>')
-    second = html.index('in <a class="crumb" href="/submissions/submission-b">Submission B</a>')
+    more = html.index('<a class="ta__opt" href="/submissions/submission-b">')
     notes_start = html.index('<section class="entity-note"')
     analyses_start = html.index(
         '<span class="sec__title">Broker analyses</span>')
-    assert source_start < link_start < first < second
+    assert source_start < link_start < first < more
+    assert ">+1</button>" in html
     assert "RM RDM #" not in html
     assert notes_start < analyses_start
     assert 'x-show="notesOpen" x-cloak' in html
     assert "Check the broker results." in html
+
+
+def test_contextual_page_names_the_submission_it_was_opened_from(monkeypatch):
+    detail = _contextual_detail()
+    detail["rdm"] = _rdm_obj(submissions=[
+        SubmissionRef(id="submission-b", name="Submission B"),
+        SubmissionRef(id="submission-a", name="Submission A")])
+    monkeypatch.setattr(rdm_service, "get_contextual_rdm_detail",
+                        lambda **kwargs: detail)
+
+    html = _client().get("/submissions/submission-a/rdms/rdm-1").text
+
+    assert 'in <a class="crumb" href="/submissions/submission-a">' in html
+    assert ">+1</button>" in html
+
+
+def test_detail_with_one_submission_has_no_dropdown(monkeypatch):
+    _stub_reads(monkeypatch, rdm=_rdm_obj(
+        submissions=[SubmissionRef(id="submission-a", name="Submission A")]))
+
+    html = _client().get("/rdms/rdm-1").text
+
+    assert 'in <a class="crumb" href="/submissions/submission-a">Submission A</a>' in html
+    assert "ta__opt" not in html
 
 
 def test_broker_table_uses_the_merged_analyses_column_set(monkeypatch):

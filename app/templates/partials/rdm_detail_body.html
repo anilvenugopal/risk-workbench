@@ -7,6 +7,7 @@
    plain-POST fallback is PRG.
    Context: rdm, analyses, sync_running, sync_status, import_error. #}
 {% from "partials/time_macros.html" import local_time %}
+{% from "partials/submission_link_macros.html" import submission_links %}
 {% set analysis_total = analyses | map(attribute='analyses') | map('length') | sum %}
 {% set live = sync_running or rdm.status in ('pending_import', 'importing') %}
 {% set body_url = detail_body_url|default('/rdms/' ~ rdm.id ~ '/body') %}
@@ -49,10 +50,11 @@
               x-bind:aria-expanded="notesOpen"
               x-on:click="notesOpen = !notesOpen"
               x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
-      {% for s in rdm.submissions %}
+      {% if rdm.submissions %}
       <span class="crumb__sep">·</span>
-      <span>in <a class="crumb" href="/submissions/{{ s.id }}">{{ s.name }}</a></span>
-      {% endfor %}
+      {{ submission_links('in', rdm.submissions,
+                          source_submission.id if source_submission else none) }}
+      {% endif %}
       {% if analysis_total %}
       <span class="crumb__sep">·</span>
       <span>{{ analysis_total }} broker analys{{ 'is' if analysis_total == 1 else 'es' }}</span>

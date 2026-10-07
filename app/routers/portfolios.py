@@ -72,20 +72,25 @@ def _modal(request: Request, edm_id: str, portfolio_id: str,
                     status_code=404 if modal is None else status_code)
 
 
-def _breakout_started(request: Request, edm_id: str, count: int):
+def _breakout_started(request: Request, edm_id: str, count: int,
+                      submission_id: str):
     """The success response both confirms share: the Portfolios section
     retargeted at ``#edm-portfolios`` (the form targets the modal mount, so the
     modal closes on 2xx) plus the "Breakout started" toast.
 
-    The section, not the whole ``#edm-detail`` body: this route carries no
-    submission id, so a body render drops ``source_submission`` and erases the
-    submission breadcrumbs, the EDM picker, and the Broker analyses section
-    from the contextual page. The section is also all a breakout changes
-    (T-11), and it comes back with its own poll trigger live because
-    the enqueue just made ``breakout_running`` true."""
+    The section, not the whole ``#edm-detail`` body: a body render without
+    ``source_submission`` erases the submission breadcrumbs, the EDM picker,
+    and the Broker analyses section from the contextual page. The section is
+    also all a breakout changes (T-11), and it comes back with its own poll
+    trigger live because the enqueue just made ``breakout_running`` true.
+
+    ``submission_id`` is the contextual page's submission (empty on the
+    library page), posted by the modal mount's ``hx-vals``. It keeps the
+    section's poll URL and the meta line on that submission and, like the
+    section poll's, is not validated."""
     edm = edm_service.get_edm_detail(edm_id)
     response = _partial(request, "partials/edm_portfolios_live.html",
-                        {"edm": edm})
+                        {"edm": edm, "gh_sub": submission_id})
     response.headers["HX-Retarget"] = "#edm-portfolios"
     response.headers["HX-Reswap"] = "outerHTML"
     response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
@@ -135,6 +140,7 @@ def breakout_confirm(
     value: list[str] = Form(default=[]),
     name: list[str] = Form(default=[]),
     csrf_token: str = Form(...),
+    submission_id: str = Form(default=""),
 ):
     """Confirm (FR-002a/FR-002b/FR-006a): ``request_breakout`` runs the seven
     ordered steps — gate re-check, in-flight check, dimension-eligibility
@@ -172,7 +178,7 @@ def breakout_confirm(
 
     if not is_htmx:
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-    return _breakout_started(request, edm_id, requested.planned)
+    return _breakout_started(request, edm_id, requested.planned, submission_id)
 
 
 def _carted_groups(form) -> list[dict]:
@@ -268,7 +274,8 @@ async def breakout_groups_confirm(request: Request, edm_id: str,
 
     if not is_htmx:
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-    return _breakout_started(request, edm_id, len(job_ids))
+    return _breakout_started(request, edm_id, len(job_ids),
+                             str(form.get("submission_id") or ""))
 
 
 __all__ = ["router"]
