@@ -270,8 +270,8 @@ def list_jobs(
 ) -> tuple[list[dict], bool]:
     """One page of ``irp_job`` rows for the read-only job monitor, newest first,
     and whether a next page exists. Each row carries the job type label, the most
-    specific linked entity's name (analysis over portfolio over RDM over EDM),
-    status, progress, submitter, and submission and completion times. An empty
+    specific linked entity's name and type (analysis over portfolio over RDM
+    over EDM), status, progress, submitter, and submission and completion times. An empty
     list turns that filter off. ``submitted_from`` and
     ``completed_before`` are naive UTC bounds: ``submitted_at >= submitted_from``
     and ``completed_at < completed_before``."""
@@ -296,7 +296,11 @@ def list_jobs(
         SELECT j.id, j.irp_job_type, k.label AS type_label, j.status, j.progress,
                j.submitted_at, j.completed_at,
                u.display_name AS submitted_by,
-               COALESCE(a.name, p.name, r.name, e.name) AS entity_name
+               COALESCE(a.name, p.name, r.name, e.name) AS entity_name,
+               CASE WHEN a.name IS NOT NULL THEN 'Analysis'
+                    WHEN p.name IS NOT NULL THEN 'Portfolio'
+                    WHEN r.name IS NOT NULL THEN 'RDM'
+                    WHEN e.name IS NOT NULL THEN 'EDM' END AS entity_kind
         FROM irp_job j
         LEFT JOIN irp_job_type_kind k ON k.code = j.irp_job_type
         LEFT JOIN app_user u ON u.id = j.inserted_by

@@ -50,20 +50,31 @@ def _client(user_id) -> TestClient:
 
 
 def _job(name, *, by, job_type="import_edm", status="FINISHED", progress=None,
-         submitted_at="2026-09-15 12:00:00", completed_at=None) -> None:
-    """One irp_job linked to an EDM named ``name``, so the row shows ``name``."""
+         submitted_at="2026-09-15 12:00:00", completed_at=None,
+         analysis_name=None) -> None:
+    """One irp_job linked to an EDM named ``name``, so the row shows ``name``,
+    or also to an analysis named ``analysis_name``, which the row shows instead."""
     edm_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO irp_edm (id, source_file_path, name, status, inserted_at, updated_at) "
         "VALUES (:id, 'x.bak', :name, 'ready', :at, :at)",
         {"id": edm_id, "name": name, "at": submitted_at}, connection="WORKBENCH")
+    analysis_id = None
+    if analysis_name:
+        analysis_id = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_analysis (id, edm_id, name, inserted_at, updated_at) "
+            "VALUES (:id, :edm, :name, :at, :at)",
+            {"id": analysis_id, "edm": edm_id, "name": analysis_name, "at": submitted_at},
+            connection="WORKBENCH")
     execute_command(
-        "INSERT INTO irp_job (id, irp_edm_id, irp_job_type, status, progress, "
-        "submission_attempt_count, submitted_at, completed_at, inserted_at, "
-        "updated_at, inserted_by) VALUES (:id, :edm, :jt, :st, :pr, 1, :sub, :done, "
-        ":sub, :sub, :by)",
-        {"id": str(uuid.uuid4()), "edm": edm_id, "jt": job_type, "st": status,
-         "pr": progress, "sub": submitted_at, "done": completed_at, "by": by},
+        "INSERT INTO irp_job (id, irp_edm_id, irp_analysis_id, irp_job_type, status, "
+        "progress, submission_attempt_count, submitted_at, completed_at, inserted_at, "
+        "updated_at, inserted_by) VALUES (:id, :edm, :an, :jt, :st, :pr, 1, :sub, "
+        ":done, :sub, :sub, :by)",
+        {"id": str(uuid.uuid4()), "edm": edm_id, "an": analysis_id, "jt": job_type,
+         "st": status, "pr": progress, "sub": submitted_at, "done": completed_at,
+         "by": by},
         connection="WORKBENCH")
 
 
@@ -243,6 +254,16 @@ def test_status_chip_shows_progress_only_while_running(iteration2_db, status, pr
 
     resp = _client(iteration2_db.user_a).get("/workflows/irp-jobs/table")
     assert chip in resp.text
+
+
+def test_entity_column_shows_the_entity_type(iteration2_db):
+    _job("SomeEdm", by=iteration2_db.user_a)
+    _job("OtherEdm", by=iteration2_db.user_a, job_type="analysis",
+         analysis_name="SomeAnalysis")
+
+    resp = _client(iteration2_db.user_a).get("/workflows/irp-jobs/table")
+    assert '<span class="muted">EDM ·</span> SomeEdm' in resp.text
+    assert '<span class="muted">Analysis ·</span> SomeAnalysis' in resp.text
 
 
 @pytest.mark.parametrize("status, chip_class", [

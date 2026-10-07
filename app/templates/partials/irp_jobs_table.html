@@ -27,7 +27,7 @@
   <table class="mk-table">
     <thead>
       <tr>
-        <th>Type</th><th>Entity / Analysis</th><th>Status</th><th>Submitted by</th>
+        <th>Type</th><th>Entity</th><th>Status</th><th>Submitted by</th>
         <th>Submitted</th><th>Completed</th>
       </tr>
     </thead>
@@ -35,7 +35,7 @@
       {% for row in rows %}
       <tr>
         <td>{{ row.type_label or row.irp_job_type }}</td>
-        <td>{% if row.entity_name %}{{ row.entity_name }}{% else %}<span class="na">—</span>{% endif %}</td>
+        <td>{% if row.entity_name %}<span class="muted">{{ row.entity_kind }} ·</span> {{ row.entity_name }}{% else %}<span class="na">—</span>{% endif %}</td>
         <td>{% set chip = status_chips.get(row.status) %}<span class="status-chip{% if chip %} status-chip--{{ chip }}{% endif %}">{{ row.status }}{% if row.status == 'RUNNING' and row.progress is not none %} {{ row.progress }}%{% endif %}</span></td>
         <td>{% if row.submitted_by %}{{ row.submitted_by }}{% else %}<span class="na">—</span>{% endif %}</td>
         <td>{{ local_time(row.submitted_at) }}</td>
