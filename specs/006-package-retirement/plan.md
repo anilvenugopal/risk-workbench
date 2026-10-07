@@ -88,7 +88,6 @@ docs/
   PRD.md                          # EDIT current feature and roadmap facts
   DATA_MODEL.md                   # EDIT canonical relationships and jobs
   FUNCTIONAL_REQUIREMENTS.md      # EDIT Package/nav/import/detail requirements without renumbering baseline rows
-  IRP_INTEGRATION_FOLLOWUPS.md    # EDIT standalone RDM release evidence
   sequence_diagrams/              # REPLACE current Package/import/detail diagrams
   ui_previews/                    # ADD submission and contextual EDM previews before templates/routes
 

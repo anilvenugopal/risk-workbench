@@ -8,8 +8,8 @@ how to add a new job type, and how to test one by hand.
 **`rwb_job` (SQL table)** is the queue of record. A row is the whole truth
 about one job — its type, its input, its status, its output or error. Redis
 (via Dramatiq) is only a wake-up signal telling an idle worker "go look now."
-If that signal is lost, the poller's reconciler notices and re-dispatches —
-so losing Redis loses latency, never a job.
+If that signal is lost, the poller re-sends one for every `pending` row on
+its next pass — so losing Redis loses latency, never a job.
 
 **Dramatiq** is the delivery mechanism. Each `rwb_job_type` has its own
 Dramatiq **queue**, and each queue has its own **worker process** (`dramatiq
@@ -23,20 +23,20 @@ back — always through the same three-step lifecycle, described next.
 ## The lifecycle every job follows
 
 ```
-enqueue_rwb_job()  →  status='pending'
+enqueue_rwb_job()  →  status_code='pending'
         │
         ▼  (Dramatiq wakes a worker for that job's queue)
-claim_rwb_job()    →  status='running'   (atomic: UPDATE ... WHERE status='pending')
+claim_rwb_job()    →  status_code='running'   (atomic: UPDATE ... WHERE status_code='pending')
         │
         ▼
    body(rwb_job_id) runs, under a heartbeat thread
         │
         ▼
-complete_rwb_job() →  status='succeeded' or 'failed'
+complete_rwb_job() →  status_code='succeeded' or 'failed'
 ```
 
-- **Claim** is one `UPDATE rwb_job SET status='running' WHERE id=:id AND
-  status='pending'`. Whoever's `UPDATE` actually changes a row wins; a second
+- **Claim** is one `UPDATE rwb_job SET status_code='running' WHERE id=:id AND
+  status_code='pending'`. Whoever's `UPDATE` actually changes a row wins; a second
   claimant sees rowcount 0 and backs off. This is what makes it safe for
   any number of workers, across any number of queues, to claim from the
   same table at once. The claiming process stamps `claimed_by` with
@@ -52,10 +52,10 @@ complete_rwb_job() →  status='succeeded' or 'failed'
   reconciler resets that row to `pending` after
   `RWB_HEARTBEAT_STALE_SECS` so another worker can pick it up.
   **The heartbeat only proves the worker process is alive — not that the
-  body is making progress.** A job that's genuinely wedged inside one
-  blocking call (not crashed, just stuck) keeps heartbeating and is never
-  reclaimed. The only fix for that case is killing the worker process by
-  hand; see "A job is stuck" below.
+  body is making progress.** A job wedged inside one blocking call (not
+  crashed, just stuck) keeps heartbeating and is never reclaimed. Dramatiq's
+  actor time limit ends it instead, and `run_job` marks the row `failed`; see
+  "A job is stuck" below.
 - **Complete** writes the terminal status and, on failure, `error_detail`.
 
 ## Adding a new job type
@@ -120,7 +120,8 @@ none of them hardcode a job type's name.
 
 ## Running the workers
 
-One OS process per queue, always:
+One worker command per queue. Each forks `RWB_WORKER_PROCESSES` OS processes
+(default 1) with `RWB_WORKER_THREADS` threads each (default 2):
 
 ```bash
 dramatiq app.workers.entrypoint -Q upload_edm --processes 1 --threads 2
@@ -133,8 +134,8 @@ dramatiq app.workers.entrypoint -Q upload_edm --processes 1 --threads 2
 - **Dev, native WSL2**: `make wsl-worker QUEUE=<name>` — one foreground
   terminal per queue you want running (no PID file; the terminal is the
   log). `make wsl-worker-list` shows the available names.
-- **RHEL9** (`infra/scripts/rhel9/rhel9-start.sh`): same loop, `nohup`, PID
-  files under `/var/lib/risk-workbench/`.
+- **RHEL9** (`infra/scripts/deploy/rhel9-start.sh`): same loop, `nohup`, PID
+  files under `/var/lib/risk-workbench/pids/`.
 
 Check what's actually running, on either dev path, without trusting the
 start script's own printed output: `bash infra/scripts/wsl-worker-health.sh`
@@ -183,8 +184,8 @@ picked up, even after you start the worker.
 
 **Kill and restart while running.** Start the `dummy_wait` worker, submit
 `dummy_wait --seconds 120`, let it get claimed (check the log for "sleeping
-120s"). Kill the worker process (`kill <pid>`, or stop just that queue via
-`stop-all.sh`/`rhel9-stop.sh`). The row stays `running` with a stale
+120s"). Kill the worker process (`kill <pid>`; `stop-all.sh` and `rhel9-stop.sh`
+stop every queue, not one). The row stays `running` with a stale
 heartbeat. Start the worker again — it does **not** resume the old job (that
 process is gone); the poller's reconciler resets the row to `pending` once
 `RWB_HEARTBEAT_STALE_SECS` has passed, and the new worker process picks it
@@ -213,8 +214,12 @@ Two different problems get called "stuck," and they have different fixes:
 - **The worker process is alive but the body is wedged** — blocked inside
   one call that never returns. The heartbeat thread doesn't know or care
   what the body is doing, so it keeps ticking. The reconciler will never
-  touch this row. **The only fix is killing that worker process by hand**
-  (`kill <pid>`, or restart just that one queue). Because each `rwb_job_type`
+  touch this row. Dramatiq's time limit interrupts the body after 10 minutes
+  by default — 1 hour for `execute_analysis_batch` and the `run_breakout_*`
+  actors, 6 hours for `stage_results_export` and `load_results_export` — and
+  `run_job` marks the row `failed`. The interrupt only lands when the body
+  is running Python code, so a call blocked inside a C extension still needs
+  **that worker process killed by hand** (`kill <pid>`). Because each `rwb_job_type`
   has its own process, doing this only affects that one job type — every
   other queue keeps running.
 

@@ -51,7 +51,7 @@ The mechanism by which a completed Risk Modeler job triggers the next queued app
 - **D3 — Review-only / RDM-only packages are DEFERRED to follow-up.** 0.2.0's `submit_rdm_import_job` requires a target EDM, so standalone-RDM import needs a library change. **This supersedes the review-only language elsewhere in this spec (FR-002, FR-016, US2, US3, SC-004, Edge Cases):** every package this iteration has ≥1 EDM, every RDM apply targets an EDM, and Save-and-Sync rejects an RDM-only package.
 - **D4 — Config:** `IRPClient()` reads `RISK_MODELER_BASE_URL` / `RISK_MODELER_API_KEY` / `RISK_MODELER_RESOURCE_GROUP_ID`; EDM import uses `server_name="databridge-1"`. S3 upload uses temporary creds from the RM response — no ambient AWS credentials; the worker host needs S3 egress only.
 - **D5 — Analysis counts stay empty on the card.** Although `irp_analysis` rows ARE captured this iteration (D2), the package card's portfolio-summary and analysis counts still render **empty** — the captured rows exist only for delete-enumeration and are not surfaced until a later iteration (FR-023).
-- **No `irp-integration` code change is on the Iteration-2 critical path;** deferred/nice-to-have library items are tracked in `docs/IRP_INTEGRATION_FOLLOWUPS.md`.
+- **No `irp-integration` code change is on the Iteration-2 critical path.**
 
 ### US6 (Jobs list + notifications) descoped (2026-07-15)
 

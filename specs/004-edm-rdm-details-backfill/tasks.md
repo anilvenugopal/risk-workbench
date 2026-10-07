@@ -24,7 +24,7 @@ Single server-rendered web app extending the existing `app/` tree (FastAPI + Jin
 **Purpose**: One-time project prerequisites before schema/code work.
 
 - [X] T001 [P] Add `openpyxl` to `[project.dependencies]` in `pyproject.toml` and run `uv sync` (the one new dependency — treaty `.xlsx` export, R5/FR-024)
-- [X] T002 [P] Confirm the active `irp-integration` wheel (`make irp-status`) and verify the Risk Modeler **read**-method signatures — portfolio enumeration, per-portfolio exposure, treaty attributes, analysis metadata — against it; record confirmations and any gaps in `docs/IRP_INTEGRATION_FOLLOWUPS.md` (research R1; the wheel is pre-release)
+- [X] T002 [P] Confirm the active `irp-integration` wheel (`make irp-status`) and verify the Risk Modeler **read**-method signatures — portfolio enumeration, per-portfolio exposure, treaty attributes, analysis metadata — against it (research R1; the wheel is pre-release)
 - [X] T003 Confirm the §21.0 DB-lifecycle choice for **WORKBENCH** = **Rebuild** (drop-create-seed); note `EXPOSURE`/`LOSS` are untouched and DATABRIDGE is never touched (`plan.md` §21.0 note)
 
 ---
@@ -170,7 +170,7 @@ Single server-rendered web app extending the existing `app/` tree (FastAPI + Jin
 - [X] T051 [P] Confirm the shell conventions (FR-051 — breadcrumb/active-state as a function of manifest position, `hx-boost` nav, status-bar last-action) are inherited on the redesigned EDM detail and extended RDM detail pages, AND the `as_of` last-synced trust signal (FR-052) is surfaced wherever detail is shown — EDM header, per-portfolio and per-treaty rows — across the detail templates
 - [X] T052 [P] Add/confirm the Article-6 no-scope assertion (the `test_no_scope` pattern — no `customer`/scope column or filter on `irp_portfolio`/`irp_treaty`/`irp_analysis` or any detail read) and the Article-11 `--run-irp` assertion that `poll_*_to_completion` and the poll-inside convenience methods appear nowhere in the new worker/gateway code (`tests/irp/`)
 - [X] T053 Run the full `pytest tests/unit` and `pytest tests/sqlserver --run-sqlserver` green, then walk `quickstart.md` end-to-end (SC-001…SC-009), confirming forward-only automatic backfill (no bulk sweep; the per-EDM manual Sync is the only manual path, FR-003 as amended), the portfolio↔analysis linkage on both pages (SC-009), and that no Risk Modeler call occurs on any web request handler — *unit 526 / sqlserver 113 / irp-tier guards 2 green (2026-07-24); quickstart steps 2–7 verified by scripted render walkthroughs against the fake IRP (treaty table + export, RDM + EDM analyses with linkage/Group/not-linked, aggregate strip + package-card line, graceful states); step 1 (live import → auto-backfill) is covered by the poller/worker unit chain — the approver's click-through of the running stack remains the checkpoint gate*
-- [X] T054 [P] Update `docs/IRP_INTEGRATION_FOLLOWUPS.md` with any gateway method gaps/confirmations discovered during implementation (close the R1 loop)
+- [X] T054 [P] Record any gateway method gaps/confirmations discovered during implementation (close the R1 loop)
 
 ---
 
@@ -182,7 +182,7 @@ constitution Art. 11 DataBridge clause).
 
 - [X] T055 [ADD] Fix `portfolio_row.html` to read the real RM `/metrics` keys (`totalLocations`/`totalAccounts`/`totalPolicies`/`perilsExposed`); store snapshots namespaced as `{"metrics", "summary"}` in `_backfill_edm_detail_body`; reshape the fake `DEFAULT_EXPOSURE` + `tests/unit/test_backfill_edm_detail.py` to the real shape
 - [X] T056 [ADD] Per-EDM manual Sync (FR-003 as amended): `edm_service.sync_detail` (`ensure_pending_rwb_job` keyed `analyst_request`+`edm_id` + dispatch), broadened `_latest_backfill_status` (both requestor keys, `updated_at DESC`), `EdmDetail.sync_running`, worker name-resolution for `irp_id`-less EDMs, `POST /edms/{edm_id}/sync` (CSRF), header/state-box Sync buttons, `tests/unit/test_edm_sync.py`
-- [X] T057 [ADD] DataBridge exposure summary: `irp_gateway.get_edm_exposure_summary(*, edm_name)` → wheel `client.databridge.get_portfolio_exposure_summary` (contract in `docs/IRP_INTEGRATION_FOLLOWUPS.md`); worker merges per-portfolio `summary` with graceful `null` degradation (`output_data.summary = ok|unavailable`); fake knobs + tests. Workbench side ships before the wheel method exists (blocked only for live data)
+- [X] T057 [ADD] DataBridge exposure summary: `irp_gateway.get_edm_exposure_summary(*, edm_name)` → wheel `client.databridge.get_portfolio_exposure_summary`; worker merges per-portfolio `summary` with graceful `null` degradation (`output_data.summary = ok|unavailable`); fake knobs + tests. Workbench side ships before the wheel method exists (blocked only for live data)
 
 ---
 

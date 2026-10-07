@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # stop-all.sh — graceful shutdown of all background processes.
-# Run this before `docker compose down` if you want clean log flush.
+# Run inside linux-box before `make stop` for a clean log flush:
+#   docker compose -f infra/docker-compose.yml exec linux-box bash scripts/stop-all.sh
 
 set -euo pipefail
 
