@@ -296,7 +296,7 @@
   color: var(--text-tertiary); font-size: var(--fs-label); }
 .entity-table-state strong { display: block; color: var(--text-secondary);
   margin-bottom: var(--space-1); }
-.submission-entity-modal { width: 720px; max-height: calc(100vh - 40px); }
+.submission-entity-modal { width: min(1080px, 94vw); max-height: calc(100vh - 40px); }
 .submission-entity-modal > form { display: flex; flex-direction: column; min-height: 0; }
 .submission-entity-modal .modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto;
   gap: var(--space-3); }

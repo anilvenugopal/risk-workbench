@@ -999,6 +999,22 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // Add EDM/RDM modal: the picks outlive the candidate list, which every
+  // search and page change replaces. The Selected panel's hidden inputs carry
+  // the posted entity_ids; the candidate checkboxes only follow `picks`.
+  Alpine.data('entityPicks', () => ({
+    picks: [],  // [{id, name}] in tick order
+    picked(id) { return this.picks.some((p) => p.id === id); },
+    toggle(box) {
+      if (box.checked) {
+        this.picks.push({ id: box.value, name: box.dataset.name });
+      } else {
+        this.unpick(box.value);
+      }
+    },
+    unpick(id) { this.picks = this.picks.filter((p) => p.id !== id); },
+  }));
+
   // Group compose dialog (spec 012): one form, three x-show panes on `step`.
   // Screen 1's Next fires the button's `inspect` trigger (hx-post to the
   // inspect route); Back from screen 2 aborts that request so no stale swap
