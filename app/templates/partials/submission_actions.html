@@ -1,5 +1,5 @@
-{# The submission page's Edit link (Active only) and Archive / Unarchive (every
-   Modeling status). A deal-head response carries a copy with `oob` set, so a
+{# The submission page's Edit link (Active only), Archive / Unarchive (every
+   Modeling status) and, for admins, Delete. A deal-head response carries a copy with `oob` set, so a
    Modeling status change or an archive updates them without a reload. #}
 <span id="submission-actions" class="pagehdr__actions"{% if oob %} hx-swap-oob="true"{% endif %}>
 {%- if is_active %}<a href="/submissions/{{ submission.id }}/edit" class="btn-sm">Edit</a>{% endif -%}
@@ -10,4 +10,8 @@
   <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
   <button class="btn-sm" type="submit">{{ "Unarchive" if submission.archived_at else "Archive" }}</button>
 </form>
+{%- if current_user.is_admin %}
+<button class="btn-sm btn-sm--danger" type="button"
+        hx-get="/submissions/{{ submission.id }}/delete" hx-target="#submission-delete-modal">Delete</button>
+{%- endif %}
 </span>

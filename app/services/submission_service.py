@@ -1206,7 +1206,7 @@ def set_status(
     """The deal's Modeling status, event-sourced (R2): the cached ``status_code``
     and the ``submission_status_event`` row are written together under the R1
     marker. No transition is refused (FR-011, FR-012) and a same-status set is
-    a recorded no-op; there is no delete (FR-014). ``ValueError`` on a code that
+    a recorded no-op. ``ValueError`` on a code that
     is not in the kind table. Contract status is ``set_contract_status``."""
     if modeling_status not in {code for code, _ in status_kinds()}:
         raise ValueError(f"unknown Modeling status {modeling_status!r}")

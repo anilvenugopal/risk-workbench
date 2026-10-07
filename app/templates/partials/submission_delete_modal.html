@@ -1,0 +1,49 @@
+{# Delete confirm dialog (issue 206), fetched into #submission-delete-modal.
+   Markup fixed by docs/ui_previews/submission_delete_modal.html. A refusal
+   shows its reason and no Delete button. #}
+{% set close = "document.getElementById('submission-delete-modal').replaceChildren()" %}
+<div class="modal-overlay" x-data>
+  <div class="modal-card modal-card--delete" role="dialog" aria-modal="true" aria-labelledby="submission-delete-title">
+    <div class="modal-header">
+      <h2 id="submission-delete-title" class="modal-title">Delete submission</h2>
+    </div>
+    {% if not summary.blocked %}
+    <div class="modal-warning">This cannot be undone. Archive hides a submission and can be reversed.</div>
+    {% endif %}
+    <div class="modal-body">
+      <div class="del-lead">Deleting <b>{{ submission.name }}</b> also deletes:</div>
+      <ul class="del-list">
+        {% if summary.contract_count %}<li><b>{{ summary.contract_count }}</b> contract{{ "s" if summary.contract_count != 1 }}</li>{% endif %}
+        {% if summary.edm_count or summary.rdm_count %}
+        <li>its links to
+          {% if summary.edm_count %}<b>{{ summary.edm_count }}</b> EDM{{ "s" if summary.edm_count != 1 }}{% endif %}
+          {% if summary.edm_count and summary.rdm_count %} and {% endif %}
+          {% if summary.rdm_count %}<b>{{ summary.rdm_count }}</b> RDM{{ "s" if summary.rdm_count != 1 }}{% endif %}</li>
+        {% endif %}
+        {% if summary.imported_count or summary.group_count %}
+        <li>
+          {% if summary.imported_count %}<b>{{ summary.imported_count }}</b> imported analys{{ "es" if summary.imported_count != 1 else "is" }}{% endif %}
+          {% if summary.imported_count and summary.group_count %} and {% endif %}
+          {% if summary.group_count %}<b>{{ summary.group_count }}</b> analysis group{{ "s" if summary.group_count != 1 }}{% endif %}</li>
+        {% endif %}
+        <li>its Modeling status history</li>
+        {% for linked in summary.linking %}
+        <li>the link from <b>{{ linked.name }}</b>, which links to this submission</li>
+        {% endfor %}
+      </ul>
+      {% if not summary.blocked and (summary.edm_count or summary.rdm_count or summary.imported_count or summary.group_count) %}
+      <div class="del-kept">Not deleted: the EDMs and RDMs and their analyses, the analyses and groups in
+        Risk Modeler, and exports already in the loss repository.</div>
+      {% endif %}
+    </div>
+    {% if summary.blocked %}<div class="modal-error" role="alert">{{ summary.blocked }}</div>{% endif %}
+    <form class="modal-footer" method="post" action="/submissions/{{ submission.id }}/delete"
+          hx-post="/submissions/{{ submission.id }}/delete" hx-target="#submission-delete-modal">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="modal-btn modal-btn--secondary" type="button" @click="{{ close }}">{{ "Close" if summary.blocked else "Cancel" }}</button>
+      {% if not summary.blocked %}
+      <button class="modal-btn modal-btn--danger" type="submit">Delete submission</button>
+      {% endif %}
+    </form>
+  </div>
+</div>

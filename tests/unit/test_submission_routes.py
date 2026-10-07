@@ -77,6 +77,7 @@ def client(iteration2_db) -> TestClient:
     app.include_router(submissions.router)
     test_client = TestClient(app, follow_redirects=False)
     test_client.db = iteration2_db
+    test_client.user = user
     return test_client
 
 
@@ -2678,3 +2679,58 @@ def test_archive_without_a_csrf_token_writes_nothing(client):
     response = client.post(f"/submissions/{sid}/archive", data={"csrf_token": "nope"})
     assert response.status_code == 303
     assert submission_service.get_submission(sid).archived_at is None
+
+
+# ── Delete (issue 206, admin only) ────────────────────────────────────────────
+
+def test_only_an_admin_sees_delete_and_reaches_its_routes(client, loss_db):
+    sid, _ = _deal(client, name="Admin_only")
+    assert f'hx-get="/submissions/{sid}/delete"' not in client.get(f"/submissions/{sid}").text
+    assert client.get(f"/submissions/{sid}/delete").status_code == 302
+    denied = client.post(f"/submissions/{sid}/delete", data={"csrf_token": _csrf()})
+    assert denied.status_code == 302
+    assert submission_service.get_submission(sid) is not None
+
+    client.user.is_admin = True
+    assert f'hx-get="/submissions/{sid}/delete"' in client.get(f"/submissions/{sid}").text
+
+
+def test_the_delete_dialog_lists_what_goes(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Counted", crm_ids="DEL-1,DEL-2")
+    body = client.get(f"/submissions/{sid}/delete", headers=_HX).text
+    assert "<b>Counted</b>" in body and "<b>2</b> contracts" in body
+    assert ">Delete submission</button>" in body
+
+
+def test_delete_sends_the_browser_to_the_list(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Deleted_deal")
+    response = client.post(f"/submissions/{sid}/delete",
+                           data={"csrf_token": _csrf()}, headers=_HX)
+    assert response.status_code == 204
+    assert response.headers["HX-Redirect"] == "/submissions"
+    assert submission_service.get_submission(sid) is None
+
+
+def test_running_work_refuses_the_delete_with_its_reason(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Busy_deal")
+    execute_command(
+        "INSERT INTO irp_job (id, requested_from_submission_id, irp_job_type, status, "
+        "submission_attempt_count) VALUES (:id, :s, 'analysis', 'RUNNING', 1)",
+        {"id": str(uuid.uuid4()), "s": sid}, connection="WORKBENCH")
+    response = client.post(f"/submissions/{sid}/delete",
+                           data={"csrf_token": _csrf()}, headers=_HX)
+    assert response.status_code == 409
+    assert "still running: 1 Risk Modeler job" in response.text
+    assert ">Delete submission</button>" not in response.text
+    assert submission_service.get_submission(sid) is not None
+
+
+def test_delete_without_a_csrf_token_deletes_nothing(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="No_csrf_delete")
+    response = client.post(f"/submissions/{sid}/delete", data={"csrf_token": "nope"})
+    assert response.status_code == 303
+    assert submission_service.get_submission(sid) is not None
