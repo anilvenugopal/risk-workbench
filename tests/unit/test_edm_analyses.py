@@ -368,6 +368,7 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     assert '<time data-utc="2026-08-26T00:00:00"' in html
     # the copy sliver's hooks (FR-018): the button and the data-value attributes
     assert "data-copy-table" in html
+    assert "data-collapse-all" in html
     assert "data-analyses-section" in html
 
 

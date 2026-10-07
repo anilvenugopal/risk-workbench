@@ -90,6 +90,8 @@
        reach. preventDefault still keeps the click from toggling the section. #}
     <button class="btn-sm" type="button" data-copy-table onclick="event.preventDefault()"
             title="Copy the table with headers — pastes into Excel">⋮ Copy table</button>
+    <button class="btn-sm" type="button" data-collapse-all onclick="event.preventDefault()"
+            title="Collapse every expanded row">Collapse all</button>
     {% if delete_url %}
     <input type="hidden" id="analyses-csrf" name="csrf_token" value="{{ generate_csrf_token() }}">
     <button class="btn-sm" type="button" onclick="event.stopPropagation()"

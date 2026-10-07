@@ -494,6 +494,7 @@ def test_broker_table_uses_the_merged_analyses_column_set(monkeypatch):
         assert f'hx-get="/rdms/rdm-1/body?sort={key}&amp;' in html
     assert 'data-value="AAL · Pre-Cat Net"' in html
     assert '<span class="l dt-span2">Analysis</span>' in html
+    assert "data-collapse-all" in html
     # no checkbox column — selection lives in the merged section, not here
     assert 'name="analysis_ids"' not in html
     assert 'class="status-chip status-chip--ready">Finished' in html

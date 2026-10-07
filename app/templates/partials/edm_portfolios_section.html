@@ -38,6 +38,10 @@
     {% endif %}
     <span class="sec__spacer"></span>
     <span class="sec__note">Break out creates one sub-portfolio per value of the chosen dimension</span>
+    {% if edm.portfolios %}
+    <button class="btn-sm" type="button" data-collapse-all onclick="event.preventDefault()"
+            title="Collapse every expanded row">Collapse all</button>
+    {% endif %}
   </summary>
 
   {# ── breakout completion banner (spec 005 FR-012) — the newest terminal

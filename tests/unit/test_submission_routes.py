@@ -1665,6 +1665,7 @@ def test_results_fragment_lists_own_rows_across_edms_and_rdm_groups(client):
     assert f'hx-get="/submissions/{submission_id}/analyses/group"' in html
     # copy sliver hooks and the Submitted <time data-utc> UTC emit (FR-018/FR-024)
     assert "data-copy-table" in html
+    assert "data-collapse-all" in html
     assert 'data-value="Coastal HO"' in html
     assert '<time data-utc="2026-08-21T00:00:00"' in html
 
