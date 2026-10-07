@@ -113,7 +113,7 @@ def _summary(conn, sid: str, blocked: str | None) -> DeleteSummary:
 
     linking = conn.execute(text(
         "SELECT id, name FROM submission WHERE links_to_submission_id = :s "
-        "ORDER BY name"), {"s": sid})
+        "ORDER BY name"), {"s": sid}).all()
     return DeleteSummary(
         contract_count=count("SELECT COUNT(*) FROM contract WHERE submission_id = :s"),
         edm_count=count("SELECT COUNT(*) FROM submission_edm WHERE submission_id = :s"),
