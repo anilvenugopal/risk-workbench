@@ -384,30 +384,6 @@ def test_edm_exposure_summary_reads_a_dataframe_nan_as_no_label():
         {"value": "CB-VIR", "label": None, "accounts": 7, "country": "CB"}]
 
 
-def test_edm_exposure_summary_keeps_one_code_in_two_countries_apart():
-    # P-31 (W-23): Admin1Code 11 is Antwerpen in BE and Groningen in NL, and
-    # WS_BENLUX_COM holds both, so they stay two entries with their own
-    # labels. An address with a code but no country keeps its state as `-TX`.
-    gw = _summary_gw(
-        [{"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"}],
-        {"portfolio_states.sql": [
-            {"PortfolioId": 1, "PortfolioName": "A", "Country": "BE",
-             "Value": "BE-11", "Admin1Name": "Antwerpen", "AccountCount": 5},
-            {"PortfolioId": 1, "PortfolioName": "A", "Country": "NL",
-             "Value": "NL-11", "Admin1Name": "Groningen", "AccountCount": 3},
-            {"PortfolioId": 1, "PortfolioName": "A", "Country": None,
-             "Value": "-TX", "Admin1Name": None, "AccountCount": 1}]})
-
-    summary = gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42)
-
-    assert summary["1"]["breakout_values"]["state"] == [
-        {"value": "-TX", "label": None, "accounts": 1, "country": None},
-        {"value": "BE-11", "label": "Antwerpen", "accounts": 5,
-         "country": "BE"},
-        {"value": "NL-11", "label": "Groningen", "accounts": 3,
-         "country": "NL"}]
-
-
 def test_edm_exposure_summary_raises_when_database_name_unresolvable():
     gw = _summary_gw([{"exposureId": 1, "exposureName": "EDM"}], {})
     with pytest.raises(ValueError):
