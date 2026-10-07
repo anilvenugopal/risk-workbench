@@ -20,8 +20,8 @@ def seed_submission(user_id: str, *, name: str = "TY2604_Deal", inception: str =
     submission_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO submission (id, assigned_analyst_id, name, cedant_id, treaty_year, "
-        "status_code, inserted_at, updated_at, inserted_by, updated_by) "
-        "VALUES (:id, :u, :n, :ced, :ty, 'ACTIVE', :now, :now, :u, :u)",
+        "data_vintage, status_code, inserted_at, updated_at, inserted_by, updated_by) "
+        "VALUES (:id, :u, :n, :ced, :ty, '2025-12-31', 'ACTIVE', :now, :now, :u, :u)",
         {"id": submission_id, "u": user_id, "n": name, "ced": cedant_id("Cedant Co"),
          "ty": treaty_year, "now": NOW},
         connection="WORKBENCH")
