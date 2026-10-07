@@ -28,7 +28,7 @@
      or (edm.breakout_banner and edm.breakout_banner.filling_in) %}
 <details class="sec" open id="edm-portfolios"
   {%- if bo_live %}
-  hx-get="{{ section_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s"
+  hx-get="{{ section_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s [!document.querySelector('#edm-detail .sub-links--open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <summary>

@@ -408,6 +408,7 @@ def test_body_poll_partial_polls_while_running_then_stops(monkeypatch):
     html = _client().get("/rdms/rdm-1/body").text
     assert 'hx-get="/rdms/rdm-1/body"' in html and "every 3s" in html
     assert "!document.querySelector('#rdm-detail.rdm-notes-open')" in html
+    assert "!document.querySelector('#rdm-detail .sub-links--open')" in html
     # FR-027: Save/Cancel clear the notesOpen gate so the 3s poll resumes.
     assert 'x-on:entity-note-saved="notesOpen = false"' in html
     assert ("hx-on::after-request=\"if(event.detail.successful) "

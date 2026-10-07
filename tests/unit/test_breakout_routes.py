@@ -435,6 +435,7 @@ def test_confirm_keeps_the_contextual_submission_on_the_section_poll(
     edm_id, pid = _eligible_pair(fake_irp)
     r = _confirm(client, edm_id, pid, submission_id="submission-a")
     assert f"/edms/{edm_id}/portfolios-section?submission_id=submission-a" in r.text
+    assert "!document.querySelector('#edm-detail .sub-links--open')" in r.text
 
 
 def test_confirm_double_post_yields_one_job_and_409(routes_db, client, fake_irp):
