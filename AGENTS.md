@@ -150,8 +150,8 @@ processes; every other target below runs inside `linux-box` and needs the stack
 already up. Starting it is the developer's call, not an agent's (see
 [Testing](#testing)):
 ```bash
-make start           # start full Docker stack (partner / Windows)
-make wsl-start       # start SQL Server (Docker) + Redis only (WSL2 native mode)
+make start           # start full Docker stack (machines without WSL2)
+make wsl-start       # start SQL Server (Docker or Podman) + Redis only (WSL2 native mode)
 make wsl-app         # uvicorn --reload natively in WSL2
 make shell           # bash inside linux-box
 make db-migrate      # alembic upgrade head on rwb_workbench
@@ -166,7 +166,7 @@ For debugpy on :5678, set `APP_DEBUG=1` in `infra/.env` and run `make start`;
 The unit tier is the exception: `uv run pytest tests/unit` runs from any host shell
 with no container and no database. Prefer it over `make test`.
 
-See [docs/SCAFFOLDING.md](docs/SCAFFOLDING.md) for full setup and debugging tutorial.
+See [docs/LOCAL_DEV_SETUP.md](docs/LOCAL_DEV_SETUP.md) for full setup and debugging tutorial.
 
 ## Architecture Rules (Summary)
 
@@ -178,7 +178,7 @@ Full rules in the constitution. Key points for implementation:
 4. **Categoricals**: kind tables (`*_kind`) for all internal values. Plain VARCHAR only for the two Article 3 carve-outs: external-status mirror columns (listed there) and `CHECK`-constrained columns on tables the Workbench installs in a client-owned database (the `stage` schema in CIC's loss repository, Art. 3 v4.2.0).
 5. **IRP**: submission on request path is permitted, as is a bounded, single-analysis `get_analysis_metadata` read that answers a point-of-action validation the analyst is waiting on (Art. 11 v4.1.0). All other polling and result work MUST be in the poller/workers — never in route handlers. `poll_*_to_completion` FORBIDDEN in poller; use `get_*` single-status-check only.
 6. **Frontend**: FastAPI + Jinja2 + HTMX. No SPA. `hx-boost` for top-level nav. Alpine.js only for small client slivers.
-7. **Auth**: `AUTH_MODE=password` is a gated v1 fallback; never reachable in production. Session cookie contains session ID only.
+7. **Auth**: `AUTH_MODE=password` is the v1 production sign-in; Entra OIDC is optional. Session cookie contains session ID only.
 8. **Approved plans are immutable**: when an async operation follows a user preview or confirmation, the worker executes the plan the user approved. Persist it and run it — never silently recompute inputs at execution time.
 
 ## Three Databases

@@ -2,19 +2,20 @@
 #
 # Two developer setups, same targets where possible:
 #
-#   DOCKER (your partner, Windows)
+#   DOCKER-ONLY (Windows without WSL2)
 #     All processes run inside the linux-box container alongside SQL Server.
 #     One command starts everything. Nothing to install locally.
 #     Targets: start, stop, logs, shell, db-*, test, lint
 #
-#   WSL2 (you)
-#     SQL Server runs in Docker. Everything else (app, Redis, workers, poller)
-#     runs directly in your WSL2 shell — same processes as Docker, no container
-#     overhead. Faster reload and debugger attach.
+#   WSL2 (Ubuntu or RHEL9)
+#     SQL Server runs in a Docker or Podman container (RWB_CONTAINER_RUNTIME
+#     in infra/.env). Everything else (app, Redis, workers, poller) runs
+#     directly in your WSL2 shell — same processes as Docker, no container overhead.
+#     Faster reload and debugger attach.
 #     Targets: wsl-setup, wsl-start, wsl-stop, wsl-db-*, wsl-test, lint
 #
-# Production uses the same commands as wsl-* but via systemd units.
-# See infra/scripts/start-all.sh for the mapping.
+# Production runs the same processes from infra/scripts/deploy/rhel9-start.sh
+# (nohup, no make, no uv); only nginx is a systemd service there.
 
 .PHONY: help \
         start stop logs shell \
@@ -108,8 +109,9 @@ format:   ## [Docker] Run ruff formatter
 
 # ══ WSL2 TARGETS ══════════════════════════════════════════════════════════════
 # Use these for day-to-day development in WSL2.
-# SQL Server runs in Docker. Everything else (app, Redis, workers, poller)
-# runs directly in your WSL2 shell — same processes as production.
+# SQL Server runs in a Docker or Podman container. Everything else (app,
+# Redis, workers, poller) runs directly in your WSL2 shell — same processes as
+# production.
 #
 # All env loading and idempotency logic lives in infra/scripts/*.sh, not here.
 # Makefile targets are thin dispatchers only — no secrets, no env parsing.
@@ -117,19 +119,17 @@ format:   ## [Docker] Run ruff formatter
 # First time: make wsl-setup
 # Every day:  make wsl-start  →  make wsl-app / wsl-workers / wsl-poller
 
-wsl-setup:   ## [WSL2] Create databases and run migrations (after manual system installs)
-	@echo "  Prerequisites: uv, ODBC Driver 18, Redis must be installed first."
-	@echo "  See docs/SCAFFOLDING.md Steps 2-4 if this is your first time."
+wsl-setup:   ## [WSL2] First run: start SQL Server + Redis, then create, migrate and seed all 3 databases
+	@echo "  Prerequisites: uv, ODBC Driver 18, Redis/Valkey, Docker/Podman must be installed first."
+	@echo "  See docs/LOCAL_DEV_SETUP.md Steps 2-4 if this is your first time."
 	@echo ""
 	bash infra/scripts/wsl-setup.sh
 
-wsl-start:   ## [WSL2] Start SQL Server + Redis (idempotent — safe if already running)
+wsl-start:   ## [WSL2] Start SQL Server + Redis and wait for SQL Server (idempotent — safe if already running)
 	@bash infra/scripts/wsl-start.sh
 
 wsl-stop:   ## [WSL2] Stop SQL Server container and Redis
-	$(COMPOSE) stop sqlserver
-	redis-cli shutdown nosave 2>/dev/null || true
-	@echo "Stopped."
+	@bash infra/scripts/wsl-stop.sh
 
 wsl-app:   ## [WSL2] Start the web app (uvicorn with live reload on :8000)
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload'

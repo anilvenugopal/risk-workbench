@@ -1,29 +1,21 @@
 #!/usr/bin/env bash
 # rhel9-setup-podman-mssql.sh — one-time: install Podman and CREATE (not
 # start) a local SQL Server container on RHEL9. Same image, environment
-# variables, and port as Ubuntu's infra/docker-compose.yml SQL Server
-# service; data directory differs deliberately (see below).
+# variables, and port as the sqlserver service in infra/docker-compose.yml;
+# data directory differs deliberately (see below).
 #
-# Local dev/testing convenience ONLY. Production's SQL Server is a
-# separate, already-existing instance outside this box — never something
-# this project containerizes for real deployment.
-#
-# Standalone and optional: nothing else in this project depends on this
-# script having been run. Use it only if you want RHEL9 to have its own
-# SQL Server rather than reaching across to Ubuntu's.
+# Runs on: a WSL2 RHEL9 rehearsal distro only. Production's SQL Server is a
+#          separate host. Local development uses `make wsl-start` instead.
+# Needs:   APP_DIR, DEPLOY_USER; MSSQL_SA_PASSWORD from $APP_DIR/infra/.env or
+#          exported; sudo.
+# Usage:   APP_DIR=/rms DEPLOY_USER=cinreadmd bash infra/scripts/deploy/rhel9-setup-podman-mssql.sh
 #
 # Creates the container but does NOT start it — start it explicitly with
 # rhel9-start-podman-mssql.sh, every time, including the first time.
 #
-# Same port (1433) as Ubuntu's SQL Server — deliberate, so infra/.env never
-# needs environment-specific values. Consequence: RHEL9's and Ubuntu's SQL
-# Server containers cannot both be reachable at once, since this machine's
-# WSL2 distros share one IP (see docs/RHEL9_SYSTEM_SETUP.md's Redis/Valkey
-# section for the same conflict pattern). Stop one before starting the
-# other — see infra/scripts/check-port.sh to diagnose which is holding it.
-#
-# Usage: APP_DIR=/rms DEPLOY_USER=cinreadmd \
-#        bash rhel9-setup-podman-mssql.sh
+# Same port (1433) as the dev SQL Server container, so infra/.env needs no
+# per-environment values. WSL2 distros share one IP, so stop the other
+# distro's container first (infra/scripts/check-port.sh shows who holds it).
 
 set -euo pipefail
 

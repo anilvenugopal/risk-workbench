@@ -9,9 +9,8 @@ Inserts:
     (bcrypt cost 12, must_change_password=False, role=admin)
     Only inserted in development (APP_ENV=development).
 
-Run via Makefile (preferred):
-    make wsl-db-rebuild     # WSL2 native
-    make db-rebuild         # Docker
+Dev only, never the server.
+Usage: make wsl-db-seed   (Docker-only: make shell, then python scripts/seed_db.py)
 """
 
 from __future__ import annotations

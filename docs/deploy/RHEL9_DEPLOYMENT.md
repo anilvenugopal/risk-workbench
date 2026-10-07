@@ -5,7 +5,7 @@ where `uv` is a developer tool only (see [AGENTS.md](../../AGENTS.md)).
 
 Prerequisite: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) completed — git,
 Python 3.14, ODBC Driver 18, Redis/Valkey, nginx, gcc/g++/make, rsync all
-installed.
+installed. Commands only: [RHEL9_QUICKSTART.md](RHEL9_QUICKSTART.md).
 
 The account `cinreadmd` and the app directory `/rms` used below are the
 values on the deployed server.
@@ -46,10 +46,10 @@ ad hoc process the deployment account owns and manages itself.
 
 ```bash
 APP_DIR=/rms DEPLOY_USER=cinreadmd PYTHON_PKG=python3.14 \
-    bash infra/scripts/rhel9/rhel9-check-prereqs.sh
+    bash infra/scripts/deploy/rhel9-check-prereqs.sh
 ```
 
-[infra/scripts/rhel9/rhel9-check-prereqs.sh](../../infra/scripts/rhel9/rhel9-check-prereqs.sh)
+[infra/scripts/deploy/rhel9-check-prereqs.sh](../../infra/scripts/deploy/rhel9-check-prereqs.sh)
 confirms [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md)'s one-time setup
 (packages, `/rms` created and owned correctly, nginx
 running with the reload permission granted) actually happened — read-only,
@@ -59,10 +59,10 @@ safe to run from the server or a pipeline, before touching any code.
 
 ```bash
 APP_DIR=/rms BRANCH=<branch-or-tag-to-deploy> \
-    bash infra/scripts/rhel9/rhel9-pull-code.sh
+    bash infra/scripts/deploy/rhel9-pull-code.sh
 ```
 
-[infra/scripts/rhel9/rhel9-pull-code.sh](../../infra/scripts/rhel9/rhel9-pull-code.sh)
+[infra/scripts/deploy/rhel9-pull-code.sh](../../infra/scripts/deploy/rhel9-pull-code.sh)
 handles both a fresh clone (first deployment) and updating an existing
 checkout (`git fetch`/checkout/pull). Refuses by default if it finds
 local modifications to tracked files or untracked files sitting in the
@@ -96,10 +96,10 @@ mapped to localhost).
 ## 4. Install dependencies and run migrations
 
 ```bash
-PYTHON_BIN=python3.14 bash infra/scripts/rhel9/rhel9-app-install.sh
+PYTHON_BIN=python3.14 bash infra/scripts/deploy/rhel9-app-install.sh
 ```
 
-[infra/scripts/rhel9/rhel9-app-install.sh](../../infra/scripts/rhel9/rhel9-app-install.sh)
+[infra/scripts/deploy/rhel9-app-install.sh](../../infra/scripts/deploy/rhel9-app-install.sh)
 builds/updates `.venv`, installs from `requirements.txt` (committed to git
 by developers — see
 [infra/scripts/generate-requirements.sh](../../infra/scripts/generate-requirements.sh)
@@ -131,36 +131,6 @@ it adds only the names not already in the `cedant` table. The script reads
 the database settings from the environment, not from `infra/.env`, so the
 `source` is needed.
 
-### One-time rebuild of a database built before the 0001 freeze
-
-Until spec 017 merged (2026-09-29), `alembic/versions/0001_initial.py` was
-edited in place. A database that recorded `0001` as applied before the
-freeze holds an older shape, and the next revision would run on top of it.
-The RHEL9 database has not been rebuilt since the freeze. Do this once,
-before the first deploy that ships a revision after `0001`:
-
-1. Confirm the database predates the freeze. `NULL` means it does:
-
-   ```sql
-   SELECT OBJECT_ID('dbo.contract');
-   ```
-
-2. Stop the application (`rhel9-stop.sh`), then rebuild. Every table and
-   row in the Workbench database is deleted:
-
-   ```bash
-   APP_DIR=/rms bash infra/scripts/rhel9/rhel9-db-rebuild.sh
-   ```
-
-3. Provision each account again:
-
-   ```bash
-   cd /rms && .venv/bin/python infra/scripts/user_setup.py
-   ```
-
-From then on every schema change is a new revision, and the `alembic upgrade
-head` in `rhel9-app-install.sh` applies it.
-
 ## 5. Start Redis/Valkey
 
 ```bash
@@ -177,7 +147,7 @@ valkey-server \
 changed on a running server (`CONFIG SET dir` is rejected as a protected
 config), so get this right at launch. `/var/lib/risk-workbench/valkey` is
 created and owned correctly by
-[rhel9-setup.sh](../../infra/scripts/rhel9/rhel9-setup.sh) section 7 — `/var/lib` is
+[rhel9-setup.sh](../../infra/scripts/deploy/rhel9-setup.sh) section 7 — `/var/lib` is
 the standard Linux location for a service's own persistent data, not a
 personal user's home directory (early manual testing used
 `/home/cinreadmd/valkey-data`; corrected here since a home directory ties
@@ -257,13 +227,13 @@ dev machine or CI/CD runner — never on RHEL9 itself:
 DEPLOY_HOST=cinreadmd@<rhel9-ip> \
 DEPLOY_DIR=/rms \
 SSH_KEY=~/.ssh/risk-workbench-deploy \
-bash infra/scripts/rhel9/rhel9-ssh-deploy.sh
+bash infra/scripts/deploy/rhel9-ssh-deploy.sh
 ```
 
 See [RHEL9_SSH_KEY_SETUP.md](RHEL9_SSH_KEY_SETUP.md) for generating and
 installing the key this script authenticates with.
 
-[infra/scripts/rhel9/rhel9-ssh-deploy.sh](../../infra/scripts/rhel9/rhel9-ssh-deploy.sh)
+[infra/scripts/deploy/rhel9-ssh-deploy.sh](../../infra/scripts/deploy/rhel9-ssh-deploy.sh)
 does, over SSH:
 
 1. Checks that `infra/.env` exists on the server — stops here if not.
@@ -318,7 +288,7 @@ queue's live/dead state (PID-file + independent process-scan) for
 before/after inspection around a start or stop. The deploy script does not
 stop or start the app, so an operator deploys in this order:
 
-1. Run `APP_DIR=/rms bash infra/scripts/rhel9/rhel9-drain-check.sh` on the
+1. Run `APP_DIR=/rms bash infra/scripts/deploy/rhel9-drain-check.sh` on the
    server while the workers are still running, so `pending` and `running`
    `rwb_job` rows can finish.
 2. Stop the app with `rhel9-stop.sh`.
@@ -344,3 +314,8 @@ after `DRAIN_TIMEOUT_SECS`.
 - **Governed file sync for a push-based deploy**: done — `rhel9-ssh-deploy.sh`
   runs `rsync --delete-after --filter=':- .gitignore'`, so only git-tracked
   files are ever deleted.
+
+## Next
+
+[ENTRA_SETUP.md](../ENTRA_SETUP.md), then the first admin with
+[USER_PROVISIONING.md](../USER_PROVISIONING.md).

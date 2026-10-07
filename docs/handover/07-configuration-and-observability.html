@@ -26,7 +26,7 @@
 <tr><td><code>SHARED_DRIVE_ROOT</code></td><td>The folder the EDM and RDM import file browser opens at. The browser cannot go above it. Empty shows "No shared drive is configured". The workers read the chosen file from the same path, so the share must be mounted where the workers run too.</td><td>empty</td><td>App</td><td>"Broker files have moved to a new share."</td></tr>
 <tr><td><code>IRP_EDM_IMPORT_SERVER</code></td><td>The DATABRIDGE server name EDM imports are sent to.</td><td><code>databridge-1</code></td><td>Workers</td><td>"Moody's moved our EDMs to a new DataBridge server."</td></tr>
 <tr><td><code>EXPORT_PERSPECTIVE_CODES</code></td><td>The perspectives the export form offers, in this order, as a comma-separated list. A code is offered only if every selected analysis has results for it; <code>TY</code> only if every selected analysis ran with treaties.</td><td><code>GU,GR,RL,RP,TY</code></td><td>App</td><td>"Take GU off the export form."</td></tr>
-<tr><td><code>EXPORT_ARCHIVE_DIR</code></td><td>Where downloaded export archives are kept permanently, as <code>{export_id}/{irp_analysis_id}/</code>. Must already exist; empty or missing makes every export fail at the stage step. The app never deletes from it.</td><td>empty (<code>.env.example</code>: <code>/workspace/data/export_archive</code>)</td><td>App and workers</td><td>"Keep export archives on the new loss share."</td></tr>
+<tr><td><code>EXPORT_ARCHIVE_DIR</code></td><td>Where downloaded export archives are kept permanently, as <code>{export_id}/{irp_analysis_id}/</code>. Must already exist; empty or missing makes every export fail at the stage step. The app never deletes from it.</td><td>empty</td><td>App and workers</td><td>"Keep export archives on the new loss share."</td></tr>
 <tr><td><code>EXPORT_STAGING_DIR</code></td><td>Local disk where archives are unzipped while an export runs; emptied after each analysis. Must already exist; empty or missing makes every export fail at the stage step.</td><td>empty</td><td>Workers</td><td>"Exports fail with 'Staging root (unset)'."</td></tr>
 <tr><td><code>NOTIFY_CHANNELS</code>, <code>NOTIFY_EMAIL_TO</code>, <code>TEAMS_WEBHOOK_URL</code>, <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_FROM</code></td><td>Nothing. No code reads them. Sending notifications needs code; see <a href="04-integrations.html#notifications">page 4</a>. The future email sender is configured with <code>MAIL_TENANT_ID</code>, <code>MAIL_CLIENT_ID</code>, <code>MAIL_CLIENT_SECRET</code>, and <code>MAIL_SENDER_ADDRESS</code>.</td><td>empty</td><td>None</td><td>"Email me when my analyses finish."</td></tr>
 <tr><td><code>IRP_SUBMISSION_MAX_RETRIES</code></td><td>How many times the poller retries an analysis whose submission to Risk Modeler failed. The analyses table shows "Failed to submit · attempt n/max".</td><td><code>3</code></td><td>Poller and app</td><td>"During the Moody's outage our analyses gave up too soon."</td></tr>
@@ -81,7 +81,7 @@
 <tr><td>Deactivate / reactivate</td><td><code>POST /admin/users/{id}/deactivate</code>, <code>/reactivate</code></td><td>Blocks or restores sign-in and ends the user's sessions. An admin cannot deactivate themselves. Users are never deleted.</td><td>"This analyst has left CIC."</td></tr>
 </table>
 
-<p>The same actions, plus creating the first admin, are available from the command line with <code>make wsl-user-setup</code> or <code>infra/scripts/run_user_setup.sh</code>. The steps for each case are in <a href="../USER_PROVISIONING.md">docs/USER_PROVISIONING.md</a>.</p>
+<p>The same actions, plus creating the first admin, are available from the command line with <code>make wsl-user-setup</code> or <code>bash infra/scripts/run_user_setup.sh</code>. The steps for each case are in <a href="../USER_PROVISIONING.md">docs/USER_PROVISIONING.md</a>.</p>
 
 <h2 id="env-reference">Environment variable reference</h2>
 
@@ -146,19 +146,19 @@
 <tr><td>uvicorn</td><td>Container output: <code>make logs</code></td><td>The terminal running <code>make wsl-app</code></td><td><code>/var/lib/risk-workbench/uvicorn.log</code></td></tr>
 <tr><td>Worker for queue <i>q</i></td><td><code>/workspace/.dev-logs/worker-<i>q</i>.log</code></td><td><code>.dev-logs/worker-<i>q</i>.log</code> (with <code>make wsl-workers</code>), or the terminal (with <code>make wsl-worker</code>)</td><td><code>/var/lib/risk-workbench/worker-<i>q</i>.log</code></td></tr>
 <tr><td>Poller</td><td><code>/workspace/.dev-logs/poller.log</code></td><td>The terminal running <code>make wsl-poller</code></td><td><code>/var/lib/risk-workbench/poller.log</code></td></tr>
-<tr><td>Redis / Valkey</td><td><code>/workspace/.dev-logs/redis.log</code></td><td><code>/tmp/rwb-redis.log</code></td><td><code>/var/lib/risk-workbench/valkey/valkey.log</code></td></tr>
+<tr><td>Redis / Valkey</td><td><code>/workspace/.dev-logs/redis.log</code></td><td><code>/tmp/rwb-redis.log</code>, or <code>/tmp/rwb-valkey.log</code> on a RHEL9 distro</td><td><code>/var/lib/risk-workbench/valkey/valkey.log</code></td></tr>
 <tr><td>nginx</td><td>Container output</td><td>Not used</td><td>The system nginx log locations; <code>site.conf</code> sets none</td></tr>
 </table>
 
-<p>On RHEL9, <code>rhel9-start.sh</code> appends to each log file when it starts the process, so a restart keeps the earlier lines. Nothing rotates the logs. Nothing collects the logs (B6 on <a href="09-path-to-production.html#blockers">page 9</a>). <code>infra/scripts/rhel9/rhel9-logs-worker.sh &lt;queue&gt;</code> and <code>rhel9-logs-poller.sh</code> follow a log.</p>
+<p>On RHEL9, <code>rhel9-start.sh</code> appends to each log file when it starts the process, so a restart keeps the earlier lines. Nothing rotates the logs. Nothing collects the logs (C7 on <a href="09-path-to-production.html#c7">page 9</a>). <code>infra/scripts/deploy/rhel9-logs-worker.sh &lt;queue&gt;</code> and <code>rhel9-logs-poller.sh</code> follow a log.</p>
 
 <h2 id="health">Health and monitoring</h2>
 
 <table>
 <tr><th>Check</th><th>What it tells you</th></tr>
 <tr><td><code>GET /api/health</code></td><td>JSON with <code>db_workbench</code>, <code>db_exposure</code>, <code>db_loss</code> (each <code>ok</code> or an error), <code>redis</code>, and <code>env</code>. No sign-in needed. It always returns HTTP 200 and <code>"status": "ok"</code>, even when a check fails, so read the individual fields. It does not check the workers, the poller, Risk Modeler, or DATABRIDGE.</td></tr>
-<tr><td><code>make wsl-worker-health</code>; <code>infra/scripts/rhel9/rhel9-worker-health.sh [--queue q]</code></td><td>For every queue, whether its PID file points at a live process, and a separate process scan. Exits 0 if any queue is alive, 1 if none is.</td></tr>
-<tr><td><code>infra/scripts/rhel9/rhel9-drain-check.sh</code></td><td>Waits until no <code>rwb_job</code> row is <code>pending</code> or <code>running</code>. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
+<tr><td><code>make wsl-worker-health</code>; <code>infra/scripts/deploy/rhel9-worker-health.sh [--queue q]</code></td><td>For every queue, whether its PID file points at a live process, and a separate process scan. Exits 0 if any queue is alive, 1 if none is.</td></tr>
+<tr><td><code>infra/scripts/deploy/rhel9-drain-check.sh</code></td><td>Waits until no <code>rwb_job</code> row is <code>pending</code> or <code>running</code>. See <a href="08-deployed-environment.html#deployment">page 8</a>.</td></tr>
 <tr><td>Workflows → RWB Jobs, <code>/workflows/rwb-jobs</code></td><td>The 50 most recent <code>rwb_job</code> rows, filterable by submission, owner (defaults to you), job type, and status. A <code>running</code> row with no recent heartbeat shows as dead ("worker stopped heartbeating"). Cancel works on <code>pending</code>, <code>failed</code>, or dead rows; Resubmit works on <code>failed</code> rows and reuses the same row. A live <code>running</code> job cannot be stopped from the page. Any signed-in user can use it.</td></tr>
 <tr><td>Workflows → IRP Jobs, <code>/workflows/irp-jobs</code></td><td>The 50 most recent <code>irp_job</code> rows: type, entity, Risk Modeler status, progress, submitter, attempts. Read-only.</td></tr>
 </table>
