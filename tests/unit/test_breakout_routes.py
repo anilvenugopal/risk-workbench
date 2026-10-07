@@ -786,7 +786,7 @@ def test_cart_confirm_keeps_the_contextual_submission_on_the_section_poll(
         routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
     r = _confirm_cart(client, edm_id, pid,
-                      [{"label": "A", "filters": {"state": ["TX"]}}],
+                      [{"label": "A", "filters": {"state": ["US-TX"]}}],
                       submission_id="submission-a")
     assert f"/edms/{edm_id}/portfolios-section?submission_id=submission-a" in r.text
 
