@@ -80,12 +80,12 @@ def _generated_rows(source_id: str) -> list[dict]:
 # ── group identity ────────────────────────────────────────────────────────────────
 
 def test_group_key_is_canonical_order_insensitive_and_deterministic():
-    a = compute_group_key({"state": ["FL", "GA"], "peril": ["2"]})
-    b = compute_group_key({"peril": ["2"], "state": ["GA", "FL", "FL"]})
+    a = compute_group_key({"state": ["US-FL", "US-GA"], "peril": ["2"]})
+    b = compute_group_key({"peril": ["2"], "state": ["US-GA", "US-FL", "US-FL"]})
     assert a == b                                  # order/dupes never matter
     assert len(a) == 12 and int(a, 16) >= 0        # 12 hex chars
-    assert a != compute_group_key({"state": ["FL"], "peril": ["2"]})
-    assert a != compute_group_key({"state": ["FL", "GA"]})
+    assert a != compute_group_key({"state": ["US-FL"], "peril": ["2"]})
+    assert a != compute_group_key({"state": ["US-FL", "US-GA"]})
 
 
 # ── cart composition ──────────────────────────────────────────────────────────────
@@ -95,8 +95,8 @@ def test_compose_group_cart_names_bounds_and_overlap_note(iteration2_db):
     pid = mk_portfolio(edm_id, summary=GROUP_SUMMARY)
     gate = evaluate_gate(edm_id, pid)
     plans = compose_group_cart(gate, edm_id=edm_id, portfolio_id=pid, groups=[
-        _group("Coastal", {"state": ["TX", "CA"], "lob": ["EQ Comm"]}),
-        _group("Florida_Hurricane_Commercial_Book", {"state": ["TX"]}),
+        _group("Coastal", {"state": ["US-TX", "US-CA"], "lob": ["EQ Comm"]}),
+        _group("Florida_Hurricane_Commercial_Book", {"state": ["US-TX"]}),
     ])
 
     first, second = plans
@@ -129,14 +129,14 @@ def test_compose_group_cart_refuses_bad_input(iteration2_db):
     refuse([_group("G", {"nope": ["X"]})], "unknown breakout dimension")
     refuse([_group("G", {})], "at least one dimension")
     refuse([_group("G", {"state": []})], "no values selected")
-    refuse([_group("  ", {"state": ["TX"]})], "needs a name")
+    refuse([_group("  ", {"state": ["US-TX"]})], "needs a name")
     too_long = "X" * (breakout_service.PORTFOLIO_NAME_MAX + 1)
-    refuse([_group(too_long, {"state": ["TX"]})], "cap at")
-    refuse([_group("Alpha EDM", {"state": ["TX"]})],
+    refuse([_group(too_long, {"state": ["US-TX"]})], "cap at")
+    refuse([_group("Alpha EDM", {"state": ["US-TX"]})],
            "Breakout names may use only letters, numbers, underscores, "
            "and hyphens.")
-    refuse([_group("A", {"state": ["TX"]}),
-            _group("B", {"state": ["TX"]})], "same members")
+    refuse([_group("A", {"state": ["US-TX"]}),
+            _group("B", {"state": ["US-TX"]})], "same members")
 
 
 def test_compose_group_cart_blocks_duplicate_names(iteration2_db):
@@ -151,11 +151,11 @@ def test_compose_group_cart_blocks_duplicate_names(iteration2_db):
             compose_group_cart(gate, edm_id=edm_id, portfolio_id=pid,
                                groups=groups)
 
-    refuse([_group("usfl_commercial", {"state": ["TX"]})],
+    refuse([_group("usfl_commercial", {"state": ["US-TX"]})],
            "already exists in this EDM")
-    refuse([_group("USFL_Commercial", {"state": ["TX"]})],
+    refuse([_group("USFL_Commercial", {"state": ["US-TX"]})],
            "already exists in this EDM")               # case-insensitive
-    refuse([_group("Coastal", {"state": ["TX"]}),
+    refuse([_group("Coastal", {"state": ["US-TX"]}),
             _group("coastal", {"lob": ["EQ Comm"]})],
            "already exists in the cart")
 
@@ -189,7 +189,7 @@ def test_request_group_breakout_writes_rows_and_jobs_per_group(
         iteration2_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(edm_id, pid, [
-        _group("Coastal_HU", {"state": ["TX"], "peril": ["2"]}),
+        _group("Coastal_HU", {"state": ["US-TX"], "peril": ["2"]}),
         _group("EQ_book", {"lob": ["EQ Comm"]}),
     ], AS_OF, iteration2_db.user_a)
 
@@ -218,7 +218,7 @@ def test_request_group_breakout_writes_rows_and_jobs_per_group(
 def test_request_group_breakout_refusals_write_nothing(
         iteration2_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
-    groups = [_group("G", {"state": ["TX"]})]
+    groups = [_group("G", {"state": ["US-TX"]})]
 
     with pytest.raises(SummaryRewritten):
         request_group_breakout(edm_id, pid, groups, "2001-01-01 00:00:00",
@@ -243,7 +243,7 @@ def test_request_group_breakout_refusals_write_nothing(
 def test_reconfirm_same_members_adopts_and_dedups(iteration2_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     first = request_group_breakout(
-        edm_id, pid, [_group("Coastal", {"state": ["TX"], "peril": ["2"]})],
+        edm_id, pid, [_group("Coastal", {"state": ["US-TX"], "peril": ["2"]})],
         AS_OF, iteration2_db.user_a)
     execute_command(
         "UPDATE rwb_job SET status_code = 'succeeded' WHERE id = :i",
@@ -253,7 +253,7 @@ def test_reconfirm_same_members_adopts_and_dedups(iteration2_db, fake_irp):
     # same members, different label and value order → adopts the row (no
     # duplicate) and the row takes the name as typed (P-22 rev. 2026-08-10)
     second = request_group_breakout(
-        edm_id, pid, [_group("Renamed", {"peril": ["2"], "state": ["TX"]})],
+        edm_id, pid, [_group("Renamed", {"peril": ["2"], "state": ["US-TX"]})],
         AS_OF, iteration2_db.user_b)
 
     rows = _group_rows(pid)
@@ -272,7 +272,7 @@ def test_reconfirm_created_breakout_under_its_own_name(
         iteration2_db, fake_irp):
     """A breakout's own created portfolio never blocks its name — the
     re-confirm heal path (FR-011/FR-019)."""
-    fake_irp.selection_by_value = {"TX": [1, 2], "EQ Comm": [1, 2]}
+    fake_irp.selection_by_value = {"US-TX": [1, 2], "EQ Comm": [1, 2]}
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
     assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"   # "Coastal" is now live
     # drain the auto-fired backfill head (FR-013) — while pending it blocks
@@ -284,7 +284,7 @@ def test_reconfirm_created_breakout_under_its_own_name(
 
     second = request_group_breakout(
         edm_id, pid,
-        [_group("Coastal", {"state": ["TX"], "lob": ["EQ Comm"]})],
+        [_group("Coastal", {"state": ["US-TX"], "lob": ["EQ Comm"]})],
         AS_OF, iteration2_db.user_b)
 
     assert second is not None
@@ -295,7 +295,7 @@ def test_one_episode_per_portfolio_blocks_both_directions(
         iteration2_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(
-        edm_id, pid, [_group("G", {"state": ["TX"]})], AS_OF,
+        edm_id, pid, [_group("G", {"state": ["US-TX"]})], AS_OF,
         iteration2_db.user_a)
     assert job_ids
 
@@ -330,18 +330,18 @@ def _confirmed_group(fake_irp, iteration2_db,
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(
         edm_id, pid,
-        [_group("Coastal", filters or {"state": ["TX"], "lob": ["EQ Comm"]})],
+        [_group("Coastal", filters or {"state": ["US-TX"], "lob": ["EQ Comm"]})],
         AS_OF, iteration2_db.user_a)
     return edm_id, pid, job_ids[0]
 
 
 def test_group_worker_unions_within_and_intersects_across(
         iteration2_db, fake_irp):
-    fake_irp.selection_by_value = {"TX": [1, 2, 3], "CA": [7],
+    fake_irp.selection_by_value = {"US-TX": [1, 2, 3], "US-CA": [7],
                                    "EQ Comm": [2, 3, 4]}
     edm_id, pid, jid = _confirmed_group(
         fake_irp, iteration2_db,
-        filters={"state": ["TX", "CA"], "lob": ["EQ Comm"]})
+        filters={"state": ["US-TX", "US-CA"], "lob": ["EQ Comm"]})
 
     job = run_breakout_job(jid, "custom")
 
@@ -355,38 +355,38 @@ def test_group_worker_unions_within_and_intersects_across(
     assert fake_irp.created_sub_portfolios[0]["number"] == "Coastal"
     assert fake_irp.created_sub_portfolios[0]["description"] == (
         "Custom breakout Coastal of portfolio usfl_commercial: "
-        "lob IN (EQ Comm) AND state IN (CA, TX)")
+        "lob IN (EQ Comm) AND state IN (US-CA, US-TX)")
     rows = _generated_rows(pid)
     assert len(rows) == 1
     row = rows[0]
     assert row["breakout_dimension_code"] == "custom"
     assert row["breakout_value"] == compute_group_key(
-        {"state": ["TX", "CA"], "lob": ["EQ Comm"]})
+        {"state": ["US-TX", "US-CA"], "lob": ["EQ Comm"]})
     assert row["breakout_group_id"] == _group_rows(pid)[0]["id"]
     # one selection read per dimension, each scoped to its own values
     assert [(c["dimension"], c["values"]) for c in fake_irp.selection_calls] \
-        == [("lob", ["EQ Comm"]), ("state", ["CA", "TX"])]
+        == [("lob", ["EQ Comm"]), ("state", ["US-CA", "US-TX"])]
 
 
 def test_group_description_names_perils_by_mnemonic(iteration2_db, fake_irp):
     # D4: the description is what an analyst reads in Risk Modeler, so the
     # peril filter shows WS — while the selection read still runs on the code.
-    fake_irp.selection_by_value = {"TX": [1, 2], "2": [2, 3]}
+    fake_irp.selection_by_value = {"US-TX": [1, 2], "2": [2, 3]}
     edm_id, pid, jid = _confirmed_group(
-        fake_irp, iteration2_db, filters={"state": ["TX"], "peril": ["2"]})
+        fake_irp, iteration2_db, filters={"state": ["US-TX"], "peril": ["2"]})
 
     assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"
 
     assert fake_irp.created_sub_portfolios[0]["description"] == (
         "Custom breakout Coastal of portfolio usfl_commercial: "
-        "peril IN (WS) AND state IN (TX)")
+        "peril IN (WS) AND state IN (US-TX)")
     assert [(c["dimension"], c["values"]) for c in fake_irp.selection_calls] \
-        == [("peril", ["2"]), ("state", ["TX"])]
+        == [("peril", ["2"]), ("state", ["US-TX"])]
 
 
 def test_group_worker_empty_intersection_fails_with_nothing_created(
         iteration2_db, fake_irp):
-    fake_irp.selection_by_value = {"TX": [1], "EQ Comm": [2]}
+    fake_irp.selection_by_value = {"US-TX": [1], "EQ Comm": [2]}
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
 
     job = run_breakout_job(jid, "custom")
@@ -414,7 +414,7 @@ def test_group_worker_selection_read_failure_fails_the_job(
 
 def test_group_worker_rerun_skips_then_reclaims_after_prune(
         iteration2_db, fake_irp):
-    fake_irp.selection_by_value = {"TX": [1, 2], "EQ Comm": [1, 2]}
+    fake_irp.selection_by_value = {"US-TX": [1, 2], "EQ Comm": [1, 2]}
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
     assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"
     first = _generated_rows(pid)[0]
@@ -441,12 +441,12 @@ def test_group_numbers_stay_distinct_past_the_number_cap(
         iteration2_db, fake_irp):
     """Two labels sharing their first 20 characters must not compose one
     portfolio_number — the number is what adoption resolves on (FR-011)."""
-    fake_irp.selection_by_value = {"TX": [1, 2], "CA": [3]}
+    fake_irp.selection_by_value = {"US-TX": [1, 2], "US-CA": [3]}
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(
         edm_id, pid,
-        [_group("Coastal_wind_exposure_north", {"state": ["TX"]}),
-         _group("Coastal_wind_exposure_south", {"state": ["CA"]})],
+        [_group("Coastal_wind_exposure_north", {"state": ["US-TX"]}),
+         _group("Coastal_wind_exposure_south", {"state": ["US-CA"]})],
         AS_OF, iteration2_db.user_a)
 
     numbers = {r["number"] for r in _group_rows(pid)}
@@ -489,9 +489,9 @@ def test_group_worker_unusable_group_fails_with_nothing(
 
 def test_load_approved_group_is_strict():
     good = {"group": {"id": "g", "key": "k", "label": "L", "name": "n",
-                      "number": "N", "filters": {"state": ["TX"]}}}
+                      "number": "N", "filters": {"state": ["US-TX"]}}}
     group = load_approved_group(good)
-    assert (group.id, group.key, group.filters) == ("g", "k", {"state": ["TX"]})
+    assert (group.id, group.key, group.filters) == ("g", "k", {"state": ["US-TX"]})
     for bad in (
         {},
         {"group": "nope"},
@@ -500,7 +500,7 @@ def test_load_approved_group_is_strict():
         {"group": {"id": "g", "key": "k", "label": "L", "name": "n",
                    "number": "N", "filters": {"state": []}}},
         {"group": {"id": "", "key": "k", "label": "L", "name": "n",
-                   "number": "N", "filters": {"state": ["TX"]}}},
+                   "number": "N", "filters": {"state": ["US-TX"]}}},
     ):
         with pytest.raises(ValueError):
             load_approved_group(bad)
@@ -509,10 +509,10 @@ def test_load_approved_group_is_strict():
 # ── page state: custom flights, cart banner, error lines ─────────────────────────
 
 def test_page_state_custom_flight_and_cart_banner(iteration2_db, fake_irp):
-    fake_irp.selection_by_value = {"TX": [1], "EQ Comm": [1], "2": [1]}
+    fake_irp.selection_by_value = {"US-TX": [1], "EQ Comm": [1], "2": [1]}
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(edm_id, pid, [
-        _group("A", {"state": ["TX"]}),
+        _group("A", {"state": ["US-TX"]}),
         _group("B", {"lob": ["EQ Comm"]}),
     ], AS_OF, iteration2_db.user_a)
 
@@ -529,7 +529,7 @@ def test_page_state_custom_flight_and_cart_banner(iteration2_db, fake_irp):
 
     # run the second with an empty selection → failed; both terminal now:
     # the banner aggregates the CART (1 created + 1 failed), errors render
-    fake_irp.selection_by_value = {"TX": [1]}
+    fake_irp.selection_by_value = {"US-TX": [1]}
     job = run_breakout_job(job_ids[1], "custom")
     assert job["status_code"] == "failed"
     state = breakout_service.page_state(edm_id)
@@ -549,9 +549,9 @@ def test_page_state_custom_flight_and_cart_banner(iteration2_db, fake_irp):
 
 def test_list_portfolios_resolves_group_label_and_filters(
         iteration2_db, fake_irp):
-    fake_irp.selection_by_value = {"TX": [1, 2], "2": [1, 2]}
+    fake_irp.selection_by_value = {"US-TX": [1, 2], "2": [1, 2]}
     edm_id, pid, jid = _confirmed_group(
-        fake_irp, iteration2_db, filters={"state": ["TX"], "peril": ["2"]})
+        fake_irp, iteration2_db, filters={"state": ["US-TX"], "peril": ["2"]})
     assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"
 
     rows = portfolio_service.list_portfolios(edm_id=edm_id)
@@ -560,5 +560,5 @@ def test_list_portfolios_resolves_group_label_and_filters(
     assert generated.breakout_group_label == "Coastal"
     assert generated.breakout_value_label == "Coastal"   # label, never the key
     assert generated.breakout_group_filters == {"peril": ["2"],
-                                                "state": ["TX"]}
+                                                "state": ["US-TX"]}
     assert generated.source_name == "usfl_commercial"

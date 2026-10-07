@@ -824,6 +824,25 @@ def test_submission_read_carries_results_state_and_job_status(iteration2_db):
     assert row.results[0].aal == 38270.59
 
 
+def test_submission_read_ignores_a_newer_export_job(iteration2_db):
+    submission = _submission(iteration2_db.user_a)
+    edm = _edm()
+    _attach_edm(submission, edm)
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001")
+    run_job = _job(analysis_id=analysis, status="FINISHED")
+    execute_command(
+        "INSERT INTO irp_job (id, irp_analysis_id, irp_job_type, status, "
+        "submission_attempt_count, inserted_at, updated_at) VALUES "
+        "(:id, :aid, 'export', 'RUNNING', 0, :later, :later)",
+        {"id": str(uuid.uuid4()), "aid": analysis,
+         "later": _utcnow() + timedelta(minutes=1)}, connection="WORKBENCH")
+
+    [row] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+    assert row.irp_job_id == _uid(run_job)
+    assert row.status_label == "Finished"
+
+
 # ── spec 011 US4: the dedicated page's columns (T033) ────────────────────────
 
 

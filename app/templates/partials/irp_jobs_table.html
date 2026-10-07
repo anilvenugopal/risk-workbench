@@ -1,37 +1,73 @@
-{# Read-only irp_job monitor (T-12, FR-014). Inputs come from shell.py's
-   _irp_jobs_context(), shared by the page and this polled fragment: rows, live.
+{# Read-only irp_job monitor (T-12, FR-014). Inputs come from
+   app/routers/irp_jobs.py's _list_context(), shared by the page and this polled
+   fragment. This is the swap unit: the filter form and the pager target
+   #irp-jobs-live.
 
-   While any listed row is non-terminal, the wrapper polls its own render
-   and swaps itself, so status changes without a reload; once every row is
-   terminal the server stops emitting the trigger and polling ends on its own
-   (mirrors partials/library_table.html). No filters, no actions. #}
+   While any row on this page is non-terminal, the wrapper polls its own render
+   with the same filters and page and swaps itself; once every row is terminal
+   the server stops emitting the trigger and polling ends on its own (mirrors
+   partials/library_table.html).
+
+   The poll and the pager links take the filter form's request lock, so a poll
+   or page click is skipped while another request is in flight and a filter
+   request waits for a running one. If one request swapped this element under
+   another, htmx would throw on the detached target and never release the
+   form's lock, so no later filter change would be sent. #}
 {% from "partials/time_macros.html" import local_time %}
 <div id="irp-jobs-live"
   {%- if live %}
-  hx-get="/workflows/irp-jobs/table" hx-trigger="every {{ ui_poll_interval_secs }}s"
-  hx-target="this" hx-swap="outerHTML"
+  hx-get="/workflows/irp-jobs/table?{{ list_query }}" hx-trigger="every {{ ui_poll_interval_secs }}s"
+  hx-target="this" hx-swap="outerHTML" hx-sync="#irp-jobs-filters:drop"
   {%- endif %}>
+
+  {% if date_error %}
+  <div class="form-banner form-banner--error" role="alert">{{ date_error }}</div>
+  {% endif %}
 
   <table class="mk-table">
     <thead>
       <tr>
-        <th>Type</th><th>Entity / Analysis</th><th>Status</th>
-        <th>Submitted by</th><th>Submitted at</th><th>Attempts</th>
+        <th>Type</th><th>Entity</th><th>Status</th><th>Submitted by</th>
+        <th>Submitted</th><th>Completed</th>
       </tr>
     </thead>
     <tbody>
       {% for row in rows %}
       <tr>
         <td>{{ row.type_label or row.irp_job_type }}</td>
-        <td>{% if row.entity_name %}{{ row.entity_name }}{% else %}<span class="na">—</span>{% endif %}</td>
-        <td><span class="status-chip status-chip--{{ (row.status or 'unknown')|lower|replace(' ', '-') }}">{{ row.status }}{% if row.status == 'RUNNING' and row.progress is not none %} {{ row.progress }}%{% endif %}</span></td>
+        <td>{% if row.entity_name %}<span class="muted">{{ row.entity_kind }} ·</span> {{ row.entity_name }}{% else %}<span class="na">—</span>{% endif %}</td>
+        <td>{% set chip = status_chips.get(row.status) %}<span class="status-chip{% if chip %} status-chip--{{ chip }}{% endif %}">{{ row.status }}{% if row.status == 'RUNNING' and row.progress is not none %} {{ row.progress }}%{% endif %}</span></td>
         <td>{% if row.submitted_by %}{{ row.submitted_by }}{% else %}<span class="na">—</span>{% endif %}</td>
         <td>{{ local_time(row.submitted_at) }}</td>
-        <td>{{ row.attempts }}</td>
+        <td>{{ local_time(row.completed_at) }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="empty">No IRP jobs yet.</td></tr>
+      <tr><td colspan="6" class="empty">
+        {%- if date_error %}Fix the dates to see jobs.
+        {%- elif page > 1 %}Page {{ page }} is past the last page. <a href="/workflows/irp-jobs{{ ('?' ~ filter_query) if filter_query }}">Go to page 1</a>
+        {%- elif is_default_view %}You have not submitted any IRP jobs. <a href="/workflows/irp-jobs?submitted_by=any">Show everyone's jobs</a>
+        {%- else %}No IRP jobs match these filters. <a href="/workflows/irp-jobs">Reset filters</a>
+        {%- endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
+
+  {# Only shown once there is somewhere to go. The links carry the applied
+     filters and are real hrefs, so they still work with JavaScript off. #}
+  {% if rows and (page > 1 or has_next) %}
+  {% set stem = '/workflows/irp-jobs?' ~ ((filter_query ~ '&') if filter_query else '') ~ 'page=' %}
+  <nav class="pager" aria-label="IRP job pages">
+    {% if page > 1 %}
+    <a class="btn-sm" rel="prev" href="{{ stem }}{{ page - 1 }}"
+       hx-get="{{ stem }}{{ page - 1 }}" hx-target="#irp-jobs-live"
+       hx-swap="outerHTML" hx-push-url="true" hx-sync="#irp-jobs-filters:drop">‹ Prev</a>
+    {% endif %}
+    <span class="pager__at">Page {{ page }}</span>
+    {% if has_next %}
+    <a class="btn-sm" rel="next" href="{{ stem }}{{ page + 1 }}"
+       hx-get="{{ stem }}{{ page + 1 }}" hx-target="#irp-jobs-live"
+       hx-swap="outerHTML" hx-push-url="true" hx-sync="#irp-jobs-filters:drop">Next ›</a>
+    {% endif %}
+  </nav>
+  {% endif %}
 </div>

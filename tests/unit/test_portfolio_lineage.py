@@ -24,7 +24,7 @@ SNAP_A = {
     "metrics": {"totalLocations": 8240, "totalAccounts": 1120,
                 "totalPolicies": 1180, "perilsExposed": "WS, EQ"},
     "summary": {"portfolio_name": "A", "currencies": ["USD"],
-                "states": ["FL", "TX"], "lines_of_business": ["Commercial"]},
+                "lines_of_business": ["Commercial"]},
 }
 
 
@@ -45,7 +45,7 @@ def test_get_edm_detail_lineage_rows_pending_state_and_immediate_source(
     portfolio_service.save_generated_portfolio(
         edm_id, name="A - X - TX", irp_id="12",
         source_portfolio_id=b.portfolio_id, dimension_code="state",
-        value="TX", actor_id=None)
+        value="US-TX", actor_id=None)
 
     detail = edm_service.get_edm_detail(edm_id)
     by_name = {p.name: p for p in detail.portfolios}
@@ -80,21 +80,21 @@ def test_save_generated_reclaims_soft_deleted_lineage_row(iteration2_db):
     edm_id, a = _setup_source()
     first = portfolio_service.save_generated_portfolio(
         edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
-        dimension_code="state", value="FL", actor_id=iteration2_db.user_a)
+        dimension_code="state", value="US-FL", actor_id=iteration2_db.user_a)
     execute_command(
         "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
         {"now": _utcnow(), "i": first.portfolio_id}, connection="WORKBENCH")
 
     write = portfolio_service.save_generated_portfolio(
         edm_id, name="A - FL", irp_id="21", source_portfolio_id=a.id,
-        dimension_code="state", value="FL", actor_id=iteration2_db.user_b)
+        dimension_code="state", value="US-FL", actor_id=iteration2_db.user_b)
 
     assert write.created is True
     assert write.portfolio_id == first.portfolio_id
     rows = execute(
         "SELECT id, name, irp_id, deleted_at, inserted_by, updated_by "
         "FROM irp_portfolio WHERE source_portfolio_id = :s "
-        "AND breakout_dimension_code = 'state' AND breakout_value = 'FL'",
+        "AND breakout_dimension_code = 'state' AND breakout_value = 'US-FL'",
         {"s": a.id}, connection="WORKBENCH")
     assert len(rows) == 1                            # no ghost twin
     row = rows[0]
@@ -105,21 +105,21 @@ def test_save_generated_reclaims_soft_deleted_lineage_row(iteration2_db):
 
 
 def test_dead_row_with_conflicting_lineage_still_refuses(iteration2_db):
-    # A soft-deleted row holding RM portfolio 11 as the state=FL breakout is
+    # A soft-deleted row holding RM portfolio 11 as the state=US-FL breakout is
     # still that breakout's record — adopting 11 under another value refuses
     # rather than silently moving the portfolio between breakout keys.
     edm_id, a = _setup_source()
     first = portfolio_service.save_generated_portfolio(
         edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
-        dimension_code="state", value="FL", actor_id=None)
+        dimension_code="state", value="US-FL", actor_id=None)
     execute_command(
         "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
         {"now": _utcnow(), "i": first.portfolio_id}, connection="WORKBENCH")
 
-    with pytest.raises(ValueError, match="already the state=FL breakout"):
+    with pytest.raises(ValueError, match="already the state=US-FL breakout"):
         portfolio_service.save_generated_portfolio(
             edm_id, name="A - TX", irp_id="11", source_portfolio_id=a.id,
-            dimension_code="state", value="TX", actor_id=None)
+            dimension_code="state", value="US-TX", actor_id=None)
     row = execute_one(
         "SELECT deleted_at FROM irp_portfolio WHERE id = :i",
         {"i": first.portfolio_id}, connection="WORKBENCH")
@@ -133,14 +133,14 @@ def test_save_generated_revives_soft_deleted_rm_id_match_on_adoption(iteration2_
     edm_id, a = _setup_source()
     first = portfolio_service.save_generated_portfolio(
         edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
-        dimension_code="state", value="FL", actor_id=None)
+        dimension_code="state", value="US-FL", actor_id=None)
     execute_command(
         "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
         {"now": _utcnow(), "i": first.portfolio_id}, connection="WORKBENCH")
 
     write = portfolio_service.save_generated_portfolio(
         edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
-        dimension_code="state", value="FL", actor_id=None)
+        dimension_code="state", value="US-FL", actor_id=None)
 
     assert write.created is True
     assert write.portfolio_id == first.portfolio_id
@@ -158,11 +158,11 @@ def test_lineage_write_reports_a_non_unique_integrity_error_as_itself(
     edm_id, a = _setup_source()
     execute_command(
         "CREATE TRIGGER reject_fl BEFORE INSERT ON irp_portfolio "
-        "WHEN NEW.breakout_value = 'FL' BEGIN "
+        "WHEN NEW.breakout_value = 'US-FL' BEGIN "
         "SELECT RAISE(ABORT, 'FOREIGN KEY constraint failed'); END",
         {}, connection="WORKBENCH")
 
     with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
         portfolio_service.save_generated_portfolio(
             edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
-            dimension_code="state", value="FL", actor_id=None)
+            dimension_code="state", value="US-FL", actor_id=None)

@@ -21,7 +21,7 @@ from typing import Any
 from sqlalchemy import text
 
 from app import log_context
-from app.services._common import _json, _txn, _utcnow
+from app.services._common import _in_clause, _json, _txn, _utcnow
 from db import execute, row_limit
 
 
@@ -241,23 +241,66 @@ def record_submission_failure(
     return job_id
 
 
-# Rows shown on the /workflows/irp-jobs monitor (T-12) — matches submission_service's
-# PAGE_SIZE convention for a capped read.
-RECENT_LIMIT = 50
+# Rows per page of the /workflows/irp-jobs monitor.
+PAGE_SIZE = 50
+
+# Every value Risk Modeler or the Workbench writes to irp_job.status, in the
+# monitor's Status filter order, with its status-chip modifier. irp_job.status
+# mirrors Risk Modeler, so it has no kind table (Article 3).
+STATUS_CHIPS = {
+    "QUEUED": "importing", "SUBMITTED": "importing", "PENDING": "importing",
+    "RUNNING": "importing", "CANCEL_REQUESTED": "cancelled", "CANCELLING": "cancelled",
+    "FINISHED": "ready", "FAILED": "error", "CANCELLED": "cancelled",
+    "SUBMISSION FAILED": "submission-failed", "SUBMISSION RETRYING": "importing",
+}
 
 
-def list_recent(limit: int = RECENT_LIMIT) -> list[dict]:
-    """Newest-first ``irp_job`` rows for the read-only job monitor: job type label,
-    the most specific linked entity's name (analysis over portfolio over RDM over
-    EDM — an ``analysis``-type job has all three of analysis/portfolio/EDM set),
-    status, progress, submitter, submission time, and attempt count. No filters, no
-    writes."""
+def job_type_kinds() -> list[tuple[str, str]]:
+    """Every ``irp_job_type`` as ``(code, label)`` in display order."""
     rows = execute(
-        """
+        "SELECT code, label FROM irp_job_type_kind ORDER BY sort_order, code",
+        {}, connection="WORKBENCH",
+    )
+    return [(row["code"], row["label"]) for row in rows]
+
+
+def list_jobs(
+    *, job_types: list[str], statuses: list[str], submitted_by: list[Any],
+    submitted_from: datetime | None, completed_before: datetime | None, page: int,
+) -> tuple[list[dict], bool]:
+    """One page of ``irp_job`` rows for the read-only job monitor, newest first,
+    and whether a next page exists. Each row carries the job type label, the most
+    specific linked entity's name and type (analysis over portfolio over RDM
+    over EDM), status, progress, submitter, and submission and completion times. An empty
+    list turns that filter off. ``submitted_from`` and
+    ``completed_before`` are naive UTC bounds: ``submitted_at >= submitted_from``
+    and ``completed_at < completed_before``."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    for column, values, prefix in (("j.irp_job_type", job_types, "jt"),
+                                   ("j.status", statuses, "st"),
+                                   ("j.inserted_by", submitted_by, "by")):
+        if values:
+            clause, clause_params = _in_clause(column, values, prefix)
+            clauses.append(clause)
+            params.update(clause_params)
+    if submitted_from is not None:
+        clauses.append("j.submitted_at >= :submitted_from")
+        params["submitted_from"] = submitted_from
+    if completed_before is not None:
+        clauses.append("j.completed_at < :completed_before")
+        params["completed_before"] = completed_before
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = execute(
+        f"""
         SELECT j.id, j.irp_job_type, k.label AS type_label, j.status, j.progress,
-               j.submission_attempt_count AS attempts, j.submitted_at,
+               j.submitted_at, j.completed_at,
                u.display_name AS submitted_by,
-               COALESCE(a.name, p.name, r.name, e.name) AS entity_name
+               COALESCE(a.name, p.name, r.name, e.name) AS entity_name,
+               CASE WHEN a.name IS NOT NULL THEN 'Analysis'
+                    WHEN p.name IS NOT NULL THEN 'Portfolio'
+                    WHEN r.name IS NOT NULL THEN 'RDM'
+                    WHEN e.name IS NOT NULL THEN 'EDM' END AS entity_kind
         FROM irp_job j
         LEFT JOIN irp_job_type_kind k ON k.code = j.irp_job_type
         LEFT JOIN app_user u ON u.id = j.inserted_by
@@ -265,14 +308,17 @@ def list_recent(limit: int = RECENT_LIMIT) -> list[dict]:
         LEFT JOIN irp_portfolio p ON p.id = j.irp_portfolio_id
         LEFT JOIN irp_rdm r ON r.id = j.irp_rdm_id
         LEFT JOIN irp_edm e ON e.id = j.irp_edm_id
-        ORDER BY j.inserted_at DESC
-        """ + row_limit(limit),
-        connection="WORKBENCH",
+        {where}
+        ORDER BY j.submitted_at DESC, j.id DESC
+        """ + row_limit(PAGE_SIZE + 1, offset=(page - 1) * PAGE_SIZE),
+        params, connection="WORKBENCH",
     )
-    return [dict(r) for r in rows]
+    # The row past the page is what "there is a next page" means, without a COUNT.
+    return [dict(r) for r in rows[:PAGE_SIZE]], len(rows) > PAGE_SIZE
 
 
 __all__ = [
     "record_submitted_irp_job", "record_submission_failure", "find_export_job",
-    "failure_message", "TERMINAL", "list_non_terminal", "update_tracking", "list_recent",
+    "failure_message", "TERMINAL", "list_non_terminal", "update_tracking", "list_jobs",
+    "job_type_kinds", "STATUS_CHIPS",
 ]

@@ -39,7 +39,9 @@ SOURCE_SEEN = ("1", "usfl_commercial")   # the source portfolio survives in RM
 def _mk_job(edm_id: str, portfolio_id: str, actor_id) -> str:
     jid = str(uuid.uuid4())
     plan = [{"value": v, "label": None, "name": f"usfl_commercial - {v}",
-             "number": f"P1-S-{v}", "accounts": 1} for v in ("FL", "GA")]
+             "number": n, "accounts": 1}
+            for v, n in (("US-FL", "P1-S-USFL3435C9"),
+                         ("US-GA", "P1-S-USGA308958"))]
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
         "link_id, context_type, context_id, rwb_job_type, "
@@ -67,7 +69,7 @@ def test_demo_sequence_reclaims_rows_and_next_sync_stays_healthy(
         iteration2_db, fake_irp):
     edm_id = mk_edm(name="EDM")
     source_id = mk_portfolio(edm_id)
-    fake_irp.selection_by_value = {"FL": [1], "GA": [2]}
+    fake_irp.selection_by_value = {"US-FL": [1], "US-GA": [2]}
     jid = _mk_job(edm_id, source_id, iteration2_db.user_a)
 
     # 1. breakout — two generated rows, RM ids 431/432
@@ -114,7 +116,7 @@ def test_resurrect_by_name_skips_generated_rows(iteration2_db):
     source_id = mk_portfolio(edm_id)
     write = portfolio_service.save_generated_portfolio(
         edm_id, name="usfl_commercial - FL", irp_id="431",
-        source_portfolio_id=source_id, dimension_code="state", value="FL",
+        source_portfolio_id=source_id, dimension_code="state", value="US-FL",
         actor_id=None)
     portfolio_service.prune_missing(edm_id=edm_id, seen=[SOURCE_SEEN],
                                     now=_utcnow())
@@ -145,7 +147,7 @@ def test_resurrect_by_irp_id_still_revives_generated_rows(iteration2_db):
     source_id = mk_portfolio(edm_id)
     write = portfolio_service.save_generated_portfolio(
         edm_id, name="usfl_commercial - FL", irp_id="431",
-        source_portfolio_id=source_id, dimension_code="state", value="FL",
+        source_portfolio_id=source_id, dimension_code="state", value="US-FL",
         actor_id=None)
     portfolio_service.prune_missing(edm_id=edm_id, seen=[SOURCE_SEEN],
                                     now=_utcnow())

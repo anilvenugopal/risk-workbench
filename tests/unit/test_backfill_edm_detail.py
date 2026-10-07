@@ -501,12 +501,13 @@ SUMMARY_COUNTED = {
     "portfolio_name": "Primary 2026",
     "total_tiv": 2.8e9,
     "currencies": ["USD"],
-    "states": ["FL", "TX"],
     "lines_of_business": ["Commercial"],
     "account_total": 1701,
     "breakout_values": {
-        "state": [{"value": "FL", "label": "FLORIDA", "accounts": 1493},
-                  {"value": "TX", "label": "TEXAS", "accounts": 220}],
+        "state": [{"value": "US-FL", "label": "FLORIDA", "accounts": 1493,
+                   "country": "US"},
+                  {"value": "US-TX", "label": "TEXAS", "accounts": 220,
+                   "country": "US"}],
         "lob": [{"value": "Commercial", "label": None, "accounts": 1701}],
     },
 }
@@ -527,8 +528,10 @@ def test_backfill_stores_stamp_date_and_counted_summary(
     assert snap["stamp_date"] == "2026-08-01T12:00:00Z"
     assert snap["summary"]["account_total"] == 1701
     assert snap["summary"]["breakout_values"]["state"] == [
-        {"value": "FL", "label": "FLORIDA", "accounts": 1493},
-        {"value": "TX", "label": "TEXAS", "accounts": 220}]
+        {"value": "US-FL", "label": "FLORIDA", "accounts": 1493,
+         "country": "US"},
+        {"value": "US-TX", "label": "TEXAS", "accounts": 220,
+         "country": "US"}]
     assert snap["summary"]["breakout_values"]["lob"] == [
         {"value": "Commercial", "label": None, "accounts": 1701}]
 
