@@ -124,6 +124,7 @@ def _submit_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
     context = rwb_job_service.load_input_data(rwb_job_id)
     export_id = _uid(context["export_id"])
     submission_id = context.get("submission_id")
+    actor_id = rwb_job_service.get_rwb_job(rwb_job_id=rwb_job_id)["inserted_by"]
     rows = execute(
         "SELECT manifest_id, irp_analysis_id, irp_analysis_irp_id, perspective_code "
         "FROM stage.rwb_loss_result_manifest "
@@ -164,7 +165,8 @@ def _submit_results_export_body(rwb_job_id: Any) -> runtime.JobResult:
             irp_job_type="export", requested_from_submission_id=submission_id,
             irp_edm_id=analysis.get("edm_id"), irp_rdm_id=analysis.get("rdm_id"),
             irp_analysis_id=analysis_id, irp_id=str(job_id),
-            payload=request_body, request_params=request_body, export_id=export_id)
+            payload=request_body, request_params=request_body, export_id=export_id,
+            actor_id=actor_id)
         for row in group:
             _stamp_manifest(row["manifest_id"], irp_export_job_id=str(job_id))
         submitted += 1

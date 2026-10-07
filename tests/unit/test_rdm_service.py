@@ -52,12 +52,13 @@ def test_import_submits_one_standalone_rdm(iteration2_db, fake_irp, drive):
     entity_jobs.run_pending()
 
     jobs = execute(
-        "SELECT irp_edm_id FROM irp_job WHERE irp_rdm_id=:r "
+        "SELECT irp_edm_id, inserted_by FROM irp_job WHERE irp_rdm_id=:r "
         "AND irp_job_type='import_rdm'",
         {"r": result.entity_id}, connection="WORKBENCH",
     )
     assert len(jobs) == 1
     assert jobs[0]["irp_edm_id"] is None
+    assert jobs[0]["inserted_by"] == iteration2_db.user_a
     assert fake_irp.submits[-1]["exposure_set_name"] == "R"
     assert rdm_service.get_rdm(result.entity_id).status == rdm_service.IMPORTING
 
