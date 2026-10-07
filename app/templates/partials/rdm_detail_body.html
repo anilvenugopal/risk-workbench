@@ -18,8 +18,10 @@
 {% set sort_desc = sort_desc|default(true) %}
 {% set sort_query = ('' if sort_key == 'submitted' and sort_desc
      else 'sort=' ~ sort_key ~ '&dir=' ~ ('desc' if sort_desc else 'asc')) %}
+{# A sort click re-renders the whole body, notes panel included. #}
 {% set sort_state = {'key': sort_key, 'desc': sort_desc,
-     'stem': body_url ~ '?', 'target': 'rdm-detail'} %}
+     'stem': body_url ~ '?', 'target': 'rdm-detail',
+     'trigger': "click[!document.querySelector('#rdm-detail .entity-note--editing') || confirm('Sorting discards the note you are editing. Continue?')]"} %}
 {% set sync_url = detail_sync_url|default('/rdms/' ~ rdm.id ~ '/sync')
      ~ ('?' ~ sort_query if sort_query) %}
 {% set base_url = detail_base_url|default('/rdms/' ~ rdm.id) %}
