@@ -24,7 +24,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._analysis_delete import delete_analyses_response
-from app.routers._analysis_rows import analysis_rows_response, retarget_section
+from app.routers._analysis_rows import (
+    analysis_rows_response, open_rdm_ids, retarget_section,
+)
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import save_notes
 from app.routers._list_filters import library_filters, picker_options
@@ -318,7 +320,9 @@ def _contextual_body_partial(
         return Response(status_code=204)
     return _partial(
         request, "partials/edm_detail_body.html",
-        _contextual_template_context(context))
+        {**_contextual_template_context(context),
+         "open_rdm_ids": open_rdm_ids(request, context.rdms,
+                                      context.submission.id, "", True)})
 
 
 @router.get(
@@ -688,6 +692,9 @@ def _analyses_section_partial(request: Request, edm_id: str,
     ctx = _analyses_section_context(request, edm_id, submission_id)
     if ctx is None:
         return _analyses_gone_notice(submission_id)
+    if submission_id is not None:
+        ctx["open_rdm_ids"] = open_rdm_ids(request, ctx["groups"], submission_id,
+                                           ctx["sort"], ctx["sort_desc"])
     return _partial(request, "partials/analyses_merged_section.html", ctx)
 
 

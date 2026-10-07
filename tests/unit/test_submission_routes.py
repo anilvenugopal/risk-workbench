@@ -1743,6 +1743,17 @@ def test_results_rows_poll_swaps_rows_or_replaces_the_section(client):
     assert "data-analyses-section" in replaced.text
 
 
+
+def test_results_rows_poll_renders_named_rdm_groups_open(client):
+    submission_id, _, rdm_id = _seed_results_data(client)
+
+    replaced = client.post(f"/submissions/{submission_id}/analyses/rows",
+                           data={"hash": "stale", "live": ""},
+                           headers={"X-Open-Rdms": rdm_id})
+
+    assert replaced.headers["HX-Retarget"] == "#submission-analyses"
+    assert "FL HU Gross 2026" in replaced.text
+
 def test_results_rows_poll_ends_when_the_submission_is_gone(client):
     response = client.post(f"/submissions/{uuid.uuid4()}/analyses/rows",
                            data={"hash": "any", "live": ""})

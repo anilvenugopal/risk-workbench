@@ -30,7 +30,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._analysis_delete import delete_analyses_response
-from app.routers._analysis_rows import analysis_rows_response, retarget_section
+from app.routers._analysis_rows import (
+    analysis_rows_response, open_rdm_ids, retarget_section,
+)
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.routers._list_filters import (
@@ -440,8 +442,10 @@ def submission_analyses(request: Request, submission_id: str):
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _results_gone()
-    return _partial(request, "partials/analyses_merged_section.html",
-                    _results_section_context(request, submission_id, submission))
+    ctx = _results_section_context(request, submission_id, submission)
+    ctx["open_rdm_ids"] = open_rdm_ids(request, ctx["groups"], submission_id,
+                                       ctx["sort"], ctx["sort_desc"])
+    return _partial(request, "partials/analyses_merged_section.html", ctx)
 
 
 @router.post("/submissions/{submission_id}/analyses/rows",

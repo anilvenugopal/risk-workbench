@@ -5,6 +5,7 @@ expanded row with inline condensed results)."""
 from __future__ import annotations
 
 import json
+import re
 import uuid
 
 import pytest
@@ -437,3 +438,57 @@ def test_contextual_rdm_lazy_rows_follow_the_section_sort(client, iteration2_db)
     assert ascending.index("Bravo quake") < ascending.index("Alpha wind")
     assert descending.index("Alpha wind") < descending.index("Bravo quake")
     assert f'/rdms/{rdm_id}/analyses?sort=peril&amp;dir=asc"' in section
+
+
+def _rdm_group_tag(html: str, rdm_id: str) -> str:
+    return re.search(rf'<details class="dtable__rdm" id="rdm-group-{rdm_id}"[^>]*>',
+                     html).group(0)
+
+
+def test_contextual_section_renders_named_rdm_groups_open_with_rows(
+        client, iteration2_db):
+    submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
+    _analysis(rdm_id, "1", "Alpha wind", {"perilCode": "WS"})
+    _analysis(rdm_id, "2", "Bravo quake", {"perilCode": "EQ"})
+    closed_id = _rdm("Second Broker RDM", 4822)
+    execute_command(
+        "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+        {"s": submission_id, "r": closed_id}, connection="WORKBENCH")
+    _analysis(closed_id, "3", "Charlie flood")
+
+    html = client.get(f"/submissions/{submission_id}/edms/{edm_id}"
+                      "/analyses?sort=peril&dir=asc",
+                      headers={"X-Open-Rdms": rdm_id}).text
+
+    open_tag = _rdm_group_tag(html, rdm_id)
+    assert open_tag.endswith("open>") and "hx-get" not in open_tag
+    rows = html[html.index(f'id="rdm-analyses-{rdm_id}"'):]
+    assert rows.index("Bravo quake") < rows.index("Alpha wind")
+    assert "hx-get" in _rdm_group_tag(html, closed_id)
+    assert "Charlie flood" not in html
+
+
+def test_contextual_body_renders_named_rdm_groups_open_with_rows(
+        client, iteration2_db):
+    submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
+    _analysis(rdm_id, "1", "Alpha wind")
+
+    html = client.get(f"/submissions/{submission_id}/edms/{edm_id}/body",
+                      headers={"X-Open-Rdms": rdm_id}).text
+
+    assert _rdm_group_tag(html, rdm_id).endswith("open>")
+    assert "Alpha wind" in html
+
+
+def test_open_rdm_header_ignores_rdms_off_the_submission(client, iteration2_db):
+    submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
+    _analysis(rdm_id, "1", "Alpha wind")
+    other_id = _rdm("Unrelated RDM", 4999)
+    _analysis(other_id, "2", "Unrelated analysis")
+
+    html = client.get(f"/submissions/{submission_id}/edms/{edm_id}/analyses",
+                      headers={"X-Open-Rdms": other_id}).text
+
+    assert "hx-get" in _rdm_group_tag(html, rdm_id)
+    assert f"rdm-group-{other_id}" not in html
+    assert "Alpha wind" not in html and "Unrelated analysis" not in html
