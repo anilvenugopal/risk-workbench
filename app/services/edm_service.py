@@ -43,6 +43,8 @@ from app.services._common import (
     SubmissionRef,
     _attach_submissions,
     _import_entity,
+    _import_label,
+    _latest_import_jobs,
     _mark_error,
     _mark_importing,
     _replace_source_file,
@@ -100,6 +102,13 @@ class EdmRow:
     # Owning submissions (M:N), oldest-first — populated only by ``list_edms``;
     # defaulted so ``get_edm`` and every existing caller are unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
+    # the latest import job — populated only by ``list_edms``
+    job_status: str | None = None
+    job_progress: int | None = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 def check_name_collision(name: str) -> CollisionCheck:
@@ -333,6 +342,9 @@ def list_edms(*, name: str | None = None, status: str | None = None,
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
     _attach_submissions("edm", result)
+    jobs = _latest_import_jobs("edm", [r.id for r in result])
+    for row in result:
+        row.job_status, row.job_progress = jobs.get(row.id, (None, None))
     return result
 
 
@@ -384,6 +396,8 @@ class EdmDetail:
     # 'populated' | 'importing' | 'pending' | 'failed' | 'empty' | 'unavailable'
     detail_state: str
     notes: str | None = None
+    job_status: str | None = None
+    job_progress: int | None = None
     # a backfill head (either key) is pending/running — drives the "Syncing…"
     # button state even when the table is already populated
     sync_running: bool = False
@@ -400,12 +414,13 @@ class EdmDetail:
     # treaties screen for this datasource — None when RISK_MODELER_BASE_URL is
     # not configured (the template falls back to the plain read-only note).
     rm_treaties_url: str | None = None
+    rm_url: str | None = None
     # Issue #17 backstop surfacing: the failed upload head's specific Risk
     # Modeler message (``latest_import_error``) — set only when status ==
     # 'error'; None when the failure recorded no submit detail.
     import_error: str | None = None
     # Spec 005 (FR-012): a ``run_breakout_*`` job on one of this EDM's
-    # portfolios is pending|running — keeps the body's 3s self-poll alive so
+    # portfolios is pending|running — keeps the body's self-poll alive so
     # generated rows appear as the worker upserts them.
     breakout_running: bool = False
     # Owning submissions (M:N), oldest-first, linked in the header's meta line
@@ -414,6 +429,10 @@ class EdmDetail:
     # The newest terminal breakout job's completion banner
     # (breakout_service.BreakoutBanner) — None when nothing warrants one.
     breakout_banner: Any = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 @dataclass
@@ -521,6 +540,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         p.breakout_flight = breakout.flights.get(p.id)
         p.breakout_errors = breakout.errors.get(p.id, [])
     job_status = latest_backfill_status(eid)
+    import_job_status, import_job_progress = _latest_import_jobs(
+        "edm", [eid]).get(_uid(row["id"]), (None, None))
     detail = EdmDetail(
         id=_uid(row["id"]),
         name=row["name"],
@@ -536,11 +557,14 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         detail_state=_detail_state(row["status"], row["as_of"], portfolios,
                                    job_status),
         notes=row["notes"],
+        job_status=import_job_status,
+        job_progress=import_job_progress,
         sync_running=job_status in ("pending", "running"),
         treaties=treaties,
         analyses=analyses,
         executed_analyses=executed_analyses,
         rm_treaties_url=_rm_datasource_url(row["name"], "treaties"),
+        rm_url=_rm_datasource_url(row["name"], "portfolios"),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),
         breakout_running=breakout.running,
@@ -578,7 +602,7 @@ def get_contextual_edm_detail(
 def get_edm_analyses(
     *, edm_id: Any, submission_id: Any | None = None,
 ) -> EdmAnalysesSection | None:
-    """The Analyses section's own read (T-11). Its 3s self-poll re-renders that
+    """The Analyses section's own read (T-11). Its self-poll re-renders that
     one fragment, so it must not pay for the whole detail page — portfolios,
     geohaz, treaties and breakout page state are all unread by the fragment.
     With ``submission_id`` it also reads the submission's RDMs, which the merged

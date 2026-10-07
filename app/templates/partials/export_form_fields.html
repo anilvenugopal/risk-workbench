@@ -5,6 +5,7 @@
    each one while its terms are on screen (P-03, P-06, P-12). An analysis
    already exported for the chosen perspective is warned about in its cart row
    and still exports — the repeat writes a second data set (FR-004). #}
+{% from "partials/time_macros.html" import local_time %}
 <div id="export-fields" class="export-cart">
   <div class="wf-field">
     <label>PERSPECTIVE <span class="wf-field__req" title="Required">*</span></label>
@@ -40,7 +41,7 @@
         </div>
         {# No AAL at TY: the value exists only per treaty, on the loaded row (P-10). #}
         {% if perspective and perspective != 'TY' %}
-        <div class="bo-cart-row__meta" title="{{ a.aal.get(perspective) }}">AAL {{ a.aal_display(perspective) }}</div>
+        <div class="bo-cart-row__meta" title="{{ a.aal.get(perspective) }}">AAL {{ a.aal_display(perspective) }}{% if a.currency %} {{ a.currency }}{% endif %}</div>
         {% endif %}
         {% if perspective == 'TY' %}
         <div class="treaty-pick">
@@ -74,7 +75,7 @@
         {% if a.exported %}
         <div class="wf-field__msg wf-field__hint wf-field__hint--warn">Already exported for {{ perspective }}
           ({{ a.exported.earlier_count }} time{{ 's' if a.exported.earlier_count != 1 }}),
-          last {{ a.exported.requested_at }} by {{ a.exported.requested_by_email }}
+          last {{ local_time(a.exported.requested_at) }} by {{ a.exported.requested_by_email }}
           · {{ a.exported.status }} — <a href="{{ a.exported.exports_url }}">open that submission's exports</a>.
           Exporting again creates a new data set.</div>
         {% endif %}

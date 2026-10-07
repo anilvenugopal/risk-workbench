@@ -23,6 +23,7 @@ from app.services.rwb_job_service import (
     enqueue_rwb_job,
 )
 from db import execute_command
+from tests.unit.conftest import cedant_id
 
 _NO_LINK = {"link_type": "not_applicable", "link_id": None,
            "context_type": None, "context_id": None}
@@ -61,6 +62,7 @@ def _make_app(user=None):
     app = FastAPI()
     templates = Jinja2Templates(directory=TEMPLATE_DIRS)
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     app.state.templates = templates
 
     app.add_middleware(_InjectUser, user=user or _fake_user())
@@ -82,10 +84,10 @@ def _edm(*, name="EDM") -> str:
 def _submission(*, name="Sub", assigned_analyst_id) -> str:
     sid = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
+        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_id, "
         "status_code, inserted_at, updated_at) "
-        "VALUES (:id, :a, :name, 'Cedant', 'ACTIVE', :now, :now)",
-        {"id": sid, "a": assigned_analyst_id, "name": name,
+        "VALUES (:id, :a, :name, :ced, 'ACTIVE', :now, :now)",
+        {"id": sid, "a": assigned_analyst_id, "name": name, "ced": cedant_id(),
          "now": "2026-01-01 00:00:00"},
         connection="WORKBENCH")
     return sid
@@ -143,7 +145,7 @@ class TestRwbJobsPage:
 
         resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
         assert resp.status_code == 200
-        assert stamped.isoformat(sep=' ')[:16] in resp.text
+        assert f'<time data-utc="{stamped.isoformat(sep=" ")}"' in resp.text
         assert "2m 1" in resp.text or "2m 0" in resp.text  # ~2m14s, allow test-run skew
 
     def test_table_fragment(self, iteration2_db):

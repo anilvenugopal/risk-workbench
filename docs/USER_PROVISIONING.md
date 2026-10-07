@@ -6,7 +6,7 @@ All provisioning actions below can be performed via the interactive CLI:
 
 ```bash
 make wsl-user-setup              # WSL2 / local
-./infra/scripts/run_user_setup.sh   # production server
+bash infra/scripts/run_user_setup.sh   # production server
 ```
 
 The menu has four options:
@@ -46,7 +46,7 @@ Before any admin exists in the application, you must promote the first user dire
 
 **Steps:**
 
-1. The target user must first sign in via Microsoft Entra (OIDC) so their `app_user` row is created.
+1. The target user's `app_user` row must exist. Either they sign in via Microsoft Entra (OIDC) once, or you skip this SQL entirely and use the CLI `create` action above, which creates an OIDC or password user with the `admin` role.
 2. Connect to the database and run:
 
 ```sql
@@ -119,9 +119,9 @@ For local or service accounts that do not use Microsoft Entra.
 2. Under **Password account**, enter display name, email, and an initial password.
 3. Click **Create password user**.
 
-The account is created with `must_change_password = true`. On first login, the user is redirected to a change-password screen before accessing anything else.
+The account is created with `must_change_password = true` and no role. On first login, the user is redirected to a change-password screen before accessing anything else. Assign a role from the user's page, or the user lands on the "Access pending" page after changing the password.
 
-**Password requirements:** minimum 12 characters, at least one uppercase letter, one lowercase letter, and one number.
+**Password requirements:** minimum 12 characters, at least one uppercase letter, one lowercase letter, and one number. They are checked when the account is created and when the user changes or sets their own password. The admin screen's **Reset password** action does not check them.
 
 ---
 
@@ -130,7 +130,7 @@ The account is created with `must_change_password = true`. On first login, the u
 While waiting for role assignment (Flow 2), users can update their profile:
 
 - **Display name** — how their name appears in the shell status bar
-- **Password** (optional) — sets a password fallback if `AUTH_MODE=password` is enabled
+- **Password** (optional) — sets a password fallback, shown on the login page when `AUTH_MODE` is `password` or `both`
 
 This is available on the `/auth/access-pending` page immediately after OIDC sign-in.
 

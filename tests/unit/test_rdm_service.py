@@ -12,6 +12,7 @@ from app.services import analysis_service, rdm_service, submission_service
 from app.services.errors import InvalidMemberName, NameCollisionError
 from app.workers import entity_jobs
 from db import execute, execute_command, execute_scalar
+from tests.unit.conftest import cedant_id
 
 
 def _import(iteration2_db, drive, *, name: str = "R", source: str = "rdm1.mdf"):
@@ -51,12 +52,13 @@ def test_import_submits_one_standalone_rdm(iteration2_db, fake_irp, drive):
     entity_jobs.run_pending()
 
     jobs = execute(
-        "SELECT irp_edm_id FROM irp_job WHERE irp_rdm_id=:r "
+        "SELECT irp_edm_id, inserted_by FROM irp_job WHERE irp_rdm_id=:r "
         "AND irp_job_type='import_rdm'",
         {"r": result.entity_id}, connection="WORKBENCH",
     )
     assert len(jobs) == 1
     assert jobs[0]["irp_edm_id"] is None
+    assert jobs[0]["inserted_by"] == iteration2_db.user_a
     assert fake_irp.submits[-1]["exposure_set_name"] == "R"
     assert rdm_service.get_rdm(result.entity_id).status == rdm_service.IMPORTING
 
@@ -132,13 +134,11 @@ def test_list_rdms_has_no_row_scope(iteration2_db, fake_irp, drive):
 def test_contextual_detail_validates_association_and_lists_submission_rdms(
         iteration2_db):
     first = submission_service.create_submission(
-        name="First submission", cedant_name="First",
-        treaty_year=2026, data_vintage="2026-06-30", actor_id=iteration2_db.user_a,
-        confirmed=True).submission_id
+        name="First submission", cedant_id=cedant_id("First"),
+        treaty_year=2026, data_vintage="2026-06-30", actor_id=iteration2_db.user_a)
     second = submission_service.create_submission(
-        name="Second submission", cedant_name="Second",
-        treaty_year=2026, data_vintage="2026-06-30", actor_id=iteration2_db.user_a,
-        confirmed=True).submission_id
+        name="Second submission", cedant_id=cedant_id("Second"),
+        treaty_year=2026, data_vintage="2026-06-30", actor_id=iteration2_db.user_a)
     shared = str(uuid.uuid4())
     other = str(uuid.uuid4())
     for rdm_id, name in ((shared, "Shared RDM"), (other, "Other RDM")):

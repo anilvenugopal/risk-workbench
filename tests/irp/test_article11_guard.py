@@ -3,8 +3,8 @@
 Asserts — as part of the opt-in ``--run-irp`` sandbox pass — that the blocking
 ``poll_*_to_completion`` helpers AND the wheel's poll-inside convenience
 methods (``edm.delete_edm()``, ``rdm.export_analyses_to_rdm()``,
-``import_job.submit_job()`` — each calls a poll-to-completion internally, see
-docs/IRP_INTEGRATION_FOLLOWUPS.md §4) appear nowhere in the worker / poller /
+``import_job.submit_job()`` — each calls a poll-to-completion internally)
+appear nowhere in the worker / poller /
 gateway code that performs the spec-004 detail reads. The unit tier carries the
 same poll scan (``tests/unit/test_architecture_guards.py``); this file makes
 the assertion part of every sandbox verification run, next to the real
@@ -55,4 +55,4 @@ def test_no_poll_inside_convenience_methods():
     offenders = _offenders(_POLL_INSIDE)
     assert offenders == [], (
         "the wheel's poll-inside convenience methods are forbidden "
-        f"(Article 11 / FOLLOWUPS §4): {offenders}")
+        f"(Article 11): {offenders}")

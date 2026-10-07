@@ -67,11 +67,13 @@ templates.env.globals["app_env"] = settings.app_env
 templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
 templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
 templates.env.globals["generate_csrf_token"] = generate_csrf_token
+templates.env.globals["ui_poll_interval_secs"] = settings.ui_poll_interval_secs
 # Every perspective toggle and the merged grid's AAL column open on this one;
 # a global keeps the routes that render those partials out of it.
 templates.env.globals["default_perspective"] = analysis_service.DEFAULT_PERSPECTIVE
 templates.env.globals["default_perspective_label"] = (
     analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
 # Breakout values are stored as the EDM's own filter values; peril's are numeric
 # codes, so every template that shows one runs it through this filter.
 templates.env.filters["breakout_display"] = breakout_service.display_value
@@ -83,8 +85,10 @@ app.state.templates = templates
 from app.routers import (  # noqa: E402
     admin,
     auth,
+    cedants,
     edms,
     health,
+    irp_jobs,
     portfolios,
     rdms,
     rwb_jobs,
@@ -100,6 +104,7 @@ from app.routers import (  # noqa: E402
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(cedants.router)
 app.include_router(submissions.router)
 app.include_router(shared_drive.router)
 app.include_router(edms.router)
@@ -108,6 +113,7 @@ app.include_router(rdms.router)
 app.include_router(treaties.router)
 app.include_router(template_routes.router)
 app.include_router(rwb_jobs.router)
+app.include_router(irp_jobs.router)
 app.include_router(shell.router)
 
 

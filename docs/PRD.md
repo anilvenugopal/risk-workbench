@@ -59,7 +59,7 @@ Every submission follows three sequential phases. The workbench covers all three
 
 ### 1.4 Core domain glossary
 
-- **Submission (the deal)** — the top-level unit of work and the only user-facing container for EDMs and RDMs: one cedant's modeling project, carrying zero or more contracts. There is no hierarchy above it (no Customer or Program — dropped, CR-003). EDMs and RDMs relate directly to zero or more submissions without copying the Risk Modeler resource. The submission carries the deal's identity and filter attributes (`cedant_name`, `client_id`, `data_vintage`, `treaty_year`), an assigned analyst (soft owner, for the "my submissions" view — **not** an access gate), an optional shared-drive `directory_path`, and an optional self-referential link. Each contract (`contract`, spec 017) is a CRM ID with its own treaty type, inception, expiration and Contract status.
+- **Submission (the deal)** — the top-level unit of work and the only user-facing container for EDMs and RDMs: one cedant's modeling project, carrying zero or more contracts. There is no hierarchy above it (no Customer or Program — dropped, CR-003). EDMs and RDMs relate directly to zero or more submissions without copying the Risk Modeler resource. The submission carries the deal's identity and filter attributes (`cedant_id`, `client_id`, `data_vintage`, `treaty_year`), an assigned analyst (soft owner, for the "my submissions" view — **not** an access gate), an optional shared-drive `directory_path`, and an optional self-referential link. Each contract (`contract`, spec 017) is a CRM ID with its own treaty type, inception, expiration and Contract status.
 - **EDM (Exposure Data Module)** — an exposure database, typically a `.bak` or `.mdf` file from a broker. First-class tracked entity in the workbench (name + IRP exposure ID). Imported into IRP, validated, and used as the basis for analysis.
 - **RDM (Risk Data Model)** — a results database from the broker (their own prior analysis). First-class tracked entity. Imported into IRP; used for comparison against the analyst's own results.
 - **Portfolio** — a named view within an EDM in IRP (all accounts, or a filtered subset). Analysis jobs run against portfolios, not EDMs directly. Each `irp_*` entity tracks its own Risk Modeler id in `irp_id`.
@@ -232,7 +232,7 @@ IDE-style, three zones:
 | Rail item | Sidebar children |
 |---|---|
 | Home (dashboard) | — |
-| Submissions | List |
+| Submissions | List, Cedants |
 | Jobs | IRP Jobs, RWB Jobs, Exceptions |
 | Results | Results, Loss Repository |
 | Moody's IRP | Sync Metadata, EDM Library, RDM Library |
@@ -442,7 +442,7 @@ Ownership is a plain list filter: `WHERE assigned_analyst_id = current_user.id`.
 
 ### 6.3 Admin maintenance
 
-Admin rail destination maintains users and role assignments only (there is no customer-access grant to manage). Building it early makes role-gating testable end-to-end immediately.
+Admin rail destination maintains users and role assignments (there is no customer-access grant to manage). The cedant list is not an admin function: every analyst maintains it (§7.2). Building it early makes role-gating testable end-to-end immediately.
 
 ---
 
@@ -456,9 +456,9 @@ Admin rail destination maintains users and role assignments only (there is no cu
 
 The analyst's unit of work. Fields (schema: DATA_MODEL.md §4):
 - `id` (surrogate UUID — the real key), `name` — the naming-convention label (e.g. `TY2604_AmericanFamily`), a human label that is **not unique** (§7.2b)
-- `cedant_name` — plain string, primary filter, kept consistent via autocomplete over existing values (no `cedant` table — that would re-create `customer` under a new name, CR-003 O3)
+- `cedant_id` — FK to the shared `cedant` list, primary filter; the form picks from the list, so one cedant has one spelling and a rename shows on every submission (issue #129, reversing CR-003 O3). A name that matches no cedant can be added from the form, and the cedant is written only when the submission saves. Any analyst maintains the list at `/cedants`. A cedant is not an access scope (§6)
 - `client_id` — nullable; CIC's repository client (`rwb_loss` `dbo.Client`, no FK across databases), shown as "ID - name" (spec 017 P-04, P-05)
-- `data_vintage` — required; the in-force as-of date of the EDM data, one per submission by convention, shown on the deal card; the export form's own data vintage starts empty (spec 017 P-19, note 32 D23, note 35 D13)
+- `data_vintage` — required; the in-force as-of date of the EDM data, one per submission by convention, shown on the deal card; the export form's data vintage pre-fills from it (spec 017 P-19, note 32 D23, CIC 2026-09-29)
 - `treaty_year` — nullable; entered by hand, nothing fills a blank one (spec 017 P-20, note 33 D8), for renewal-year grouping
 - `links_to_submission_id` FK → `submission` — nullable self-reference to a related submission, **manual** (no treaty-system integration to infer it — CR-003 O4). Labelled "links to" and picked by name, not id: the relationship is a link to a related deal, not necessarily a renewal (design note 08 CR8, superseding `renews_from_submission_id`)
 - `directory_path` — nullable; the per-deal shared-drive directory the analyst stages files in. Seeds the file browse location and the naming-convention parse; there is no directory *inventory* (§8)
@@ -503,7 +503,7 @@ This replaces the prior `authoring_status` field, whose three-value guess (`draf
 
 ### 7.2b Submission identity — surrogate key, non-unique label
 
-`submission.name` is **not unique.** The July 9 CIC session established that two genuinely distinct deals can share every naming-convention attribute — same cedant, same inception, same treaty type (e.g. a regional cat and a corporate cat incepting the same day) — and differ only by the **CRM ID** (design note 03 §4). A DB-level `UNIQUE(name)` would therefore reject a legitimate second deal, or force analysts to mangle the label with a suffix at peak season. So identity rests on the surrogate `id` (UUID); `name` is a human label kept consistent by autocomplete. To still guard against *accidental* re-creation, create/rename runs a **non-blocking** "a similar deal already exists" check (same UX as the EDM/RDM name-collision warning, §9.4) — it warns and lets the analyst proceed, never hard-blocks. The CRM ID is the one exception: a contract's CRM ID is required and unique across the Workbench, so entering one that another submission already holds is a hard block whose message links to that submission (spec 017 FR-003; note 33 D14, 2026-09-22). *(Resolves the OQ-3 identity/uniqueness tension from design note 03 in favor of a surrogate key + soft warning.)*
+`submission.name` is **not unique.** The July 9 CIC session established that two genuinely distinct deals can share every naming-convention attribute — same cedant, same inception, same treaty type (e.g. a regional cat and a corporate cat incepting the same day) — and differ only by the **CRM ID** (design note 03 §4). A DB-level `UNIQUE(name)` would therefore reject a legitimate second deal, or force analysts to mangle the label with a suffix at peak season. So identity rests on the surrogate `id` (UUID); `name` is a human label kept consistent by autocomplete. Create and rename never compare the name, cedant, treaty type or inception with other submissions (issue #165). The CRM ID is the one exception: a contract's CRM ID is required and unique across the Workbench, so entering one that another submission already holds is a hard block whose message links to that submission (spec 017 FR-003; note 33 D14, 2026-09-22). *(Resolves the OQ-3 identity/uniqueness tension from design note 03 in favor of a surrogate key.)*
 
 > **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just deals (and a nullable `treaty_year`/`renews_from_submission_id` where a renewal relationship actually exists, §7.2). It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 6, not yet built). The replacement token set is resolved in CR-003: `cedant_name` + `treaty_year` + region + peril (§2.6, §11.2).
 
@@ -1349,7 +1349,7 @@ touched.
 - §7 (Submission as the top-level deal: `cedant_name`/`treaty_type_code`/`inception_date`/`treaty_year`/`renews_from_submission_id`/`directory_path`, assigned analyst as soft owner, master-detail, list ergonomics)
 - §7.2 (`contract` — add, edit and remove contracts; set Contract status)
 - §7.2a (Modeling status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced; closed states are fully read-only and reopenable to `ACTIVE`; no delete)
-- §7.2b (submission identity: surrogate `id` key, non-unique `name` label + soft duplicate warning)
+- §7.2b (submission identity: surrogate `id` key, non-unique `name` label)
 - §6.1 (global roles gating functions) + §6.2 (analyst-centric "my submissions" filter)
 - **§9.4 Package structure (schema only, DATA_MODEL §4/§5):** the `package` and `submission_package` tables, the submission↔package M:N, the `package_id` FK on `irp_edm`/`irp_rdm` (bundle membership), soft-delete (`deleted_at`), plus the `db/` access functions and tests. Membership FKs live on `irp_edm`/`irp_rdm`, whose tables are created with the initial schema; their *entity management* (import, IRP) is Iteration 2. The **≥1-member rule is an app-enforced invariant** (no column CHECK — membership spans two child tables). **No package creation/sync/delete behavior here** — exercising a non-empty package waits for the EDM/RDM import plumbing in Iteration 2.
 - `treaty_type_kind` seed (confirm the authoritative list with the CIC team, CR-003 §5)
@@ -1558,6 +1558,7 @@ touched.
 
 ### Locked decisions
 
+- **2026-09-30 — Cedant list (issue #129).** The cedant becomes a shared `cedant` table that `submission.cedant_id` references, reversing CR-003 O3. Free text let one cedant collect several spellings. Names are unique case-insensitively; a cedant no submission uses can be deleted, one or several at a time. Any analyst maintains the list at `/cedants` (Submissions sidebar) and can add a cedant from the submission form, written when the submission saves. The client's Excel list (`db/bootstrap/seed/cedants.xlsx`) seeds the table at migration, and `make load-cedants` adds the new names from a later file. §4.5, §6.3, §7.2, DATA_MODEL §4.
 - **2026-09-29 — Migration files from now on.** The spec 017 merge froze `alembic/versions/0001_initial.py` as the base revision. Every later `WORKBENCH` schema change is a new Alembic revision applied with `alembic upgrade head` (§21.0). The Rebuild / Refresh / Skip prompt is retired; `make db-rebuild` remains a dev-only reset that replays every revision.
 - **2026-08-28 — Design session 22: viewing/comparison signed off; the grouping defect; the client table reverses to read-only; Parquet replaces the paginated API; event type via reference data APIs.**
   - **Viewing and comparison signed off (D1–D9)** — the first client acceptance of the results layer; one change request (right-justify return periods, D5). RL + OEP defaults, uncapped viewing, 5-pair comparison cap, selection-order base, cross-currency block, clipboard in ones at full precision — all confirmed. Closes 19 O19-8/O19-9; confirms 20 O20-6/O20-8 (§16.2, FR §7).

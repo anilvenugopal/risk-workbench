@@ -44,6 +44,7 @@ from tests.unit.run_details_fixtures import (
     detail,
     settings_metadata,
 )
+from tests.unit.conftest import cedant_id
 
 # The live own-analysis get-analysis payload (spec 015 capture, 2026-09-11):
 # DLM 5741781, North Atlantic windstorm on RL25, currency as an object.
@@ -97,15 +98,16 @@ def _broker(*, rdm_id: str, edm_id: str, irp_id: str) -> str:
               name="Broker analysis", status_code="ready")
 
 
-def _job(*, analysis_id: str, status: str, attempts: int = 0, inserted_at=None) -> str:
+def _job(*, analysis_id: str, status: str, attempts: int = 0, inserted_at=None,
+         progress: int | None = None) -> str:
     row_id = str(uuid.uuid4())
     now = inserted_at or _utcnow()
     execute_command(
-        "INSERT INTO irp_job (id, irp_analysis_id, irp_job_type, status, "
+        "INSERT INTO irp_job (id, irp_analysis_id, irp_job_type, status, progress, "
         "submission_attempt_count, inserted_at, updated_at) VALUES "
-        "(:id, :aid, 'analysis', :status, :attempts, :now, :now)",
-        {"id": row_id, "aid": analysis_id, "status": status, "attempts": attempts,
-         "now": now}, connection="WORKBENCH")
+        "(:id, :aid, 'analysis', :status, :progress, :attempts, :now, :now)",
+        {"id": row_id, "aid": analysis_id, "status": status, "progress": progress,
+         "attempts": attempts, "now": now}, connection="WORKBENCH")
     return row_id
 
 
@@ -232,6 +234,18 @@ def test_queued_and_running_are_live_importing(iteration2_db):
     for row in rows.values():
         assert row.status_chip == "importing"
         assert row.is_live is True
+
+
+def test_running_label_shows_progress_only_while_running(iteration2_db):
+    edm = _edm()
+    running = _executed(edm_id=edm, status_code="pending")
+    _job(analysis_id=running, status="RUNNING", progress=45)
+    queued = _executed(edm_id=edm, status_code="pending")
+    _job(analysis_id=queued, status="QUEUED", progress=10)
+
+    rows = {a.id: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
+    assert rows[running.lower()].status_label == "Running 45%"
+    assert rows[queued.lower()].status_label == "Queued"
 
 
 def test_finished_reads_ready_and_not_live_once_results_stored(iteration2_db):
@@ -752,8 +766,8 @@ def test_submitted_settings_parsed_for_display(iteration2_db):
 def _submission(user_id: str, name: str = "Deal A") -> str:
     from app.services import submission_service
     return submission_service.create_submission(
-        name=name, cedant_name=name, treaty_year=2026,
-        data_vintage="2026-06-30", actor_id=user_id, confirmed=True).submission_id
+        name=name, cedant_id=cedant_id(name), treaty_year=2026,
+        data_vintage="2026-06-30", actor_id=user_id)
 
 
 def _attach_edm(submission_id: str, edm_id: str) -> None:
@@ -809,6 +823,25 @@ def test_submission_read_carries_results_state_and_job_status(iteration2_db):
     assert row.status_label == "Finished"
     assert row.results_state == "ready"
     assert row.results[0].aal == 38270.59
+
+
+def test_submission_read_ignores_a_newer_export_job(iteration2_db):
+    submission = _submission(iteration2_db.user_a)
+    edm = _edm()
+    _attach_edm(submission, edm)
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001")
+    run_job = _job(analysis_id=analysis, status="FINISHED")
+    execute_command(
+        "INSERT INTO irp_job (id, irp_analysis_id, irp_job_type, status, "
+        "submission_attempt_count, inserted_at, updated_at) VALUES "
+        "(:id, :aid, 'export', 'RUNNING', 0, :later, :later)",
+        {"id": str(uuid.uuid4()), "aid": analysis,
+         "later": _utcnow() + timedelta(minutes=1)}, connection="WORKBENCH")
+
+    [row] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+    assert row.irp_job_id == _uid(run_job)
+    assert row.status_label == "Finished"
 
 
 # ── spec 011 US4: the dedicated page's columns (T033) ────────────────────────

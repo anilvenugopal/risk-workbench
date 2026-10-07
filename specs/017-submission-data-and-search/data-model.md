@@ -14,7 +14,7 @@ references: [plan.md](plan.md) T-01 … T-14.
 | Modeling status | `submission.status_code` → `submission_status_kind`; history in `submission_status_event` | `ACTIVE`, `COMPLETED`, `CANCELLED` (unchanged) |
 | Contract status | `contract.contract_status_code` → `contract_status_kind` | `WON`, `LOST`, `OPEN` |
 | Contract, CRM ID | `contract` (one row per CRM ID) | |
-| Cedant | `submission.cedant_name` | free text (unchanged) |
+| Cedant | `submission.cedant_id` → `cedant.name` | picked from the shared cedant list (issue #129) |
 | Client ID | `submission.client_id` | `dbo.Client.ClientID` in `rwb_loss`; no FK |
 | Data vintage | `submission.data_vintage` | date, required |
 | Cedant (treaty grid column) | `irp_treaty.attributes` → `cedant` | Risk Modeler's treaty attribute (unchanged) |
@@ -39,8 +39,8 @@ references: [plan.md](plan.md) T-01 … T-14.
 
 `ix_submission_list_order` is **dropped**: its leading key was
 `inception_date DESC`, and the list's order is now a contract aggregate that
-no index on `submission` can serve (T-11). `ix_submission_cedant_name` and
-`ix_submission_assigned_analyst_id` stay.
+no index on `submission` can serve (T-11). `ix_submission_assigned_analyst_id`
+stays; the cedant index is `ix_submission_cedant_id` (issue #129).
 
 ## 3. `contract` — replaces `submission_crm_id` (T-03)
 
@@ -69,13 +69,14 @@ One row per contract. A submission with no contract emits no row.
 CREATE VIEW v_contract AS
 SELECT s.id            AS submission_id,
        s.name          AS submission_name,
-       s.cedant_name, s.client_id, s.treaty_year, s.data_vintage,
+       ced.name        AS cedant_name, s.client_id, s.treaty_year, s.data_vintage,
        s.status_code   AS modeling_status_code,
        c.id            AS contract_id,
        c.crm_id, c.treaty_type_code, c.inception_date, c.expiration_date,
        c.contract_status_code
 FROM contract c
 JOIN submission s ON s.id = c.submission_id
+JOIN cedant ced ON ced.id = s.cedant_id
 ```
 
 The Workbench's own queries read `contract` directly; the view exists for

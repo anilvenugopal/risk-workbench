@@ -19,6 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
+from tests.unit.conftest import cedant_id
 
 
 class _InjectUser(BaseHTTPMiddleware):
@@ -109,6 +110,5 @@ def test_no_shared_drive_configured_still_reports_the_error(monkeypatch):
 def _submission(directory_path: str | None, iteration1_db) -> str:
     from app.services import submission_service
     return submission_service.create_submission(
-        name="TY2604_Zephyr", cedant_name="Zephyr Mutual",
-        directory_path=directory_path, data_vintage="2026-06-30", actor_id=iteration1_db.user_a,
-        confirmed=True).submission_id
+        name="TY2604_Zephyr", cedant_id=cedant_id("Zephyr Mutual"),
+        directory_path=directory_path, data_vintage="2026-06-30", actor_id=iteration1_db.user_a)

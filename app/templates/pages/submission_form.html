@@ -24,10 +24,6 @@
   </div>
   {% endif %}
 
-  {% if warnings %}
-    {% include "partials/dup_warning.html" %}
-  {% endif %}
-
   {# `contractRows` owns the contract editor below. #}
   <form method="post" action="{{ action }}" x-data="contractRows">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
@@ -49,29 +45,24 @@
         {% endif %}
       </div>
 
-      {# Cedant is free text with suggestions — there is no cedant registry
-         (FR-006), so the menu only offers names already used on a submission.
-         Both typeaheads read `min_suggest_term` from the route context, which is
-         `submission_service.MIN_SUGGEST_TERM`. #}
+      {# A typed new name posts as cedant_id "new" plus new_cedant_name, and the
+         cedant is written when the submission saves (P-06). #}
       <div class="wf-field">
         <label>CEDANT <span class="wf-field__req" title="Required">*</span></label>
-        <div class="ta" x-data="typeahead({ minTerm: {{ min_suggest_term }} })"
-             @click.outside="close()">
-          <input class="wf-field__input{% if field_errors.cedant_name %} wf-field__input--error{% endif %}"
-                 type="text" name="cedant_name" required autocomplete="off"
-                 value="{{ form.cedant_name or '' }}"
-                 role="combobox" aria-controls="cedant-menu"
-                 aria-autocomplete="list" :aria-expanded="isOpen"
-                 x-ref="input" @keydown="onKey($event)" @focus="open()"
-                 @input="onInput()"
-                 hx-get="/submissions/cedant-suggest"
-                 hx-trigger="input[this.value.trim().length>={{ min_suggest_term }}] changed delay:200ms"
-                 hx-target="#cedant-menu" hx-swap="innerHTML">
-          <div id="cedant-menu" x-ref="menu" @htmx:after-swap="open()"
-               @click="pick($event.target.closest('.ta__opt'))"></div>
-        </div>
-        {% if field_errors.cedant_name %}
-        <div class="wf-field__msg wf-field__error">{{ field_errors.cedant_name }}</div>
+        {% call forms.typeahead_select('cedant_id', required=true,
+                                       input_class=(' wf-field__input--error' if field_errors.cedant_id else ''),
+                                       creatable={'field': 'new_cedant_name',
+                                                  'value': form.new_cedant_name or ''}) %}
+          <option value="">Search cedants…</option>
+          {% if form.cedant_id == 'new' %}
+          <option value="new" selected>{{ form.new_cedant_name }}</option>
+          {% endif %}
+          {% for c in cedant_options %}
+          <option value="{{ c.id }}"{% if (form.cedant_id or '')|lower == c.id %} selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        {% endcall %}
+        {% if field_errors.cedant_id %}
+        <div class="wf-field__msg wf-field__error">{{ field_errors.cedant_id }}</div>
         {% endif %}
       </div>
 
@@ -247,11 +238,6 @@
       <button class="btn-sm btn-sm--primary" type="submit">
         {{ 'Save changes' if mode == 'edit' else 'Create submission' }}
       </button>
-      {% if warnings %}
-      <button class="btn-sm" type="submit" name="confirmed" value="1">
-        {{ 'Save anyway' if mode == 'edit' else 'Create anyway' }}
-      </button>
-      {% endif %}
     </div>
   </form>
 </div>

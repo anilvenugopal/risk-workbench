@@ -1,3 +1,4 @@
+{% from "partials/time_macros.html" import local_time %}
 <section class="geohaz-details" id="geohaz-details-{{ portfolio_id }}"
          aria-label="Most recent hazard lookup"
          {%- if oob|default(false) %} hx-swap-oob="outerHTML"{% endif %}>
@@ -13,14 +14,10 @@
     <div><dt>Skip locations with previous hazard lookup</dt><dd>{{ 'Yes' if params.get('skip_prev_hazard') else 'No' }}</dd></div>
     <div><dt>Overwrite user-defined hazard values</dt><dd>{{ 'Yes' if params.get('override_user_def') else 'No' }}</dd></div>
     <div><dt>Submitted</dt><dd>
-      {% if latest.submitted_at %}<time data-utc="{{ latest.submitted_at }}"
-        title="{{ latest.submitted_at }} UTC">{{ latest.submitted_at }}</time>
-      {%- else %}&mdash;{% endif %}
+      {{ local_time(latest.submitted_at) }}
     </dd></div>
     <div><dt>Completed</dt><dd>
-      {% if latest.completed_at %}<time data-utc="{{ latest.completed_at }}"
-        title="{{ latest.completed_at }} UTC">{{ latest.completed_at }}</time>
-      {%- else %}&mdash;{% endif %}
+      {{ local_time(latest.completed_at) }}
     </dd></div>
     <div class="geohaz-details__result"><dt>Result</dt>
       {% if latest.failed %}

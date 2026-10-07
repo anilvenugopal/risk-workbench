@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4. Integrations — Risk Analysis Workbench handover</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">Index</a> · Previous: <a href="03-data.html">3. Data</a> · Next: <a href="05-codebase.html">5. Codebase</a></nav>
+
+<h1>4. Integrations</h1>
+
+<h2 id="risk-modeler">Moody's Risk Modeler through irp-integration</h2>
+
+<p>The Workbench calls Risk Modeler only through the Python package <code>irp-integration</code>. Every call goes through one module, <code>app/services/irp_gateway.py</code>. Its <code>_RealGateway</code> class creates an <code>IRPClient()</code> on first use. Unit tests replace the gateway with a fake through <code>irp_gateway.configure()</code>.</p>
+
+<p><code>IRPClient()</code> takes no arguments and reads its own settings from the process environment:</p>
+<table>
+<tr><th>Env var</th><th>Use</th></tr>
+<tr><td><code>RISK_MODELER_BASE_URL</code>, <code>RISK_MODELER_RESOURCE_GROUP_ID</code></td><td>Always required.</td></tr>
+<tr><td><code>RISK_MODELER_TENANT_NAME</code>, <code>RISK_MODELER_USERNAME</code>, <code>RISK_MODELER_PASSWORD</code></td><td>Bearer login, the strategy in use. The client logs in for a one-hour token and logs in again on a 401.</td></tr>
+<tr><td><code>RISK_MODELER_API_KEY</code></td><td>API-key login. If it is set, it wins over the username and password.</td></tr>
+</table>
+<p>Because the package reads the environment directly, these variables must be exported into each process's environment, not only listed in a file that pydantic reads. The start scripts do this.</p>
+
+<p>Only Risk Modeler's <code>/platform/...</code> endpoints are used; the legacy <code>/riskmodeler/v1</code> and <code>/v2</code> endpoints are not.</p>
+
+<p>Methods the Workbench calls, by where they run:</p>
+<table>
+<tr><th>Where</th><th>Methods</th></tr>
+<tr><td>Request path</td><td><code>edm.search_edms</code>, <code>edm.search_edms_paginated</code>, <code>rdm.search_imported_rdms</code>, <code>portfolio.search_portfolios_paginated</code> (name checks, the EDM sync list, breakout freshness); <code>analysis.search_analyses_paginated</code> and <code>analysis.get_analysis_by_id</code> (analysis import check); <code>grouping.inspect</code>; <code>analysis.delete_analysis</code>; one <code>databridge.execute_query_from_file</code> call (the breakout match count)</td></tr>
+<tr><td>Workers: submit</td><td><code>edm.submit_edm_import_job</code>, <code>rdm.submit_rdm_import_job</code>, <code>portfolio.submit_geohaz_job</code>, <code>analysis.submit_portfolio_analysis_job</code>, <code>grouping.submit</code>, <code>analysis.submit_analysis_export_job</code></td></tr>
+<tr><td>Workers: read and write</td><td><code>portfolio.create_portfolio</code>, <code>portfolio.manage_portfolio_accounts</code>, <code>portfolio.get_portfolio_metadata</code>, <code>treaty.search_treaties_paginated</code>, <code>analysis.describe_run</code>, <code>analysis.get_stats</code>, <code>analysis.get_ep</code>, <code>analysis.search_analysis_treaties_paginated</code>, <code>export_job.download_export_results</code>, the six <code>reference_data</code> reads, and <code>databridge.execute_query_from_file</code></td></tr>
+<tr><td>Poller: status checks</td><td><code>import_job.get_import_job</code>, <code>analysis.get_analysis_job</code>, <code>grouping.get_job</code>, <code>portfolio.get_geohaz_job</code>, <code>export_job.get_export_job</code>; and <code>analysis.submit_portfolio_analysis_job</code> for the submission retry</td></tr>
+</table>
+<p>No code calls a <code>poll_*_to_completion</code> method. They block for minutes.</p>
+
+<p>The package source is chosen by a uv dependency group in <code>pyproject.toml</code>. The committed default is PyPI.</p>
+<table>
+<tr><th>Command</th><th>Source</th><th>Pin</th></tr>
+<tr><td><code>make irp-pypi</code></td><td>PyPI, the production source</td><td><code>irp-integration[databridge]&gt;=0.2,&lt;1</code>; <code>uv.lock</code> resolves 0.11.0</td></tr>
+<tr><td><code>make irp-testpypi</code></td><td>TestPyPI pre-release</td><td><code>==0.11.0rc1</code></td></tr>
+<tr><td><code>make irp-local</code></td><td>Editable checkout at <code>../../IRP/irp-integration</code></td><td>none</td></tr>
+<tr><td><code>make irp-status</code></td><td colspan="2">Shows the active source and installed version.</td></tr>
+</table>
+<p>Each switch command rewrites <code>default-groups</code> in <code>pyproject.toml</code> and re-syncs. Commit the change only if CI and production should use that source.</p>
+
+<p>Known Risk Modeler limits the Workbench works around:</p>
+<table>
+<tr><th>Limit</th><th>What the Workbench does</th><th>Code</th></tr>
+<tr><td>Portfolio name at most 40 characters, portfolio number at most 20</td><td>Fits generated breakout names and numbers to the limits, refuses a typed group label over 40, and always sends the number (Risk Modeler would otherwise copy the name into it).</td><td><code>PORTFOLIO_NAME_MAX</code> and <code>PORTFOLIO_NUMBER_MAX</code> in <code>app/services/breakout_service.py</code></td></tr>
+<tr><td>Analysis name at most 64 characters, letters, digits, <code>_</code> and <code>-</code> only</td><td>Builds <code>CRE_&lt;portfolio&gt;_&lt;template&gt;</code>, truncates it from the right at submit, and keeps the untruncated name in <code>irp_analysis.full_name</code>.</td><td><code>NAME_MAX_LEN</code> and <code>name_attempt()</code> in <code>app/workers/analysis_jobs.py</code></td></tr>
+<tr><td>Every analysis submission needs a currency block <code>{code, scheme, vintage, asOfDate}</code>; Risk Modeler sets no default</td><td>The analyst picks currency, scheme, and vintage at submit time. <code>asOfDate</code> is the vintage's <code>effective_date</code> from <code>irp_currency_scheme_vintage</code>. Templates store no currency.</td><td><code>_validate_currency()</code> in <code>app/services/analysis_execution_service.py</code></td></tr>
+</table>
+
+<h2 id="databridge">DATABRIDGE reads</h2>
+
+<p>DATABRIDGE is the Moody's SQL Server that holds the EDM databases. The Workbench reads it, never writes to it, and never connects to it through <code>db/</code>.</p>
+<ul>
+<li>Each read runs one of the Workbench's own SQL files in <code>sql/databridge/</code> through irp-integration's <code>databridge.execute_query_from_file</code>.</li>
+<li>irp-integration builds the connection from <code>MSSQL_DATABRIDGE_SERVER</code>, <code>_PORT</code>, <code>_USER</code>, and <code>_PASSWORD</code>.</li>
+<li>The EDM's database name comes from Risk Modeler's <code>search_edms</code> result, not from DATABRIDGE.</li>
+</ul>
+
+<table>
+<tr><th>Gateway method</th><th>SQL files</th><th>Runs in</th><th>Reads</th></tr>
+<tr><td><code>get_edm_exposure_summary</code></td><td><code>portfolio_list</code>, <code>portfolio_account_total</code>, <code>portfolio_countries</code>, <code>portfolio_states</code>, <code>portfolio_lines_of_business</code>, <code>portfolio_perils</code>, <code>portfolio_currencies</code>, and the four <code>portfolio_*_coverage</code> files</td><td><code>backfill_edm_detail</code> worker</td><td>Per-portfolio countries, states, lines of business, perils, currencies, and account totals for the EDM page</td></tr>
+<tr><td><code>select_breakout_accounts</code></td><td><code>breakout_{lob,state,country,peril}_accounts</code></td><td><code>run_breakout_*</code> workers</td><td>The account ids for each breakout value</td></tr>
+<tr><td><code>_member_count</code></td><td><code>portfolio_member_count</code></td><td><code>run_breakout_*</code> workers</td><td>The account count of a created portfolio, to verify it</td></tr>
+<tr><td><code>count_breakout_match</code></td><td><code>breakout_match_count</code></td><td>Request path</td><td>One number: whether a custom group matches any account. If DATABRIDGE is unreachable the check passes.</td></tr>
+</table>
+
+<p>If the exposure summary read fails, <code>backfill_edm_detail</code> still succeeds and the EDM page shows the summary columns empty.</p>
+
+<h2 id="loss-export">Loss repository export</h2>
+
+<p>An export loads the event loss tables of finished analyses into CIC's loss repository through the Workbench's <code>stage</code> schema. All reads and writes use the <code>LOSS</code> connection. The behaviour is specified in <a href="../../specs/014-results-export/spec.md">spec 014</a> and, for TY, <a href="../../specs/016-ty-perspective-export/spec.md">spec 016</a>.</p>
+
+<table>
+<tr><th>Step</th><th>Runs in</th><th>What it does</th></tr>
+<tr><td>Create</td><td><code>export_service.create_export</code>, request path</td><td>Validates the form against <code>dbo.Client</code> and the model versions in <code>dbo.Lookup_RMS_HistoricalRDS</code>. Inserts one <code>stage.rwb_loss_result_manifest</code> row per analysis (per treaty at TY) in one transaction, and enqueues <code>submit_results_export</code>.</td></tr>
+<tr><td>Submit</td><td><code>submit_results_export</code> worker</td><td>Asks Risk Modeler for one export per analysis and records each as an <code>irp_job</code> of type <code>export</code>. The poller enqueues the next step when the job finishes.</td></tr>
+<tr><td>Stage</td><td><code>stage_results_export</code> worker (6-hour limit)</td><td>Checks <code>stage.rwb_loss_schema_version</code>. Downloads the archive to <code>EXPORT_ARCHIVE_DIR/{export_id}/{irp_analysis_id}/</code>, where it stays permanently. Unzips it to <code>EXPORT_STAGING_DIR/{export_id}/{irp_analysis_id}/</code>. Checks the analysis id and currency against the manifest, records the files in <code>stage.rwb_loss_result_file</code>, bulk-loads the rows into <code>stage.rwb_loss_result_elt_data</code>, then deletes the unzipped files.</td></tr>
+<tr><td>Load</td><td><code>load_results_export</code> worker (6-hour limit)</td><td>Calls <code>stage.usp_load_elt_result</code> once per manifest row. The procedure classifies events as historical or stochastic, corrects two known data defects, and inserts <code>dbo.Data</code>, <code>dbo.RMSELT</code>, and <code>dbo.RMS_HistoricalRDS</code> in one transaction.</td></tr>
+</table>
+
+<p>Both directories must exist before an export runs; the worker fails the analysis rather than create them. A failed analysis can be retried or closed from the submission's exports table. The directory settings and the archive sweep are on <a href="07-configuration-and-observability.html#settings-env">page 7</a> and <a href="08-deployed-environment.html#runbook">page 8</a>.</p>
+
+<p>The <code>stage</code> schema DDL is <code>db/bootstrap/loss_schema.sql</code>. CIC's DBA applies it by hand; the Workbench never runs DDL against CIC's database.</p>
+
+<h2 id="authentication">Authentication</h2>
+
+<p><code>AUTH_MODE</code> chooses which sign-in options the login page shows:</p>
+<table>
+<tr><th>Value</th><th>Login page shows</th></tr>
+<tr><td><code>oidc</code></td><td>"Sign in with Microsoft" (Entra ID)</td></tr>
+<tr><td><code>password</code></td><td>The email and password form</td></tr>
+<tr><td><code>both</code></td><td>Both. This is the default in <code>app/config.py</code>.</td></tr>
+</table>
+
+<p>Entra ID sign-in:</p>
+<ol>
+<li><code>GET /auth/oidc-login</code> starts an MSAL authorization-code flow with PKCE and keeps the flow in the signed <code>rwb_oidc_state</code> cookie for 5 minutes.</li>
+<li><code>GET /auth/callback</code> exchanges the code and reads <code>oid</code>, <code>email</code> (or <code>preferred_username</code>), and <code>name</code> from the ID token.</li>
+<li>It finds the <code>app_user</code> by <code>entra_oid</code>, or by email for an account an admin created in advance, and links the OID.</li>
+<li>If no user matches, it creates one with no role and sends the user to <code>/auth/access-pending</code> until an admin assigns a role.</li>
+</ol>
+
+<p>Sessions:</p>
+<ul>
+<li>The <code>rwb_session</code> cookie holds only a random 64-character session id.</li>
+<li>The session itself is a <code>user_session</code> row.</li>
+<li>Sessions expire after <code>SESSION_IDLE_TIMEOUT_HOURS</code> idle or <code>SESSION_ABSOLUTE_TIMEOUT_HOURS</code> in total (<a href="07-configuration-and-observability.html#settings-env">page 7</a>).</li>
+<li>Roles and <code>is_active</code> are read from the database on every request.</li>
+<li>Every state-changing form carries a <code>csrf_token</code> signed with <code>SESSION_SECRET_KEY</code>.</li>
+</ul>
+
+<p>Password sign-in is the production sign-in for v1; Entra sign-in is optional (C8 on <a href="09-path-to-production.html#c8">page 9</a>). Passwords are stored as bcrypt hashes in <code>app_user.password_hash</code>. <code>POST /auth/login</code> accepts a password whatever <code>AUTH_MODE</code> is set to; <code>AUTH_MODE</code> only hides the form, so turning password sign-in off needs the code change in C8.</p>
+
+<p>Setup and reference:</p>
+<ul>
+<li>Entra app registration: <a href="../ENTRA_SETUP.md">docs/ENTRA_SETUP.md</a>.</li>
+<li>Creating users and assigning roles: <a href="../USER_PROVISIONING.md">docs/USER_PROVISIONING.md</a> and <a href="07-configuration-and-observability.html#settings-admin">page 7</a>.</li>
+<li>The routes: <code>app/routers/auth.py</code>.</li>
+<li>The session middleware: <code>app/auth/middleware.py</code>.</li>
+</ul>
+
+<h2 id="notifications">Email and Teams notifications</h2>
+
+<p>The Workbench sends no notifications today.</p>
+<ul>
+<li><code>app/notifications/email_sender.py</code> can send an HTML email through Microsoft Graph as <code>MAIL_SENDER_ADDRESS</code>, using its own Entra app registration (<code>MAIL_TENANT_ID</code>, <code>MAIL_CLIENT_ID</code>, <code>MAIL_CLIENT_SECRET</code>).</li>
+<li>No worker, poller, or route calls it. The only caller is <code>infra/scripts/mail_smoke_test.py</code>, which sends one test email.</li>
+<li>There is no Teams, SMTP, or desktop notification code. The notification keys in <code>infra/.env.example</code> do nothing; they are listed on <a href="07-configuration-and-observability.html#settings-env">page 7</a>.</li>
+</ul>
+
+<p>Mailbox and Graph setup, and the planned call sites, are in <a href="../EMAIL_NOTIFICATIONS.md">docs/EMAIL_NOTIFICATIONS.md</a>.</p>
+
+<p>To confirm: whether job completion and failure notifications are required for go-live, and through which channel.</p>
+
+<nav><a href="index.html">Index</a> · Previous: <a href="03-data.html">3. Data</a> · Next: <a href="05-codebase.html">5. Codebase</a></nav>
+</body>
+</html>

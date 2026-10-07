@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, Response
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import auth_service, rwb_job_service, submission_service
-from app.services._common import _utcnow
+from app.services._common import _as_datetime, _format_duration, _utcnow
 
 router = APIRouter()
 
@@ -37,30 +37,6 @@ _SORT_STARTS_DESCENDING = {
     "rwb_job_type": False, "entity_name": False, "submission": False,
     "status_code": False, "submitted_at": True, "elapsed": True,
 }
-
-
-def _as_datetime(value) -> datetime | None:
-    """Normalize a timestamp column to a real ``datetime`` for arithmetic.
-    SQL Server's driver returns native ``datetime`` objects; the SQLite unit
-    tier only registers a write-side adapter (``tests/conftest.py``), so a
-    read comes back as its ISO string verbatim — parse it here rather than
-    doing date math on two different types depending on which tier is live."""
-    if value is None or isinstance(value, datetime):
-        return value
-    return datetime.fromisoformat(str(value))
-
-
-def _format_duration(seconds: float) -> str:
-    """``"2m 14s"`` / ``"41s"`` — the smallest two units that matter; a job
-    still queued or running never needs day/hour precision to be useful."""
-    total = max(0, int(seconds))
-    hours, remainder = divmod(total, 3600)
-    minutes, secs = divmod(remainder, 60)
-    if hours:
-        return f"{hours}h {minutes}m"
-    if minutes:
-        return f"{minutes}m {secs}s"
-    return f"{secs}s"
 
 
 def _elapsed_seconds(row: dict, *, now: datetime) -> float | None:
@@ -163,7 +139,7 @@ def _decorate(rows: list[dict], *, type_labels: dict, status_labels: dict) -> No
 
 def _list_context(request: Request) -> dict:
     """Everything ``partials/rwb_jobs_table.html`` reads. The page route adds the
-    owner and submission-status pickers on top; the 3-second poll does not."""
+    owner and submission-status pickers on top; the poll does not."""
     current_user = request.state.user
     submission_name = (request.query_params.get("q") or "").strip() or None
     submission_status_codes = [
@@ -225,7 +201,7 @@ def _list_context(request: Request) -> dict:
         # Filters plus the sort in force, for the poll to re-render what the
         # analyst is actually looking at.
         "list_query": urlencode(query_values + order_values),
-        # Any row not yet terminal keeps the 3s trigger in the fragment.
+        # Any row not yet terminal keeps the poll trigger in the fragment.
         "live": any(r["status_code"] in ("pending", "running") for r in rows),
     }
 

@@ -40,7 +40,7 @@ pending/running `run_geohaz` heads, and the `ROW_NUMBER()`-ranked newest geohaz
 table render; `portfolio_id` scopes the per-cell poll to one indexed row
 (`ix_irp_job_irp_portfolio_id`). Both callers need the state and the latest
 lookup together, so splitting them would double the query count on both the
-render path and every 3-second poll.
+render path and every poll.
 
 ## Config
 

@@ -6,19 +6,24 @@
    swap a 409 or 422 re-render in, banner included. A fragment response also
    swaps the Edit link out of band, and a status change fires
    `modeling-status-changed`, which the EDM and RDM sections reload on. #}
+{% from "partials/time_macros.html" import local_time %}
+{% from "partials/submission_link_macros.html" import submission_links %}
 {% import "partials/form_macros.html" as forms %}
 <div id="deal-head"
      hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }">
   <div class="detail-head">
     <h1>{{ submission.name }}</h1>
     <div class="deal-head__created">Created
-      <time data-utc="{{ submission.inserted_at }}"
-            title="{{ submission.inserted_at }} UTC">{{ submission.inserted_at }}</time>
+      {{ local_time(submission.inserted_at) }}
       {% if submission.links_to_submission_id %}
       <span class="crumb__sep">·</span>
       <span>links to
         <a href="/submissions/{{ submission.links_to_submission_id }}">
           {{ link_target.name if link_target else submission.links_to_submission_id }}</a></span>
+      {% endif %}
+      {% if linked_from %}
+      <span class="crumb__sep">·</span>
+      {{ submission_links('linked from', linked_from) }}
       {% endif %}
       {% if submission.directory_path %}
       <span class="crumb__sep">·</span>
@@ -87,7 +92,7 @@
             <div class="deal-history__item">
               <span class="status-chip status-chip--{{ e.status_code|lower }}">
                 {{ e.status_label or e.status_code }}</span>
-              <time class="deal-history__at" data-utc="{{ e.at }}">{{ e.at }}</time>
+              {{ local_time(e.at) }}
               {% if e.inserted_by_name %}<span>{{ e.inserted_by_name }}</span>{% endif %}
               {% if e.reason %}<span>— {{ e.reason }}</span>{% endif %}
             </div>

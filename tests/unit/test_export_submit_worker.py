@@ -36,9 +36,10 @@ def export(iteration2_db, loss_db, fake_irp):
         submission_id=submission_id, user_email="analyst.a@example.com",
         analysis_ids=[a, b], perspective_code="GR", client_id=1,
         treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
-        data_vintage=date(2025, 12, 31), model_version="25.0")
+        data_vintage=date(2025, 12, 31), model_version="25.0",
+        actor_id=iteration2_db.user_a)
     return {"export_id": export_id, "submission_id": submission_id, "edm_id": edm_id,
-            "a": a, "b": b}
+            "a": a, "b": b, "user_a": iteration2_db.user_a}
 
 
 def _manifests(export_id):
@@ -73,6 +74,7 @@ def test_two_rows_submitted_with_export_jobs_and_job_ids(export, fake_irp):
     assert all(j["requested_from_submission_id"] == export["submission_id"] for j in jobs)
     assert all(j["irp_edm_id"] == export["edm_id"] for j in jobs)
     assert all(j["status"] == "QUEUED" and j["submitted_at"] for j in jobs)
+    assert all(j["inserted_by"] == export["user_a"] for j in jobs)
     assert json.loads(jobs[0]["request_params"])["settings"]["lossDetails"][0][
         "perspectiveCodes"] == ["GR"]
     job = _submit_job(export["export_id"])

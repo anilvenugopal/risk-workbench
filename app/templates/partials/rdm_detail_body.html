@@ -1,11 +1,13 @@
 {# Live body (mirrors edm_detail_body): while the manual
    analyses backfill is in flight — or the import itself still is — the wrapper
-   polls its own read-only render every 3s and swaps itself, so the page updates
+   polls its own read-only render and swaps itself, so the page updates
    on its own when the rwb job lands. The server stops emitting the trigger once
    the work is terminal, so polling ends without a reload. The Sync forms swap
    this wrapper via HTMX (URL never changes, no re-submission prompt on refresh);
    plain-POST fallback is PRG.
    Context: rdm, analyses, sync_running, sync_status, import_error. #}
+{% from "partials/time_macros.html" import local_time %}
+{% from "partials/submission_link_macros.html" import submission_links %}
 {% set analysis_total = analyses | map(attribute='analyses') | map('length') | sum %}
 {% set live = sync_running or rdm.status in ('pending_import', 'importing') %}
 {% set body_url = detail_body_url|default('/rdms/' ~ rdm.id ~ '/body') %}
@@ -24,7 +26,7 @@
   x-bind:class="{ 'rdm-notes-open': notesOpen }"
   x-on:entity-note-saved="notesOpen = false"
   {%- if live %}
-  hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open')]"
+  hx-get="{{ body_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open') && !document.querySelector('#rdm-detail .sub-links--open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <div class="detail-head">
@@ -39,7 +41,7 @@
     <div>
     <h1>{{ rdm.name }}
       <span class="status-chip status-chip--{{ (rdm.status or 'unknown')|lower|replace(' ', '-') }}">
-        {{ rdm.status or 'unknown' }}</span>
+        {{ rdm.import_label or rdm.status or 'unknown' }}</span>
     </h1>
     <div class="detail-meta">
       <span class="mono" title="{{ rdm.source_file_path }}">{{ rdm.source_file_path or '—' }}</span>
@@ -48,10 +50,11 @@
               x-bind:aria-expanded="notesOpen"
               x-on:click="notesOpen = !notesOpen"
               x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
-      {% for s in rdm.submissions %}
+      {% if rdm.submissions %}
       <span class="crumb__sep">·</span>
-      <span>in <a class="crumb" href="/submissions/{{ s.id }}">{{ s.name }}</a></span>
-      {% endfor %}
+      {{ submission_links('in', rdm.submissions,
+                          source_submission.id if source_submission else none) }}
+      {% endif %}
       {% if analysis_total %}
       <span class="crumb__sep">·</span>
       <span>{{ analysis_total }} broker analys{{ 'is' if analysis_total == 1 else 'es' }}</span>
@@ -59,7 +62,7 @@
       {% if rdm.as_of %}
       <span class="crumb__sep">·</span>
       <span class="synced"><span class="synced__dot"></span> synced
-        <time data-utc="{{ rdm.as_of }}" title="{{ rdm.as_of }} UTC">{{ rdm.as_of }}</time></span>
+        {{ local_time(rdm.as_of) }}</span>
       {% elif sync_status == 'failed' %}
       <span class="crumb__sep">·</span>
       <span class="synced"><span class="synced__dot synced__dot--warn"></span> last sync failed</span>

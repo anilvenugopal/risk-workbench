@@ -20,7 +20,7 @@ test suites) belongs in `tasks.md` and the implementation phase — not here.
   `uv sync` so it is installed.
 - **Confirm the active `irp-integration` source** (`make irp-status`) and re-confirm the new
   detail-read method signatures against that wheel before implementing (R1) — the wheel is
-  pre-release; confirmations/gaps go in `docs/IRP_INTEGRATION_FOLLOWUPS.md`.
+  pre-release.
 - **CI needs no real Risk Modeler**: the unit tier runs against the **fake IRP** (extended
   with portfolio/treaty/analysis-metadata payloads). The `--run-irp` tier is opt-in.
 

@@ -7,7 +7,7 @@ humanized and values collapsed for DISPLAY — a sub-object to its human label
 join; currency ``{code}`` → the code), a list of sub-objects to a comma-joined
 label list (lobs → ``Lend, Prop``, never raw JSON), and RM's internal ``uri``
 dropped entirely. Scalars pass through untouched — the template still owns
-number/boolean formatting. The Excel export stays verbatim (full fidelity).
+number/boolean formatting.
 """
 
 from __future__ import annotations

@@ -8,10 +8,10 @@
 
    Live unit (T-11, 2026-08-05): while a breakout episode is underway — the run
    itself, or its follow-up backfill_edm_detail filling figures in — THIS
-   section polls itself every 3s and swaps itself. The whole-body poll answers
+   section polls itself and swaps itself. The whole-body poll answers
    204 meanwhile (app/routers/edms.py), because #edm-detail is the page's
    scrolling element: replacing it threw the analyst back to the top of the page
-   every 3 seconds. The poll response additionally OOB-swaps the header meta
+   on every poll. The poll response additionally OOB-swaps the header meta
    line — the one place outside this section that carries a portfolio count.
    app.js reapplies the open/closed state of every <details>
    here after the swap, so an expanded row stays expanded. #}
@@ -20,15 +20,14 @@
    through, carried on the poll URL so the GeoHaz form keeps its
    `submission_id` across a swap; the POST handler validates the pairing. #}
 {% set sync_url = sync_url | default('/edms/' ~ edm.id ~ '/sync') %}
-{% set gh_sub = gh_sub if gh_sub is defined
-     else (source_submission.id if source_submission else none) %}
+{% set gh_sub = gh_sub | default(source_submission.id if source_submission else none) %}
 {% set section_url = '/edms/' ~ edm.id ~ '/portfolios-section'
      ~ ('?submission_id=' ~ gh_sub if gh_sub else '') %}
 {% set bo_live = edm.breakout_running
      or (edm.breakout_banner and edm.breakout_banner.filling_in) %}
 <details class="sec" open id="edm-portfolios"
   {%- if bo_live %}
-  hx-get="{{ section_url }}" hx-trigger="every 3s"
+  hx-get="{{ section_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s [!document.querySelector('#edm-detail .sub-links--open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <summary>
@@ -85,7 +84,7 @@
       </div>
     </div>
     <div class="dtable-shell">
-      <div class="dtable dtable--selectable" style="--cols:var(--pick-w) 230px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px 130px;min-width:1357px">
+      <div class="dtable dtable--selectable dtable--wrapname" style="--cols:var(--pick-w) 280px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px 130px;min-width:1407px">
         <div class="dtable__head">
           <span class="geohaz-pick">
             <input type="checkbox" x-ref="selectAll"

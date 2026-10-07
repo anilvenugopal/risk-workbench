@@ -30,7 +30,7 @@ Active.
 | Field | Name | Rules |
 |---|---|---|
 | Name | `name` | required (unchanged) |
-| Cedant | `cedant_name` | required (unchanged) |
+| Cedant | `cedant_id`, `new_cedant_name` | required; one of the cedants; any other id → 422 "Pick a cedant from the list." `cedant_id` = `new` with a trimmed, non-blank `new_cedant_name` of at most 255 characters adds that cedant (or picks the cedant that already has that name, case ignored) in the submission's transaction; a blank or longer name → 422 (issue #129) |
 | Client ID | `client_id` | optional; options from `client_service.list_clients()` as `"ID - name"`; disabled with "Client list unavailable — the submission saves without one" when the list is `None` |
 | Data vintage | `data_vintage` | required ISO date; a blank one is refused with "Enter a data vintage." |
 | Treaty year | `treaty_year` | optional; nothing fills it |
@@ -58,7 +58,7 @@ Every multi-value parameter caps at 20 values; over the cap the page returns
 | Param | Type | Label | Applies to | Level | Semantics |
 |---|---|---|---|---|---|
 | `q` | text | Name | all three | submission / entity | unchanged |
-| `cedant` | text | Cedant | all three | submission | word-AND substring on `cedant_name` |
+| `cedant` | multi | Cedant | all three | submission | `cedant_id IN`; the picker lists every cedant |
 | `owner` | multi | Owner | all three | submission | unchanged defaults |
 | `client` | multi | Client ID | all three | submission | `client_id IN`; NULL never matches |
 | `treaty_year` | multi | Treaty year | all three | submission | `treaty_year IN` |
@@ -85,7 +85,7 @@ in §3; the `#lib-live` poll URL carries the request's own query string.
 
 `GET /submissions/{sid}/exports/new` renders, beside the fields spec 014
 defines: `client_id` pre-selected from `submission.client_id`; `data_vintage`
-empty, entered for that export; a **Contract** select with one
+pre-filled from `submission.data_vintage`, editable, and recorded on the export only; a **Contract** select with one
 option per contract (`data-crm-id`, `data-inception`), pre-selected when the
 submission has exactly one, blank otherwise. Choosing an option copies its
 values into `crm_id` and `treaty_incept` client-side; both stay editable and
@@ -133,7 +133,7 @@ Deleted: `CrmTag`, `add_crm_id`, `remove_crm_id`, `list_crm_ids`,
 `set_crm_dates`, `reset_crm_dates`, `deal_status_kinds`,
 `export_service.list_clients`.
 
-`filters` keys (all optional): `owner_ids`, `name`, `cedant_name`,
+`filters` keys (all optional): `owner_ids`, `name`, `cedant_ids`,
 `client_ids`, `treaty_years`, `status_codes` (Modeling), `crm_ids`,
 `treaty_type_codes`, `inception_date`, `contract_status_codes`,
 `in_force_as_of`.

@@ -15,7 +15,7 @@ All SQL through `db.execute*` (Article 7). No RM/DataBridge call anywhere in thi
 ```python
 @dataclass(frozen=True)
 class BreakoutValue:
-    value: str                # the selection filter value, verbatim: Admin1Code | LOB name (P-12)
+    value: str                # the selection filter value, verbatim: {country}-{Admin1Code} | LOB name (P-31)
     label: str | None         # Admin1Name where the EDM has it; None for lob and un-geocoded state
     accounts: int             # source accounts carrying this value (FR-007 numerator)
 

@@ -4,7 +4,7 @@
    sortable header target #rwb-jobs-live.
 
    While any listed row is still pending or running, this wrapper polls its own
-   render every 3s and swaps itself — mirrors partials/irp_jobs_table.html — so
+   render and swaps itself — mirrors partials/irp_jobs_table.html — so
    a queued job starting, a job finishing, or a dead-vs-reclaimed race shows up
    without a reload. Once every row is terminal the server stops emitting the
    trigger and the poll ends on its own. #}
@@ -23,7 +23,7 @@
 
 <div id="rwb-jobs-live"
   {%- if live %}
-  hx-get="/workflows/rwb-jobs/table?{{ list_query }}" hx-trigger="every 3s"
+  hx-get="/workflows/rwb-jobs/table?{{ list_query }}" hx-trigger="every {{ ui_poll_interval_secs }}s"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
 

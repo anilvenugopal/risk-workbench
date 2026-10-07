@@ -279,10 +279,12 @@ def _client() -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     templates.env.globals["default_perspective"] = (
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(rdms.router)
@@ -304,6 +306,7 @@ def _stub_reads(monkeypatch, *, rdm=..., sync_status=None, analyses=None):
     monkeypatch.setattr(rdm_service, "get_rdm", lambda rdm_id: rdm)
     # No database behind these routes: the stub's own ``submissions`` stand.
     monkeypatch.setattr(rdm_service, "_attach_submissions", lambda kind, rows: None)
+    monkeypatch.setattr(rdm_service, "_latest_import_jobs", lambda kind, ids: {})
     monkeypatch.setattr(rdm_service, "latest_backfill_status",
                         lambda rdm_id: sync_status)
     monkeypatch.setattr(analysis_service, "list_broker_analyses",
@@ -405,6 +408,7 @@ def test_body_poll_partial_polls_while_running_then_stops(monkeypatch):
     html = _client().get("/rdms/rdm-1/body").text
     assert 'hx-get="/rdms/rdm-1/body"' in html and "every 3s" in html
     assert "!document.querySelector('#rdm-detail.rdm-notes-open')" in html
+    assert "!document.querySelector('#rdm-detail .sub-links--open')" in html
     # FR-027: Save/Cancel clear the notesOpen gate so the 3s poll resumes.
     assert 'x-on:entity-note-saved="notesOpen = false"' in html
     assert ("hx-on::after-request=\"if(event.detail.successful) "
@@ -431,15 +435,40 @@ def test_detail_links_to_hidden_notes_between_source_and_submissions(monkeypatch
     source_start = html.index("/share/legacy.mdf")
     link_start = html.index(">View Notes</button>")
     first = html.index('in <a class="crumb" href="/submissions/submission-a">Submission A</a>')
-    second = html.index('in <a class="crumb" href="/submissions/submission-b">Submission B</a>')
+    more = html.index('<a class="ta__opt" href="/submissions/submission-b">')
     notes_start = html.index('<section class="entity-note"')
     analyses_start = html.index(
         '<span class="sec__title">Broker analyses</span>')
-    assert source_start < link_start < first < second
+    assert source_start < link_start < first < more
+    assert ">+1</button>" in html
     assert "RM RDM #" not in html
     assert notes_start < analyses_start
     assert 'x-show="notesOpen" x-cloak' in html
     assert "Check the broker results." in html
+
+
+def test_contextual_page_names_the_submission_it_was_opened_from(monkeypatch):
+    detail = _contextual_detail()
+    detail["rdm"] = _rdm_obj(submissions=[
+        SubmissionRef(id="submission-b", name="Submission B"),
+        SubmissionRef(id="submission-a", name="Submission A")])
+    monkeypatch.setattr(rdm_service, "get_contextual_rdm_detail",
+                        lambda **kwargs: detail)
+
+    html = _client().get("/submissions/submission-a/rdms/rdm-1").text
+
+    assert 'in <a class="crumb" href="/submissions/submission-a">' in html
+    assert ">+1</button>" in html
+
+
+def test_detail_with_one_submission_has_no_dropdown(monkeypatch):
+    _stub_reads(monkeypatch, rdm=_rdm_obj(
+        submissions=[SubmissionRef(id="submission-a", name="Submission A")]))
+
+    html = _client().get("/rdms/rdm-1").text
+
+    assert 'in <a class="crumb" href="/submissions/submission-a">Submission A</a>' in html
+    assert "ta__opt" not in html
 
 
 def test_broker_table_uses_the_merged_analyses_column_set(monkeypatch):

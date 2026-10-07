@@ -52,6 +52,7 @@ from tests.unit.breakout_rows import (
     RM_STAMP,
     SUMMARY,
     breakout_jobs,
+    generated_names,
     mk_backfill_job,
     mk_breakout_job,
     mk_edm,
@@ -144,11 +145,18 @@ def _eligible_pair(fake_irp) -> tuple[str, str]:
 
 
 def _confirm(client, edm_id: str, pid: str, *, dimension: str = "lob",
-             as_of: str = AS_OF, htmx: bool = True, csrf: str | None = None):
+             as_of: str = AS_OF, htmx: bool = True, csrf: str | None = None,
+             names: list[tuple[str, str]] | None = None, submission_id: str = ""):
+    """POST the quick confirm. ``names`` defaults to the preview's prefilled
+    names, unedited."""
+    if names is None:
+        names = generated_names(edm_id, pid, dimension)
     return client.post(
         _url(edm_id, pid),
         data={"dimension": dimension, "summary_as_of": as_of,
-              "csrf_token": csrf if csrf is not None else _csrf()},
+              "value": [v for v, _ in names], "name": [n for _, n in names],
+              "csrf_token": csrf if csrf is not None else _csrf(),
+              "submission_id": submission_id},
         headers={"HX-Request": "true"} if htmx else {})
 
 
@@ -227,6 +235,22 @@ def test_modal_marks_existing_rows_as_already_created(routes_db, client):
          "now": datetime.utcnow()}, connection="WORKBENCH")
     r = client.get(_url(edm_id, pid))
     assert "already created" in r.text
+    # the already-created row is plain text; only the other row is editable
+    assert 'value="usfl_commercial_EQ_Comm"' not in r.text
+    assert 'name="value" value="EQ Comm"' not in r.text
+    assert 'name="value" value="FLD Comm"' in r.text
+
+
+def test_modal_rows_carry_name_inputs_prefilled_with_generated_names(
+        routes_db, client):
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    r = client.get(_url(edm_id, pid))
+    assert r.status_code == 200
+    for value, name in (("EQ Comm", "usfl_commercial_EQ_Comm"),
+                        ("FLD Comm", "usfl_commercial_FLD_Comm")):
+        assert f'name="value" value="{value}"' in r.text
+        assert f'name="name" value="{name}"' in r.text
 
 
 def test_modal_disclosures_in_every_form(routes_db, client):
@@ -276,8 +300,8 @@ def test_modal_no_repeats_but_uncovered_accounts_is_not_a_clean_partition(
     # 1,701 accounts carry a state and none carries two.
     edm_id = mk_edm()
     summary = dict(SUMMARY, breakout_values={
-        "state": [{"value": "TX", "label": None, "accounts": 60},
-                  {"value": "CA", "label": None, "accounts": 40}],
+        "state": [{"value": "US-TX", "label": None, "accounts": 60},
+                  {"value": "US-CA", "label": None, "accounts": 40}],
         "lob": SUMMARY["breakout_values"]["lob"]},
         breakout_coverage={"state": {"covered": 100, "multi_value": 0}})
     pid = mk_portfolio(edm_id, summary=summary)
@@ -406,6 +430,23 @@ def test_confirm_success_returns_portfolios_section_with_toast_and_plan(
     assert "0 of 2" in r.text
 
 
+def test_confirm_keeps_the_contextual_submission_on_the_section_poll(
+        routes_db, client, fake_irp):
+    edm_id, pid = _eligible_pair(fake_irp)
+    sub_id = "0b7e6f3a-2c4d-4e5f-8a9b-1c2d3e4f5a6b"
+    r = _confirm(client, edm_id, pid, submission_id=sub_id)
+    assert f"/edms/{edm_id}/portfolios-section?submission_id={sub_id}" in r.text
+    assert "!document.querySelector('#edm-detail .sub-links--open')" in r.text
+
+
+def test_confirm_drops_a_submission_id_that_is_not_a_uuid(
+        routes_db, client, fake_irp):
+    edm_id, pid = _eligible_pair(fake_irp)
+    r = _confirm(client, edm_id, pid, submission_id="not-a-uuid")
+    assert f'hx-get="/edms/{edm_id}/portfolios-section"' in r.text
+    assert "?submission_id=" not in r.text
+
+
 def test_confirm_double_post_yields_one_job_and_409(routes_db, client, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     assert _confirm(client, edm_id, pid).status_code == 200
@@ -456,6 +497,37 @@ def test_confirm_rewritten_summary_409_rerenders_fresh_preview(
     assert fake_irp.stamp_reads == []       # refused before the RM read
 
 
+@pytest.mark.parametrize("bad, reason", [
+    ("USFL_COMMERCIAL", "already exists in this EDM"),
+    ("usfl_commercial_eq_comm", "already exists in this breakout"),
+])
+def test_confirm_refuses_an_unusable_name_and_keeps_the_typed_names(
+        routes_db, client, fake_irp, bad, reason):
+    edm_id, pid = _eligible_pair(fake_irp)
+    r = _confirm(client, edm_id, pid, names=[
+        ("EQ Comm", "usfl_commercial_EQ_Comm"), ("FLD Comm", bad)])
+    assert r.status_code == 409
+    assert breakout_jobs() == []
+    assert "fix the flagged rows and confirm again" in r.text
+    # both typed names come back, and the reason sits under the FLD Comm row
+    assert 'name="name" value="usfl_commercial_EQ_Comm"' in r.text
+    assert f'name="name" value="{bad}"' in r.text
+    fld_row = r.text.split('name="value" value="FLD Comm"', 1)[1]
+    fld_row = fld_row.split('class="bo-row"', 1)[0]
+    assert reason in fld_row.replace("&#39;", "'")
+    assert 'data-nc' not in fld_row
+
+
+def test_confirm_refuses_names_for_values_outside_the_plan(
+        routes_db, client, fake_irp):
+    edm_id, pid = _eligible_pair(fake_irp)
+    r = _confirm(client, edm_id, pid,
+                 names=[("EQ Comm", "usfl_commercial_EQ_Comm")])
+    assert r.status_code == 409
+    assert "the posted names don&#39;t match this breakout" in r.text
+    assert breakout_jobs() == []
+
+
 def test_confirm_nojs_success_is_prg(routes_db, client, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     r = _confirm(client, edm_id, pid, htmx=False)
@@ -484,7 +556,7 @@ def _add_group(client, edm_id, pid, *, label="Coastal",
                selections=None, carted=(), csrf=None):
     data = {"csrf_token": csrf if csrf is not None else _csrf(),
             "group_label": label}
-    for dim, values in (selections or {"state": ["TX"]}).items():
+    for dim, values in (selections or {"state": ["US-TX"]}).items():
         data[f"values:{dim}"] = list(values)
     if carted:
         data["group"] = [json.dumps(g) for g in carted]
@@ -493,9 +565,9 @@ def _add_group(client, edm_id, pid, *, label="Coastal",
 
 
 def _confirm_cart(client, edm_id, pid, groups, *, as_of=AS_OF, csrf=None,
-                  htmx=True):
+                  htmx=True, submission_id=""):
     data = {"csrf_token": csrf if csrf is not None else _csrf(),
-            "summary_as_of": as_of}
+            "summary_as_of": as_of, "submission_id": submission_id}
     if groups:
         data["group"] = [g if isinstance(g, str) else json.dumps(g)
                          for g in groups]
@@ -555,7 +627,7 @@ def test_group_preview_returns_cart_row_with_hidden_json(
         routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
     r = _add_group(client, edm_id, pid, label="Coastal_HU",
-                   selections={"state": ["TX", "CA"], "peril": ["2"]})
+                   selections={"state": ["US-TX", "US-CA"], "peril": ["2"]})
     assert r.status_code == 200
     assert "Coastal_HU" in r.text                        # the label as typed (P-24)
     assert "usfl_commercial_Coastal_HU" not in r.text    # no composed prefix
@@ -564,7 +636,7 @@ def test_group_preview_returns_cart_row_with_hidden_json(
     assert "up to 1,701 accounts" in r.text
     flat = " ".join(r.text.split())
     # canonical filter line, peril by mnemonic (D4)
-    assert "peril: WS · state: CA, TX" in flat
+    assert "peril: WS · state: US-CA, US-TX" in flat
     # preview writes NOTHING — no group row, no job
     assert _group_row_ids() == []
     assert breakout_jobs() == []
@@ -573,15 +645,15 @@ def test_group_preview_returns_cart_row_with_hidden_json(
 def test_group_preview_blocks_cart_duplicate_and_warns_overlap(
         routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
-    carted = ({"label": "Coastal_HU", "filters": {"state": ["TX"]}},)
+    carted = ({"label": "Coastal_HU", "filters": {"state": ["US-TX"]}},)
     dup = _add_group(client, edm_id, pid, label="Coastal_HU",
-                     selections={"state": ["TX", "CA"]}, carted=carted)
+                     selections={"state": ["US-TX", "US-CA"]}, carted=carted)
     assert dup.status_code == 409                        # blocked, never suffixed (P-25)
     assert "already exists in the cart" in dup.text
     ok = _add_group(client, edm_id, pid, label="Inland",
-                    selections={"state": ["TX", "CA"]}, carted=carted)
+                    selections={"state": ["US-TX", "US-CA"]}, carted=carted)
     assert ok.status_code == 200
-    assert "may overlap with Coastal_HU" in ok.text      # shared TX (P-18)
+    assert "may overlap with Coastal_HU" in ok.text      # shared US-TX (P-18)
 
 
 def test_group_preview_blocks_name_taken_in_rm(routes_db, client, fake_irp):
@@ -601,18 +673,18 @@ def test_group_preview_shows_the_name_as_typed_for_adopted_sets(
     # but the cart shows the name exactly as typed, and the set's own
     # approved name is never refused (the re-confirm heal path).
     edm_id, pid = _custom_pair(fake_irp)
-    groups = [{"label": "Coastal", "filters": {"state": ["TX"]}}]
+    groups = [{"label": "Coastal", "filters": {"state": ["US-TX"]}}]
     assert _confirm_cart(client, edm_id, pid, groups).status_code == 200
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="88", name="Coastal")
 
     r = _add_group(client, edm_id, pid, label="Fresh_name",
-                   selections={"state": ["TX"]})
+                   selections={"state": ["US-TX"]})
     assert r.status_code == 200
     assert "Fresh_name" in r.text and "Coastal" not in r.text
     assert "existing breakout" in r.text
 
     r2 = _add_group(client, edm_id, pid, label="Coastal",
-                    selections={"state": ["TX"]})
+                    selections={"state": ["US-TX"]})
     assert r2.status_code == 200
 
 
@@ -625,12 +697,16 @@ def test_breakout_name_check_renders_the_collision_fragment(
     assert 'data-nc="blocked"' in blocked.text
     flat = " ".join(blocked.text.split())
     assert "a portfolio with this name already exists in this EDM" in flat
-    assert "Adding is blocked" in flat
+    assert "Creating is blocked" in flat
     ok = client.get(url + "?group_label=Fresh")
     assert 'data-nc="ok"' in ok.text
     assert "this EDM" in ok.text
     pending = client.get(url + "?group_label=%20")
     assert "data-nc" not in pending.text
+    # a quick-breakout row checks through ``name`` and blocks creating
+    row = client.get(url + "?name=usfl_commercial")
+    assert 'data-nc="blocked"' in row.text
+    assert "Creating is blocked" in " ".join(row.text.split())
 
 
 def test_group_preview_refusal_retargets_the_error_slot(
@@ -659,7 +735,7 @@ def test_group_preview_blocks_a_breakout_no_account_matches(
     fake_irp.match_count = 0
 
     empty = _add_group(client, edm_id, pid, label="TX_quake",
-                       selections={"state": ["TX"], "peril": ["1"]})
+                       selections={"state": ["US-TX"], "peril": ["1"]})
     assert empty.status_code == 409
     assert empty.headers["HX-Retarget"] == "#bo-cart-error"
     assert "no account matches every filter" in empty.text
@@ -668,7 +744,7 @@ def test_group_preview_blocks_a_breakout_no_account_matches(
     # the same two dimensions with a value that does share an account carts fine
     fake_irp.match_count = 1
     ok = _add_group(client, edm_id, pid, label="TX_wind",
-                    selections={"state": ["TX"], "peril": ["2"]})
+                    selections={"state": ["US-TX"], "peril": ["2"]})
     assert ok.status_code == 200
     assert "TX_wind" in ok.text
 
@@ -680,7 +756,7 @@ def test_group_preview_skips_the_match_count_for_one_dimension(
     edm_id, pid = _custom_pair(fake_irp)
     fake_irp.match_count = 0
     r = _add_group(client, edm_id, pid, label="Texas",
-                   selections={"state": ["TX"]})
+                   selections={"state": ["US-TX"]})
     assert r.status_code == 200
     assert fake_irp.match_count_calls == []
 
@@ -693,7 +769,7 @@ def test_group_preview_adds_when_the_match_count_cannot_be_read(
     edm_id, pid = _custom_pair(fake_irp)
     fake_irp.raise_on_match_count = True
     r = _add_group(client, edm_id, pid, label="Coastal_HU",
-                   selections={"state": ["TX"], "peril": ["2"]})
+                   selections={"state": ["US-TX"], "peril": ["2"]})
     assert r.status_code == 200
     assert "Coastal_HU" in r.text
 
@@ -701,7 +777,7 @@ def test_group_preview_adds_when_the_match_count_cannot_be_read(
 def test_cart_confirm_success_rows_jobs_and_toast(routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
     r = _confirm_cart(client, edm_id, pid, [
-        {"label": "A", "filters": {"state": ["TX"]}},
+        {"label": "A", "filters": {"state": ["US-TX"]}},
         {"label": "B", "filters": {"lob": ["EQ Comm"], "peril": ["2"]}},
     ])
     assert r.status_code == 200
@@ -716,9 +792,19 @@ def test_cart_confirm_success_rows_jobs_and_toast(routes_db, client, fake_irp):
     assert "0 of 2" in r.text
 
 
+def test_cart_confirm_keeps_the_contextual_submission_on_the_section_poll(
+        routes_db, client, fake_irp):
+    edm_id, pid = _custom_pair(fake_irp)
+    r = _confirm_cart(client, edm_id, pid,
+                      [{"label": "A", "filters": {"state": ["US-TX"]}}],
+                      submission_id="0b7e6f3a-2c4d-4e5f-8a9b-1c2d3e4f5a6b")
+    assert (f"/edms/{edm_id}/portfolios-section"
+            "?submission_id=0b7e6f3a-2c4d-4e5f-8a9b-1c2d3e4f5a6b") in r.text
+
+
 def test_cart_confirm_refusals_write_nothing(routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
-    groups = [{"label": "A", "filters": {"state": ["TX"]}}]
+    groups = [{"label": "A", "filters": {"state": ["US-TX"]}}]
 
     r = _confirm_cart(client, edm_id, pid, groups,
                       as_of="2001-01-01 00:00:00")
@@ -742,7 +828,7 @@ def test_cart_confirm_refusals_write_nothing(routes_db, client, fake_irp):
 
 def test_cart_confirm_while_running_is_409(routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
-    groups = [{"label": "A", "filters": {"state": ["TX"]}}]
+    groups = [{"label": "A", "filters": {"state": ["US-TX"]}}]
     assert _confirm_cart(client, edm_id, pid, groups).status_code == 200
     second = _confirm_cart(client, edm_id, pid, groups)
     assert second.status_code == 409

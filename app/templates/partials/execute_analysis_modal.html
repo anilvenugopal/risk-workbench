@@ -1,6 +1,7 @@
 {% from "partials/currency_block.html" import currency_block with context %}
-<div class="modal-overlay" @click.self="document.getElementById('execute-modal').replaceChildren()">
-  <div class="modal-card submission-entity-modal" role="dialog" aria-modal="true" aria-labelledby="execute-modal-title"
+{% from "partials/treaty_macros.html" import money, attr_val, presence %}
+<div class="modal-overlay">
+  <div class="modal-card submission-entity-modal exec-modal" role="dialog" aria-modal="true" aria-labelledby="execute-modal-title"
        {% if not blocking %}x-data="executeModal()" data-kind="{{ kind }}"{% endif %}>
     <div class="modal-header">
       <span id="execute-modal-title" class="modal-title">Execute {{ 'Suite' if kind == 'suite' else 'Template' }}
@@ -76,12 +77,34 @@
 
         <div>
           <div class="exec-section-label">Treaties <span class="tag-empty">(optional — none selected runs gross)</span></div>
-          <div class="entity-candidate-list">
-            {% for treaty in treaties %}
-            <label class="entity-candidate"><input type="checkbox" name="treaty_names" value="{{ treaty.name }}"><span>{{ treaty.name }}</span></label>
-            {% endfor %}
-            {% if not treaties %}<div class="entity-candidate-empty">No treaties on this EDM.</div>{% endif %}
+          {% if treaties %}
+          <div class="dtable-shell">
+            <div class="dtable dtable--selectable" style="--cols:var(--pick-w) minmax(160px,1.6fr) 100px 110px 120px 120px 120px minmax(110px,1fr) minmax(110px,1fr);min-width:992px">
+              <div class="dtable__head">
+                <span></span>
+                <span class="l">Name</span><span class="l">Number</span><span class="l">Type</span>
+                <span>Per Risk Limit</span><span>Occurrence Limit</span><span>Attachment Point</span>
+                <span class="l">LOBs</span><span class="l">Cedant</span>
+              </div>
+              {% for treaty in treaties %}
+              {% set a = treaty.attributes or {} %}
+              <label class="drow-static">
+                <span class="geohaz-pick"><input type="checkbox" name="treaty_names" value="{{ treaty.name }}"></span>
+                <span class="l" title="{{ treaty.name }}">{{ treaty.name }}</span>
+                <span class="l">{% if a.get('treatyNumber') %}{{ a.get('treatyNumber') }}{% elif treaty.irp_id %}ID {{ treaty.irp_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</span>
+                <span class="l">{{ attr_val(treaty.display('treatyType')) }}</span>
+                <span>{{ money(a.get('riskLimit')) }}</span>
+                <span>{{ money(a.get('occurrenceLimit')) }}</span>
+                <span>{{ money(a.get('attachmentPoint')) }}</span>
+                <span class="l">{{ presence(treaty.display_presence('lobs')) }}</span>
+                <span class="l">{{ presence(treaty.display_presence('cedant')) }}</span>
+              </label>
+              {% endfor %}
+            </div>
           </div>
+          {% else %}
+          <div class="entity-candidate-list"><div class="entity-candidate-empty">No treaties on this EDM.</div></div>
+          {% endif %}
         </div>
       </div>
       <div class="modal-footer">

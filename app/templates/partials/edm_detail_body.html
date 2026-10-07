@@ -6,13 +6,13 @@
    GeoHaz can be launched for selected portfolios — no map (FR-014/FR-016);
    every unavailable state renders gracefully (ui.md §5), never an error. #}
 {# Live body (entity detail pattern): while the backfill head is in flight — or
-   the import itself still is — the wrapper polls its own read-only render every
-   3s and swaps itself, so the page updates on its own when the rwb job lands.
+   the import itself still is — the wrapper polls its own read-only render
+   and swaps itself, so the page updates on its own when the rwb job lands.
    The server stops emitting the trigger once the work is terminal, so polling
    ends without a reload. The Sync forms swap this wrapper via HTMX (URL never
    changes, no re-submission prompt on refresh); plain-POST fallback is PRG.
    A breakout episode is NOT polled here (T-11, 2026-08-05): #edm-detail is the
-   page's scrolling element, so swapping it every 3s threw the analyst back to
+   page's scrolling element, so swapping it on every poll threw the analyst back to
    the top. Only the Portfolios section changes during a breakout, and that
    section polls itself — partials/edm_portfolios_section.html. #}
 {% set live = edm.sync_running
@@ -34,7 +34,7 @@
   x-bind:class="{ 'edm-notes-open': notesOpen }"
   x-on:entity-note-saved="notesOpen = false"
   {%- if live %}
-  hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#edm-detail .entity-note--editing') && !document.querySelector('#edm-detail.edm-notes-open')]"
+  hx-get="{{ body_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s [!document.querySelector('#edm-detail .entity-note--editing') && !document.querySelector('#edm-detail.edm-notes-open') && !document.querySelector('#edm-detail .sub-links--open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
 
@@ -51,7 +51,7 @@
     <div>
     <h1>{{ edm.name }}
       <span class="status-chip status-chip--{{ (edm.status or 'unknown')|lower|replace(' ', '-') }}">
-        {{ edm.status or 'unknown' }}</span>
+        {{ edm.import_label or edm.status or 'unknown' }}</span>
     </h1>
     {% include "partials/edm_detail_meta.html" %}
     </div>

@@ -147,6 +147,13 @@
   font: inherit; font-size: var(--fs-label); color: var(--text-primary);
 }
 .ta__opt:hover, .ta__opt.is-active { background: var(--color-brand-faint); }
+/* The Cedant field's "Add cedant" row, last in the menu. */
+.ta__opt--create { border-top: 1px solid var(--border-default);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  color: var(--color-brand); font-weight: var(--fw-medium); }
+/* The "+N" submission list on the submission, EDM, and RDM headers. */
+.sub-links { position: relative; }
+.ta__menu--popover { right: auto; min-width: 220px; }
 .ta__opt-main { display: block; }
 .ta__opt-meta { display: block; font-size: var(--fs-caption);
   color: var(--text-tertiary); margin-top: 1px; }
@@ -163,22 +170,6 @@
 .ta__clear { border: 0; background: none; color: var(--text-tertiary);
   cursor: pointer; line-height: 1; padding: 0 2px; font-size: var(--fs-label); }
 .ta__clear:hover { color: var(--color-danger); }
-
-/* ── Duplicate-warning fragment ──────────────────────────────────────────── */
-.dup-warn {
-  margin-bottom: var(--space-4); padding: var(--space-3) 14px;
-  border: 1px solid var(--color-warning-border); background: var(--color-warning-bg);
-  border-radius: var(--radius-md);
-}
-.dup-warn__head {
-  font-size: var(--fs-label); font-weight: var(--fw-semibold);
-  color: var(--color-warning); margin-bottom: var(--space-2);
-}
-.dup-warn__list { margin: 0 0 var(--space-2); padding-left: var(--space-4);
-  display: flex; flex-direction: column; gap: var(--space-1); }
-.dup-warn__list a { color: var(--color-brand); }
-.dup-warn__meta { color: var(--text-tertiary); font-size: var(--fs-caption); }
-.dup-warn__note { font-size: var(--fs-caption); color: var(--text-tertiary); }
 
 /* The Export page's button row under the analysis picker. */
 .status-controls { display: flex; flex-wrap: wrap; gap: var(--space-2);
@@ -223,7 +214,6 @@
   border-top: 1px solid var(--border-faint); display: flex; flex-direction: column; gap: 3px; }
 .deal-history__item { display: flex; align-items: center; gap: var(--space-2);
   font-size: var(--fs-caption); color: var(--text-tertiary); }
-.deal-history__at { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* ── Contracts: one row per contract, on the deal card and the create form ── */
 .contract-band { border-top: 1px solid var(--border-default); padding: var(--space-3) var(--space-4); }
@@ -309,7 +299,7 @@
   color: var(--text-tertiary); font-size: var(--fs-label); }
 .entity-table-state strong { display: block; color: var(--text-secondary);
   margin-bottom: var(--space-1); }
-.submission-entity-modal { width: 720px; max-height: calc(100vh - 40px); }
+.submission-entity-modal { width: min(1080px, 94vw); max-height: calc(100vh - 40px); }
 .submission-entity-modal > form { display: flex; flex-direction: column; min-height: 0; }
 .submission-entity-modal .modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto;
   gap: var(--space-3); }
@@ -332,6 +322,7 @@
 
 /* Execute Suite / Execute Template modal (spec 010) — reuses
    .submission-entity-modal, .entity-candidate, .wf-field, and .ta. */
+.exec-modal { width: min(1080px, 94vw); }
 .exec-picked { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2);
   padding: var(--space-2) var(--space-3); background: var(--surface-recessed);
   border-radius: var(--radius-md); font-size: var(--fs-label); color: var(--text-secondary); }

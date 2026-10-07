@@ -27,8 +27,12 @@ WHERE pa.PORTINFOID = {{ portfolio_id }}
         INNER JOIN dbo.Address AS a
             ON a.AddressID = p.ADDRESSID
         WHERE p.ACCGRPID = pa.ACCGRPID
-            AND CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryCode
-                     ELSE a.Admin1Code END IN (
+            AND CONCAT(CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryRMSCode
+                            ELSE COALESCE(NULLIF(a.CountryCode, ''), a.CountryRMSCode)
+                       END,
+                       '-',
+                       CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryCode
+                            ELSE a.Admin1Code END) IN (
                 SELECT value FROM STRING_SPLIT({{ state_values }}, CHAR(31)))))
     AND ({{ country_values }} IS NULL OR EXISTS (
         SELECT 1

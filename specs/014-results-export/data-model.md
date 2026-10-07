@@ -264,7 +264,7 @@ script refuses when `MSSQL_LOSS_DATABASE` is not `rwb_loss`.
 | `irp_id`, `irp_app_analysis_id` | `irp_analysis` | `irp_app_analysis_id` must parse as `int`, else the row is listed disabled with the reason (FR-005) |
 | `perspectives` | `loss_results.perspectives` keys | Intersection input |
 | `peril_code`, `region_code`, `currency` | `_parse_settings(settings_metadata)` | Recorded on the manifest; `currency` is checked against the archive at stage |
-| `aal` | `loss_results.perspectives[code].aal` | `aal_display(code)` formats it with `analysis_service.fmt_loss`; shown on the cart row once a perspective is chosen (spec P-20) |
+| `aal` | `loss_results.perspectives[code].aal` | `aal_display(code)` rounds it to the ones place with thousands separators (`4,123,457`); shown on the cart row once a perspective is chosen (spec P-20) |
 | `exported` | The newest manifest row for (`irp_app_analysis_id`, chosen perspective), from any submission | When set: `requested_at`, `requested_by_email`, derived status, `earlier_count` (every such row), and `requested_from_submission_id` for the link to that submission's exports table. A warning only — the row stays tickable and the export proceeds (spec P-17) |
 
 ### ExportAnalysisDetail — one exports-table row

@@ -32,10 +32,11 @@ def test_upload_edm_submit_failure_fails_rwb_job_and_errors_entity(
     assert _rwb(result.entity_id, "upload_edm")["status_code"] == "failed"
     assert edm_service.get_edm(result.entity_id).status == edm_service.ERROR
     job = execute_one(
-        "SELECT status, irp_id FROM irp_job WHERE irp_edm_id = :id",
+        "SELECT status, irp_id, inserted_by FROM irp_job WHERE irp_edm_id = :id",
         {"id": result.entity_id}, connection="WORKBENCH")
     assert job["status"] == "SUBMISSION FAILED"
     assert job["irp_id"] is None
+    assert job["inserted_by"] == iteration2_db.user_a
 
 
 def test_retry_import_resets_errored_edm_to_pending(iteration2_db, fake_irp, drive):
@@ -50,6 +51,24 @@ def test_retry_import_resets_errored_edm_to_pending(iteration2_db, fake_irp, dri
 
     assert edm_service.get_edm(result.entity_id).status == edm_service.PENDING
     assert _rwb(result.entity_id, "upload_edm")["status_code"] == "pending"
+
+
+def test_retried_import_keeps_the_original_importer(iteration2_db, fake_irp, drive):
+    result = edm_service.import_edm(
+        name="E", source_file_path=str(drive / "edm1.bak"),
+        actor_id=iteration2_db.user_a,
+    )
+    fake_irp.raise_on_submit = True
+    entity_jobs.run_pending()
+    fake_irp.raise_on_submit = False
+
+    edm_service.retry_import(edm_id=result.entity_id, actor_id=iteration2_db.user_b)
+    entity_jobs.run_pending()
+
+    job = execute_one(
+        "SELECT inserted_by FROM irp_job WHERE irp_edm_id = :id AND status = 'QUEUED'",
+        {"id": result.entity_id}, connection="WORKBENCH")
+    assert job["inserted_by"] == iteration2_db.user_a
 
 
 def test_upload_rdm_submit_failure_fails_rwb_job_and_errors_rdm(

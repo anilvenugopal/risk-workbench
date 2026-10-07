@@ -47,7 +47,8 @@ def _create(deal, analysis_ids, perspective="GR", **overrides):
     kwargs = dict(submission_id=deal["submission_id"], user_email="analyst.a@example.com",
                   analysis_ids=analysis_ids, perspective_code=perspective, client_id=1,
                   treaty_incept=date(2026, 4, 1), crm_id="CRM-1",
-                  data_vintage=date(2025, 12, 31), model_version="25.0", data_names=None)
+                  data_vintage=date(2025, 12, 31), model_version="25.0", data_names=None,
+                  actor_id=deal["user_a"])
     kwargs.update(overrides)
     return svc.create_export(**kwargs)
 
@@ -130,6 +131,16 @@ def test_a_plt_group_is_disabled_and_refused(deal):
     with pytest.raises(svc.ExportValidationError, match=re.escape(
             "PLT group cannot be exported: PLT results are not exportable yet.")):
         _create(deal, [group])
+
+
+def test_cart_aal_reads_to_the_ones_place():
+    a = svc.ExportableAnalysis(
+        id="a", name="A", origin="RMS", engine=None, framework=None, rdm_name=None,
+        irp_id=None, irp_app_analysis_id=None, analysis_name=None,
+        analysis_description=None, perspectives=["GR", "RL"], peril_code=None,
+        region_code=None, currency=None, aal={"GR": 4_123_456.78, "RL": None})
+    assert a.aal_display("GR") == "4,123,457"
+    assert a.aal_display("RL") == "—"
 
 
 def test_unknown_submission_is_none(deal):

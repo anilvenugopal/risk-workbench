@@ -29,7 +29,7 @@ from app.services import (
     submission_service,
     treaty_service,
 )
-from app.services._common import _parse_json_dict, _rm_ui_root, _uid, _utcnow
+from app.services._common import _as_datetime, _parse_json_dict, _rm_ui_root, _uid, _utcnow
 from app.workers import dispatch
 from db import (
     execute,
@@ -134,7 +134,8 @@ class ExportableAnalysis:
         return self.disabled_reason is None
 
     def aal_display(self, perspective_code: str) -> str:
-        return analysis_service.fmt_loss(self.aal.get(perspective_code))
+        value = self.aal.get(perspective_code)
+        return "—" if value is None else f"{value:,.0f}"
 
     @property
     def treaty_choices(self) -> list[TreatyChoice]:
@@ -422,7 +423,8 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
                   perspective_code: str, client_id: int | None, treaty_incept: Any,
                   crm_id: str | None, data_vintage: Any, model_version: str | None,
                   data_names: dict[str, str] | None = None,
-                  treaty_picks: dict[str, dict[str, str]] | None = None) -> str:
+                  treaty_picks: dict[str, dict[str, str]] | None = None,
+                  actor_id: Any) -> str:
     """Validate in the contracts/routes.md §4 order, insert one manifest row per
     analysis — at TY one per treaty the analyst ticked — in one LOSS
     transaction, enqueue ``submit_results_export``, and return the new
@@ -537,7 +539,8 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
             rwb_job_type="submit_results_export",
             link_type="not_applicable", link_id=None,
             context_type="result_export", context_id=export_id,
-            input_data={"export_id": export_id, "submission_id": _uid(submission_id)})
+            input_data={"export_id": export_id, "submission_id": _uid(submission_id)},
+            actor_id=actor_id)
     except Exception as exc:  # noqa: BLE001 — the manifest is committed; fail its rows so Retry applies
         logger.exception("submit_results_export enqueue failed for export %s", export_id)
         execute_command(
@@ -632,17 +635,6 @@ def _analysis_rows(irp_analysis_ids: list[str]) -> dict[str, dict]:
 RetryBranch = Literal["load", "stage", "submit"]
 
 
-def _as_datetime(value: Any) -> datetime | None:
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
-
-
 def retry_decision(manifest: dict, export_job: dict | None, archive_root: str,
                    now: datetime) -> RetryBranch:
     """Which single job Retry re-arms (T-28): the load for a staged row; the
@@ -701,7 +693,8 @@ def apply_close(submission_id: Any, export_id: Any, manifest_id: Any,
         {"now": now, "u": user_email, "m": manifest["manifest_id"]}, connection="LOSS")
 
 
-def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBranch:
+def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any, *,
+                actor_id: Any) -> RetryBranch:
     """Re-arm exactly one job for a failed row and dispatch it. The job is the
     analysis's one stage or load job; it acts on every eligible row of the
     analysis, so a loaded or closed sibling treaty row is never re-run
@@ -734,7 +727,8 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBr
             requestor_type="rwb_job", requestor_id=stage_job["id"], rwb_job_type=job_type,
             link_type=link_type, link_id=link_id,
             context_type="irp_analysis", context_id=analysis_id,
-            input_data={"export_id": export_key, "irp_analysis_id": analysis_id})
+            input_data={"export_id": export_key, "irp_analysis_id": analysis_id},
+            actor_id=actor_id)
     elif branch == "stage":
         execute_command(
             "UPDATE stage.rwb_loss_result_manifest SET stage_status = 'pending', "
@@ -746,7 +740,8 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBr
             link_type=link_type, link_id=link_id,
             context_type="irp_analysis", context_id=analysis_id,
             input_data={"export_id": export_key, "irp_analysis_id": analysis_id,
-                        "irp_job_id": _uid(job["id"])})
+                        "irp_job_id": _uid(job["id"])},
+            actor_id=actor_id)
     else:
         execute_command(
             "UPDATE stage.rwb_loss_result_manifest SET irp_export_job_id = NULL, "
@@ -759,7 +754,8 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any) -> RetryBr
             link_type="not_applicable", link_id=None,
             context_type="result_export", context_id=export_key,
             input_data={"export_id": export_key,
-                        "submission_id": _uid(manifest["requested_from_submission_id"])})
+                        "submission_id": _uid(manifest["requested_from_submission_id"])},
+            actor_id=actor_id)
     dispatch.dispatch(rwb_job_id=rwb_job_id, rwb_job_type=job_type)
     return branch
 

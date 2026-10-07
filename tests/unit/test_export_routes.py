@@ -129,7 +129,7 @@ def test_form_preselects_the_only_contract_and_the_submission_client(client, dea
     assert 'data-crm-id="T-100" data-inception="2027-01-01"\n                  selected>' in page.text
     assert 'name="treaty_incept" required x-ref="incept"\n               value="2027-01-01"' in page.text
     assert 'name="crm_id" maxlength="30" x-ref="crm"\n               value="T-100"' in page.text
-    assert 'name="data_vintage" required\n               value=""' in page.text
+    assert 'name="data_vintage" required\n               value="2026-06-30"' in page.text
     assert '<option value="2" selected>2 - Retired</option>' in page.text
 
 
@@ -155,7 +155,7 @@ def test_fragment_intersection_and_data_name_fields(client, deal):
     assert '<option value="RL" selected>' in frag.text
     assert f'name="data_name[{deal["a"]}]"' in frag.text
     assert f'name="data_name[{deal["b"]}]"' in frag.text
-    assert frag.text.count("AAL 100") == 2
+    assert frag.text.count("AAL 100 USD") == 2
     assert "hx-swap-oob" not in frag.text
 
 
@@ -329,7 +329,7 @@ def test_section_renders_queued_rows_with_the_export_columns(client, export):
     for value in ("#1", "GR", "Example Re", "CRM-1", "2026-04-01", "2025-12-31",
                   "analyst.a@example.com"):
         assert f">{value}<" in row
-    assert f'hx-get="{export["section"]}" hx-trigger="every 10s"' in section.text
+    assert f'hx-get="{export["section"]}" hx-trigger="every 3s"' in section.text
     assert "Retry" not in section.text
     assert "data-copy-table" in section.text
     assert '<details class="drow"' not in section.text
@@ -365,7 +365,7 @@ def test_rows_show_counts_aal_error_and_stop_polling(client, export):
 
     section = client.get(export["section"])
     assert section.status_code == 200
-    assert 'hx-trigger="every 10s"' not in section.text  # every row terminal → polling stops
+    assert 'hx-trigger="every 3s"' not in section.text  # every row terminal → polling stops
     assert ">loaded</span>" in section.text and ">failed</span>" in section.text
     for value in ("4127", "15,689", "15,401", "288", "12", "3"):
         assert f'<span class="l">{value}</span>' in section.text
@@ -393,7 +393,7 @@ def test_section_lists_this_submissions_exports_newest_first_with_ordinals(clien
     assert ">RP<" not in section.text
     row = _row(section.text, older["export_id"], export["a"])
     assert "r.patel@x.com" in row and ">RL<" in row and ">5<" in row and ">100<" in row
-    assert 'hx-trigger="every 10s"' in section.text  # the GR export is still in progress
+    assert 'hx-trigger="every 3s"' in section.text  # the GR export is still in progress
 
 
 def test_section_empty_state_without_polling(client, deal):
@@ -406,7 +406,7 @@ def test_section_stops_polling_when_every_analysis_is_terminal(client, export):
     execute_command("UPDATE stage.rwb_loss_result_manifest SET stage_status = 'failed'", {},
                     connection="LOSS")
     section = client.get(export["section"])
-    assert 'hx-trigger="every 10s"' not in section.text
+    assert 'hx-trigger="every 3s"' not in section.text
     assert section.text.count(">failed</span>") == 2
 
 
@@ -425,7 +425,7 @@ def test_status_filter_keeps_the_matching_rows(client, export):
     assert loaded["export_id"] not in failed.text
     assert '<option value="failed" selected>Failed</option>' in failed.text
     assert 'retry?status=failed"' in failed.text  # Retry comes back to the same filter
-    assert f'hx-get="{url}?status=failed" hx-trigger="every 10s"' in failed.text
+    assert f'hx-get="{url}?status=failed" hx-trigger="every 3s"' in failed.text
 
     only_loaded = client.get(f"{url}?status=loaded")
     assert f'id="export-analysis-{loaded["export_id"]}-{_mid(export["a"], loaded["export_id"])}"' in only_loaded.text
@@ -459,7 +459,7 @@ def test_client_crm_and_perspective_filters_combine_over_the_tables_own_values(c
     assert re.findall(r'id="export-analysis-([0-9a-f-]{36})-', by_client.text) == [
         other["export_id"]]
     assert '<option value="Retired" selected>Retired</option>' in by_client.text
-    assert f'hx-get="{url}?client=Retired" hx-trigger="every 10s"' in by_client.text
+    assert f'hx-get="{url}?client=Retired" hx-trigger="every 3s"' in by_client.text
 
     combined = client.get(f"{url}?crm_id=CRM-1&perspective=GR&status=loaded")
     assert "No analyses match this filter." in combined.text
@@ -503,7 +503,7 @@ def test_retry_on_a_failed_row_rearms_submit_and_rerenders_the_polling_section(c
 
     assert response.status_code == 200
     assert 'id="submission-exports"' in response.text
-    assert 'hx-trigger="every 10s"' in response.text
+    assert 'hx-trigger="every 3s"' in response.text
     assert f'id="export-analysis-{export["export_id"]}-{_mid(export["b"])}"' in response.text
     assert ">queued</span>" in response.text and "Retry</button>" not in response.text
     assert rwb_jobs("submit_results_export")[0]["status_code"] == "pending"
@@ -554,7 +554,7 @@ def test_retry_on_a_staged_row_enqueues_the_load_only(client, export):
     assert rwb_jobs("stage_results_export")[0]["status_code"] == "pending"  # untouched
     # the row is back in progress, so the section polls until the load worker stamps it
     assert ">in progress</span>" in response.text and "lookup missing" not in response.text
-    assert 'hx-trigger="every 10s"' in response.text
+    assert 'hx-trigger="every 3s"' in response.text
 
 
 def test_retry_refused_answers_409_with_the_reason_in_the_section(client, export):
@@ -586,4 +586,4 @@ def test_no_retry_button_on_a_waiting_row(client, export):
     section = client.get(export["section"])
     assert ">in progress</span>" in section.text
     assert "Retry" not in section.text
-    assert 'hx-trigger="every 10s"' in section.text
+    assert 'hx-trigger="every 3s"' in section.text

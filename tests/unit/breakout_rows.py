@@ -9,6 +9,7 @@ import json
 import uuid
 from datetime import datetime
 
+from app.services import breakout_service
 from app.workers import portfolio_jobs
 from db import execute, execute_command, execute_one
 
@@ -18,13 +19,14 @@ RM_STAMP = "2026-07-31T09:15:00.000Z"
 SUMMARY = {
     "portfolio_name": "usfl_commercial",
     "total_tiv": 3.0e10,
-    "states": ["CA", "TX"],
     "lines_of_business": ["EQ Comm", "FLD Comm"],
     "currencies": ["USD"],
     "account_total": 1701,
     "breakout_values": {
-        "state": [{"value": "TX", "label": "TEXAS", "accounts": 220},
-                  {"value": "CA", "label": "CALIFORNIA", "accounts": 1481}],
+        "state": [{"value": "US-TX", "label": "TEXAS", "accounts": 220,
+                   "country": "US"},
+                  {"value": "US-CA", "label": "CALIFORNIA", "accounts": 1481,
+                   "country": "US"}],
         "lob": [{"value": "FLD Comm", "label": None, "accounts": 900},
                 {"value": "EQ Comm", "label": None, "accounts": 801}],
     },
@@ -146,6 +148,18 @@ def mk_backfill_job(edm_id: str, *, status: str = "pending",
         {"i": str(uuid.uuid4()), "rt": requestor_type, "r": requestor_id,
          "edm": edm_id,
          "s": status, "now": datetime.utcnow()}, connection="WORKBENCH")
+
+
+def generated_names(edm_id: str, portfolio_id: str,
+                    dimension: str = "lob") -> list[tuple[str, str]]:
+    """The preview's prefilled ``(value, name)`` pairs — what a quick confirm
+    posts when the analyst edits no name."""
+    gate = breakout_service.evaluate_gate(edm_id, portfolio_id)
+    plan = breakout_service.compose_plan(
+        gate, edm_id=edm_id, portfolio_id=portfolio_id,
+        source_name=gate.source_name,
+        source_portfolio_irp_id=gate.source_irp_id, dimension=dimension)
+    return [(p.value, p.name) for p in plan if not p.exists]
 
 
 def breakout_jobs() -> list[dict]:

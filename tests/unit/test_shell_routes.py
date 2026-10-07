@@ -55,10 +55,12 @@ def _make_app(user=None):
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     templates.env.globals["default_perspective"] = (
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
 
     app.add_middleware(_InjectUser, user=user or _fake_user())
@@ -112,40 +114,6 @@ class TestSimpleShellRoutes:
 
     def test_workflows_exceptions(self, client):
         assert client.get("/workflows/exceptions").status_code == 200
-
-
-class TestWorkflowsIrpJobs:
-    """The job monitor (T-12) reads real irp_job rows — irp_job_service.list_recent
-    is monkeypatched here so the route test stays DB-free."""
-
-    def test_lists_rows(self, monkeypatch):
-        from app.services import irp_job_service
-
-        monkeypatch.setattr(irp_job_service, "list_recent", lambda: [{
-            "id": "1", "irp_job_type": "analysis", "type_label": "Analysis",
-            "status": "SUBMISSION FAILED", "attempts": 1,
-            "submitted_at": "2026-08-21 10:00:00", "submitted_by": "Test User",
-            "entity_name": "Portfolio A DLM",
-        }])
-        resp = TestClient(_make_app()).get("/workflows/irp-jobs")
-        assert resp.status_code == 200
-        assert "Portfolio A DLM" in resp.text
-
-    def test_empty_state(self, monkeypatch):
-        from app.services import irp_job_service
-
-        monkeypatch.setattr(irp_job_service, "list_recent", lambda: [])
-        resp = TestClient(_make_app()).get("/workflows/irp-jobs")
-        assert resp.status_code == 200
-        assert "No IRP jobs yet." in resp.text
-
-    def test_table_fragment(self, monkeypatch):
-        from app.services import irp_job_service
-
-        monkeypatch.setattr(irp_job_service, "list_recent", lambda: [])
-        resp = TestClient(_make_app()).get("/workflows/irp-jobs/table")
-        assert resp.status_code == 200
-        assert "No IRP jobs yet." in resp.text
 
 
 class TestShellNavContext:

@@ -77,8 +77,8 @@ _ADD_CHUNK_SIZE = 1000
 # DataBridge scripts ({{ portfolio_id }}), executed by select_breakout_accounts
 # below. Each script mirrors its summary script's joins, so the selection
 # vocabulary matches the stored breakout_values the plan was approved from
-# (LOBNAME for lob, Admin1Code for state — or the island's ISO3A CountryCode
-# where the country is CB, D5 — P-12).
+# (LOBNAME for lob, `{country}-{Admin1Code}` for state — or `CB-{island ISO3A}`
+# where the country is CB, D5 — P-31).
 _SELECTION_SCRIPTS = {
     "lob": "breakout_lob_accounts.sql",
     "state": "breakout_state_accounts.sql",
@@ -257,7 +257,7 @@ class AnalysisMetadata:
     pointer the R9 linkage promotes when the type is ``PORTFOLIO`` and the
     group marker (FR-035). ``is_group`` is derived HERE from RM's payload so
     the how-to-detect-a-group question lives in one file — the exact marker
-    field is unconfirmed against the sandbox (IRP_INTEGRATION_FOLLOWUPS.md)."""
+    field is unconfirmed against the sandbox."""
     payload: dict = field(default_factory=dict)
     exposure_resource_id: str | None = None
     exposure_resource_type: str | None = None
@@ -1005,7 +1005,7 @@ class _RealGateway:
     def get_portfolio_exposure(self, *, edm_irp_id: int,
                                portfolio_irp_id: int) -> ExposureDetail:
         # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/metrics —
-        # needs BOTH ids (confirmed vs wheel 0.2.1; IRP_INTEGRATION_FOLLOWUPS.md).
+        # needs BOTH ids (confirmed vs wheel 0.2.1).
         # Payload stored verbatim as the JSON snapshot (R2). A non-dict response
         # is a FAILED read, never an empty success — the worker's per-portfolio
         # except must skip it rather than overwrite a prior good snapshot.
@@ -1037,7 +1037,7 @@ class _RealGateway:
     def get_edm_exposure_summary(self, *, edm_name: str,
                                  edm_irp_id: int) -> dict[str, dict]:
         # Per-EDM DataBridge SQL aggregate (geography/LOB/currency — none
-        # of which any RM REST endpoint returns; IRP_INTEGRATION_FOLLOWUPS §6).
+        # of which any RM REST endpoint returns).
         # Interim implementation: the requested wheel method
         # (get_portfolio_exposure_summary) doesn't exist yet, so the gateway
         # runs the repo-owned set-based scripts (sql/databridge/) through the
@@ -1074,7 +1074,7 @@ class _RealGateway:
                 name = row.get("PortfolioName")
                 summary[key] = {
                     "portfolio_name": (str(name) if name is not None else None),
-                    "countries": [], "states": [],
+                    "countries": [],
                     "lines_of_business": [], "currencies": [],
                     # spec 005 (R11): the overlap denominator and the breakout
                     # enumeration source, keyed by breakout_dimension_kind.code.
@@ -1106,21 +1106,19 @@ class _RealGateway:
                 "value": value, "label": None,
                 "accounts": (int(count) if count is not None else 0)})
         for row in rows("portfolio_states.sql"):
-            # spec 005 (FR-005/P-12): the value is Admin1Code — the summary's
-            # states list now holds codes, not the old COALESCE(name, code)
-            # mix — or the island's ISO3A country code for Caribbean addresses,
-            # which the script returns in the same column (D5). Admin1Name rides
-            # along as a nullable display label (absent until the EDM is
+            # spec 005 (FR-005/P-31): the value is `{country}-{Admin1Code}`,
+            # or `CB-{island ISO3A}` for Caribbean addresses (D5); `country`
+            # lets the expanded row group states under their country. Admin1Name
+            # rides along as a nullable display label (absent until the EDM is
             # geocoded, null for the Caribbean, never synthesized).
-            e = entry(row)
-            value = str(row["Admin1Code"])
-            e["states"].append(value)
+            country = row.get("Country")
             label = row.get("Admin1Name")
             count = row.get("AccountCount")
-            e["breakout_values"].setdefault("state", []).append({
-                "value": value,
+            entry(row)["breakout_values"].setdefault("state", []).append({
+                "value": str(row["Value"]),
                 "label": (str(label) if label else None),
-                "accounts": (int(count) if count is not None else 0)})
+                "accounts": (int(count) if count is not None else 0),
+                "country": (str(country) if country is not None else None)})
         for row in rows("portfolio_lines_of_business.sql"):
             e = entry(row)
             value = str(row["LineOfBusiness"])
@@ -1157,7 +1155,7 @@ class _RealGateway:
         for row in rows("portfolio_currencies.sql"):
             entry(row)["currencies"].append(str(row["Currency"]))
         for values in summary.values():
-            for key in ("countries", "states", "lines_of_business", "currencies"):
+            for key in ("countries", "lines_of_business", "currencies"):
                 values[key] = sorted(set(values[key]))
             for dim, entries in values["breakout_values"].items():
                 values["breakout_values"][dim] = sorted(
@@ -1194,8 +1192,7 @@ class _RealGateway:
         # marker (FR-035). The live payload (first real sync, 2026-07-24) carries
         # a first-class ``isGroup`` boolean — authoritative when present; a plain
         # analysis says groupType='ANLS', so the 'GROUP'-literal spellings below
-        # stay only as fallback for payloads that omit isGroup
-        # (IRP_INTEGRATION_FOLLOWUPS.md §7).
+        # stay only as fallback for payloads that omit isGroup.
         data = self._client().analysis.get_analysis_by_id(analysis_id)
         if not isinstance(data, dict):
             # A failed read, never an empty success — the worker counts it as a

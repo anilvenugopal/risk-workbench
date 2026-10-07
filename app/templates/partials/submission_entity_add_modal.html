@@ -1,5 +1,5 @@
 {% import "partials/form_macros.html" as forms %}
-<div class="modal-overlay" x-data="{ tab: '{{ active_tab }}' }" @click.self="document.getElementById('submission-entity-modal').replaceChildren()">
+<div class="modal-overlay" x-data="{ tab: '{{ active_tab }}' }">
   <div class="modal-card submission-entity-modal" role="dialog" aria-modal="true" aria-labelledby="submission-entity-modal-title">
     <div class="modal-header">
       <h2 id="submission-entity-modal-title" class="modal-title">Add {{ entity_kind }}</h2>
@@ -16,7 +16,7 @@
             hx-post="/submissions/{{ submission.id }}/{{ entity_plural }}/import"
             hx-target="#submission-{{ kind }}-section" hx-swap="outerHTML"
             hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
-            @htmx:after-request="if ($event.detail.elt === $el && $event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()"
+            @htmx:after-request="if ($event.detail.elt === $el && $event.detail.successful) onImported()"
             x-data="importForm()" @change="onChange($event)" @htmx:after-swap="onSwap()"
             @htmx:response-error="onCheckError($event)" @htmx:send-error="onCheckError($event)">
         <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
@@ -34,6 +34,7 @@
         </div>
         {% with name = form.name, kind = entity_kind %}{% include "partials/name_collision.html" %}{% endwith %}
         <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
+        <div class="form-banner" role="status" x-show="queued" x-cloak>{{ entity_kind }} import started: <span x-text="queued"></span>.</div>
         <div class="modal-footer entity-modal-footer">
           <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
           <button class="modal-btn modal-btn--primary" type="submit" :disabled="!canSubmit">Import {{ entity_kind }}</button>
@@ -47,12 +48,29 @@
             <input class="wf-field__input" id="{{ kind }}-candidate-query" name="q" value="{{ query }}" placeholder="Search by name">
           </div>
         </form>
+        {# The pager swaps out its own link, so htmx re-fires that GET's after-request on this form with elt set to the form. Only the attach is a POST. #}
         <form method="post" action="/submissions/{{ submission.id }}/{{ entity_plural }}/attach" hx-post="/submissions/{{ submission.id }}/{{ entity_plural }}/attach"
               hx-target="#submission-{{ kind }}-section" hx-swap="outerHTML"
               hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
-              @htmx:after-request="if ($event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()">
+              @htmx:after-request="if ($event.detail.requestConfig.verb === 'post' && $event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()"
+              x-data="entityPicks()">
           <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-          {% include "partials/submission_entity_candidates.html" %}
+          <div class="bo-custom__cols">
+            <div class="bo-custom__opts">
+              {% include "partials/submission_entity_candidates.html" %}
+            </div>
+            <div class="bo-picked" aria-label="Selected {{ entity_kind }}s">
+              <div class="bo-picked__empty" x-show="!picks.length">Nothing selected yet</div>
+              <div class="bo-picked__chips" x-show="picks.length" x-cloak>
+                <template x-for="p in picks" :key="p.id">
+                  <button class="bo-picked__chip" type="button" :title="'Remove ' + p.name" @click="unpick(p.id)">
+                    <span x-text="p.name"></span><span class="bo-picked__x">×</span>
+                    <input type="hidden" name="entity_ids" :value="p.id">
+                  </button>
+                </template>
+              </div>
+            </div>
+          </div>
           <div class="modal-footer entity-modal-footer">
             <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
             <button class="modal-btn modal-btn--primary" type="submit">Add selected</button>

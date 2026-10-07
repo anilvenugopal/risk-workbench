@@ -213,12 +213,14 @@ def test_retry_success_updates_the_row_in_place(iteration2_db, fake_irp):
         settings.irp_submission_retry_base_secs
         * 2 ** row["submission_attempt_count"] + 5))
     fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio_A_Template_A")
+    execute_command("UPDATE irp_job SET submitted_at = '2026-01-01 00:00:00' WHERE id = :id",
+                    {"id": row["job_id"]}, connection="WORKBENCH")
 
     poller._submission_retry()
 
     job = execute_one(
-        "SELECT id, status, irp_id, submission_attempt_count, completed_at "
-        "FROM irp_job WHERE irp_analysis_id = :a",
+        "SELECT id, status, irp_id, submission_attempt_count, completed_at, "
+        "submitted_at, updated_at FROM irp_job WHERE irp_analysis_id = :a",
         {"a": row["analysis_id"]}, connection="WORKBENCH")
     assert job["id"] == row["job_id"]  # updated in place — no new irp_job row
     assert job["status"] == "QUEUED"
@@ -226,6 +228,7 @@ def test_retry_success_updates_the_row_in_place(iteration2_db, fake_irp):
     assert job["submission_attempt_count"] == 2
     # completed_at is the backoff clock; a job back in flight has none.
     assert job["completed_at"] is None
+    assert job["submitted_at"] == job["updated_at"]  # the resubmit time
     total_jobs = execute("SELECT id FROM irp_job WHERE irp_analysis_id = :a",
                         {"a": row["analysis_id"]}, connection="WORKBENCH")
     assert len(total_jobs) == 1

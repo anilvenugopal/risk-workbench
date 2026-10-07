@@ -13,6 +13,8 @@ from app.services._common import (
     SubmissionRef,
     _attach_submissions,
     _import_entity,
+    _import_label,
+    _latest_import_jobs,
     _mark_error,
     _mark_importing,
     _replace_source_file,
@@ -57,6 +59,13 @@ class RdmRow:
     # Last-synced trust signal (FR-052, spec 004 US3) — stamped by the
     # backfill_rdm_analyses worker when the analysis capture lands.
     as_of: Any = None
+    # the latest import job — populated by ``list_rdms`` and ``get_rdm_detail``
+    job_status: str | None = None
+    job_progress: int | None = None
+
+    @property
+    def import_label(self) -> str | None:
+        return _import_label(self.status, self.job_status, self.job_progress)
 
 
 def check_name_collision(name: str) -> CollisionCheck:
@@ -116,6 +125,9 @@ def list_rdms(*, name: str | None = None, status: str | None = None,
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
     _attach_submissions("rdm", result)
+    jobs = _latest_import_jobs("rdm", [r.id for r in result])
+    for row in result:
+        row.job_status, row.job_progress = jobs.get(row.id, (None, None))
     return result
 
 
@@ -250,6 +262,8 @@ def get_rdm_detail(rdm_id: Any) -> dict | None:
     if rdm is None:
         return None
     _attach_submissions("rdm", [rdm])
+    rdm.job_status, rdm.job_progress = _latest_import_jobs(
+        "rdm", [rdm.id]).get(rdm.id, (None, None))
     sync_status = latest_backfill_status(rdm_id)
     return {"rdm": rdm,
             "analyses": analysis_service.list_broker_analyses(rdm_id=rdm_id),

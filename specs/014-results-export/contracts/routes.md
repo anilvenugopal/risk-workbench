@@ -68,8 +68,9 @@ Triggered by `hx-get` on the analysis list (`hx-trigger="change"`,
 - One optional text input `data_name[<analysis_id>]` (max 150) per selected
   analysis, labelled with the analysis name (O-07).
 - When a perspective is chosen: each cart row shows that analysis's AAL at
-  that perspective, formatted by `analysis_service.fmt_loss`, with the stored
-  number in `title` (spec P-20).
+  that perspective, rounded to the ones place with thousands separators
+  (`4,123,457`), followed by the analysis currency code when known
+  (`AAL 4,123,457 USD`), with the stored number in `title` (spec P-20).
 - When a perspective is chosen: the exported marks. Each selected analysis
   with a manifest row for that perspective, requested from this or any other
   submission, is warned about — the newest such export's `requested_at`,
@@ -133,7 +134,7 @@ GET /submissions/{submission_id}/exports
 
 Renders `partials/exports_section.html`, loaded into the submission detail
 page below the analyses section (`hx-get` on load, and `hx-trigger="every
-10s"` while any row is not terminal). One `.drow-static` row per analysis of
+{UI_POLL_INTERVAL_SECS}s"` while any row is not terminal). One `.drow-static` row per analysis of
 every export whose `requested_from_submission_id` is this submission (spec
 P-16), newest export first (data-model.md §7 `ExportAnalysisDetail`), in
 column order: export ordinal (`#1` newest), analysis name, origin, status,

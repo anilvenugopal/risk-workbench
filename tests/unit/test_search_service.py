@@ -13,6 +13,7 @@ from datetime import datetime
 from sqlalchemy import text
 
 from app.services import edm_service, search_service, submission_service
+from tests.unit.conftest import cedant_id
 
 
 def _now() -> str:
@@ -99,8 +100,8 @@ class TestPagesProvider:
 class TestSubmissionsProvider:
     def test_matches_by_name(self, iteration2_db):
         submission_service.create_submission(
-            name="Coastal Re HO 2026", cedant_name="Coastal Re",
-            data_vintage="2026-06-30", actor_id=iteration2_db.user_a, confirmed=True,
+            name="Coastal Re HO 2026", cedant_id=cedant_id("Coastal Re"),
+            data_vintage="2026-06-30", actor_id=iteration2_db.user_a,
         )
         groups = search_service.global_search("coastal", user_roles=["analyst"])
         submissions = next(g for g in groups if g.type == "submissions")
@@ -108,11 +109,11 @@ class TestSubmissionsProvider:
 
     def test_matches_by_crm_id(self, iteration2_db):
         submission_service.create_submission(
-            name="Zenith Mutual 2026", cedant_name="Zenith Mutual",
+            name="Zenith Mutual 2026", cedant_id=cedant_id("Zenith Mutual"),
             contracts=[submission_service.ContractInput(
                 crm_id="CRM-9912", treaty_type_code="per_risk_xol",
                 inception_date="2026-01-01")],
-            data_vintage="2026-06-30", actor_id=iteration2_db.user_a, confirmed=True,
+            data_vintage="2026-06-30", actor_id=iteration2_db.user_a,
         )
         groups = search_service.global_search("9912", user_roles=["analyst"])
         submissions = next(g for g in groups if g.type == "submissions")
@@ -194,8 +195,8 @@ class TestTypeFilter:
     def test_narrows_to_one_provider(self, iteration2_db):
         _insert_edm(iteration2_db.engine, name="Coastal HO 2026")
         submission_service.create_submission(
-            name="Coastal Re HO 2026", cedant_name="Coastal Re",
-            data_vintage="2026-06-30", actor_id=iteration2_db.user_a, confirmed=True,
+            name="Coastal Re HO 2026", cedant_id=cedant_id("Coastal Re"),
+            data_vintage="2026-06-30", actor_id=iteration2_db.user_a,
         )
         groups = search_service.global_search(
             "coastal", user_roles=["analyst"], type="edms")

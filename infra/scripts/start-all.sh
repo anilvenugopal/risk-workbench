@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # start-all.sh — start every process on the Linux box.
 #
-# This script runs inside the linux-box container in dev. In production, each
-# block below maps 1:1 to a systemd unit file. The commands are identical.
+# The linux-box container's CMD (infra/Dockerfile.dev); started by `make start`.
 #
 # Process layout (mirrors production):
 #   redis-server   → background daemon
@@ -22,7 +21,12 @@ WORKSPACE=/workspace
 LOG_DIR=$WORKSPACE/.dev-logs
 PID_DIR=$WORKSPACE/.dev-pids
 
-mkdir -p "$LOG_DIR" "$PID_DIR"
+# infra/.env leaves these empty for production to fill; Docker uses the rwb-data volume.
+export EXPORT_ARCHIVE_DIR=$WORKSPACE/data/export_archive
+export EXPORT_STAGING_DIR=$WORKSPACE/data/staging
+export SHARED_DRIVE_ROOT=$WORKSPACE/data/shared_drive
+
+mkdir -p "$LOG_DIR" "$PID_DIR" "$EXPORT_ARCHIVE_DIR" "$EXPORT_STAGING_DIR" "$SHARED_DRIVE_ROOT"
 
 # ── 1. Redis (AOF durability required) ───────────────────────────────────────
 # appendonly yes + appendfsync everysec ensures acknowledged Dramatiq enqueues

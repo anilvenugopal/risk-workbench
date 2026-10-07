@@ -124,7 +124,7 @@ Actor follows the standard pattern (`max_retries=0`). Resolution failure → `rw
 reason while retaining `irp_analysis.irp_id`, so deletion can remove the known Risk
 Modeler analysis. The `irp_job` already reads FINISHED, so leaving the analysis
 `pending` would
-keep the EDM page's 3s poll running for a row that is never coming back. The reconciler
+keep the EDM page's poll running for a row that is never coming back. The reconciler
 recovers an *interrupted* backfill; a genuinely failed one stays `failed` until
 re-dispatched — automatic retry is deferred (P-14 amendment, research.md).
 

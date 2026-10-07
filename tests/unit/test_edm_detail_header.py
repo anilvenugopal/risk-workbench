@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 
 from fastapi import FastAPI, Request
@@ -35,10 +36,12 @@ def _client() -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["ui_poll_interval_secs"] = 3
     templates.env.globals["default_perspective"] = (
         analysis_service.DEFAULT_PERSPECTIVE)
     templates.env.globals["default_perspective_label"] = (
         analysis_service.DEFAULT_PERSPECTIVE_LABEL)
+    templates.env.globals["analyses_hash"] = analysis_service.analyses_hash
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(edms.router)
@@ -140,19 +143,63 @@ def test_direct_library_page_has_no_submission_context(monkeypatch):
     assert "/submissions/submission-a/edms/" not in response.text
 
 
-def test_direct_library_page_links_every_linked_submission(monkeypatch):
-    """FR-015 (note 35 D16): the meta line links the owning submissions from
-    the library route too, oldest first."""
+def _three_submissions() -> list[SubmissionRef]:
+    return [SubmissionRef(id=f"submission-{c}", name=f"Submission {c.upper()}")
+            for c in "abc"]
+
+
+def _names(html: str, submission_id: str) -> bool:
+    return f'in <a class="crumb" href="/submissions/{submission_id}">' in html
+
+
+def test_direct_library_page_names_the_oldest_submission_and_lists_all(monkeypatch):
     edm = _edm()
-    edm.submissions = [SubmissionRef(id="submission-a", name="Submission A"),
-                       SubmissionRef(id="submission-b", name="Submission B")]
+    edm.submissions = _three_submissions()
     monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: edm)
 
     html = _client().get("/edms/edm-1").text
 
-    first = html.index('in <a class="crumb" href="/submissions/submission-a">Submission A</a>')
-    second = html.index('in <a class="crumb" href="/submissions/submission-b">Submission B</a>')
-    assert first < second
+    assert _names(html, "submission-a")
+    assert ">+2</button>" in html
+    for c in "abc":
+        assert f'<a class="ta__opt" href="/submissions/submission-{c}">' in html
+
+
+def test_contextual_page_names_the_submission_it_was_opened_from(monkeypatch):
+    context = dataclasses.replace(
+        _context(), submission=SubmissionRef(id="submission-c", name="Submission C"))
+    context.edm.submissions = _three_submissions()
+    monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
+                        lambda **kwargs: context)
+
+    html = _client().get("/submissions/submission-c/edms/edm-1").text
+
+    assert _names(html, "submission-c")
+    assert ">+2</button>" in html
+    # The breakout confirm posts the submission back (see test_breakout_routes).
+    assert """hx-vals='{"submission_id": "submission-c"}'""" in html
+
+
+def test_one_submission_has_no_dropdown(monkeypatch):
+    edm = _edm()
+    edm.submissions = [SubmissionRef(id="submission-a", name="Submission A")]
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: edm)
+
+    html = _client().get("/edms/edm-1").text
+
+    assert _names(html, "submission-a")
+    assert "ta__opt" not in html
+
+
+def test_section_poll_names_the_submission_on_its_url(monkeypatch):
+    edm = _edm()
+    edm.submissions = _three_submissions()
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: edm)
+
+    html = _client().get(
+        "/edms/edm-1/portfolios-section?submission_id=submission-c").text
+
+    assert _names(html, "submission-c")
 
 
 def test_detail_renders_note_and_pauses_polling_while_editor_is_open(monkeypatch):
@@ -168,6 +215,7 @@ def test_detail_renders_note_and_pauses_polling_while_editor_is_open(monkeypatch
     assert "entity-note--editing" in response.text
     assert "!document.querySelector('#edm-detail .entity-note--editing')" in response.text
     assert "!document.querySelector('#edm-detail.edm-notes-open')" in response.text
+    assert "!document.querySelector('#edm-detail .sub-links--open')" in response.text
     # FR-027: Save/Cancel clear the notesOpen gate so the 3s poll resumes.
     assert 'x-on:entity-note-saved="notesOpen = false"' in response.text
     assert ("hx-on::after-request=\"if(event.detail.successful) "
@@ -284,6 +332,86 @@ def test_empty_analyses_poll_tracks_the_selected_execution(monkeypatch):
     assert "execution_id=execution-1" in terminal.text
 
 
+def test_analyses_section_polls_its_live_rows_not_itself(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_analyses",
+                        lambda **kwargs: _analyses_section())
+
+    html = _client().get("/edms/edm-1/analyses?status=in_progress").text
+
+    assert 'hx-trigger="analyses-changed from:body"' in html
+    poller = html[html.index('id="edm-executed-analyses-poller"'):]
+    assert 'hx-post="/edms/edm-1/analyses/rows?status=in_progress"' in poller
+    assert 'hx-trigger="every 3s"' in poller
+    assert '"live": "analysis-1"' in poller
+
+
+def test_analyses_poll_ignores_live_rows_the_filter_hides(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_analyses",
+                        lambda **kwargs: _analyses_section())
+
+    html = _client().get("/edms/edm-1/analyses?status=ready").text
+
+    assert 'id="edm-executed-analyses-poller"' in html
+    assert "every 3s" not in html
+
+
+def _post_rows(section, **data):
+    return _client().post("/edms/edm-1/analyses/rows", data={
+        "hash": analysis_service.analyses_hash(section.executed_analyses,
+                                              section.rdms),
+        "live": "analysis-1", **data})
+
+
+def test_analyses_rows_poll_swaps_only_the_tracked_rows(monkeypatch):
+    section = _analyses_section()
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: section)
+
+    response = _post_rows(section)
+
+    assert response.status_code == 200
+    assert "HX-Retarget" not in response.headers
+    assert ('id="analysis-row-analysis-1" hx-swap-oob="innerHTML"'
+            in response.text)
+    assert "data-analyses-section" not in response.text
+    assert 'hx-trigger="every 3s"' in response.text
+
+
+def test_analyses_rows_poll_replaces_the_section_when_its_rows_change(monkeypatch):
+    section = _analyses_section()
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: section)
+
+    response = _post_rows(section, hash="stale")
+
+    assert response.headers["HX-Retarget"] == "#edm-executed-analyses"
+    assert response.headers["HX-Reswap"] == "outerHTML"
+    assert "data-analyses-section" in response.text
+
+
+def test_analyses_rows_poll_stops_once_the_tracked_row_is_terminal(monkeypatch):
+    section = _analyses_section()
+    section.executed_analyses[0].status_code = "error"
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: section)
+
+    response = _post_rows(section)
+
+    assert 'id="analysis-row-analysis-1" hx-swap-oob="innerHTML"' in response.text
+    assert 'id="edm-executed-analyses-poller"' in response.text
+    assert "every 3s" not in response.text
+
+
+def test_analyses_rows_poll_ends_when_the_edm_is_gone(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: None)
+
+    response = _client().post(
+        "/submissions/submission-a/edms/edm-1/analyses/rows",
+        data={"hash": "any", "live": "analysis-1"})
+
+    assert response.headers["HX-Retarget"] == "#edm-executed-analyses"
+    assert response.headers["HX-Reswap"] == "outerHTML"
+    assert "no longer related to the submission" in response.text
+    assert "hx-trigger" not in response.text
+
+
 def test_successful_execute_response_carries_execution_id(monkeypatch):
     from app.auth.csrf import generate_csrf_token
     from app.services import analysis_execution_service
@@ -354,6 +482,25 @@ def test_direct_execute_modal_posts_back_to_the_library_url(monkeypatch):
     assert response.status_code == 200
     assert 'action="/edms/edm-1/execute"' in response.text
     assert "/submissions/" not in response.text
+
+
+def test_execute_modal_lists_each_treaty_with_its_terms(monkeypatch):
+    from app.services import treaty_service
+
+    _stub_execute_modal(monkeypatch)
+    monkeypatch.setattr(treaty_service, "list_treaties", lambda **kwargs: [
+        treaty_service.TreatyRow(
+            id="treaty-1", edm_id="edm-1", name="Cat XoL", irp_id="1042",
+            attributes={"treatyNumber": "CX-2026-01", "riskLimit": 5000000},
+            as_of=None)])
+
+    response = _client().get(
+        "/edms/edm-1/execute?kind=template&portfolio_ids=portfolio-1")
+
+    assert response.status_code == 200
+    assert 'name="treaty_names" value="Cat XoL"' in response.text
+    assert "CX-2026-01" in response.text
+    assert "$5,000,000" in response.text
 
 
 def test_execute_gate_failure_re_renders_the_modal_on_the_same_url(monkeypatch):

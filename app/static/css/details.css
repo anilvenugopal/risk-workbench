@@ -74,6 +74,12 @@ a.sec__note--link:hover { text-decoration: underline; }
    than losing its last letters. */
 .dtable--wraphead .dtable__head > span { white-space: normal; line-height: 1.15;
   overflow: visible; text-overflow: clip; }
+/* The EDM portfolio table wraps the name in its track instead of cutting
+   a breakout name off at the ellipsis; a name with no space to break at still
+   wraps rather than being clipped by the cell. */
+.dtable--wrapname .drow > summary > :nth-child(2) { white-space: normal; }
+.dtable--wrapname .dt-title { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.dtable--wrapname .dt-namecol { gap: var(--space-1); }
 /* .drow-static and .dtable__group set display, which beats the UA [hidden] rule;
    the export form's name search hides rows with el.hidden. */
 .drow-static[hidden], .dtable__group[hidden] { display: none; }
@@ -297,6 +303,10 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .bo-row__value { font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bo-row__label { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-regular); }
 .bo-row__name { font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bo-row__name input[type=text] { width: 100%; height: 26px; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 0 var(--space-2); font: inherit; color: var(--text-primary); }
+.bo-row__name .name-collision { white-space: normal; font-family: var(--font-ui); }
+.bo-row__name .name-collision > div { margin-bottom: 0; }
+.bo-row__name .name-collision__ok { display: none; }
 .bo-row__accounts { text-align: right; font-variant-numeric: tabular-nums; }
 .bo-row__exists { font-size: var(--fs-caption); color: var(--text-tertiary); font-style: italic; }
 
@@ -339,6 +349,8 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .bo-picked__x { color: var(--text-tertiary); }
 .bo-addrow { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
 .bo-addrow input[type=text] { flex: 1; height: 30px; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; font-size: var(--fs-label); }
+.bo-add-check { display: none; align-items: center; white-space: nowrap; font-size: var(--fs-caption); color: var(--text-tertiary); }
+.bo-add-check.htmx-request { display: inline-flex; }
 .bo-cart { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; }
 .bo-cart__head { background: var(--surface-recessed); border-bottom: 1px solid var(--border-default); font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); padding: var(--space-2) var(--space-3); }
 #bo-cart-rows { max-height: min(26vh, 240px); overflow-y: auto; }
@@ -358,10 +370,10 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 @keyframes bo-spin { to { transform: rotate(360deg); } }
 .bo-flight { display: flex; align-items: center; font-size: var(--fs-label); color: var(--text-secondary); background: var(--color-brand-faint); border: 1px solid var(--color-brand-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
 
-/* the row control + row in-flight indicator (first .dtable cell) */
-.bo-btn { margin-left: auto; flex: none; height: 22px; padding: 0 var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-panel); color: var(--text-secondary); font-size: var(--fs-caption); font-weight: var(--fw-medium); cursor: pointer; }
+/* the row control + row in-flight indicator, in the name cell's subline */
+.bo-btn { margin-left: var(--space-1); flex: none; height: 22px; padding: 0 var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-panel); color: var(--text-secondary); font-size: var(--fs-caption); font-weight: var(--fw-medium); cursor: pointer; }
 .bo-btn:hover { border-color: var(--color-brand); color: var(--color-brand); }
-.bo-inline { margin-left: auto; flex: none; display: inline-flex; align-items: center; font-size: var(--fs-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.bo-inline { margin-left: var(--space-1); flex: none; display: inline-flex; align-items: center; font-size: var(--fs-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 
 /* lineage inside the expanded panel of a generated row (US3/FR-014 as revised
    2026-08-11) — base portfolio + breakout criteria above the value lists */

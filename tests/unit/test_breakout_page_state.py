@@ -95,7 +95,7 @@ def test_a_live_job_reports_progress_and_keeps_the_poll_alive(iteration2_db):
     _mk_generated(edm_id, source_id, dimension="lob", value="A")
     _mk_generated(edm_id, source_id, dimension="lob", value="B")
     # a row for another dimension does not count towards this run
-    _mk_generated(edm_id, source_id, dimension="state", value="TX")
+    _mk_generated(edm_id, source_id, dimension="state", value="US-TX")
 
     state = page_state(edm_id)
 
@@ -184,7 +184,7 @@ def test_both_dimensions_of_one_portfolio_accumulate_into_one_list(
     source_id = _mk_portfolio(edm_id)
     _mk_job(source_id, dimension="lob", output=_outcomes(_bad("A", "lob boom")))
     _mk_job(source_id, dimension="state",
-            output=_outcomes(_bad("TX", "state boom")))
+            output=_outcomes(_bad("US-TX", "state boom")))
 
     lines = page_state(edm_id).errors[source_id]
 
