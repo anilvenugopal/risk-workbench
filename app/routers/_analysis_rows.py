@@ -3,9 +3,13 @@ submission scope routes. It writes nothing, so it takes no CSRF token."""
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import Request, Response
 
 from app.services import analysis_service
+
+logger = logging.getLogger(__name__)
 
 
 def retarget_section(response: Response, section_id: str) -> Response:
@@ -45,6 +49,10 @@ def analysis_rows_response(request: Request, ctx: dict, analyses_hash: str,
     templates = request.app.state.templates
     if analyses_hash != analysis_service.analyses_hash(ctx["analyses"],
                                                        ctx["groups"]):
+        logger.info(
+            "analyses section re-render section=%s own_rows=%d rdms=%s",
+            ctx["section_id"], len(ctx["analyses"]),
+            [(g.rdm_id, g.analysis_count) for g in ctx["groups"]])
         if ctx["source_submission"]:
             ctx["open_rdm_ids"] = open_rdm_ids(
                 request, ctx["groups"], ctx["source_submission"].id,
