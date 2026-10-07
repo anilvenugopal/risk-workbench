@@ -1,4 +1,4 @@
--- Per-portfolio geography coverage for every portfolio in a Moody's RMS EDM â€”
+-- Per-portfolio geography coverage for every portfolio in a Moody's RMS EDM —
 -- the two account counts the breakout preview's overlap statement needs
 -- (spec 005 FR-007 / P-13, revised 2026-08-05): how many accounts carry at
 -- least one state, and how many carry MORE THAN ONE. Neither is derivable from
