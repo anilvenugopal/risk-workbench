@@ -299,8 +299,8 @@ def test_modal_no_repeats_but_uncovered_accounts_is_not_a_clean_partition(
     # 1,701 accounts carry a state and none carries two.
     edm_id = mk_edm()
     summary = dict(SUMMARY, breakout_values={
-        "state": [{"value": "TX", "label": None, "accounts": 60},
-                  {"value": "CA", "label": None, "accounts": 40}],
+        "state": [{"value": "US-TX", "label": None, "accounts": 60},
+                  {"value": "US-CA", "label": None, "accounts": 40}],
         "lob": SUMMARY["breakout_values"]["lob"]},
         breakout_coverage={"state": {"covered": 100, "multi_value": 0}})
     pid = mk_portfolio(edm_id, summary=summary)
@@ -538,7 +538,7 @@ def _add_group(client, edm_id, pid, *, label="Coastal",
                selections=None, carted=(), csrf=None):
     data = {"csrf_token": csrf if csrf is not None else _csrf(),
             "group_label": label}
-    for dim, values in (selections or {"state": ["TX"]}).items():
+    for dim, values in (selections or {"state": ["US-TX"]}).items():
         data[f"values:{dim}"] = list(values)
     if carted:
         data["group"] = [json.dumps(g) for g in carted]
@@ -609,7 +609,7 @@ def test_group_preview_returns_cart_row_with_hidden_json(
         routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
     r = _add_group(client, edm_id, pid, label="Coastal_HU",
-                   selections={"state": ["TX", "CA"], "peril": ["2"]})
+                   selections={"state": ["US-TX", "US-CA"], "peril": ["2"]})
     assert r.status_code == 200
     assert "Coastal_HU" in r.text                        # the label as typed (P-24)
     assert "usfl_commercial_Coastal_HU" not in r.text    # no composed prefix
@@ -618,7 +618,7 @@ def test_group_preview_returns_cart_row_with_hidden_json(
     assert "up to 1,701 accounts" in r.text
     flat = " ".join(r.text.split())
     # canonical filter line, peril by mnemonic (D4)
-    assert "peril: WS · state: CA, TX" in flat
+    assert "peril: WS · state: US-CA, US-TX" in flat
     # preview writes NOTHING — no group row, no job
     assert _group_row_ids() == []
     assert breakout_jobs() == []
@@ -627,15 +627,15 @@ def test_group_preview_returns_cart_row_with_hidden_json(
 def test_group_preview_blocks_cart_duplicate_and_warns_overlap(
         routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
-    carted = ({"label": "Coastal_HU", "filters": {"state": ["TX"]}},)
+    carted = ({"label": "Coastal_HU", "filters": {"state": ["US-TX"]}},)
     dup = _add_group(client, edm_id, pid, label="Coastal_HU",
-                     selections={"state": ["TX", "CA"]}, carted=carted)
+                     selections={"state": ["US-TX", "US-CA"]}, carted=carted)
     assert dup.status_code == 409                        # blocked, never suffixed (P-25)
     assert "already exists in the cart" in dup.text
     ok = _add_group(client, edm_id, pid, label="Inland",
-                    selections={"state": ["TX", "CA"]}, carted=carted)
+                    selections={"state": ["US-TX", "US-CA"]}, carted=carted)
     assert ok.status_code == 200
-    assert "may overlap with Coastal_HU" in ok.text      # shared TX (P-18)
+    assert "may overlap with Coastal_HU" in ok.text      # shared US-TX (P-18)
 
 
 def test_group_preview_blocks_name_taken_in_rm(routes_db, client, fake_irp):
@@ -655,18 +655,18 @@ def test_group_preview_shows_the_name_as_typed_for_adopted_sets(
     # but the cart shows the name exactly as typed, and the set's own
     # approved name is never refused (the re-confirm heal path).
     edm_id, pid = _custom_pair(fake_irp)
-    groups = [{"label": "Coastal", "filters": {"state": ["TX"]}}]
+    groups = [{"label": "Coastal", "filters": {"state": ["US-TX"]}}]
     assert _confirm_cart(client, edm_id, pid, groups).status_code == 200
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="88", name="Coastal")
 
     r = _add_group(client, edm_id, pid, label="Fresh_name",
-                   selections={"state": ["TX"]})
+                   selections={"state": ["US-TX"]})
     assert r.status_code == 200
     assert "Fresh_name" in r.text and "Coastal" not in r.text
     assert "existing breakout" in r.text
 
     r2 = _add_group(client, edm_id, pid, label="Coastal",
-                    selections={"state": ["TX"]})
+                    selections={"state": ["US-TX"]})
     assert r2.status_code == 200
 
 
@@ -717,7 +717,7 @@ def test_group_preview_blocks_a_breakout_no_account_matches(
     fake_irp.match_count = 0
 
     empty = _add_group(client, edm_id, pid, label="TX_quake",
-                       selections={"state": ["TX"], "peril": ["1"]})
+                       selections={"state": ["US-TX"], "peril": ["1"]})
     assert empty.status_code == 409
     assert empty.headers["HX-Retarget"] == "#bo-cart-error"
     assert "no account matches every filter" in empty.text
@@ -726,7 +726,7 @@ def test_group_preview_blocks_a_breakout_no_account_matches(
     # the same two dimensions with a value that does share an account carts fine
     fake_irp.match_count = 1
     ok = _add_group(client, edm_id, pid, label="TX_wind",
-                    selections={"state": ["TX"], "peril": ["2"]})
+                    selections={"state": ["US-TX"], "peril": ["2"]})
     assert ok.status_code == 200
     assert "TX_wind" in ok.text
 
@@ -738,7 +738,7 @@ def test_group_preview_skips_the_match_count_for_one_dimension(
     edm_id, pid = _custom_pair(fake_irp)
     fake_irp.match_count = 0
     r = _add_group(client, edm_id, pid, label="Texas",
-                   selections={"state": ["TX"]})
+                   selections={"state": ["US-TX"]})
     assert r.status_code == 200
     assert fake_irp.match_count_calls == []
 
@@ -751,7 +751,7 @@ def test_group_preview_adds_when_the_match_count_cannot_be_read(
     edm_id, pid = _custom_pair(fake_irp)
     fake_irp.raise_on_match_count = True
     r = _add_group(client, edm_id, pid, label="Coastal_HU",
-                   selections={"state": ["TX"], "peril": ["2"]})
+                   selections={"state": ["US-TX"], "peril": ["2"]})
     assert r.status_code == 200
     assert "Coastal_HU" in r.text
 
@@ -759,7 +759,7 @@ def test_group_preview_adds_when_the_match_count_cannot_be_read(
 def test_cart_confirm_success_rows_jobs_and_toast(routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
     r = _confirm_cart(client, edm_id, pid, [
-        {"label": "A", "filters": {"state": ["TX"]}},
+        {"label": "A", "filters": {"state": ["US-TX"]}},
         {"label": "B", "filters": {"lob": ["EQ Comm"], "peril": ["2"]}},
     ])
     assert r.status_code == 200
@@ -776,7 +776,7 @@ def test_cart_confirm_success_rows_jobs_and_toast(routes_db, client, fake_irp):
 
 def test_cart_confirm_refusals_write_nothing(routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
-    groups = [{"label": "A", "filters": {"state": ["TX"]}}]
+    groups = [{"label": "A", "filters": {"state": ["US-TX"]}}]
 
     r = _confirm_cart(client, edm_id, pid, groups,
                       as_of="2001-01-01 00:00:00")
@@ -800,7 +800,7 @@ def test_cart_confirm_refusals_write_nothing(routes_db, client, fake_irp):
 
 def test_cart_confirm_while_running_is_409(routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
-    groups = [{"label": "A", "filters": {"state": ["TX"]}}]
+    groups = [{"label": "A", "filters": {"state": ["US-TX"]}}]
     assert _confirm_cart(client, edm_id, pid, groups).status_code == 200
     second = _confirm_cart(client, edm_id, pid, groups)
     assert second.status_code == 409

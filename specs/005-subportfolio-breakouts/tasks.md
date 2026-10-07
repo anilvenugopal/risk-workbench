@@ -245,6 +245,13 @@ continue from the tables in spec.md/plan.md.
 - [X] T097 [P-33] [FR-006] `breakout_confirm` reads `value`/`name` lists and re-renders a `NameRefused` as a 409 with the typed names and per-row reasons; `breakout_name_check` reads `group_label` or `name`, both with the "Creating" verb. `breakout_modal.html` renders an input per to-be-created row; `breakoutNames` in `app.js` disables Create while an edited row's check is pending or blocked; `ncFailOpen` marks the failed row, not the form's first
 - [X] T098 [P-33] [FR-006b] [FR-010] Unit tests: route tests for the prefilled inputs, each name refusal (409, names kept, reason under the row, no job row), the value-set mismatch, and the name-check `name` param; gate tests for the confirmed names keeping their numbers
 
+## Phase 9: Follow-on — country-qualified state values (#62, #66)
+
+- [X] T099 [P-31] [FR-005] The four state scripts (`portfolio_states.sql`, `portfolio_state_coverage.sql`, `breakout_state_accounts.sql`, `breakout_match_count.sql`) build the value as `{country}-{Admin1Code}` with `portfolio_countries.sql`'s country expression. `irp_gateway` puts `country` on each `breakout_values.state` entry and drops `summary.states`. No Alembic revision
+- [X] T100 [P-31] [P-12] `portfolio_row.html` replaces the Countries and States lists with one Geography entry: one line per country, its states after it by `Admin1Name` or the stored value, each line capped at 100, states with no country under `—`
+- [X] T101 [P-31] Unit tests updated to the qualified values across the breakout, gateway, sync and lineage tests
+  - Proof: `uv run pytest tests/unit` green (2126 passed, 2026-10-07)
+
 ---
 
 ## Dependencies & Execution Order

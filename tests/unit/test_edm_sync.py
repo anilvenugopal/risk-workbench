@@ -16,6 +16,7 @@ self-terminating poll target).
 
 from __future__ import annotations
 
+import re
 import uuid
 
 from fastapi import FastAPI, Request
@@ -232,7 +233,7 @@ def test_backfill_status_sees_breakout_fired_heads_quick_and_group(iteration2_db
         "VALUES (:i, :p, 'k1', 'Coastal', :f, 'src - Coastal', 'src-Coastal', "
         ":c, '2026-01-01', '2026-01-01')",
         {"i": group_row_id, "p": _portfolio(group_edm),
-         "f": '{"state": ["FL"]}', "c": str(uuid.uuid4())},
+         "f": '{"state": ["US-FL"]}', "c": str(uuid.uuid4())},
         connection="WORKBENCH")
     group_job = _job("breakout_group", group_row_id,
                      "run_breakout_custom", "succeeded", group_edm,
@@ -594,7 +595,7 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
                           breakout_dimension_code="custom",
                           breakout_value="a1b2c3",
                           breakout_group_label="Coastal HU",
-                          breakout_group_filters={"state": ["FL", "GA"],
+                          breakout_group_filters={"state": ["US-FL", "US-GA"],
                                                   "lob": ["Homeowners"],
                                                   "peril": ["2"]},
                           **common)
@@ -609,8 +610,48 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
     # peril reads as its mnemonic, not the stored loccvg.PERIL code (D4) —
     # on the quick row and inside the custom filter set alike
     assert "Peril IN (WS)" in html
-    assert "lob IN (Homeowners) AND peril IN (WS) AND state IN (FL, GA)" in html
+    assert ("lob IN (Homeowners) AND peril IN (WS) AND state IN (US-FL, US-GA)"
+            in html)
     assert html.count("Base portfolio") == 3
+
+
+def test_expanded_row_groups_states_under_their_country(monkeypatch):
+    # Issue #62: one Geography line per country, its states after it as
+    # label-or-value; a country with no states shows "—", a state with no
+    # country goes under a "—" heading, and the 100 cap applies per line.
+    from app.services.portfolio_service import PortfolioRow
+    many = [{"value": f"DE-{i:03}", "label": None, "accounts": 1,
+             "country": "DE"} for i in range(105)]
+    summary = {
+        "countries": ["BE", "DE", "MX", "NL"],
+        "breakout_values": {"state": [
+            {"value": "-TX", "label": None, "accounts": 1, "country": None},
+            {"value": "BE-11", "label": "Antwerpen", "accounts": 5,
+             "country": "BE"},
+            {"value": "BE-21", "label": None, "accounts": 2, "country": "BE"},
+            {"value": "NL-11", "label": "Groningen", "accounts": 3,
+             "country": "NL"},
+            *many]}}
+    row = PortfolioRow(id="p0", name="WS_BENLUX_COM", irp_id="1",
+                       edm_id="edm-1", as_of=None,
+                       exposure_detail={"summary": summary})
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", portfolio_count=1,
+                            portfolios=[row], as_of="2026-10-02 10:00:00"))
+    html = _client().get("/edms/edm-1/portfolios-section").text
+    body = html[html.index("<dt>Geography</dt>"):]
+    lines = re.findall(r"<div>(.*?)</div>", body[:body.index("</dd>")])
+
+    assert lines[0] == "<strong>BE:</strong> Antwerpen, BE-21"
+    assert lines[1].startswith("<strong>DE:</strong> DE-000, ") and "DE-099" in lines[1]
+    assert "DE-100" not in lines[1]
+    assert "… +5 more not shown" in lines[1]
+    assert lines[2] == '<strong>MX:</strong> <span class="na">&mdash;</span>'
+    assert lines[3] == "<strong>NL:</strong> Groningen"
+    assert lines[4] == "<strong>—:</strong> -TX"
+    assert len(lines) == 5
+    assert "<dt>Countries" not in html and "<dt>States" not in html
 
 
 def test_treaties_header_holds_export_and_rm_link(monkeypatch):

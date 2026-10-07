@@ -107,14 +107,14 @@ def test_happy_path_creates_rows_with_lineage_and_enqueues_backfill(
 
 def test_state_dimension_shares_the_worker_body(iteration2_db, fake_irp):
     # US2 (T046/FR-004): run_breakout_state runs the same body — the lineage
-    # rows carry dimension 'state' with Admin1Code values (P-12), the
+    # rows carry dimension 'state' with `{country}-{Admin1Code}` values (P-31), the
     # selection read is asked for the state dimension, and the RM description
     # names the Geography - State dimension label.
     edm_id = mk_edm()
     source_id = mk_portfolio(edm_id)
-    fake_irp.selection_by_value = {"CA": [3], "TX": [1, 2]}
-    plan = [_plan_entry("CA", number="P1-S-CA", label="CALIFORNIA"),
-            _plan_entry("TX", number="P1-S-TX", label=None)]
+    fake_irp.selection_by_value = {"US-CA": [3], "US-TX": [1, 2]}
+    plan = [_plan_entry("US-CA", number="P1-S-USCA776CEC", label="CALIFORNIA"),
+            _plan_entry("US-TX", number="P1-S-USTX873133", label=None)]
     jid = _mk_job(edm_id, source_id, iteration2_db.user_a, plan,
                   dimension="state")
 
@@ -125,11 +125,11 @@ def test_state_dimension_shares_the_worker_body(iteration2_db, fake_irp):
     assert (out["planned"], out["created"], out["failed"]) == (2, 2, 0)
     rows = _generated_rows(source_id)
     assert [(r["breakout_dimension_code"], r["breakout_value"])
-            for r in rows] == [("state", "CA"), ("state", "TX")]
+            for r in rows] == [("state", "US-CA"), ("state", "US-TX")]
     assert fake_irp.selection_calls[0]["dimension"] == "state"
     assert fake_irp.created_sub_portfolios[0]["description"] == (
         "Breakout of portfolio usfl_commercial by Geography - State: "
-        "CA (CALIFORNIA)")
+        "US-CA (CALIFORNIA)")
 
 
 def test_worker_executes_persisted_plan_verbatim_and_reads_no_summary(

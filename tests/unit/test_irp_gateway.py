@@ -268,17 +268,18 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
         "portfolio_account_total.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "AccountTotal": 1701},
         ],
-        # US2 (T044/P-12): the rewritten script returns Admin1Code as the
-        # value, a nullable Admin1Name label (absent until geocoding), and an
-        # account count. "BY" (Bayern) enumerates through the same field as
-        # the US states — no separate mode for non-US divisions.
+        # US2 (T044/P-31): the script returns the country, the
+        # `{country}-{Admin1Code}` value, a nullable Admin1Name label (absent
+        # until geocoding), and an account count. "DE-BY" (Bayern) enumerates
+        # through the same field as the US states — no separate mode for
+        # non-US divisions.
         "portfolio_states.sql": [
-            {"PortfolioId": 1, "PortfolioName": "A", "Admin1Code": "TX",
-             "Admin1Name": None, "AccountCount": 412},
-            {"PortfolioId": 1, "PortfolioName": "A", "Admin1Code": "FL",
-             "Admin1Name": "FLORIDA", "AccountCount": 1241},
-            {"PortfolioId": 1, "PortfolioName": "A", "Admin1Code": "BY",
-             "Admin1Name": "BAYERN", "AccountCount": 9},
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "US",
+             "Value": "US-TX", "Admin1Name": None, "AccountCount": 412},
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "US",
+             "Value": "US-FL", "Admin1Name": "FLORIDA", "AccountCount": 1241},
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "DE",
+             "Value": "DE-BY", "Admin1Name": "BAYERN", "AccountCount": 9},
         ],
         "portfolio_lines_of_business.sql": [
             {"PortfolioId": 1, "PortfolioName": "A",
@@ -328,11 +329,10 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
     # account_total, breakout_values and breakout_coverage are the spec-005
     # additions (R11 and the 2026-08-05 FR-007 revision) — the breakout_values
     # container's PRESENCE is what marks a post-005 summary; entries are sorted
-    # by value. states holds Admin1Code (P-12); a state's label is Admin1Name
-    # where geocoded and None otherwise; a lob value is its own label → None.
+    # by value. A state's label is Admin1Name where geocoded and None
+    # otherwise (P-12); a lob value is its own label → None.
     assert summary == {
         "1": {"portfolio_name": "A", "countries": ["CA", "US"],
-              "states": ["BY", "FL", "TX"],
               "lines_of_business": ["Auto", "Commercial"],
               "currencies": ["USD"],
               "account_total": 1701, "breakout_values": {
@@ -346,16 +346,19 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
                       {"value": "1", "label": None, "accounts": 517},
                       {"value": "2", "label": None, "accounts": 1701}],
                   "state": [
-                      {"value": "BY", "label": "BAYERN", "accounts": 9},
-                      {"value": "FL", "label": "FLORIDA", "accounts": 1241},
-                      {"value": "TX", "label": None, "accounts": 412}]},
+                      {"value": "DE-BY", "label": "BAYERN", "accounts": 9,
+                       "country": "DE"},
+                      {"value": "US-FL", "label": "FLORIDA", "accounts": 1241,
+                       "country": "US"},
+                      {"value": "US-TX", "label": None, "accounts": 412,
+                       "country": "US"}]},
               "breakout_coverage": {
                   "country": {"covered": 1698, "multi_value": 3},
                   "lob": {"covered": 1690, "multi_value": 22},
                   "peril": {"covered": 1701, "multi_value": 517},
                   "state": {"covered": 1624, "multi_value": 38}}},
         "2": {"portfolio_name": "B", "countries": [],
-              "states": [], "lines_of_business": [], "currencies": [],
+              "lines_of_business": [], "currencies": [],
               "account_total": None, "breakout_values": {},
               "breakout_coverage": {}},
     }
@@ -366,18 +369,19 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
 def test_edm_exposure_summary_reads_a_dataframe_nan_as_no_label():
     # The DataBridge executor returns DataFrames, which carry SQL NULL as NaN —
     # and NaN is truthy, so an un-geocoded Admin1Name (NULL for every Caribbean
-    # row by D5) reached the summary as the label "nan". The value stays the
-    # island's ISO3A CountryCode the script returns in the Admin1Code column.
+    # row by D5) reached the summary as the label "nan". The value stays
+    # `CB-{island ISO3A}`, as the script returns it.
     gw = _summary_gw(
         [{"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"}],
         {"portfolio_states.sql": [
-            {"PortfolioId": 1, "PortfolioName": "A", "Admin1Code": "VIR",
-             "Admin1Name": float("nan"), "AccountCount": 7}]})
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "CB",
+             "Value": "CB-VIR", "Admin1Name": float("nan"),
+             "AccountCount": 7}]})
 
     summary = gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42)
 
     assert summary["1"]["breakout_values"]["state"] == [
-        {"value": "VIR", "label": None, "accounts": 7}]
+        {"value": "CB-VIR", "label": None, "accounts": 7, "country": "CB"}]
 
 
 def test_edm_exposure_summary_raises_when_database_name_unresolvable():
@@ -449,26 +453,26 @@ def test_select_lob_maps_the_script_rows_per_requested_value():
 
 
 def test_select_state_maps_the_script_rows_per_requested_value():
-    # US2 (T045/P-12): the state dimension runs breakout_state_accounts.sql —
-    # Value is Admin1Code, mirroring the rewritten portfolio_states.sql joins,
+    # US2 (T045/P-31): the state dimension runs breakout_state_accounts.sql —
+    # Value is `{country}-{Admin1Code}`, mirroring portfolio_states.sql,
     # so the filter vocabulary matches the stored summary. Admin1Name is never
     # a filter input.
     calls: list = []
     state_rows = [
-        {"Value": "TX", "AccountId": 101},
-        {"Value": "TX", "AccountId": 102},
-        {"Value": "BY", "AccountId": 103},   # non-US division, same field
-        {"Value": "CA", "AccountId": 102},   # multi-state account (W-3/W-11)
+        {"Value": "US-TX", "AccountId": 101},
+        {"Value": "US-TX", "AccountId": 102},
+        {"Value": "DE-BY", "AccountId": 103},   # non-US division, same field
+        {"Value": "US-CA", "AccountId": 102},   # multi-state account (W-3/W-11)
     ]
     gw = _selection_gw(records=state_rows, calls=calls)
     selection = gw.select_breakout_accounts(
         edm_name="EDM", exposure_irp_id="42", source_portfolio_irp_id="1",
-        dimension="state", values=["TX", "CA", "BY", "MT"])
+        dimension="state", values=["US-TX", "US-CA", "DE-BY", "US-MT"])
     assert selection == {
-        "TX": [101, 102],
-        "CA": [102],        # the multi-state account lands in BOTH values
-        "BY": [103],
-        "MT": [],           # empty — zero-match fails downstream
+        "US-TX": [101, 102],
+        "US-CA": [102],     # the multi-state account lands in BOTH values
+        "DE-BY": [103],
+        "US-MT": [],        # empty — zero-match fails downstream
     }
     assert calls == [("breakout_state_accounts.sql", {"portfolio_id": 1},
                       "edm_db")]

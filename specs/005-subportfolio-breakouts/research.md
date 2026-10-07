@@ -132,6 +132,8 @@ The confirm POST re-checks the gate server-side (409 + re-rendered fragment on f
 
 *(Resolved 2026-08-03. This entry previously deferred the vocabulary question to the spike.)*
 
+*(Revised 2026-10-02 by P-31: the value is `{country}-{Admin1Code}` — see [Session 2026-10-02](#session-2026-10-02).)*
+
 **Decision.** `Admin1Code` is the selection filter value, the stored `breakout_value`, the token in the generated name and number, and the value the analyst sees. `Admin1Name` travels alongside as a **nullable display label** and is **never synthesized from the code**.
 
 `sql/databridge/portfolio_states.sql` changes accordingly: it returns `Admin1Code` as the value and `MAX(Admin1Name)` as the label, groups by the code, and tests the **code** in the `WHERE`. The `COALESCE(NULLIF(Admin1Name,''), Admin1Code)` expression is removed from both places it appears.
@@ -401,6 +403,18 @@ breakouts (D3/D4, O12-3).
 Issue #137 — editing quick-breakout names before confirming.
 
 - **Q: The analyst cannot rename a quick-breakout sub-portfolio before it is created. Where does the name come from now?** → **A: The preview row's text input, prefilled with the generated name; the confirm posts it and the persisted plan carries it.** The worker already creates from `entry.name`, so it is unchanged. The confirm validates with the custom cart's rules — blank, 40 characters, `[A-Za-z0-9_-]`, case-insensitive against the EDM's live portfolios and the breakout's other names — through one shared helper, and refuses with a reason per row rather than re-suffixing: a re-suffixed name would differ from the one the analyst typed. **Rejected:** searching Risk Modeler at confirm — one search per row on the request path, when the as-you-type check already asks Risk Modeler and the worker adopts a duplicate name by number; keyed `name:{value}` form fields — a breakout value can carry characters that make an awkward field name, and parallel `value`/`name` lists keep the route on FastAPI `Form` lists; reverting a blank name to the generated one — the analyst cleared the field on purpose, so a blank is refused instead. → spec **P-33** (FR-006, FR-006a, FR-006b, FR-010)
+
+### Session 2026-10-02
+
+Issue #62 (states listed apart from their countries on the expanded row) and
+issue #66 (P-31) share one cause: `portfolio_states.sql` grouped on the bare
+`Admin1Code` and returned no country.
+
+- **Q: How does the country travel with a state value?** → **A: Inside the value, as one string `{country}-{Admin1Code}`.** `irp_portfolio.breakout_value` and `breakout_group.filters` store it verbatim, so no Alembic revision is needed and `uq_irp_portfolio_breakout` keeps its shape. **Rejected:** a separate country column on `irp_portfolio` and a `{country: [codes]}` shape in `breakout_group.filters` — a revision, a unique-key change, and a second filter shape, to carry a string the selection scripts can compose themselves. The four state scripts concatenate the country dimension's expression, so the selection read still filters on a string byte-identical to the enumerated value (FR-008). `MAX(Admin1Name)` now runs per (country, code), so BE `11` and NL `11` get their own labels.
+- **Q: What does an unlabeled state display?** → **A: The stored value, `US-TX`.** The deferred P-31 text proposed `{country} {code}`; rejected because the cart, the criteria line, and the preview would then show a string that is not the value the analyst ticked.
+- **Q: Does `_compose_number` special-case the hyphen?** → **A: No.** `US-TX` strips to `USTX`, which differs from the value, so the number takes the 6-hex tail. A special case would buy a readable number at the cost of a second normalization rule on the identity adoption resolves on (R4).
+- **Q: An address with a code and no country?** → **A: Kept, as `-TX`.** Dropping it would leave accounts out of every state sub-portfolio with nothing in the overlap disclosure to say why. The expanded row lists it under a `—` country heading.
+- **Q: Data written before this change?** → **A: No code path.** Pre-cutover (no backwards compatibility): re-sync each EDM, then delete the bare-code state sub-portfolios and state custom groups by hand before re-running breakouts. → spec **P-31** (FR-005, FR-009, FR-014)
 
 ### Carried from the design record
 

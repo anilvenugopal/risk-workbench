@@ -1,7 +1,8 @@
 -- Account ids per state (first-level administrative division) for ONE
 -- portfolio in a Moody's RMS EDM — the geography breakout selection read
--- (spec 005 R1 as revised 2026-08-05, US2 T045). Value is Admin1Code (P-12):
--- the joins, the code filter, and the Caribbean branch (D5, rationale in
+-- (spec 005 R1 as revised 2026-08-05, US2 T045). Value is
+-- `{country}-{Admin1Code}` (P-31): the joins, the code filter, the value
+-- expression, and the Caribbean branch (D5, rationale in
 -- portfolio_states.sql) mirror portfolio_states.sql exactly, so the values this
 -- query filters on are byte-identical to the stored summary the analyst
 -- approved; Admin1Name is never a filter input. ACCGRPID is the id
@@ -12,8 +13,11 @@
 -- irp-integration DataBridge executor with injection-safe escaping.
 
 SELECT DISTINCT
-    CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryCode
-         ELSE a.Admin1Code END AS Value,
+    CONCAT(CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryRMSCode
+                ELSE COALESCE(NULLIF(a.CountryCode, ''), a.CountryRMSCode) END,
+           '-',
+           CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryCode
+                ELSE a.Admin1Code END) AS Value,
     pa.ACCGRPID AS AccountId
 FROM dbo.portacct AS pa
 INNER JOIN dbo.Property AS p

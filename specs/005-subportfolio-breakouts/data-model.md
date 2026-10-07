@@ -20,7 +20,7 @@ The entity stays the thin identity record of DATA_MODEL §5, plus the spec-004 s
 | `as_of` | DATETIME2 NULL | | |
 | **`source_portfolio_id`** | UNIQUEIDENTIFIER NULL, FK → `irp_portfolio.id` | ✅ | self-reference; NULL = broker-arrived. Immediate source only — chained lineage walks the chain |
 | **`breakout_dimension_code`** | NVARCHAR(32) NULL, FK → `breakout_dimension_kind.code` | ✅ | NULL iff `source_portfolio_id` IS NULL |
-| **`breakout_value`** | NVARCHAR(256) NULL | ✅ | the value the **selection filter** uses, verbatim: `Admin1Code` for `state`, `LOBNAME` for `lob` (P-12). External exposure vocabulary → plain column per Article 3. Not a display string: the state *name* is a separate exposure attribute that is absent until geocoding and changes under the analyst's feet (R6) |
+| **`breakout_value`** | NVARCHAR(256) NULL | ✅ | the value the **selection filter** uses, verbatim: `{country}-{Admin1Code}` for `state` (`US-TX`, P-31), `LOBNAME` for `lob`. External exposure vocabulary → plain column per Article 3. Not a display string: the state *name* is a separate exposure attribute that is absent until geocoding and changes under the analyst's feet (R6) |
 | **`breakout_group_id`** | UNIQUEIDENTIFIER NULL, FK → `breakout_group.id` | ✅ | set iff `breakout_dimension_code` is `custom` (§9); the group row owns the label and filters the portfolio's number and name cannot carry |
 | `deleted_at` | DATETIME2 NULL | | soft delete (prune) |
 | `inserted_at` / `updated_at` | DATETIME2 NOT NULL | | |
@@ -131,12 +131,12 @@ The spec-004 JSON snapshot, written by `backfill_edm_detail`. No DDL — this is
 ```jsonc
 {
   "portfolio_name": "usfl_commercial",
-  "states": ["CA", "FL", "TX"],          // CHANGED: Admin1Code (was COALESCE(Admin1Name, Admin1Code))
-  "lines_of_business": ["FLD Comm"],     // unchanged — the display lists
+  "countries": ["US"],                   // unchanged — the display lists
+  "lines_of_business": ["FLD Comm"],
   "currencies": ["USD"],
   "account_total": 1701,                 // NEW: the overlap denominator (FR-007)
   "breakout_values": {                   // NEW: the enumeration source (FR-005)
-    "state": [{"value": "TX", "label": "TEXAS", "accounts": 220}],
+    "state": [{"value": "US-TX", "label": "TEXAS", "accounts": 220, "country": "US"}],
     "lob":   [{"value": "FLD Comm", "label": null, "accounts": 25}]
   },
   "breakout_coverage": {                 // NEW: the measured overlap (FR-007)
@@ -148,12 +148,13 @@ The spec-004 JSON snapshot, written by `backfill_edm_detail`. No DDL — this is
 
 - `breakout_values` is keyed by `breakout_dimension_kind.code`, so the gate, the preview, and the worker index it by dimension with no per-dimension branch.
 - `label` is `Admin1Name` where the EDM has it and `null` otherwise — a display label only, never synthesized from the code (P-12). For `lob` the value is its own label, so the key is `null`.
+- A `state` value is `{country}-{Admin1Code}` (P-31). Its `country` key is the country part on its own, `null` when the address has no country (value `-TX`); the expanded portfolio row groups states under it. The summary has no separate `states` list.
 - `breakout_coverage` is keyed the same way. `covered` counts the portfolio's accounts carrying **at least one** value of the dimension; `account_total − covered` is the number that carry none and therefore land in no sub-portfolio. `multi_value` counts the accounts carrying **more than one** — the accounts that appear in several sub-portfolios. Both are counted per account by `portfolio_state_coverage.sql` / `portfolio_lob_coverage.sql`, which repeat their summary script's joins and blank filter, and neither is derivable from `breakout_values[].accounts`: that sums memberships, so an account with three values adds three and an account with none adds nothing while still counting in `account_total`. A summary written before the 2026-08-05 revision has no `breakout_coverage`; the preview reads that as absent and falls back to the qualitative disclosure, exactly as it already does for a missing `account_total`. No migration or backfill of existing snapshots is needed — a Sync rewrites the summary.
-- **Absence of `breakout_values` is the staleness signal.** Every summary written before this iteration lacks it, and its `states` list holds a mixed vocabulary of names and codes that must not be read as filter values. The gate treats a missing `breakout_values` as a missing summary and points at Sync (FR-002). No migration or backfill of existing snapshots is needed.
+- **Absence of `breakout_values` is the staleness signal.** Every summary written before this iteration lacks it, and its old `states` list held a mixed vocabulary of names and codes that must not be read as filter values. The gate treats a missing `breakout_values` as a missing summary and points at Sync (FR-002). No migration or backfill of existing snapshots is needed.
 - Readers parse defensively, as the existing spec-004 readers do; an additive JSON change is spec-004-compatible.
 - Also captured by the same backfill, alongside the summary: the portfolio's Risk Modeler `stampDate`, the FR-002a freshness anchor. Stored in `exposure_detail`, no new column.
 
-Source scripts, all read-only and worker-side through `irp-integration` (Article 11): `portfolio_states.sql` (returns `Admin1Code`, `MAX(Admin1Name)`, account count, grouped and filtered on the code), `portfolio_lines_of_business.sql` (+ account count), `portfolio_account_total.sql`, and `portfolio_state_coverage.sql` / `portfolio_lob_coverage.sql`. Measured cost of the first three: **+1.44s** on the backfill job for the largest sandbox book (W-19); the two coverage scripts repeat those joins with a per-account grouping, so the added cost is measured at the T063 walkthrough.
+Source scripts, all read-only and worker-side through `irp-integration` (Article 11): `portfolio_states.sql` (returns `Country`, `Value` = `{country}-{Admin1Code}`, `MAX(Admin1Name)`, account count, grouped on country and code, filtered on the code), `portfolio_lines_of_business.sql` (+ account count), `portfolio_account_total.sql`, and `portfolio_state_coverage.sql` / `portfolio_lob_coverage.sql`. Measured cost of the first three: **+1.44s** on the backfill job for the largest sandbox book (W-19); the two coverage scripts repeat those joins with a per-account grouping, so the added cost is measured at the T063 walkthrough.
 
 ## 6. Read models (derived, never stored)
 
@@ -166,7 +167,7 @@ Source scripts, all read-only and worker-side through `irp-integration` (Article
 - §5 `irp_portfolio` block: add the three lineage columns + the "immediate source only" note + the filtered unique index; add `irp_portfolio ||--o{ irp_portfolio : "breakout lineage (nullable)"`.
 - Table index row for `breakout_dimension_kind`.
 - §5 note: "`irp_portfolio.inserted_by` populated for breakout-generated portfolios (first use)."
-- §5 `exposure_detail` note: the summary gains `breakout_values` and `account_total`, and `states` holds state codes.
+- §5 `exposure_detail` note: the summary gains `breakout_values` and `account_total`, each `state` value carries its `country`, and the summary has no separate `states` list.
 - Open-items list: strike "portfolio breakout lineage" if/where implied; no `irp_job_resource` change (breakouts create no `irp_job`).
 
 ## 8. Migration impact

@@ -96,7 +96,7 @@ def test_snapshot_upsert_preserves_lineage_and_the_list_reads_it(
     source = portfolio_service.list_portfolios(edm_id=edm_id)[0]
     portfolio_service.save_generated_portfolio(
         edm_id, name="usfl_commercial - TX", irp_id="431",
-        source_portfolio_id=source.id, dimension_code="state", value="TX",
+        source_portfolio_id=source.id, dimension_code="state", value="US-TX",
         actor_id=None)
 
     # the backfill later enumerates the generated portfolio and overwrites
@@ -112,7 +112,7 @@ def test_snapshot_upsert_preserves_lineage_and_the_list_reads_it(
     assert generated.source_name == "usfl_commercial"
     assert generated.breakout_dimension_code == "state"
     assert generated.breakout_dimension_label == "Geography - State"
-    assert generated.breakout_value == "TX"
+    assert generated.breakout_value == "US-TX"
     # the source snapshot carries no summary → no display label, and the
     # template falls back to the code (P-12 as revised 2026-08-05)
     assert generated.breakout_value_label is None

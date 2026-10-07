@@ -397,7 +397,7 @@ class FakeIRP:
     def set_exposure_summary(self, edm_name: str,
                              by_portfolio: dict[str, dict]) -> None:
         """Seed the per-EDM DataBridge aggregate ``get_edm_exposure_summary``
-        returns — ``{portfolioId(str): {portfolio_name, countries, states,
+        returns — ``{portfolioId(str): {portfolio_name, countries,
         lines_of_business, currencies, account_total, breakout_values,
         breakout_coverage}}`` (the sql/databridge/ script set). Seed
         ``breakout_coverage`` per dimension as ``{"covered": n, "multi_value": n}``
