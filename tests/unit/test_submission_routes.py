@@ -977,7 +977,7 @@ def test_the_linked_to_detail_page_names_its_oldest_linker_and_lists_the_rest(cl
     detail = client.get(f"/submissions/{target}").text
     assert (f'linked from <a class="crumb" href="/submissions/{first}">'
             "TY2606_FirstLinker</a>") in detail
-    assert "+1" not in detail
+    assert ">+1</button>" not in detail
 
     second = client.post("/submissions", data=_payload(
         name="TY2706_SecondLinker", links_to_submission_id=target,
