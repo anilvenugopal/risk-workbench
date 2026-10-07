@@ -82,8 +82,10 @@ Per work unit (portfolio *p*, item *i*):
      progress and the poller keeps it current.
    - `IRPIntegrationError`: `record_submission_failure` (same linkage columns,
      `status='SUBMISSION FAILED'`, `submission_attempt_count=1`, `request_params` set) and
-     write the message to `irp_analysis.failure_reason` (status stays `pending` while
-     retries remain — FR-010).
+     write the message to `irp_analysis.failure_reason`. Status stays `pending` while
+     retries remain (FR-010). A 4xx other than 429 (`IRPAPIError.status_code`, tested
+     by `irp_gateway.is_permanent_submit_failure`) also sets `status_code='error'`, so
+     the retry batch never picks the analysis up.
 
 Outcome: `output_data = {"submitted": n, "submission_failed": m}`; `JobResult.fail` only
 when every item failed to submit. A death between steps 3 and 4 may resubmit one item on
@@ -151,7 +153,8 @@ and a retrieval-failed display are deferred (P-14 amendment, research.md).
 Implements the existing scaffold. Single-threaded, inside `poll_once()`:
 
 1. Select the newest `SUBMISSION FAILED` `irp_job` per `irp_analysis_id`
-   (`irp_job_type='analysis'`, `irp_analysis_id IS NOT NULL`) where
+   (`irp_job_type='analysis'`, `irp_analysis_id IS NOT NULL`) whose analysis is
+   undeleted and `status_code='pending'`, where
    `submission_attempt_count < IRP_SUBMISSION_MAX_RETRIES` and
    `now > completed_at + IRP_SUBMISSION_RETRY_BASE_SECS * 2^submission_attempt_count`.
 2. Atomically claim the row as `SUBMISSION RETRYING`, requiring the job to remain
@@ -166,8 +169,9 @@ Implements the existing scaffold. Single-threaded, inside `poll_once()`:
    already `pending`.
 5. Failure → restore `status='SUBMISSION FAILED'`, increment
    `submission_attempt_count`, refresh `last_submission_response` and
-   `irp_analysis.failure_reason`. At the maximum the row stays `SUBMISSION FAILED` and
-   `irp_analysis.status_code` flips to `error` — visible, never dropped (SC-004).
+   `irp_analysis.failure_reason`. At the maximum, or on a 4xx other than 429, the row
+   stays `SUBMISSION FAILED` and `irp_analysis.status_code` flips to `error` — visible,
+   never dropped (SC-004).
 
 Pre-010 entity imports keep their insert-per-failure behavior; this batch touches only
 `analysis` rows.

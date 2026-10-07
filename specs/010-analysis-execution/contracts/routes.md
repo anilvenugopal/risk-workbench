@@ -109,7 +109,8 @@ Row contract (`partials/executed_analysis_row.html`, modeled on
 (`full_name`) with an "RM ↗" link once `irp_app_analysis_id` is backfilled — the RM web
 UI route takes `appAnalysisId`, not the API `analysisId` — portfolio name, template
 name, status chip (derived: latest `irp_job.status`, with `SUBMISSION FAILED` shown as
-"Failed to submit · attempt n/max" and `SUBMISSION RETRYING` treated as in progress)
+"Failed to submit · attempt n/max" while retries remain, "Failed to submit" once the
+analysis is `error`, and `SUBMISSION RETRYING` treated as in progress)
 with the `failure_reason` when failed, and the
 localized submit time. Expanded: the settings grid once `settings_metadata` is
 backfilled; the loss-numbers fragment (below) once results exist. No RDM grouping

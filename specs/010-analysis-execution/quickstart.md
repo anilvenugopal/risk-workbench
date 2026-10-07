@@ -42,7 +42,9 @@ plainly when a tier did not run.
 8. Submission failure: break `RISK_MODELER_BASE_URL` mid-run (or use the sandbox outage
    window) → affected rows show "Failed to submit" immediately, the poller's retry batch
    resubmits with backoff up to `IRP_SUBMISSION_MAX_RETRIES`, then the row stays visible
-   as failed-to-submit with its reason.
+   as failed-to-submit with its reason. A submit Risk Modeler rejects with a 400 shows
+   "Failed to submit" under Failed on the first poll, and the poller log has no
+   `submission_retry` attempt for it.
 9. On completion, expand a finished analysis → settings/metadata are shown (backfill).
 10. Recovery: kill the Dramatiq worker mid-run; after
     `RWB_HEARTBEAT_STALE_SECS` the reconciler re-pends the job and the run finishes with
