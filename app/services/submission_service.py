@@ -103,6 +103,7 @@ class SubmissionRow:
     updated_at: Any
     client_id: int | None
     data_vintage: Any = None
+    archived_at: Any = None
     client_name: str | None = None
     crm_ids: list[str] = field(default_factory=list)
     treaty_type_labels: list[str] = field(default_factory=list)
@@ -191,6 +192,8 @@ class Submission:
     updated_at: Any
     client_id: int | None
     data_vintage: Any = None
+    archived_at: Any = None
+    archived_by_name: str | None = None
     client_name: str | None = None
     contracts: list[Contract] = field(default_factory=list)
 
@@ -395,7 +398,7 @@ _ROW_SELECT = """
     SELECT s.id, s.name, ced.name AS cedant_name, s.treaty_year, s.data_vintage,
            s.status_code, sk.label AS status_label, s.client_id,
            s.assigned_analyst_id, u.display_name AS assigned_analyst_name,
-           s.updated_at
+           s.updated_at, s.archived_at
     FROM submission s
     JOIN cedant ced ON ced.id = s.cedant_id
     LEFT JOIN submission_status_kind sk ON sk.code = s.status_code
@@ -427,6 +430,7 @@ def _to_row(row: dict) -> SubmissionRow:
         updated_at=row["updated_at"],
         client_id=row["client_id"],
         data_vintage=row.get("data_vintage"),
+        archived_at=row.get("archived_at"),
     )
 
 
@@ -631,11 +635,13 @@ def get_submission(submission_id: Any) -> Submission | None:
                s.directory_path, s.status_code, sk.label AS status_label,
                s.client_id,
                s.assigned_analyst_id, u.display_name AS assigned_analyst_name,
-               s.inserted_at, s.updated_at
+               s.inserted_at, s.updated_at,
+               s.archived_at, au.display_name AS archived_by_name
         FROM submission s
         JOIN cedant ced ON ced.id = s.cedant_id
         LEFT JOIN submission_status_kind sk ON sk.code = s.status_code
         LEFT JOIN app_user u ON u.id = s.assigned_analyst_id
+        LEFT JOIN app_user au ON au.id = s.archived_by
         WHERE s.id = :id
         """,
         {"id": sid}, connection="WORKBENCH",
@@ -662,6 +668,8 @@ def get_submission(submission_id: Any) -> Submission | None:
         updated_at=row["updated_at"],
         client_id=row["client_id"],
         data_vintage=row.get("data_vintage"),
+        archived_at=row["archived_at"],
+        archived_by_name=row["archived_by_name"],
         client_name=client_name,
         contracts=list_contracts(sid),
     )
@@ -951,6 +959,7 @@ def list_submissions(
     treaty_years: list[int] | None = None, status_codes: list[str] | None = None,
     contract_status_codes: list[str] | None = None,
     client_ids: list[Any] | None = None, in_force_as_of: Any = None,
+    include_archived: bool = False,
     page: int = 1, sort: str = DEFAULT_SORT, descending: bool = True,
 ) -> SubmissionPage:
     """One page of the master list. Filters AND-combine as bound predicates
@@ -967,7 +976,7 @@ def list_submissions(
 
     ``page`` is 1-based; anything lower is page 1, so a hand-typed ``?page=0``
     reads the first page rather than a negative offset. ``sort`` is a key of
-    ``SORT_COLUMNS``.
+    ``SORT_COLUMNS``. Archived deals are left out unless ``include_archived``.
 
     No minimum term length: every read is capped at ``PAGE_SIZE``, so a
     one-character search costs no more than the page it narrows."""
@@ -979,6 +988,8 @@ def list_submissions(
         "client_ids": client_ids, "in_force_as_of": in_force_as_of,
     }
     clauses, params = submission_filter_clauses(filters)
+    if not include_archived:
+        clauses.append("s.archived_at IS NULL")
     contract_clauses, contract_params = _contract_clauses(filters)
     page = max(1, int(page or 1))
     # One row past the page: its presence is what "there is a next page" means,
@@ -1036,11 +1047,12 @@ def search_submissions_for_link(
 
     ``exclude_id`` drops the submission being edited so it cannot be offered as its
     own link — ``update_submission`` still raises ``SelfLinkError`` as the real
-    check."""
+    check. Archived deals are not offered."""
     trimmed = (term or "").strip()
     if len(trimmed) < MIN_SUGGEST_TERM:
         return []
     clauses, params = _word_and_clauses(trimmed, ("s.name", "ced.name"), "t")
+    clauses.append("s.archived_at IS NULL")
     return _submission_rows(clauses, params, exclude_id=exclude_id, limit=limit)
 
 
@@ -1168,6 +1180,21 @@ def reassign_owner(
         raise ConcurrencyConflict(
             "This deal changed since you opened it — reload and re-apply."
         )
+
+
+def set_archived(*, submission_id: Any, archived: bool, actor_id: Any) -> None:
+    """Archive hides the deal from the Submissions list and the "links to"
+    picker; unarchive brings it back (issue 206). Modeling status, editability
+    and ``updated_at`` stay as they were, so an open edit form does not
+    conflict."""
+    rows_affected = execute_command(
+        "UPDATE submission SET archived_at = :at, archived_by = :by WHERE id = :id",
+        {"at": _utcnow() if archived else None,
+         "by": str(actor_id) if archived else None, "id": str(submission_id)},
+        connection="WORKBENCH",
+    )
+    if rows_affected == 0:
+        raise LookupError(f"submission {submission_id} not found")
 
 
 # ── Modeling status (event-sourced) ─────────────────────────────────────────

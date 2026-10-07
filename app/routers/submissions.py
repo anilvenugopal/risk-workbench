@@ -1056,6 +1056,7 @@ def list_submissions_page(request: Request):
         **parsed.filters,
         "owner_ids": owner_ids,
         "inception_date": _parse_date(request.query_params.get("inception")),
+        "include_archived": request.query_params.get("archived") == "1",
     }
     page = _parse_int(request.query_params.get("page")) or 1
     # A hand-edited ?sort=/&dir= falls back to the default order rather than 422.
@@ -1076,6 +1077,7 @@ def list_submissions_page(request: Request):
     filter_values |= multi_values
     filter_values["in_force"] = parsed.in_force
     filter_values["as_of"] = parsed.as_of
+    filter_values["archived"] = filters["include_archived"]
     # The resolved ids, not the raw parameter: on the default landing the hidden
     # input has to hold the analyst's own id so the next request keeps it.
     filter_values["owner"] = owner_ids or ["any"]
@@ -1091,6 +1093,8 @@ def list_submissions_page(request: Request):
         query_values += [(key, value) for value in filter_values[key]]
     if parsed.in_force:
         query_values += [("in_force", "1"), ("as_of", filter_values["as_of"])]
+    if filters["include_archived"]:
+        query_values.append(("archived", "1"))
     # Lowercased: the id arrives from a query string, `app_user.id` from the driver.
     if ([value.lower() for value in filter_values["owner"]]
             == [str(request.state.user.id).lower()]):
@@ -1569,6 +1573,31 @@ def reassign(
     if _is_htmx(request):
         return _head_partial(request, submission_id)
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+# ── Archive (issue 206) ───────────────────────────────────────────────────────
+
+def _set_archived(request: Request, submission_id: str, csrf_token: str,
+                  archived: bool):
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    submission_service.set_archived(submission_id=submission_id, archived=archived,
+                                    actor_id=request.state.user.id)
+    if _is_htmx(request):
+        return _head_partial(request, submission_id)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+@router.post("/submissions/{submission_id}/archive")
+def archive(request: Request, submission_id: str, csrf_token: str = Form(...)):
+    return _set_archived(request, submission_id, csrf_token, archived=True)
+
+
+@router.post("/submissions/{submission_id}/unarchive")
+def unarchive(request: Request, submission_id: str, csrf_token: str = Form(...)):
+    return _set_archived(request, submission_id, csrf_token, archived=False)
 
 
 # ── Modeling status (spec 017 P-12, P-14) ─────────────────────────────────────

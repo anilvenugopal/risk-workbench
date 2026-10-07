@@ -2258,7 +2258,8 @@ def test_statuses_post_saves_modeling_status_and_returns_the_head_fragment(clien
         ("COMPLETED", "delivered"), ("ACTIVE", None)]
     assert "read-only" in response.text and "Contract status can still be set" in response.text
     assert response.headers["HX-Trigger"] == "modeling-status-changed"
-    assert '<span id="submission-actions" hx-swap-oob="true"></span>' in response.text
+    actions = response.text.split('<span id="submission-actions"')[1].split("</span>")[0]
+    assert 'hx-swap-oob="true"' in actions and "/edit" not in actions
 
 
 def test_statuses_post_resubmitting_the_same_modeling_status_records_an_event(client):
@@ -2620,3 +2621,60 @@ def test_twenty_one_crm_ids_return_the_message_and_no_rows(client):
     assert body.status_code == 422
     assert "CRM ID accepts 20 values or fewer." in body.text
     assert "Visible_deal" not in body.text
+
+
+# ── Archive (issue 206) ───────────────────────────────────────────────────────
+
+def _archive(client, sid: str, action: str = "archive", **kwargs):
+    return client.post(f"/submissions/{sid}/{action}",
+                       data={"csrf_token": _csrf()}, **kwargs)
+
+
+def test_archive_hides_the_deal_from_the_list_until_show_archived(client):
+    sid, marker = _deal(client, name="Archived_deal")
+    _deal(client, name="Listed_deal", cedant_name="Other Re")
+    response = _archive(client, sid, headers=_HX)
+    assert response.status_code == 200
+    assert response.text.lstrip().startswith('<div id="deal-head"')
+    assert "Archived" in response.text and "by Analyst A" in response.text
+    assert "/unarchive" in response.text  # the out-of-band actions swap
+    deal = submission_service.get_submission(sid)
+    assert deal.status_code == "ACTIVE" and str(deal.updated_at) == marker
+
+    body = client.get("/submissions").text
+    assert "Listed_deal" in body and "Archived_deal" not in body
+    shown = client.get("/submissions?archived=1").text
+    assert "Archived_deal" in shown and "status-chip--archived" in shown
+    assert 'name="archived" value="1" checked' in shown
+    assert "archived=1" in shown  # pager / sort links
+
+
+def test_unarchive_lists_the_deal_again(client):
+    sid, _ = _deal(client, name="Back_again")
+    _archive(client, sid)
+    response = _archive(client, sid, "unarchive")
+    assert response.status_code == 303
+    assert submission_service.get_submission(sid).archived_at is None
+    assert "Back_again" in client.get("/submissions").text
+
+
+def test_an_archived_deal_opens_directly_with_its_banner(client):
+    sid, _ = _deal(client, name="Opened_archived")
+    _archive(client, sid)
+    body = client.get(f"/submissions/{sid}").text
+    assert "hidden from the Submissions list" in body
+    assert ">Unarchive</button>" in body
+
+
+def test_link_suggest_skips_archived_deals(client):
+    sid, _ = _deal(client, name="Archived_link_target")
+    _archive(client, sid)
+    assert "Archived_link_target" not in client.get(
+        "/submissions/link-suggest?links_to_search=Archived+link").text
+
+
+def test_archive_without_a_csrf_token_writes_nothing(client):
+    sid, _ = _deal(client, name="No_csrf_archive")
+    response = client.post(f"/submissions/{sid}/archive", data={"csrf_token": "nope"})
+    assert response.status_code == 303
+    assert submission_service.get_submission(sid).archived_at is None

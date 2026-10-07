@@ -39,7 +39,8 @@
 }
 .status-chip.status-chip--active         { background: var(--color-info-bg);      color: var(--color-info);      border-color: var(--color-info-border); }
 .status-chip.status-chip--completed      { background: var(--color-positive-bg);  color: var(--color-positive);  border-color: var(--color-positive-border); }
-.status-chip.status-chip--cancelled      { background: var(--surface-recessed);   color: var(--text-tertiary);   border-color: var(--border-default); }
+.status-chip.status-chip--cancelled,
+.status-chip.status-chip--archived       { background: var(--surface-recessed);   color: var(--text-tertiary);   border-color: var(--border-default); }
 /* Contract status (spec 017): Won and Completed are both green because both
    are a good outcome; the group label beside the pill says which vocabulary. */
 .status-chip.status-chip--won            { background: var(--color-positive-bg);  color: var(--color-positive);  border-color: var(--color-positive-border); }
