@@ -1768,6 +1768,29 @@ def test_submission_rdm_lazy_rows_read_merged_columns(client):
         f"/submissions/{other_id}/rdms/{rdm_id}/analyses").status_code == 404
 
 
+def test_submission_rdm_lazy_rows_follow_the_section_sort(client):
+    submission_id, _, rdm_id = _seed_results_data(client)
+    for irp_id, name, peril in (("1", "Alpha wind", "WS"),
+                                ("2", "Bravo quake", "EQ")):
+        execute_command(
+            "INSERT INTO irp_analysis "
+            "(id, rdm_id, irp_id, name, status_code, settings_metadata) "
+            "VALUES (:id, :rdm, :irp, :name, 'ready', :settings)",
+            {"id": str(uuid.uuid4()), "rdm": rdm_id, "irp": irp_id,
+             "name": name, "settings": json.dumps({"perilCode": peril})},
+            connection="WORKBENCH")
+    url = f"/submissions/{submission_id}/rdms/{rdm_id}/analyses"
+
+    ascending = client.get(f"{url}?sort=peril&dir=asc").text
+    descending = client.get(f"{url}?sort=peril&dir=desc").text
+    section = client.get(
+        f"/submissions/{submission_id}/analyses?sort=peril&dir=asc").text
+
+    assert ascending.index("Bravo quake") < ascending.index("Alpha wind")
+    assert descending.index("Alpha wind") < descending.index("Bravo quake")
+    assert f'/rdms/{rdm_id}/analyses?sort=peril&amp;dir=asc"' in section
+
+
 def test_detail_page_includes_the_results_section(client):
     submission_id, _, _ = _seed_results_data(client)
 

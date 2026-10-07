@@ -187,7 +187,7 @@
       {% endif %}
       {% for rdm in groups %}
       <details class="dtable__rdm" id="rdm-group-{{ rdm.rdm_id }}"
-        hx-get="{{ rdm_analyses_prefix }}/{{ rdm.rdm_id }}/analyses"
+        hx-get="{{ rdm_analyses_prefix }}/{{ rdm.rdm_id }}/analyses{{ '?' ~ sort_query if sort_query }}"
         hx-trigger="toggle[event.target.open] once"
         hx-target="#rdm-analyses-{{ rdm.rdm_id }}" hx-swap="innerHTML">
         <summary><div class="dtable__group">

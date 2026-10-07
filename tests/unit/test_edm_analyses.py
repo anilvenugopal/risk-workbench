@@ -34,13 +34,14 @@ def _rdm(name: str, irp_id: int) -> str:
     return rdm_id
 
 
-def _analysis(rdm_id: str, irp_id: str, name: str) -> None:
+def _analysis(rdm_id: str, irp_id: str, name: str,
+              settings: dict | None = None) -> None:
     execute_command(
         "INSERT INTO irp_analysis "
         "(id, rdm_id, irp_id, name, status_code, settings_metadata) "
         "VALUES (:id, :rdm, :irp, :name, 'ready', :settings)",
-        {"id": str(uuid.uuid4()), "rdm": rdm_id, "irp": irp_id,
-         "name": name, "settings": json.dumps({"analysisType": "EP"})},
+        {"id": str(uuid.uuid4()), "rdm": rdm_id, "irp": irp_id, "name": name,
+         "settings": json.dumps({"analysisType": "EP", **(settings or {})})},
         connection="WORKBENCH")
 
 
@@ -420,3 +421,19 @@ def test_contextual_rdm_lazy_rows_use_the_merged_columns(client, iteration2_db):
     assert 'name="analysis_ids"' in html and "data-broker" in html
     assert ">Finished</span>" in html
     assert "Portfolio" not in html
+
+
+def test_contextual_rdm_lazy_rows_follow_the_section_sort(client, iteration2_db):
+    submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
+    _analysis(rdm_id, "1", "Alpha wind", {"perilCode": "WS"})
+    _analysis(rdm_id, "2", "Bravo quake", {"perilCode": "EQ"})
+    url = f"/submissions/{submission_id}/edms/{edm_id}/rdms/{rdm_id}/analyses"
+
+    ascending = client.get(f"{url}?sort=peril&dir=asc").text
+    descending = client.get(f"{url}?sort=peril&dir=desc").text
+    section = client.get(f"/submissions/{submission_id}/edms/{edm_id}"
+                         "/analyses?sort=peril&dir=asc").text
+
+    assert ascending.index("Bravo quake") < ascending.index("Alpha wind")
+    assert descending.index("Alpha wind") < descending.index("Bravo quake")
+    assert f'/rdms/{rdm_id}/analyses?sort=peril&amp;dir=asc"' in section

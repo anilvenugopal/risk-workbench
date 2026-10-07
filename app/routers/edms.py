@@ -445,9 +445,12 @@ def contextual_rdm_analyses(
         (group for group in context.rdms if group.rdm_id == rdm_id.lower()), None)
     if rdm is None:
         return _contextual_not_found(request)
+    sort, descending = analysis_service.sort_from_query(request.query_params)
     return _partial(
         request, "partials/contextual_rdm_analyses.html",
-        {"analyses": analyses, "rdm": rdm})
+        {"analyses": analysis_service.sort_broker_analyses(
+            analyses, sort, descending),
+         "rdm": rdm})
 
 
 @router.get(

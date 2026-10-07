@@ -476,8 +476,11 @@ def submission_rdm_analyses(request: Request, submission_id: str, rdm_id: str):
     rdm = next((g for g in groups if g.rdm_id == rdm_id.lower()), None)
     if rdm is None:
         return _not_found(request)
-    return _partial(request, "partials/contextual_rdm_analyses.html",
-                    {"analyses": analyses, "rdm": rdm, "show_edm": True})
+    sort, descending = analysis_service.sort_from_query(request.query_params)
+    return _partial(request, "partials/contextual_rdm_analyses.html", {
+        "analyses": analysis_service.sort_broker_analyses(
+            analyses, sort, descending),
+        "rdm": rdm, "show_edm": True})
 
 
 # ── Group compose dialog (spec 012, contracts/routes.md) ─────────────────────
