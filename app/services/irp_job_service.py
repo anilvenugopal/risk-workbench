@@ -244,12 +244,15 @@ def record_submission_failure(
 # Rows per page of the /workflows/irp-jobs monitor.
 PAGE_SIZE = 50
 
-# Every value Risk Modeler or the Workbench writes to irp_job.status, for the
-# monitor's Status filter. irp_job.status mirrors Risk Modeler, so it has no kind
-# table (Article 3).
-STATUS_OPTIONS = ("QUEUED", "SUBMITTED", "PENDING", "RUNNING", "CANCEL_REQUESTED",
-                  "CANCELLING", "FINISHED", "FAILED", "CANCELLED", "SUBMISSION FAILED",
-                  "SUBMISSION RETRYING")
+# Every value Risk Modeler or the Workbench writes to irp_job.status, in the
+# monitor's Status filter order, with its status-chip modifier. irp_job.status
+# mirrors Risk Modeler, so it has no kind table (Article 3).
+STATUS_CHIPS = {
+    "QUEUED": "importing", "SUBMITTED": "importing", "PENDING": "importing",
+    "RUNNING": "importing", "CANCEL_REQUESTED": "cancelled", "CANCELLING": "cancelled",
+    "FINISHED": "ready", "FAILED": "error", "CANCELLED": "cancelled",
+    "SUBMISSION FAILED": "submission-failed", "SUBMISSION RETRYING": "importing",
+}
 
 
 def job_type_kinds() -> list[tuple[str, str]]:
@@ -313,5 +316,5 @@ def list_jobs(
 __all__ = [
     "record_submitted_irp_job", "record_submission_failure", "find_export_job",
     "failure_message", "TERMINAL", "list_non_terminal", "update_tracking", "list_jobs",
-    "job_type_kinds", "STATUS_OPTIONS",
+    "job_type_kinds", "STATUS_CHIPS",
 ]

@@ -102,6 +102,7 @@ def _list_context(request: Request) -> dict:
         "has_next": has_next,
         "date_error": error,
         "filter_values": filter_values,
+        "status_chips": irp_job_service.STATUS_CHIPS,
         # Only the landing view (no query at all) gets the "you have no jobs" message.
         "is_default_view": not query_values,
         "filter_query": filter_query,
@@ -134,7 +135,7 @@ def irp_jobs_page(request: Request):
             "nav": get_nav_context(current_user, _NAV_KEY),
             **list_ctx,
             "job_types": irp_job_service.job_type_kinds(),
-            "statuses": [(s, s) for s in irp_job_service.STATUS_OPTIONS],
+            "statuses": [(s, s) for s in irp_job_service.STATUS_CHIPS],
             "analysts": [(a["id"], a["display_name"])
                          for a in auth_service.list_active_analysts()],
         })

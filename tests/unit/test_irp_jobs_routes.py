@@ -245,6 +245,18 @@ def test_status_chip_shows_progress_only_while_running(iteration2_db, status, pr
     assert chip in resp.text
 
 
+@pytest.mark.parametrize("status, chip_class", [
+    ("RUNNING", 'class="status-chip status-chip--importing"'),
+    ("CANCELLING", 'class="status-chip status-chip--cancelled"'),
+    ("SOMETHING NEW", 'class="status-chip"'),
+])
+def test_status_chip_color(iteration2_db, status, chip_class):
+    _job("Job", by=iteration2_db.user_a, status=status)
+
+    resp = _client(iteration2_db.user_a).get("/workflows/irp-jobs/table")
+    assert chip_class in resp.text
+
+
 @pytest.mark.parametrize("query, message", [
     ("", "You have not submitted any IRP jobs."),
     ("?status=FAILED", "No IRP jobs match these filters."),
