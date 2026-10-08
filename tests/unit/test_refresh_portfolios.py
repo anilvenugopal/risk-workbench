@@ -12,19 +12,19 @@ import json
 from app.services import edm_service, rwb_job_service
 from app.workers import entity_jobs
 from db import execute, execute_one
-from tests.unit.test_backfill_edm_detail import (
+from tests.unit.edm_detail_rows import (
     EXPOSURE_A,
     EXPOSURE_B,
     SUMMARY_A,
     TREATY_CAT,
-    _edm_ready,
-    _treaty_rows,
+    edm_ready,
+    treaty_rows,
 )
 
 
 def _synced_edm(drive, fake, actor) -> tuple[str, int]:
     """An EDM with portfolios 501 and 502 and one treaty, after its full sync."""
-    edm_id = _edm_ready(drive, fake, actor)
+    edm_id = edm_ready(drive, fake, actor)
     exposure_id = fake.edm_exposure_id("EDM")
     fake.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                        name="Primary 2026", exposure=EXPOSURE_A)
@@ -85,7 +85,7 @@ def test_refresh_leaves_the_edm_treaties_and_uncovered_portfolios(
         iteration2_db, fake_irp, drive):
     edm_id, exposure_id = _synced_edm(drive, fake_irp, iteration2_db.user_a)
     edm_as_of = _edm_as_of(edm_id)
-    treaties = _treaty_rows(edm_id)
+    treaties = treaty_rows(edm_id)
     # 502 is gone from Risk Modeler and the treaty changed; only a full sync
     # reconciles either.
     fake_irp._portfolios[str(exposure_id)] = [
@@ -95,7 +95,7 @@ def test_refresh_leaves_the_edm_treaties_and_uncovered_portfolios(
     _refresh(edm_id, ["501"])
 
     assert _edm_as_of(edm_id) == edm_as_of
-    assert _treaty_rows(edm_id) == treaties
+    assert treaty_rows(edm_id) == treaties
     assert _rows(edm_id)["502"]["deleted_at"] is None
 
 

@@ -44,7 +44,6 @@ from tests.unit.breakout_rows import (
     mk_backfill_job,
     mk_breakout_job,
     mk_edm,
-    mk_hazard_refresh_job,
     mk_portfolio,
     mk_refresh_job,
 )
@@ -265,7 +264,7 @@ def test_gate_refuses_the_portfolio_a_hazard_refresh_is_rewriting(
         iteration2_db, status):
     edm_id = mk_edm()
     pid = mk_portfolio(edm_id)
-    mk_hazard_refresh_job(edm_id, pid, status=status)
+    mk_refresh_job(edm_id, portfolio_id=pid, status=status)
     gate = evaluate_gate(edm_id, pid)
     assert gate.portfolio_eligible is False
     assert gate.reason == PORTFOLIO_REFRESHING_REASON
@@ -278,7 +277,7 @@ def test_gate_refuses_the_portfolio_a_hazard_refresh_is_rewriting(
 def test_gate_ignores_a_finished_hazard_refresh(iteration2_db):
     edm_id = mk_edm()
     pid = mk_portfolio(edm_id)
-    mk_hazard_refresh_job(edm_id, pid, status="succeeded")
+    mk_refresh_job(edm_id, portfolio_id=pid, status="succeeded")
     assert evaluate_gate(edm_id, pid).portfolio_eligible is True
 
 

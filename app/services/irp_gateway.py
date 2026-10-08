@@ -1064,7 +1064,7 @@ class _RealGateway:
         # None reads every portfolio. Every script names the parameter, and a
         # missing key raises "Missing required parameter", so it is always sent.
         params = {"portfolio_ids": (None if portfolio_irp_ids is None
-                                    else "".join(str(i) for i in portfolio_irp_ids))}
+                                    else "\x1f".join(str(i) for i in portfolio_irp_ids))}
 
         def rows(script: str) -> list[dict]:
             frames = databridge.execute_query_from_file(

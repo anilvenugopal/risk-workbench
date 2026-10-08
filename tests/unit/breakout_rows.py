@@ -126,31 +126,26 @@ def mk_breakout_job(portfolio_id: str, *, dimension: str = "lob",
     return jid
 
 
-def mk_refresh_job(edm_id: str, *, breakout_job_id: str,
+def mk_refresh_job(edm_id: str, *, breakout_job_id: str | None = None,
+                   portfolio_id: str | None = None,
                    status: str = "pending") -> None:
-    """A breakout's follow-up ``refresh_portfolios`` (spec 207)."""
+    """A ``refresh_portfolios`` row (spec 207): a hazard lookup's, keyed on
+    ``portfolio_id``, when given; otherwise a breakout's follow-up."""
+    if portfolio_id is not None:
+        requestor = ("irp_job", str(uuid.uuid4()))
+        context = ("portfolio", portfolio_id)
+    else:
+        requestor = ("rwb_job", breakout_job_id)
+        context = ("edm", edm_id)
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
         "link_id, context_type, context_id, rwb_job_type, "
         "status_code, attempt_count, inserted_at, updated_at) "
-        "VALUES (:i, 'rwb_job', :r, 'edm', :edm, 'edm', :edm, "
+        "VALUES (:i, :rt, :r, 'edm', :edm, :ct, :c, "
         "'refresh_portfolios', :s, 0, :now, :now)",
-        {"i": str(uuid.uuid4()), "r": breakout_job_id, "edm": edm_id,
+        {"i": str(uuid.uuid4()), "rt": requestor[0], "r": requestor[1],
+         "edm": edm_id, "ct": context[0], "c": context[1],
          "s": status, "now": datetime.utcnow()}, connection="WORKBENCH")
-
-
-def mk_hazard_refresh_job(edm_id: str, portfolio_id: str, *,
-                          status: str = "pending") -> None:
-    """A hazard lookup's ``refresh_portfolios``, keyed on its portfolio (spec 207)."""
-    execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
-        "link_id, context_type, context_id, rwb_job_type, "
-        "status_code, attempt_count, inserted_at, updated_at) "
-        "VALUES (:i, 'irp_job', :r, 'edm', :edm, 'portfolio', :p, "
-        "'refresh_portfolios', :s, 0, :now, :now)",
-        {"i": str(uuid.uuid4()), "r": str(uuid.uuid4()), "edm": edm_id,
-         "p": portfolio_id, "s": status, "now": datetime.utcnow()},
-        connection="WORKBENCH")
 
 
 def mk_backfill_job(edm_id: str, *, status: str = "pending",

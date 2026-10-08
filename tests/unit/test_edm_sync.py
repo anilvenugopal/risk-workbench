@@ -29,7 +29,7 @@ from app.poller import run as poller
 from app.services import edm_service, rwb_job_service
 from app.workers import dispatch, entity_jobs
 from db import execute, execute_command, execute_one
-from tests.unit.test_backfill_edm_detail import EXPOSURE_A
+from tests.unit.edm_detail_rows import EXPOSURE_A
 
 
 def _edm_ready(drive, fake, actor, name="EDM") -> str:
