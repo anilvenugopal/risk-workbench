@@ -36,11 +36,11 @@
     {% if edm.detail_state in ('populated', 'empty') %}
     <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
     {% endif %}
-    <span class="sec__spacer"></span>
     {% if edm.portfolios %}
     <button class="btn-sm" type="button" data-collapse-all onclick="event.preventDefault()"
             title="Collapse every expanded row">Collapse all</button>
     {% endif %}
+    <span class="sec__spacer"></span>
   </summary>
 
   {# ── breakout completion banner (spec 005 FR-012) — the newest terminal

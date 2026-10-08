@@ -93,6 +93,8 @@
       <span class="sec__title">Treaties</span>
       {% if edm.treaties %}
       <span class="badge badge--neutral">{{ edm.treaties | length }}</span>
+      <button class="btn-sm" type="button" data-collapse-all onclick="event.preventDefault()"
+              title="Collapse every expanded row">Collapse all</button>
       {% endif %}
       <span class="sec__spacer"></span>
       {# RM's datasource URL is name-based and 404s until the import FINISHES #}
@@ -104,8 +106,6 @@
       <span class="sec__note">Read-only · edit in Risk Modeler</span>
       {% endif %}
       {% if edm.treaties %}
-      <button class="btn-sm" type="button" data-collapse-all onclick="event.preventDefault()"
-              title="Collapse every expanded row">Collapse all</button>
       <a class="btn-sm btn-sm--primary" href="/edms/{{ edm.id }}/treaties.xlsx"
          onclick="event.stopPropagation()"
          title="Download the full treaty set as .xlsx">⭳ Export to Excel</a>

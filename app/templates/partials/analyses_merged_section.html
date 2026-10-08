@@ -63,6 +63,8 @@
     <span class="sec__title">{{ section_title }}</span>
     {% if analyses or groups %}
     <span class="badge badge--neutral">{{ analyses|length }} own &middot; {{ broker_total }} broker</span>
+    <button class="btn-sm" type="button" data-collapse-all onclick="event.preventDefault()"
+            title="Collapse every expanded row">Collapse all</button>
     {% endif %}
     {# Import sits outside the analyses-or-groups block: an empty deal is the
        first place a Risk Modeler group needs pulling in (#101). Only the
@@ -85,13 +87,11 @@
       <option value="in_progress" {% if status_filter == 'in_progress' %}selected{% endif %}>In progress</option>
       <option value="ready" {% if status_filter == 'ready' %}selected{% endif %}>Ready</option>
     </select>
-    {# preventDefault, not stopPropagation: both buttons are handled by
-       document-level listeners in app.js, which stopPropagation would never
-       reach. preventDefault still keeps the click from toggling the section. #}
+    {# preventDefault, not stopPropagation: Copy table and Collapse all are
+       handled by document-level listeners in app.js, which stopPropagation would
+       never reach. preventDefault still keeps the click from toggling the section. #}
     <button class="btn-sm" type="button" data-copy-table onclick="event.preventDefault()"
             title="Copy the table with headers — pastes into Excel">⋮ Copy table</button>
-    <button class="btn-sm" type="button" data-collapse-all onclick="event.preventDefault()"
-            title="Collapse every expanded row">Collapse all</button>
     {% if delete_url %}
     <input type="hidden" id="analyses-csrf" name="csrf_token" value="{{ generate_csrf_token() }}">
     <button class="btn-sm" type="button" onclick="event.stopPropagation()"
