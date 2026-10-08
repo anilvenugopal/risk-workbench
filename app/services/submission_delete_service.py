@@ -188,6 +188,9 @@ def delete_submission(*, submission_id: Any, actor_id: Any) -> None:
                 "WHERE requested_from_submission_id = :s"), {"s": sid})
             conn.execute(text("DELETE FROM submission WHERE id = :s"), {"s": sid})
     except IntegrityError:
+        # Also what a table that references submission or irp_analysis and is
+        # missing from the deletes above looks like.
+        logger.warning("submission delete rolled back: id=%s", sid, exc_info=True)
         raise SubmissionDeleteBlocked(
             "Work on this submission started while it was being deleted. "
             "Nothing was deleted; try again.") from None
