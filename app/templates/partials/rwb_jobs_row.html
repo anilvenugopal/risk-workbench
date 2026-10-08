@@ -23,7 +23,7 @@
     <span class="na">—</span>
     {% endif %}
   </td>
-  <td>
+  <td class="col-actions"><div class="row-actions">
     {% set can_cancel = row.status_code == 'pending' or row.status_code == 'failed' or row.is_dead %}
     {% if can_cancel %}
     <form class="inline-form" method="post" action="/workflows/rwb-jobs/{{ row.id }}/cancel"
@@ -45,5 +45,5 @@
     {% if not can_cancel and row.status_code != 'failed' %}
     <span class="run-note">—</span>
     {% endif %}
-  </td>
+  </div></td>
 </tr>
