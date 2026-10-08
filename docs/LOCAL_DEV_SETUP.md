@@ -539,6 +539,17 @@ that leaves Basic Constraints non-critical, and the Zscaler root does. Add
 Certificates are still verified against `REQUESTS_CA_BUNDLE`. The setting is
 for developer machines only; the deployed server does not need it.
 
+Local machines run Python 3.14, the same as the deployed server. If you
+synced `.venv` with an older Python to get around the error, move it back to
+3.14:
+
+```bash
+uv sync --python 3.14
+```
+
+uv removes `.venv` and rebuilds it on 3.14, downloading 3.14 if needed. Later
+`uv sync` runs keep 3.14.
+
 ### `libodbc.so.2: cannot open shared object file`
 
 The ODBC Driver 18 is not installed. Run Step 3 of First-Time Setup.
