@@ -15,8 +15,9 @@
   `refresh_portfolios` in place of `backfill_edm_detail`. The enqueue keeps the
   breakout job as its requestor and `context_type='edm'`. `portfolio_irp_ids`
   holds the `irp_id` of every created, adopted or skipped-existing outcome (P-01).
-- `_handle_geohaz_terminal` (`app/poller/run.py`) returns without enqueuing
-  when the lookup ends `CANCELLED`. On `FINISHED` or `FAILED` it reads the
+- `_handle_geohaz_terminal` (`app/poller/run.py`) no longer reads or writes
+  the portfolio's metrics; `refresh_portfolios` rewrites them. It returns
+  without enqueuing when the lookup ends `CANCELLED`. On `FINISHED` or `FAILED` it reads the
   portfolio's `irp_id` and enqueues `refresh_portfolios` with
   `context_type='portfolio'` and `context_id` set to the looked-up portfolio
   (P-02, T-06).
@@ -55,8 +56,8 @@
 |---|---|
 | Database | Alembic revision `0007` adds a `rwb_job_type_kind` row `refresh_portfolios`. No table or column changes. |
 | Worker | `entity_jobs.py`: new actor and body `refresh_portfolios`, plus a per-portfolio store loop shared with `backfill_edm_detail`. `portfolio_jobs.py`: the follow-up job type and its input. |
-| Poller | `run.py`: `_handle_geohaz_terminal` skips `CANCELLED` and enqueues `refresh_portfolios` for one portfolio. |
-| Services | `irp_gateway.get_edm_exposure_summary` takes `portfolio_irp_ids`. `rwb_job_service.backfill_edm_detail_rows` narrows its predicate. `breakout_service` changes the gate and the banner. `edm_service.sync_contextual_detail` loses its RDM loop. |
+| Poller | `run.py`: `_handle_geohaz_terminal` skips `CANCELLED` and enqueues `refresh_portfolios` for one portfolio. `_resolve_geohaz_metadata` is deleted. |
+| Services | `irp_gateway.get_edm_exposure_summary` takes `portfolio_irp_ids`. `rwb_job_service.backfill_edm_detail_rows` narrows its predicate. `breakout_service` changes the gate and the banner. `edm_service.sync_contextual_detail` loses its RDM loop. `portfolio_service.update_exposure_metrics` is deleted. |
 | SQL | 11 `sql/databridge/portfolio_*.sql` scripts gain the `{{ portfolio_ids }}` filter. |
 | UI | None. The gate's existing "not available right now: {reason}" note shows the new reason. |
 | Library | None. |
@@ -107,12 +108,12 @@ app/services/irp_gateway.py          # get_edm_exposure_summary(portfolio_irp_id
 app/services/rwb_job_service.py      # backfill_edm_detail_rows
 app/services/breakout_service.py     # evaluate_gate, _follow_up_pending
 app/services/edm_service.py          # sync_contextual_detail
+app/services/portfolio_service.py    # update_exposure_metrics deleted
 sql/databridge/portfolio_*.sql       # 11 scripts
 tests/iteration1_mirror.py           # RWB_JOB_TYPE_SEED row
 infra/scripts/seed_db.py             # rwb_job_type_kind MERGE row
 docs/DATA_MODEL.md                   # rwb_job types table
 specs/005-subportfolio-breakouts/spec.md   # one-line pointers on FR-013 and P-16
-specs/007-geohaz-execution/spec.md         # one-line pointer on the hazard follow-up
 ```
 
 ## Testing

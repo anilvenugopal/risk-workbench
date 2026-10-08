@@ -20,7 +20,7 @@
 | `missing` | some covered id absent from `list_portfolios` | those ids; their rows are untouched (FR-006) |
 | `exposure_failures` | some `/metrics` read failed | those ids; their prior snapshots stay (FR-006, FR-011) |
 | `summary` | at least one covered portfolio found | `"ok"` or `"unavailable"` (DataBridge failure writes `summary: null`, as the full sync does) |
-| `skipped` | EDM missing, deleted, or without `irp_id` | reason string; job succeeds |
+| `skipped` | EDM missing or without `irp_id` | reason string; job succeeds |
 
 The job fails when `portfolios == 0` and `exposure_failures` is non-empty, or
 when `list_portfolios` raises. Every other outcome succeeds.

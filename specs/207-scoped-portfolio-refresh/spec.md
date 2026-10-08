@@ -4,7 +4,7 @@
 
 ## Status
 
-**Phase:** Draft · **Blocking:** Nothing
+**Phase:** Approved · **Blocking:** Nothing
 
 ## Outcome
 
