@@ -40,7 +40,7 @@
           hx-target="closest tr" hx-swap="outerHTML"
           hx-confirm="Cancel this job? This can't be undone.">
       <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-      <button class="btn-sm btn-sm--danger" type="submit">Cancel</button>
+      <button class="btn btn--sm btn--danger" type="submit">Cancel</button>
     </form>
     {% endif %}
     {% if row.status_code == 'failed' %}
@@ -48,7 +48,7 @@
           hx-post="/workflows/rwb-jobs/{{ row.id }}/resubmit"
           hx-target="closest tr" hx-swap="outerHTML">
       <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-      <button class="btn-sm" type="submit">Resubmit</button>
+      <button class="btn btn--sm" type="submit">Resubmit</button>
     </form>
     {% endif %}
     {% if not can_cancel and row.status_code != 'failed' %}

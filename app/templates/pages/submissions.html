@@ -3,7 +3,7 @@
 {% block title %}Submissions{% endblock %}
 
 {% block page_actions %}
-<a href="/submissions/new" class="btn-sm btn-sm--primary">+ New submission</a>
+<a href="/submissions/new" class="btn btn--sm btn--primary">+ New submission</a>
 {% endblock %}
 
 
@@ -65,7 +65,7 @@
       {# A full navigation, not an hx-get: the form sits outside the swap target, so
          only reloading the page empties the fields the analyst typed. `?owner=any`
          clears the owner too — a bare /submissions would re-apply the analyst. #}
-      <a class="btn-sm" href="/submissions?owner=any">Clear filters</a>
+      <a class="btn btn--sm" href="/submissions?owner=any">Clear filters</a>
     </div>
     <button type="submit" hidden>Filter</button>
   </form>

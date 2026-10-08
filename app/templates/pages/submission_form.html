@@ -4,9 +4,9 @@
 
 {% block page_actions %}
 {% if mode == 'edit' %}
-<a href="/submissions/{{ submission.id }}" class="btn-sm">← Back to deal</a>
+<a href="/submissions/{{ submission.id }}" class="btn btn--sm">← Back to deal</a>
 {% else %}
-<a href="/submissions" class="btn-sm">← Back to list</a>
+<a href="/submissions" class="btn btn--sm">← Back to list</a>
 {% endif %}
 {% endblock %}
 
@@ -128,7 +128,7 @@
             <span x-text="open ? 'Hide drive browser' : 'Browse shared drive…'">Browse shared drive…</span>
           </button>
           <span class="dir-picker__chosen mono" x-text="selected || 'no directory chosen'"></span>
-          <button class="btn-sm" type="button" x-show="selected" x-cloak
+          <button class="btn btn--sm" type="button" x-show="selected" x-cloak
                   @click="clear()">Clear</button>
           <div class="dir-picker__panel" x-show="open" x-cloak
                hx-get="/browse?dirs_only=1{% if form.directory_path %}&path={{ form.directory_path | urlencode }}{% endif %}"
@@ -215,7 +215,7 @@
       <div class="contract-band__head">
         <span class="contract-band__label">Contracts</span>
         <span class="contract-band__actions">
-          <button class="btn-sm" type="button" @click="add()">+ Add contract</button>
+          <button class="btn btn--sm" type="button" @click="add()">+ Add contract</button>
         </span>
       </div>
       <div class="contract-table">
@@ -235,7 +235,7 @@
     {% endif %}
 
     <div class="form-actions">
-      <button class="btn-sm btn-sm--primary" type="submit">
+      <button class="btn btn--sm btn--primary" type="submit">
         {{ 'Save changes' if mode == 'edit' else 'Create submission' }}
       </button>
     </div>

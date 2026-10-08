@@ -17,9 +17,9 @@
   {% endif %}
   {% if candidate_page.page > 1 or candidate_page.has_next %}
   <nav class="entity-candidate-pager" aria-label="{{ entity_kind }} candidate pages">
-    {% if candidate_page.page > 1 %}<a class="btn-sm" href="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page - 1 }}" hx-get="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page - 1 }}" hx-target="#submission-entity-candidates" hx-swap="outerHTML">Previous</a>{% endif %}
+    {% if candidate_page.page > 1 %}<a class="btn btn--sm" href="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page - 1 }}" hx-get="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page - 1 }}" hx-target="#submission-entity-candidates" hx-swap="outerHTML">Previous</a>{% endif %}
     <span>Page {{ candidate_page.page }}</span>
-    {% if candidate_page.has_next %}<a class="btn-sm" href="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page + 1 }}" hx-get="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page + 1 }}" hx-target="#submission-entity-candidates" hx-swap="outerHTML">Next</a>{% endif %}
+    {% if candidate_page.has_next %}<a class="btn btn--sm" href="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page + 1 }}" hx-get="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page + 1 }}" hx-target="#submission-entity-candidates" hx-swap="outerHTML">Next</a>{% endif %}
   </nav>
   {% endif %}
 </div>

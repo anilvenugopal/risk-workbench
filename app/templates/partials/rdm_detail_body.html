@@ -84,7 +84,7 @@
       {% if rdm.status == 'ready' %}
       <span class="crumb__sep">·</span>
       {% if sync_running %}
-      <button class="btn-sm" type="button" disabled>Syncing…</button>
+      <button class="btn btn--sm" type="button" disabled>Syncing…</button>
       {% else %}
       {% with sync_url=sync_url, sync_target='#rdm-detail',
               sync_title="Re-fetch this RDM's broker-analysis settings from Risk Modeler" %}
@@ -129,6 +129,9 @@
       <span class="sec__title">Broker analyses</span>
       {% if analysis_total %}
       <span class="badge badge--neutral">{{ analysis_total }}</span>
+      <button class="btn btn--sm" type="button" data-collapse-all onclick="event.preventDefault()"
+              title="Collapse every expanded row">Collapse all</button>
+      <span class="sec__spacer"></span>
       {% endif %}
     </summary>
 

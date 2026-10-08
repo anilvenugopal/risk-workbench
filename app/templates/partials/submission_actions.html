@@ -2,5 +2,5 @@
    a copy with `oob` set, so a Modeling status change removes or restores the
    link without a reload. #}
 <span id="submission-actions"{% if oob %} hx-swap-oob="true"{% endif %}>
-{%- if is_active %}<a href="/submissions/{{ submission.id }}/edit" class="btn-sm">Edit</a>{% endif -%}
+{%- if is_active %}<a href="/submissions/{{ submission.id }}/edit" class="btn btn--sm">Edit</a>{% endif -%}
 </span>

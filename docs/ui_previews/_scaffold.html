@@ -65,13 +65,15 @@ h1,h2,h3{margin:0}
 .badge--negative{background:var(--color-negative-wash);color:var(--color-negative);border-color:var(--color-negative-border)}
 .badge--info{background:var(--color-info-bg);color:var(--color-info);border-color:var(--color-info-border)}
 
-.btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer;border:1px solid transparent;transition:background var(--dur-fast,120ms) ease}
+.btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);color:var(--text-secondary);border:1px solid var(--border-default);background:var(--surface-panel);cursor:pointer;transition:background var(--dur-fast,120ms) ease,border-color var(--dur-fast,120ms) ease,color var(--dur-fast,120ms) ease}
+.btn--sm{height:auto;padding:4px 10px;border-radius:var(--radius-sm);font-size:var(--fs-caption);font-weight:var(--fw-regular)}
+.btn--primary{color:var(--btn-primary-fg);background:var(--btn-primary-bg);border-color:var(--btn-primary-bg)}
+.btn--danger{color:var(--color-danger);border-color:var(--color-danger-border)}
+.btn:hover:not(:disabled){background:var(--surface-hover);border-color:var(--border-strong);color:var(--text-primary)}
+.btn:active:not(:disabled){background:var(--surface-recessed)}
+.btn--primary:hover:not(:disabled){background:var(--color-brand-hover);border-color:var(--color-brand-hover);color:var(--btn-primary-fg)}
+.btn--danger:hover:not(:disabled){background:var(--color-danger-bg);border-color:var(--color-danger);color:var(--color-danger)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
-.btn--secondary{color:var(--text-secondary);border-color:var(--border-default);background:transparent}
-.btn--secondary:hover:not(:disabled){background:var(--surface-hover)}
-.btn--primary{color:var(--btn-primary-fg);background:var(--btn-primary-bg)}
-.btn--primary:hover:not(:disabled){background:var(--color-brand-hover)}
-.btn--danger{background:var(--color-danger);color:#fff;border-color:var(--color-danger)}
 
 .card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-4)}
 .field{display:flex;flex-direction:column;gap:var(--space-1);margin-bottom:var(--space-3)}
@@ -118,7 +120,8 @@ h1,h2,h3{margin:0}
   <div class="card">
     <div class="kit">
       <button class="btn btn--primary">Primary</button>
-      <button class="btn btn--secondary">Secondary</button>
+      <button class="btn">Secondary</button>
+      <button class="btn btn--sm">Small</button>
       <button class="btn btn--danger">Danger</button>
       <button class="btn btn--primary" disabled>Disabled</button>
     </div>
@@ -146,7 +149,7 @@ h1,h2,h3{margin:0}
         <div class="modal-header"><span class="modal-title">New package</span></div>
         <div class="modal-body"><div class="empty">No members yet.<br>Tick files above to add them.</div></div>
         <div class="modal-footer">
-          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn">Cancel</button>
           <button class="btn btn--primary" disabled>Save</button>
         </div>
       </div>
@@ -158,7 +161,7 @@ h1,h2,h3{margin:0}
         <div class="modal-header"><span class="modal-title">New package</span></div>
         <div class="modal-body"><div class="spinner"></div><div class="empty">Loading the shared drive…</div></div>
         <div class="modal-footer">
-          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn">Cancel</button>
           <button class="btn btn--primary" disabled>Save</button>
         </div>
       </div>
@@ -173,7 +176,7 @@ h1,h2,h3{margin:0}
         </div>
         <div class="modal-error">A package must have at least one valid member.</div>
         <div class="modal-footer">
-          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn">Cancel</button>
           <button class="btn btn--primary">Save</button>
         </div>
       </div>
@@ -189,8 +192,8 @@ h1,h2,h3{margin:0}
           <div class="member"><span class="badge badge--neutral">RDM</span><span class="path">results-q1.mdf</span><span class="badge badge--neutral badge--sm">pending</span></div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn--secondary">Cancel</button>
-          <button class="btn btn--secondary">Save</button>
+          <button class="btn">Cancel</button>
+          <button class="btn">Save</button>
           <button class="btn btn--primary">Save &amp; Sync</button>
         </div>
       </div>

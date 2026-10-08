@@ -39,7 +39,7 @@
     {# preventDefault, not stopPropagation: the button is handled by a
        document-level listener in app.js, which stopPropagation would never
        reach. preventDefault still keeps the click from toggling the section. #}
-    <button class="btn-sm" type="button" data-copy-table onclick="event.preventDefault()"
+    <button class="btn btn--sm" type="button" data-copy-table onclick="event.preventDefault()"
             title="Copy the table with headers — pastes into Excel">⋮ Copy table</button>
     {% endif %}
   </summary>
@@ -104,7 +104,7 @@
                   hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"
                   method="post" action="/submissions/{{ submission_id }}/exports/{{ a.export_id }}/manifests/{{ a.manifest_id }}/{{ action }}{{ query }}">
               <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-              <button class="btn-sm" type="submit">{{ label }}</button>
+              <button class="btn btn--sm" type="submit">{{ label }}</button>
             </form>
             {% endfor %}
           </span>

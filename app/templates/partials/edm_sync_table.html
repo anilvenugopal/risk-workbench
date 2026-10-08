@@ -91,11 +91,11 @@
   {% set stem = '/edms/sync?' ~ (('q=' ~ (filter_values.q | urlencode) ~ '&') if filter_values.q else '') ~ 'page=' %}
   <nav class="pager" aria-label="Adoptable EDM pages">
     {% if page.page > 1 %}
-    <a class="btn-sm" rel="prev" href="{{ stem }}{{ page.page - 1 }}">‹ Prev</a>
+    <a class="btn btn--sm" rel="prev" href="{{ stem }}{{ page.page - 1 }}">‹ Prev</a>
     {% endif %}
     <span class="pager__at">Page {{ page.page }}</span>
     {% if page.has_next %}
-    <a class="btn-sm" rel="next" href="{{ stem }}{{ page.page + 1 }}">Next ›</a>
+    <a class="btn btn--sm" rel="next" href="{{ stem }}{{ page.page + 1 }}">Next ›</a>
     {% endif %}
     <span class="wf-field__hint">Sync before you change pages — ticks do not carry
       across.</span>
@@ -105,9 +105,9 @@
   <div class="form-actions">
     {# With JS off the button is never disabled; an empty irp_ids POST is a no-op
        redirect, so the server does not depend on this. #}
-    <button class="btn-sm btn-sm--primary" type="submit" x-bind:disabled="!count"
+    <button class="btn btn--sm btn--primary" type="submit" x-bind:disabled="!count"
             x-text="count ? `Sync ${count} selected` : 'Sync selected'">Sync selected</button>
-    <a class="btn-sm" href="/edms">EDM Library</a>
+    <a class="btn btn--sm" href="/edms">EDM Library</a>
     <span class="wf-field__hint">Each synced EDM starts standalone. Add it from a
       submission afterwards.</span>
   </div>
