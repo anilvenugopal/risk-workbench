@@ -43,7 +43,8 @@ def _analyses_for(edm_id: str) -> list[dict]:
 
 def _rwb_job_of(execution_id: str) -> dict:
     return execute_one(
-        "SELECT id, status_code, output_data FROM rwb_job "
+        "SELECT id, status_code, output_data, link_type, link_id, context_type, "
+        "context_id, inserted_by FROM rwb_job "
         "WHERE requestor_type = 'analyst_request' AND requestor_id = :e",
         {"e": execution_id}, connection="WORKBENCH")
 
@@ -103,6 +104,9 @@ def test_batch_worker_submits_and_records_job(iteration2_db, fake_irp):
     job = _rwb_job_of(execution_id)
     assert job["status_code"] == "succeeded"
     assert json.loads(job["output_data"]) == {"submitted": 1, "submission_failed": 0}
+    assert job["link_type"] == "edm" and job["link_id"] == edm_id
+    assert job["context_type"] == "execution" and job["context_id"] == execution_id
+    assert job["inserted_by"] == iteration2_db.user_a
 
     rows = _analyses_for(edm_id)
     assert len(rows) == 1
@@ -349,16 +353,16 @@ def test_finalize_resolves_by_job_payload_analysis_id(iteration2_db, fake_irp):
     assert resource["resource_uri"] == "/irp/analysis/1"
 
 
-def _run_finalize(input_data: dict, edm_id: str) -> str:
+def _run_finalize(input_data: dict, edm_id: str, actor_id: str | None = None) -> str:
     job_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
         "link_id, context_type, context_id, rwb_job_type, "
-        "status_code, input_data) VALUES (:id, 'irp_job', :rid, 'edm', :edm, "
-        "'irp_analysis', :aid, 'finalize_analysis', 'pending', :input)",
+        "status_code, input_data, inserted_by) VALUES (:id, 'irp_job', :rid, 'edm', "
+        ":edm, 'irp_analysis', :aid, 'finalize_analysis', 'pending', :input, :by)",
         {"id": job_id, "rid": str(uuid.uuid4()), "edm": edm_id,
          "aid": input_data["analysis_id"],
-         "input": json.dumps(input_data)},
+         "input": json.dumps(input_data), "by": actor_id},
         connection="WORKBENCH")
     analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="finalize_analysis",
                           worker_id="w1")
@@ -694,7 +698,8 @@ def test_broker_retrieval_fails_when_no_pointer_anywhere(iteration2_db, fake_irp
 
 def _retrieval_jobs_for(analysis_id: str) -> list[dict]:
     return execute(
-        "SELECT id, status_code FROM rwb_job WHERE requestor_type = 'irp_analysis' "
+        "SELECT id, status_code, link_type, link_id, context_type, context_id, "
+        "inserted_by FROM rwb_job WHERE requestor_type = 'irp_analysis' "
         "AND requestor_id = :a AND rwb_job_type = 'retrieve_analysis_results'",
         {"a": analysis_id}, connection="WORKBENCH")
 
@@ -713,8 +718,12 @@ def test_finalize_success_chains_one_retrieval_and_a_refire_is_a_noop(
                           exposure_name="EDM One",
                           metadata={"appAnalysisId": 41867})
 
-    _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"}, edm_id)
-    assert len(_retrieval_jobs_for(analysis["id"])) == 1
+    _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"}, edm_id,
+                  actor_id=iteration2_db.user_a)
+    [job] = _retrieval_jobs_for(analysis["id"])
+    assert job["link_type"] == "edm" and job["link_id"] == edm_id
+    assert job["context_type"] == "irp_analysis" and job["context_id"] == analysis["id"]
+    assert job["inserted_by"] == iteration2_db.user_a
 
     # re-fired trigger: the UNIQUE key makes the insert a no-op (FR-006)
     _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"}, edm_id)

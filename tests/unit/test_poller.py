@@ -70,14 +70,15 @@ def test_geohaz_terminal_refreshes_its_portfolio_only(
     edm_id, [portfolio_id, _other] = _edm_with_portfolios(2)
     job_id = irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_id="25234200",
-        irp_edm_id=edm_id, irp_portfolio_id=portfolio_id)
+        irp_edm_id=edm_id, irp_portfolio_id=portfolio_id,
+        actor_id=iteration2_db.user_a)
     getattr(fake_irp, terminal)("25234200")
 
     poller.poll_once()
 
     [refresh] = execute(
         "SELECT requestor_type, requestor_id, link_type, link_id, "
-        "context_type, context_id, input_data FROM rwb_job "
+        "context_type, context_id, input_data, inserted_by FROM rwb_job "
         "WHERE rwb_job_type = 'refresh_portfolios'", {}, connection="WORKBENCH")
     assert (refresh["requestor_type"], str(refresh["requestor_id"])) == (
         "irp_job", job_id)
@@ -86,6 +87,7 @@ def test_geohaz_terminal_refreshes_its_portfolio_only(
         "portfolio", portfolio_id)
     assert json.loads(refresh["input_data"]) == {
         "edm_id": edm_id, "portfolio_irp_ids": ["101"]}
+    assert refresh["inserted_by"] == iteration2_db.user_a
     assert _rwb_jobs_of("backfill_edm_detail") == []
 
 
@@ -181,7 +183,8 @@ def test_submission_failed_is_not_tracked_and_distinct_from_failed(
 
 def _rwb_jobs_of(rwb_job_type: str) -> list[dict]:
     return execute(
-        "SELECT id, requestor_type, requestor_id, rwb_job_type, input_data "
+        "SELECT id, requestor_type, requestor_id, link_type, link_id, context_type, "
+        "context_id, rwb_job_type, input_data, inserted_by "
         "FROM rwb_job WHERE rwb_job_type = :t",
         {"t": rwb_job_type}, connection="WORKBENCH")
 
@@ -194,7 +197,14 @@ def test_standalone_edm_import_still_enqueues_backfill_edm_detail(
     poller.poll_once()
     backfills = _rwb_jobs_of("backfill_edm_detail")
     assert len(backfills) == 1
-    assert edm_id in backfills[0]["input_data"]
+    job = backfills[0]
+    assert edm_id in job["input_data"]
+    irp_job = execute_one("SELECT id FROM irp_job WHERE irp_id = :i", {"i": irp_id},
+                          connection="WORKBENCH")
+    assert job["requestor_type"] == "irp_job" and job["requestor_id"] == irp_job["id"]
+    assert job["link_type"] == "edm" and job["link_id"] == edm_id
+    assert job["context_type"] == "edm" and job["context_id"] == edm_id
+    assert job["inserted_by"] == iteration2_db.user_a
 
 
 def test_failed_terminal_enqueues_neither_backfill(iteration2_db, fake_irp, drive):

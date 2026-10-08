@@ -227,7 +227,8 @@ def test_create_export_records_the_approved_values_and_enqueues_submit(deal, mon
                       {}, connection="WORKBENCH")
     assert job["requestor_type"] == "analyst_request" and job["requestor_id"] == export_id
     assert job["context_type"] == "result_export" and job["context_id"] == export_id
-    assert job["link_type"] == "not_applicable" and job["status_code"] == "pending"
+    assert job["link_type"] == "submission" and job["link_id"] == deal["submission_id"]
+    assert job["inserted_by"] == deal["user_a"] and job["status_code"] == "pending"
     assert json.loads(job["input_data"]) == {"export_id": export_id,
                                              "submission_id": deal["submission_id"]}
 

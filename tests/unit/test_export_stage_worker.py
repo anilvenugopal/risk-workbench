@@ -55,7 +55,8 @@ def staging(iteration2_db, loss_db, fake_irp, tmp_path, monkeypatch):
     fake_irp.finish(irp_id)
     poller.poll_once()
     return {"export_id": export_id, "analysis_id": a, "irp_id": irp_id, "root": root,
-            "tmp": tmp_path, "submission_id": submission_id}
+            "tmp": tmp_path, "submission_id": submission_id, "edm_id": edm_id,
+            "actor": iteration2_db.user_a}
 
 
 def _manifest(s):
@@ -121,11 +122,28 @@ def test_happy_path_stages_files_and_rows_and_enqueues_the_load(staging, fake_ir
 
     load = _load_jobs()
     assert len(load) == 1
-    assert load[0]["requestor_type"] == "rwb_job" and load[0]["requestor_id"] == _stage_job()["id"]
-    assert load[0]["context_type"] == "irp_analysis"
+    stage = _stage_job()
+    assert load[0]["requestor_type"] == "rwb_job" and load[0]["requestor_id"] == stage["id"]
+    assert load[0]["link_type"] == "edm" and load[0]["link_id"] == staging["edm_id"]
+    assert (load[0]["context_type"] == "irp_analysis"
+            and load[0]["context_id"] == staging["analysis_id"])
+    assert stage["inserted_by"] == staging["actor"]
+    assert load[0]["inserted_by"] == staging["actor"]
     assert json.loads(load[0]["input_data"]) == {
         "export_id": staging["export_id"], "irp_analysis_id": staging["analysis_id"]}
     assert list(Path(settings.export_staging_dir).iterdir()) == []
+
+
+def test_the_load_job_for_a_group_analysis_links_to_its_submission(staging, fake_irp):
+    execute_command(
+        "UPDATE irp_analysis SET edm_id = NULL, submission_id = :s WHERE id = :a",
+        {"s": staging["submission_id"], "a": staging["analysis_id"]}, connection="WORKBENCH")
+
+    _run_stage()
+
+    load = _load_jobs()
+    assert len(load) == 1
+    assert load[0]["link_type"] == "submission" and load[0]["link_id"] == staging["submission_id"]
 
 
 def test_several_chunks_stage_in_order(staging, fake_irp):

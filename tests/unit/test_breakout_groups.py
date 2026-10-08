@@ -64,7 +64,8 @@ def _group_rows(pid: str) -> list[dict]:
 
 def _custom_jobs() -> list[dict]:
     return execute(
-        "SELECT id, requestor_type, requestor_id, status_code, input_data "
+        "SELECT id, requestor_type, requestor_id, status_code, input_data, "
+        "link_type, link_id, context_type, context_id, inserted_by "
         "FROM rwb_job WHERE rwb_job_type = 'run_breakout_custom'",
         {}, connection="WORKBENCH")
 
@@ -201,6 +202,10 @@ def test_request_group_breakout_writes_rows_and_jobs_per_group(
     assert {j["requestor_type"] for j in jobs} == {"breakout_group"}
     # each job keys on its group row's UUID (T-13)
     assert {j["requestor_id"] for j in jobs} == {r["id"] for r in rows}
+    assert all(j["link_type"] == "edm" and j["link_id"] == edm_id for j in jobs)
+    assert all(j["context_type"] == "breakout_group"
+               and j["context_id"] == j["requestor_id"] for j in jobs)
+    assert all(j["inserted_by"] == iteration2_db.user_a for j in jobs)
     # one shared cart id across the jobs and the rows (FR-020)
     cart_ids = {json.loads(j["input_data"])["cart_id"] for j in jobs}
     assert len(cart_ids) == 1

@@ -344,6 +344,13 @@ def test_plan_is_persisted_verbatim_on_the_rwb_job(iteration2_db):
     plan = _plan(request_id)
     assert plan["grouping_request_id"] == request_id
     assert plan["submission_id"] == ctx["submission_id"]
+    job = execute("SELECT * FROM rwb_job WHERE rwb_job_type = 'submit_grouping'", {},
+                  connection="WORKBENCH")[0]
+    assert job["requestor_type"] == "analyst_request" and job["requestor_id"] == request_id
+    assert job["link_type"] == "submission" and job["link_id"] == ctx["submission_id"]
+    assert (job["context_type"] == "irp_analysis"
+            and job["context_id"] == plan["group_analysis_id"])
+    assert job["inserted_by"] == iteration2_db.user_a
     assert plan["group_full_name"] == "CRE_Sub_One_Group"
     assert plan["currency"] == {"code": "USD", "scheme": "RMS",
                                 "vintage": "RL25", "asOfDate": "2025-05-28"}

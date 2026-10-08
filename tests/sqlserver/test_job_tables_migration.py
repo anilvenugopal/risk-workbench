@@ -21,7 +21,7 @@ import uuid
 import pytest
 
 from db import execute, execute_command, execute_scalar
-from app.services.rwb_job_service import (cancel_rwb_job, claim_rwb_job,
+from app.services.rwb_job_service import (MONITOR_SORTS, cancel_rwb_job, claim_rwb_job,
                                           complete_rwb_job, enqueue_rwb_job,
                                           list_rwb_jobs_for_monitoring)
 from app.workers.runtime import upsert_heartbeat
@@ -313,23 +313,24 @@ class TestCompletionGuard:
 
 
 class TestMonitoringRead:
-    def test_unlinked_job_survives_the_submission_exists_predicate(self, cleanup_rwb):
-        # The three-leg EXISTS ... UNION ALL over submission_edm/submission_rdm/
-        # submission has to parse and run on SQL Server, and a not_applicable
-        # link has to fall through it when no submission filter is set.
+    @pytest.mark.parametrize("sort", list(MONITOR_SORTS))
+    def test_every_sort_runs_with_the_row_limit(self, cleanup_rwb, sort):
+        # ORDER BY an alias (entity_name) or an expression has to parse ahead
+        # of OFFSET ... FETCH, and the context joins have to compare as
+        # UNIQUEIDENTIFIER.
         job_id, _ = _queued(cleanup_rwb)
 
-        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
+        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id], sort=sort)[0]
 
         # SQL Server hands UNIQUEIDENTIFIER back uppercase.
         assert [str(r["id"]).lower() for r in rows] == [job_id.lower()]
         assert rows[0]["is_dead"] == 0
 
-    def test_owner_filter_excludes_a_job_with_no_submission(self, cleanup_rwb):
+    def test_submitted_by_excludes_another_analysts_job(self, cleanup_rwb):
         job_id, _ = _queued(cleanup_rwb)
 
         rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id],
-                                            owner_ids=[str(uuid.uuid4())])
+                                            submitted_by=[str(uuid.uuid4())])[0]
 
         assert rows == []
 
@@ -337,11 +338,11 @@ class TestMonitoringRead:
         job_id, _ = _queued(cleanup_rwb)
         claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
 
-        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
+        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])[0]
         assert rows[0]["is_dead"] == 1
 
         upsert_heartbeat(rwb_job_id=job_id, worker_id="w1")
-        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
+        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])[0]
         assert rows[0]["is_dead"] == 0
 
     def test_dead_status_filter_selects_the_same_rows(self, cleanup_rwb):
@@ -349,6 +350,6 @@ class TestMonitoringRead:
         claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated
 
         ids = {str(r["id"]).lower()
-               for r in list_rwb_jobs_for_monitoring(status_codes=["dead"])}
+               for r in list_rwb_jobs_for_monitoring(status_codes=["dead"])[0]}
 
         assert job_id.lower() in ids

@@ -46,10 +46,11 @@ def _mk_job(edm_id: str, portfolio_id: str, actor_id, plan: list[dict] | object,
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
         "link_id, context_type, context_id, rwb_job_type, status_code, "
-        "input_data, attempt_count, inserted_at, updated_at) "
+        "input_data, attempt_count, inserted_at, updated_at, inserted_by) "
         "VALUES (:i, 'analyst_request', :r, 'edm', :edm_id, 'portfolio', "
-        ":portfolio_id, :t, 'pending', :d, 0, :now, :now)",
+        ":portfolio_id, :t, 'pending', :d, 0, :now, :now, :by)",
         {"i": jid, "r": portfolio_id, "edm_id": edm_id, "portfolio_id": portfolio_id,
+         "by": str(actor_id),
          "t": f"run_breakout_{dimension}",
          "d": json.dumps(input_data), "now": datetime.utcnow()},
         connection="WORKBENCH")
@@ -66,8 +67,8 @@ def _generated_rows(source_id: str) -> list[dict]:
 
 def _refresh_heads() -> list[dict]:
     return execute(
-        "SELECT requestor_type, requestor_id, context_type, context_id, "
-        "status_code, input_data "
+        "SELECT requestor_type, requestor_id, link_type, link_id, context_type, "
+        "context_id, status_code, input_data, inserted_by "
         "FROM rwb_job WHERE rwb_job_type = 'refresh_portfolios'", {},
         connection="WORKBENCH")
 
@@ -101,6 +102,8 @@ def test_happy_path_creates_rows_with_lineage_and_enqueues_refresh(
     heads = _refresh_heads()
     assert [(h["requestor_type"], h["requestor_id"]) for h in heads] == [
         ("rwb_job", jid)]
+    assert heads[0]["link_type"] == "edm" and heads[0]["link_id"] == edm_id
+    assert heads[0]["inserted_by"] == iteration2_db.user_a  # the breakout job's analyst
     # ... with the source portfolio as its context, for the gate (P-04)
     assert (heads[0]["context_type"], heads[0]["context_id"]) == (
         "portfolio", source_id)

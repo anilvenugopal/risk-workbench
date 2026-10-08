@@ -26,7 +26,7 @@ from sqlalchemy import text
 
 from app import log_context
 from app.config import settings
-from app.services._common import _in_clause, _json, _utcnow, _word_and_clauses
+from app.services._common import _in_clause, _json, _utcnow
 from db import execute, execute_command, execute_one, get_connection, is_unique_violation, row_limit
 
 logger = logging.getLogger(__name__)
@@ -67,14 +67,23 @@ def _insert_head(params: dict, conn) -> bool:
     return rows == 1
 
 
-def analysis_link(edm_id: Any, rdm_id: Any) -> tuple[str, Any]:
-    """The ``rwb_job`` link for a job about one analysis: its EDM, else its RDM
-    (broker analyses), else ``not_applicable``."""
-    if edm_id:
-        return "edm", edm_id
-    if rdm_id:
-        return "rdm", rdm_id
-    return "not_applicable", None
+def analysis_link(analysis_id: Any, *, conn=None) -> tuple[str, Any]:
+    """The ``rwb_job`` link for a job about one analysis: its owner — the EDM,
+    else the RDM (broker analyses), else the submission (group and imported
+    analyses). Raises ``LookupError`` for an unknown ``analysis_id``.
+
+    ``conn`` reads inside a caller's open transaction."""
+    sql = "SELECT edm_id, rdm_id, submission_id FROM irp_analysis WHERE id = :a"
+    params = {"a": str(analysis_id)}
+    row = (conn.execute(text(sql), params).mappings().first() if conn is not None
+           else execute_one(sql, params, connection="WORKBENCH"))
+    if row is None:
+        raise LookupError(f"irp_analysis {analysis_id} not found")
+    if row["edm_id"]:
+        return "edm", row["edm_id"]
+    if row["rdm_id"]:
+        return "rdm", row["rdm_id"]
+    return "submission", row["submission_id"]
 
 
 def enqueue_rwb_job(
@@ -248,31 +257,35 @@ def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
     )
 
 
-# Capped rather than paged: ``rwb_job`` is append-only, and the filters are how
-# an analyst reaches older jobs.
-MONITOR_LIMIT = 50
+PAGE_SIZE = 50
+
+
+# The monitoring page's sortable columns. Each sort runs in SQL before the page
+# is cut, so paging walks every matching job in that order.
+MONITOR_SORTS = {
+    "rwb_job_type": "rj.rwb_job_type",
+    "entity_name": "entity_name",
+    "submitted_by": "u.display_name",
+    "status_code": "rj.status_code",
+    "submitted_at": "COALESCE(rj.submitted_at, rj.inserted_at)",
+}
 
 
 def list_rwb_jobs_for_monitoring(
-    *, submission_name: str | None = None, submission_status_codes: list[str] | None = None,
-    owner_ids: list[Any] | None = None, rwb_job_types: list[str] | None = None,
+    *, submitted_by: list[Any] | None = None, rwb_job_types: list[str] | None = None,
     status_codes: list[str] | None = None, rwb_job_ids: list[Any] | None = None,
-) -> list[dict]:
-    """The first ``MONITOR_LIMIT`` ``rwb_job`` rows for the monitoring page,
-    grouped by ``rwb_job_type`` and ordered by status then most-recently-updated
-    within each group, per ``contracts/job-monitoring-routes.md``. Every filter
-    is optional and AND-combined. ``rwb_job_ids`` re-reads named rows with the
-    same computed columns, which is how cancel and resubmit render the one row
-    they changed.
+    sort: str = "submitted_at", descending: bool = True, page: int = 1,
+) -> tuple[list[dict], bool]:
+    """One page of ``rwb_job`` rows for the monitoring page in
+    ``MONITOR_SORTS[sort]`` order, newest first by default
+    (``contracts/job-monitoring-routes.md``), and whether a next page exists.
+    Every filter is optional and AND-combined; ``submitted_by`` matches
+    ``rwb_job.inserted_by``.
+    ``rwb_job_ids`` re-reads named rows with the same computed columns, which is
+    how cancel and resubmit render the one row they changed.
 
-    Search reaches submission through the job's own ``link_type``/``link_id``
-    (CR-04c), never through ``requestor_type``/``requestor_id``, which names who
-    triggered the job rather than what it concerns. ``owner_ids`` filters on the
-    submission's ``assigned_analyst_id`` — a plain predicate (Article 6), not an
-    access gate. A job whose ``link_type = 'not_applicable'``, or whose EDM/RDM
-    belongs to no submission, is excluded by any of the three submission-scoped
-    filters and returned when none of them are set. A job whose EDM/RDM belongs
-    to several submissions still returns one row.
+    ``entity_name``/``entity_kind`` name the job's context per
+    docs/DATA_MODEL.md §8.
 
     Elapsed time is computed by the caller: it changes on every render.
 
@@ -285,14 +298,13 @@ def list_rwb_jobs_for_monitoring(
     reconciler moves it."""
     clauses: list[str] = []
     params: dict[str, Any] = {}
-    if rwb_job_ids:
-        clause, p = _in_clause("rj.id", [str(i) for i in rwb_job_ids], "rid")
-        clauses.append(clause)
-        params |= p
-    if rwb_job_types:
-        clause, p = _in_clause("rj.rwb_job_type", rwb_job_types, "jt")
-        clauses.append(clause)
-        params |= p
+    for column, values, prefix in (("rj.id", rwb_job_ids, "rid"),
+                                   ("rj.inserted_by", submitted_by, "by"),
+                                   ("rj.rwb_job_type", rwb_job_types, "jt")):
+        if values:
+            clause, p = _in_clause(column, [str(v) for v in values], prefix)
+            clauses.append(clause)
+            params |= p
     if status_codes:
         # "dead" isn't a stored status_code — it's a running row whose heartbeat
         # is stale or missing, the same condition reconcile_stale_rwb_jobs
@@ -310,66 +322,52 @@ def list_rwb_jobs_for_monitoring(
                 "(rj.status_code = 'running' "
                 "AND (hb.heartbeat_at IS NULL OR hb.heartbeat_at < :dead_cutoff))")
         clauses.append("(" + " OR ".join(status_clauses) + ")")
-    submission_scoped = bool(submission_name or submission_status_codes or owner_ids)
-    if submission_scoped:
-        sub_clauses: list[str] = []
-        sub_params: dict[str, Any] = {}
-        if submission_name:
-            name_clauses, name_params = _word_and_clauses(
-                submission_name.strip(), ("s.name", "ced.name"), "sn")
-            sub_clauses += name_clauses
-            sub_params |= name_params
-        if submission_status_codes:
-            clause, p = _in_clause("s.status_code", submission_status_codes, "ss")
-            sub_clauses.append(clause)
-            sub_params |= p
-        if owner_ids:
-            clause, p = _in_clause("s.assigned_analyst_id",
-                                    [str(o) for o in owner_ids], "so")
-            sub_clauses.append(clause)
-            sub_params |= p
-        sub_where = (" AND " + " AND ".join(sub_clauses)) if sub_clauses else ""
-        clauses.append(
-            "EXISTS ("
-            "SELECT 1 FROM submission_edm se JOIN submission s ON s.id = se.submission_id "
-            "JOIN cedant ced ON ced.id = s.cedant_id "
-            f"WHERE rj.link_type = 'edm' AND se.edm_id = rj.link_id{sub_where}"
-            " UNION ALL "
-            "SELECT 1 FROM submission_rdm sr JOIN submission s ON s.id = sr.submission_id "
-            "JOIN cedant ced ON ced.id = s.cedant_id "
-            f"WHERE rj.link_type = 'rdm' AND sr.rdm_id = rj.link_id{sub_where}"
-            " UNION ALL "
-            "SELECT 1 FROM submission s JOIN cedant ced ON ced.id = s.cedant_id "
-            f"WHERE rj.link_type = 'submission' AND s.id = rj.link_id{sub_where}"
-            ")"
-        )
-        params |= sub_params
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    direction = "DESC" if descending else "ASC"
     # Always bound: both the "dead" filter clause above and the is_dead display
     # column below reference the same cutoff, so every row's dead-ness reflects
     # one consistent instant rather than "now" drifting between the two reads.
     params["dead_cutoff"] = (
         _utcnow() - timedelta(seconds=settings.rwb_heartbeat_stale_secs))
-    return execute(
+    rows = execute(
         f"""
         SELECT rj.id, rj.requestor_type, rj.requestor_id, rj.link_type, rj.link_id,
                rj.context_type, rj.context_id, rj.rwb_job_type, rj.status_code,
                rj.error_detail, rj.attempt_count, rj.submitted_at, rj.completed_at,
                rj.inserted_at, rj.updated_at,
-               COALESCE(e.name, r.name) AS entity_name,
+               u.display_name AS submitted_by,
+               COALESCE(e.name, r.name, a.name, p.name, bg.label, le.name, ls.name)
+                   AS entity_name,
+               CASE WHEN rj.context_type IN ('execution', 'result_export')
+                    THEN lk.label ELSE ck.label END AS entity_kind,
                CASE WHEN rj.status_code = 'running'
                          AND (hb.heartbeat_at IS NULL OR hb.heartbeat_at < :dead_cutoff)
                     THEN 1 ELSE 0 END AS is_dead
         FROM rwb_job rj
-        LEFT JOIN irp_edm e ON rj.link_type = 'edm' AND e.id = rj.link_id
-        LEFT JOIN irp_rdm r ON rj.link_type = 'rdm' AND r.id = rj.link_id
+        LEFT JOIN app_user u ON u.id = rj.inserted_by
+        LEFT JOIN rwb_job_context_type_kind ck ON ck.code = rj.context_type
+        LEFT JOIN rwb_job_link_type_kind lk ON lk.code = rj.link_type
+        LEFT JOIN irp_edm e ON rj.context_type = 'edm' AND e.id = rj.context_id
+        LEFT JOIN irp_rdm r ON rj.context_type = 'rdm' AND r.id = rj.context_id
+        LEFT JOIN irp_analysis a ON rj.context_type = 'irp_analysis' AND a.id = rj.context_id
+        LEFT JOIN irp_portfolio p ON rj.context_type = 'portfolio' AND p.id = rj.context_id
+        LEFT JOIN breakout_group bg
+               ON rj.context_type = 'breakout_group' AND bg.id = rj.context_id
+        LEFT JOIN irp_edm le
+               ON rj.context_type = 'execution' AND rj.link_type = 'edm'
+              AND le.id = rj.link_id
+        LEFT JOIN submission ls
+               ON rj.context_type = 'result_export' AND rj.link_type = 'submission'
+              AND ls.id = rj.link_id
         LEFT JOIN rwb_job_heartbeat hb ON hb.rwb_job_id = rj.id
         {where}
-        ORDER BY rj.rwb_job_type, rj.status_code, rj.updated_at DESC
-        """ + row_limit(MONITOR_LIMIT),
+        ORDER BY {MONITOR_SORTS[sort]} {direction}, rj.id {direction}
+        """ + row_limit(PAGE_SIZE + 1, offset=(page - 1) * PAGE_SIZE),
         params,
         connection="WORKBENCH",
     )
+    # The row past the page is what "there is a next page" means, without a COUNT.
+    return rows[:PAGE_SIZE], len(rows) > PAGE_SIZE
 
 
 def job_type_kinds() -> list[tuple[str, str]]:
@@ -399,57 +397,6 @@ def status_kinds() -> list[tuple[str, str]]:
         (i for i, (code, _) in enumerate(kinds) if code == "running"), len(kinds) - 1)
     kinds.insert(running_index + 1, ("dead", "Dead"))
     return kinds
-
-
-def list_submissions_for_rwb_jobs(
-    links: list[tuple[str, Any]],
-) -> dict[tuple[str, str], list[dict]]:
-    """Every submission each ``(link_type, link_id)`` pair belongs to, keyed by
-    that same pair (``link_id`` normalized to ``str``) — the monitoring page's
-    batched second read for the "submission(s)" display column, kept separate
-    from ``list_rwb_jobs_for_monitoring`` so a job's row count never depends on
-    how many submissions its EDM/RDM belongs to. One query per link type (``edm``
-    ids, ``rdm`` ids, and ``submission`` ids don't share a source table; a
-    ``submission`` link is the submission, so that query reads ``submission`` by
-    id and yields exactly one entry), Python-side dict build
-    rather than ``STRING_AGG``/``GROUP_CONCAT`` — not portable to the SQLite unit
-    tier (``submission_service.py``'s own portability contract)."""
-    result: dict[tuple[str, str], list[dict]] = {}
-    edm_ids = [str(lid) for lt, lid in links if lt == "edm" and lid is not None]
-    rdm_ids = [str(lid) for lt, lid in links if lt == "rdm" and lid is not None]
-    if edm_ids:
-        clause, params = _in_clause("se.edm_id", edm_ids, "e")
-        rows = execute(
-            "SELECT se.edm_id AS link_id, s.id, s.name FROM submission_edm se "
-            f"JOIN submission s ON s.id = se.submission_id WHERE {clause} "
-            "ORDER BY s.name",
-            params, connection="WORKBENCH",
-        )
-        for row in rows:
-            key = ("edm", str(row["link_id"]))
-            result.setdefault(key, []).append({"id": row["id"], "name": row["name"]})
-    if rdm_ids:
-        clause, params = _in_clause("sr.rdm_id", rdm_ids, "r")
-        rows = execute(
-            "SELECT sr.rdm_id AS link_id, s.id, s.name FROM submission_rdm sr "
-            f"JOIN submission s ON s.id = sr.submission_id WHERE {clause} "
-            "ORDER BY s.name",
-            params, connection="WORKBENCH",
-        )
-        for row in rows:
-            key = ("rdm", str(row["link_id"]))
-            result.setdefault(key, []).append({"id": row["id"], "name": row["name"]})
-    sub_ids = [str(lid) for lt, lid in links if lt == "submission" and lid is not None]
-    if sub_ids:
-        clause, params = _in_clause("s.id", sub_ids, "s")
-        rows = execute(
-            f"SELECT s.id, s.name FROM submission s WHERE {clause} ORDER BY s.name",
-            params, connection="WORKBENCH",
-        )
-        for row in rows:
-            result[("submission", str(row["id"]))] = [
-                {"id": row["id"], "name": row["name"]}]
-    return result
 
 
 def resubmit_rwb_job(*, rwb_job_id: Any) -> str | None:
@@ -592,7 +539,6 @@ __all__ = [
     "resubmit_rwb_job",
     "get_rwb_job",
     "list_rwb_jobs_for_monitoring",
-    "list_submissions_for_rwb_jobs",
     "job_type_kinds",
     "status_kinds",
     "complete_rwb_job",

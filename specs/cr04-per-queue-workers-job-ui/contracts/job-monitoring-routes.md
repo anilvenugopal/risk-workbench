@@ -2,46 +2,36 @@
 
 Server-rendered (Article 8) — HTMX partial swaps, not a JSON API. No client-side app touches these routes directly.
 
-**Updated per CR-04a's rewrite (see `docs/CR/CR_04a__JOB_MONITORING_UI.md`):**
-search reaches submission through `rwb_job.link_type`/`link_id` →
-`submission_edm`/`submission_rdm` → `submission` for an `edm`/`rdm` link, or
-`submission` directly for a `submission` link (CR-04c's columns and its fourth
-`rwb_job_link_type_kind` row), never through `requestor_type`/`requestor_id`.
-This contract's route shapes are
-otherwise as originally specified.
-
 ## `GET /workflows/rwb-jobs`
 
 Fills an existing, previously-stubbed nav slot: `workflows.rwb_jobs` in `app/nav/manifest.py` (under the Workflows rail root, alongside Active/Review Queue/IRP Jobs/Exceptions), now served by `app/routers/rwb_jobs.py` (moved off the placeholder stub previously in `app/routers/shell.py` / `app/templates/pages/workflows_rwb_jobs.html`). No new nav node.
 
-Monitoring + search page. Lists the first 50 `rwb_job` rows (`rwb_job_service.MONITOR_LIMIT`, applied with `db.row_limit` the way `irp_job_service.list_recent` caps its own monitor), grouped by `rwb_job_type`, ordered within each group by status then most-recent `updated_at`, narrowed by the filters below (all optional, AND-combined):
+Monitoring page. Lists `rwb_job` rows 50 to a page (`rwb_job_service.PAGE_SIZE`, applied with `db.row_limit`) in the order picked below, newest first by default, narrowed by the filters below (all optional, AND-combined):
 
 | Filter | Matches on | Default |
 |---|---|---|
-| Submission name / cedant | word-and match, same as `submission_service.list_submissions`'s `name`/`cedant_name` | off |
-| Submission status | `submission.status_code`, from `submission_status_kind` | off |
-| Owner | `submission.assigned_analyst_id`, reached via the job's linked EDM/RDM or directly via a `submission` link | **current user** (no `owner` param at all); `owner=any` clears it; an explicit list narrows to those analysts |
 | Job type | `rwb_job.rwb_job_type` | off |
-| Job status | `rwb_job.status_code` | off |
+| Job status | `rwb_job.status_code`, plus the computed "dead" | off |
+| Submitted by | `rwb_job.inserted_by` | **current user** (no `submitted_by` param at all); `submitted_by=any` clears it; an explicit list narrows to those analysts |
 
-A job whose `link_type = 'not_applicable'`, or whose EDM/RDM belongs to no submission, is excluded by any submission-name/status/owner filter but still listed when none of those three are set. A `submission` link always has exactly one submission, so it is never in that excluded set. A job's EDM/RDM belonging to more than one submission does not fan the job out into multiple rows — the submission filters match "at least one."
+A job with no `inserted_by` (a `dummy_*` job from the CLI) is listed only under Anyone. With no query at all and no rows, the table says the analyst has submitted no RWB jobs and links to `submitted_by=any`.
 
 Each row renders:
 
 | Field | Source | Notes |
 |---|---|---|
 | Job type | `rwb_job.rwb_job_type` | Sortable. |
-| EDM/RDM | `rwb_job.link_type`/`link_id` → `irp_edm`/`irp_rdm` | Sortable. "—" for `not_applicable` and for a `submission` link (a grouping job has no single EDM/RDM). |
-| Submission(s) | linked EDM/RDM → `submission_edm`/`submission_rdm` → `submission`; a `submission` link → `submission` by id (always exactly one) | Sortable. Each name links to `/submissions/{id}`, opening in a new tab. First name + "+N more" for multiple, "—" for none — same display convention as `partials/library_table.html`. |
+| Entity | kind · name per `docs/DATA_MODEL.md` §8, kind label from `rwb_job_context_type_kind` (link kind for `execution`/`result_export`) | Sortable by name. "—" for a job with no context. |
+| Submitted by | `rwb_job.inserted_by` → `app_user.display_name` | Sortable. "—" when null. |
 | Status | `rwb_job.status_code`, plus the computed `is_dead` flag | Sortable. `pending` rows render as a distinct "queued" marker. A `running` row with `is_dead = 1` (heartbeat missing or older than `settings.rwb_heartbeat_stale_secs`) renders as a "Dead" chip, not "Running" — `status_code` is still `running` underneath. |
-| Submitted at | `submitted_at` | Sortable. The raw timestamp; "—" for `pending` (null until claimed). |
-| Elapsed | a computed duration, not a timestamp | Sortable (by the underlying seconds, not the formatted string). `pending`: now minus `inserted_at`, prefixed "queued". `running`/dead: now minus `submitted_at`. Terminal: `completed_at` minus `submitted_at` (a fixed span). "—" when there's nothing to compute (a terminal row that never got a `submitted_at`, e.g. `dummy_wait`/`sync_irp_metadata` failing before being claimed). |
+| Submitted at | `submitted_at` | Sortable by `COALESCE(submitted_at, inserted_at)`, so a queued job sorts by when it was queued. Shows "—" for `pending` (null until claimed). |
+| Elapsed | a computed duration, not a timestamp | Not sortable. `pending`: now minus `inserted_at`, prefixed "queued". `running`/dead: now minus `submitted_at`. Terminal: `completed_at` minus `submitted_at` (a fixed span). "—" when there's nothing to compute (a terminal row that never got a `submitted_at`, e.g. `dummy_wait`/`sync_irp_metadata` failing before being claimed). |
 | Failure detail | `error_detail` | Shown only when `status_code = 'failed'`. |
 | Action | Cancel (`pending`, `failed`, or dead `running`) / Resubmit (`failed` only) / none (live `running`, `succeeded`, `cancelled`) | See below. A `failed` row shows both Cancel and Resubmit. |
 
-Every sortable column is a clickable header (same click-to-sort convention as `pages/submissions.html`, D15): clicking flips direction; clicking a different column starts it in that column's own default direction. Sorting orders the already-filtered rows; it is independent of the filters above. With no `sort` param the grouped order above is what renders — the header sort is a display order layered on top of it, never the default.
+Every sortable column is a clickable header (same click-to-sort convention as `pages/submissions.html`, D15): clicking flips direction; clicking a different column starts it in that column's own default direction (text ascending, Submitted at descending). The sort runs in SQL before the page is cut, so paging walks every matching job in that order. A header click returns to page 1. With no `sort` param the page renders Submitted at descending and marks that header as sorted.
 
-No pagination: the row cap plus the filters is how an analyst reaches older jobs. Adding a pager later is an implementation detail, not a contract change.
+Pager: `page` (default 1). Prev and Next links appear once there is a second page, carry the filters and sort, and are real hrefs, as on `/workflows/irp-jobs`. The service reads one row past the page to know a next page exists, without a `COUNT`. Changing a filter returns to page 1; a page past the last shows a link back to page 1. The 3-second poll re-renders the same page.
 
 ## `GET /workflows/rwb-jobs/table`
 

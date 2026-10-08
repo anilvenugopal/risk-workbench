@@ -1,13 +1,9 @@
 """RWB Jobs monitoring page — list, search, cancel, resubmit (CR-04a).
 
 Server-rendered FastAPI + Jinja2 + HTMX (Article 8). No row scoping (Article
-6): every analyst may see and act on every job; the owner filter narrows by
-submission ownership as a plain predicate, not an access gate, and defaults to
-the current analyst the same way ``/submissions`` does.
-
-Search reaches submission through each job's own ``link_type``/``link_id``
-(CR-04c), never ``requestor_type``/``requestor_id`` — see
-``rwb_job_service.list_rwb_jobs_for_monitoring``.
+6): every analyst may see and act on every job; Submitted by narrows by
+``rwb_job.inserted_by`` as a plain predicate and defaults to the current
+analyst, the way ``/workflows/irp-jobs`` does.
 """
 
 from __future__ import annotations
@@ -21,8 +17,9 @@ from fastapi.responses import HTMLResponse, Response
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import auth_service, rwb_job_service, submission_service
-from app.services._common import _as_datetime, _format_duration, _utcnow
+from app.routers._list_filters import submitted_by_filter
+from app.services import auth_service, rwb_job_service
+from app.services._common import _as_datetime, _format_duration, _parse_int, _utcnow
 
 router = APIRouter()
 
@@ -30,13 +27,6 @@ _NAV_KEY = "workflows.rwb_jobs"
 # The table fragment's element id; a request naming it as its HTMX target gets
 # the table alone, skipping the picker reads htmx would only discard.
 _LIST_TARGET = "rwb-jobs-live"
-_SORT_COLUMNS = ("rwb_job_type", "entity_name", "submission", "status_code",
-                 "submitted_at", "elapsed")
-# Direction a column starts in on its first click: text up, time/duration down.
-_SORT_STARTS_DESCENDING = {
-    "rwb_job_type": False, "entity_name": False, "submission": False,
-    "status_code": False, "submitted_at": True, "elapsed": True,
-}
 
 
 def _elapsed_seconds(row: dict, *, now: datetime) -> float | None:
@@ -79,25 +69,9 @@ def _partial(request: Request, template: str, ctx: dict, status_code: int = 200)
     )
 
 
-def _sort_key(sort: str):
-    """A key function over rows from ``list_rwb_jobs_for_monitoring`` for the
-    display-only column sort (D15) — applied in Python after the SQL query,
-    since the sort columns include computed/joined values (``entity_name``,
-    the submissions list, elapsed time) the SQL ``ORDER BY`` doesn't carry."""
-    def key(row: dict):
-        if sort == "elapsed":
-            # Sorts by the underlying duration in seconds, not the formatted
-            # string — "2m 14s" vs "41s" would otherwise sort alphabetically.
-            return row.get("elapsed_seconds") or 0
-        if sort == "submitted_at":
-            return _as_datetime(row.get("submitted_at")) or datetime.min
-        if sort == "entity_name":
-            return (row.get("entity_name") or "").lower()
-        if sort == "submission":
-            names = row.get("submissions") or []
-            return names[0]["name"].lower() if names else ""
-        return row.get(sort) or ""
-    return key
+def _starts_descending(sort: str) -> bool:
+    # Direction a column starts in on its first click: text up, time down.
+    return sort == "submitted_at"
 
 
 def _sort_links(filter_query: str, sort: str, descending: bool) -> dict[str, dict]:
@@ -105,10 +79,9 @@ def _sort_links(filter_query: str, sort: str, descending: bool) -> dict[str, dic
     its direction; each link carries the filters, so sorting never drops them."""
     stem = "/workflows/rwb-jobs?" + (f"{filter_query}&" if filter_query else "")
     links = {}
-    for key in _SORT_COLUMNS:
+    for key in rwb_job_service.MONITOR_SORTS:
         active = key == sort
-        next_descending = (not descending if active
-                           else _SORT_STARTS_DESCENDING[key])
+        next_descending = not descending if active else _starts_descending(key)
         links[key] = {
             "href": f"{stem}sort={key}&dir={'desc' if next_descending else 'asc'}",
             "active": active,
@@ -121,12 +94,8 @@ def _sort_links(filter_query: str, sort: str, descending: bool) -> dict[str, dic
 def _decorate(rows: list[dict], *, type_labels: dict, status_labels: dict) -> None:
     """Add the display columns ``partials/rwb_jobs_row.html`` reads. Elapsed time
     is computed here rather than in SQL because it moves on every render."""
-    links = [(r["link_type"], r["link_id"]) for r in rows if r["link_id"] is not None]
-    submissions_by_link = rwb_job_service.list_submissions_for_rwb_jobs(links)
     now = _utcnow()
     for row in rows:
-        key = (row["link_type"], str(row["link_id"])) if row["link_id"] is not None else None
-        row["submissions"] = submissions_by_link.get(key, []) if key else []
         row["type_label"] = type_labels.get(row["rwb_job_type"], row["rwb_job_type"])
         row["status_label"] = (
             status_labels.get("dead") if row["is_dead"]
@@ -139,68 +108,60 @@ def _decorate(rows: list[dict], *, type_labels: dict, status_labels: dict) -> No
 
 def _list_context(request: Request) -> dict:
     """Everything ``partials/rwb_jobs_table.html`` reads. The page route adds the
-    owner and submission-status pickers on top; the poll does not."""
-    current_user = request.state.user
-    submission_name = (request.query_params.get("q") or "").strip() or None
-    submission_status_codes = [
-        v.strip() for v in request.query_params.getlist("submission_status") if v.strip()]
-    rwb_job_types = [
-        v.strip() for v in request.query_params.getlist("job_type") if v.strip()]
-    status_codes = [
-        v.strip() for v in request.query_params.getlist("job_status") if v.strip()]
-    owner_params = request.query_params.getlist("owner")
-    owner_ids = ([str(current_user.id)] if not owner_params
-                 else [] if "any" in owner_params else owner_params)
+    Submitted by picker on top; the poll does not."""
+    params = request.query_params
+    rwb_job_types = [v.strip() for v in params.getlist("job_type") if v.strip()]
+    status_codes = [v.strip() for v in params.getlist("job_status") if v.strip()]
+    submitted_by, by_params = submitted_by_filter(params, request.state.user.id)
+    # A URL without a sort param is newest first, Submitted at's own order.
+    sort = params.get("sort", "")
+    explicit_sort = sort in rwb_job_service.MONITOR_SORTS
+    if not explicit_sort:
+        sort = "submitted_at"
+    descending = {"asc": False, "desc": True}.get(
+        params.get("dir", ""), _starts_descending(sort))
+    page = max(1, _parse_int(params.get("page")) or 1)
 
-    rows = rwb_job_service.list_rwb_jobs_for_monitoring(
-        submission_name=submission_name,
-        submission_status_codes=submission_status_codes or None,
-        owner_ids=owner_ids or None,
+    rows, has_next = rwb_job_service.list_rwb_jobs_for_monitoring(
+        submitted_by=submitted_by or None,
         rwb_job_types=rwb_job_types or None,
         status_codes=status_codes or None,
+        sort=sort, descending=descending, page=page,
     )
     # Read for the row labels; the job-type and job-status pickers reuse them.
     job_types = rwb_job_service.job_type_kinds()
     job_statuses = rwb_job_service.status_kinds()
     _decorate(rows, type_labels=dict(job_types), status_labels=dict(job_statuses))
 
-    sort = request.query_params.get("sort", "")
-    if sort not in _SORT_COLUMNS:
-        sort = ""
-    descending = {"asc": False, "desc": True}.get(
-        request.query_params.get("dir", ""),
-        _SORT_STARTS_DESCENDING[sort] if sort else False)
-    # No explicit sort leaves the query's own ORDER BY in place: rows grouped by
-    # job type, then status, then most recent (contracts/job-monitoring-routes.md).
-    if sort:
-        rows.sort(key=_sort_key(sort), reverse=descending)
-
     filter_values = {
-        "q": request.query_params.get("q", ""),
-        "submission_status": submission_status_codes,
-        "owner": owner_ids or ["any"],
+        "submitted_by": submitted_by or ["any"],
         "job_type": rwb_job_types,
         "job_status": status_codes,
     }
     # The filters alone (never sort/dir) — each sortable header appends its
-    # own sort=/dir= to this, so clicking a header never drops what's typed.
-    query_values: list[tuple[str, str]] = []
-    if filter_values["q"]:
-        query_values.append(("q", filter_values["q"]))
-    for key in ("submission_status", "owner", "job_type", "job_status"):
-        query_values += [(key, v) for v in filter_values[key]]
+    # own sort=/dir= to this, so clicking a header never drops a filter.
+    query_values = [(key, v) for key in ("job_type", "job_status")
+                    for v in filter_values[key]]
+    if by_params:
+        query_values += [("submitted_by", v) for v in filter_values["submitted_by"]]
     order_values = ([("sort", sort), ("dir", "desc" if descending else "asc")]
-                    if sort else [])
+                    if explicit_sort else [])
     filter_query = urlencode(query_values)
     return {
         "rows": rows,
+        "page": page,
+        "has_next": has_next,
         "filter_values": filter_values,
         "job_types": job_types,
         "job_statuses": job_statuses,
         "sort_links": _sort_links(filter_query, sort, descending),
-        # Filters plus the sort in force, for the poll to re-render what the
-        # analyst is actually looking at.
-        "list_query": urlencode(query_values + order_values),
+        # Only the landing view (no query at all) gets the "you have no jobs" message.
+        "is_default_view": not query_values,
+        # Filters and sort, for the pager links; a header sort drops the page.
+        "order_query": urlencode(query_values + order_values),
+        # Filters, sort and page, for the poll to re-render what the analyst sees.
+        "list_query": urlencode(
+            query_values + order_values + ([("page", page)] if page > 1 else [])),
         # Any row not yet terminal keeps the poll trigger in the fragment.
         "live": any(r["status_code"] in ("pending", "running") for r in rows),
     }
@@ -209,7 +170,7 @@ def _list_context(request: Request) -> dict:
 def _row_response(request: Request, rwb_job_id: str):
     """The changed row's partial. A guarded update that matched nothing re-reads
     the row as it now stands rather than reporting an error."""
-    rows = rwb_job_service.list_rwb_jobs_for_monitoring(rwb_job_ids=[rwb_job_id])
+    rows, _ = rwb_job_service.list_rwb_jobs_for_monitoring(rwb_job_ids=[rwb_job_id])
     if not rows:
         return Response(status_code=404)
     _decorate(rows, type_labels=dict(rwb_job_service.job_type_kinds()),
@@ -228,9 +189,8 @@ def rwb_jobs_page(request: Request):
         return response
     return _render(request, "pages/workflows_rwb_jobs.html", {
         **list_ctx,
-        "submission_statuses": submission_service.status_kinds(),
-        "owner_options": [(a["id"], a["display_name"])
-                          for a in auth_service.list_active_analysts()],
+        "analysts": [(a["id"], a["display_name"])
+                     for a in auth_service.list_active_analysts()],
     })
 
 

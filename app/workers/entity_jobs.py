@@ -329,6 +329,7 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     # captured analysis still missing its extract. The queue's UNIQUE key is the
     # FR-006 dedup — a re-import of another EDM copy enqueues nothing — and
     # enqueue_rwb_job never resurrects a terminal failed retrieval (O-06).
+    actor_id = rwb_job_service.get_rwb_job(rwb_job_id=rwb_job_id)["inserted_by"]
     for pending in execute(
             "SELECT id FROM irp_analysis WHERE rdm_id = :r "
             "AND deleted_at IS NULL AND loss_results IS NULL",
@@ -338,7 +339,7 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
             rwb_job_type="retrieve_analysis_results",
             link_type="rdm", link_id=rdm_id,
             context_type="irp_analysis", context_id=_uid(pending["id"]),
-            input_data={"analysis_id": _uid(pending["id"])})
+            input_data={"analysis_id": _uid(pending["id"])}, actor_id=actor_id)
         dispatch.dispatch(rwb_job_id=retrieval_id,
                           rwb_job_type="retrieve_analysis_results")
     captured = len(hits)

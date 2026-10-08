@@ -1228,7 +1228,8 @@ def test_comparable_analyses_gone_scope_reads_none(iteration2_db):
 
 def _retrieval_job(analysis_id: str) -> dict:
     return execute_one(
-        "SELECT id, status_code, attempt_count, error_detail FROM rwb_job "
+        "SELECT id, status_code, attempt_count, error_detail, link_type, link_id, "
+        "context_type, context_id, inserted_by, updated_by FROM rwb_job "
         "WHERE requestor_type = 'irp_analysis' AND requestor_id = :a "
         "AND rwb_job_type = 'retrieve_analysis_results'",
         {"a": analysis_id}, connection="WORKBENCH")
@@ -1239,8 +1240,9 @@ def test_retry_revives_the_failed_retrieval_row_in_place(iteration2_db):
     analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001")
     _job(analysis_id=analysis, status="FINISHED")
     _failed_retrieval(analysis, edm, detail="2000.0")
-    execute_command("UPDATE rwb_job SET attempt_count = 1 WHERE requestor_id = :a",
-                    {"a": analysis}, connection="WORKBENCH")
+    execute_command("UPDATE rwb_job SET attempt_count = 1, inserted_by = :b "
+                    "WHERE requestor_id = :a",
+                    {"a": analysis, "b": iteration2_db.user_b}, connection="WORKBENCH")
     before = _retrieval_job(analysis)
 
     job_id = analysis_service.retry_results_retrieval(
@@ -1251,6 +1253,11 @@ def test_retry_revives_the_failed_retrieval_row_in_place(iteration2_db):
     assert after["status_code"] == "pending"
     assert after["attempt_count"] == 2
     assert after["error_detail"] is None
+    assert after["link_type"] == "edm" and after["link_id"] == edm
+    assert after["context_type"] == "irp_analysis" and after["context_id"] == analysis
+    # A retry revives the row: the analyst who caused the first run stays inserted_by.
+    assert after["inserted_by"] == iteration2_db.user_b
+    assert after["updated_by"] == iteration2_db.user_a
     [row] = analysis_service.list_executed_analyses(edm_id=edm)
     assert row.results_state == "pending"
     assert row.results_error is None

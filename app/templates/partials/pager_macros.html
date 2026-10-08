@@ -1,0 +1,24 @@
+{# Prev / Page N / Next links: ``stem`` ends in "page=". With ``target`` the
+   links swap that element over htmx and push the URL; with ``sync`` they drop
+   while the filter form named there is mid-request. Each link is also a real
+   href, so paging works with JavaScript off. A {% call %} body renders after
+   Next. #}
+{%- macro _page_link(stem, n, rel, text, target, sync) -%}
+<a class="btn btn--sm" rel="{{ rel }}" href="{{ stem }}{{ n }}"
+       {%- if target %} hx-get="{{ stem }}{{ n }}" hx-target="{{ target }}"
+       hx-swap="outerHTML" hx-push-url="true"
+       {%- if sync %} hx-sync="{{ sync }}:drop"{% endif %}{% endif %}>{{ text }}</a>
+{%- endmacro -%}
+
+{%- macro pager(stem, page, has_next, label, target=none, sync=none) -%}
+  <nav class="pager" aria-label="{{ label }}">
+    {% if page > 1 %}
+    {{ _page_link(stem, page - 1, "prev", "‹ Prev", target, sync) }}
+    {% endif %}
+    <span class="pager__at">Page {{ page }}</span>
+    {% if has_next %}
+    {{ _page_link(stem, page + 1, "next", "Next ›", target, sync) }}
+    {% endif %}
+    {% if caller %}{{ caller() }}{% endif %}
+  </nav>
+{%- endmacro %}

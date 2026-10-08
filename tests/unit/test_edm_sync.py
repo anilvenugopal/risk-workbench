@@ -60,7 +60,8 @@ def _legacy_edm(*, name="legacy_edm", irp_id=None) -> str:
 
 def _analyst_heads(edm_id: str) -> list[dict]:
     return execute(
-        "SELECT id, status_code, attempt_count, updated_by FROM rwb_job "
+        "SELECT id, status_code, attempt_count, updated_by, link_type, link_id, "
+        "context_type, context_id, inserted_by FROM rwb_job "
         "WHERE requestor_type='analyst_request' AND requestor_id=:r "
         "AND rwb_job_type='backfill_edm_detail'",
         {"r": edm_id}, connection="WORKBENCH")
@@ -85,6 +86,9 @@ def test_sync_enqueues_analyst_head_and_dispatches(iteration2_db, fake_irp, driv
     heads = _analyst_heads(edm_id)
     assert len(heads) == 1
     assert heads[0]["status_code"] == "pending"
+    assert heads[0]["link_type"] == "edm" and heads[0]["link_id"] == edm_id
+    assert heads[0]["context_type"] == "edm" and heads[0]["context_id"] == edm_id
+    assert heads[0]["inserted_by"] == iteration2_db.user_a
     assert sent == [(str(job_id), "backfill_edm_detail")]
 
 

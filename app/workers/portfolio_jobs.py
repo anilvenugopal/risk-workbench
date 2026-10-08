@@ -230,7 +230,8 @@ def _complete_breakout(rwb_job_id: Any, *, edm_id: Any, source_id: Any,
             input_data={"edm_id": str(edm_id),
                         "portfolio_irp_ids": [
                             str(o.irp_id) for o in outcomes
-                            if o.outcome != "failed" and o.irp_id is not None]})
+                            if o.outcome != "failed" and o.irp_id is not None]},
+            actor_id=rwb_job_service.get_rwb_job(rwb_job_id=rwb_job_id)["inserted_by"])
         if refresh_id is not None:
             dispatch.dispatch(rwb_job_id=refresh_id,
                               rwb_job_type="refresh_portfolios")

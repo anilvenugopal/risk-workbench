@@ -13,6 +13,7 @@
    request waits for a running one. If one request swapped this element under
    another, htmx would throw on the detached target and never release the
    form's lock, so no later filter change would be sent. #}
+{% from "partials/pager_macros.html" import pager %}
 {% from "partials/time_macros.html" import local_time %}
 <div id="irp-jobs-live"
   {%- if live %}
@@ -53,21 +54,10 @@
   </table>
 
   {# Only shown once there is somewhere to go. The links carry the applied
-     filters and are real hrefs, so they still work with JavaScript off. #}
+     filters. #}
   {% if rows and (page > 1 or has_next) %}
   {% set stem = '/workflows/irp-jobs?' ~ ((filter_query ~ '&') if filter_query else '') ~ 'page=' %}
-  <nav class="pager" aria-label="IRP job pages">
-    {% if page > 1 %}
-    <a class="btn btn--sm" rel="prev" href="{{ stem }}{{ page - 1 }}"
-       hx-get="{{ stem }}{{ page - 1 }}" hx-target="#irp-jobs-live"
-       hx-swap="outerHTML" hx-push-url="true" hx-sync="#irp-jobs-filters:drop">‹ Prev</a>
-    {% endif %}
-    <span class="pager__at">Page {{ page }}</span>
-    {% if has_next %}
-    <a class="btn btn--sm" rel="next" href="{{ stem }}{{ page + 1 }}"
-       hx-get="{{ stem }}{{ page + 1 }}" hx-target="#irp-jobs-live"
-       hx-swap="outerHTML" hx-push-url="true" hx-sync="#irp-jobs-filters:drop">Next ›</a>
-    {% endif %}
-  </nav>
+  {{ pager(stem, page, has_next, "IRP job pages",
+           target="#irp-jobs-live", sync="#irp-jobs-filters") }}
   {% endif %}
 </div>

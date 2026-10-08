@@ -14,7 +14,7 @@ from app.poller import run as poller
 from app.services import analysis_service, rdm_service
 from app.services._common import SubmissionRef
 from app.workers import analysis_jobs, dispatch, entity_jobs
-from db import execute, execute_command, execute_scalar
+from db import execute, execute_command, execute_one, execute_scalar
 from tests.unit.run_details_fixtures import captured_run, detail
 
 
@@ -173,7 +173,8 @@ def test_sync_captures_analyses_added_since_import(iteration2_db, fake_irp, driv
 
 def _retrieval_jobs() -> list[dict]:
     return execute(
-        "SELECT requestor_id, status_code FROM rwb_job "
+        "SELECT requestor_type, requestor_id, link_type, link_id, context_type, "
+        "context_id, status_code, inserted_by FROM rwb_job "
         "WHERE rwb_job_type='retrieve_analysis_results'",
         {}, connection="WORKBENCH")
 
@@ -202,6 +203,20 @@ def test_rdm_backfill_enqueues_one_retrieval_per_captured_analysis(
     jobs = _retrieval_jobs()
     assert len(jobs) == 2
     assert {str(j["requestor_id"]) for j in jobs} == analysis_ids
+    for job in jobs:
+        assert job["requestor_type"] == "irp_analysis"
+        assert job["link_type"] == "rdm" and job["link_id"] == rdm_id
+        assert job["context_type"] == "irp_analysis" and job["context_id"] == job["requestor_id"]
+        assert job["inserted_by"] == iteration2_db.user_a
+    head = execute_one(
+        "SELECT * FROM rwb_job WHERE rwb_job_type = 'backfill_rdm_analyses'", {},
+        connection="WORKBENCH")
+    irp_job = execute_one("SELECT id FROM irp_job WHERE irp_job_type = 'import_rdm'", {},
+                          connection="WORKBENCH")
+    assert head["requestor_type"] == "irp_job" and head["requestor_id"] == irp_job["id"]
+    assert head["link_type"] == "rdm" and head["link_id"] == rdm_id
+    assert head["context_type"] == "rdm" and head["context_id"] == rdm_id
+    assert head["inserted_by"] == iteration2_db.user_a
 
     # the retrieval worker stores each extract against the stored broker pointer
     analysis_jobs.run_pending()

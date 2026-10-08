@@ -1,5 +1,6 @@
-"""Query-parameter parsing shared by the submissions list and the EDM and RDM
-libraries (spec 017 T-08; contracts/routes.md §3).
+"""Query-parameter parsing shared by the submissions list, the EDM and RDM
+libraries (spec 017 T-08; contracts/routes.md §3), and the IRP and RWB Jobs
+pages.
 
 Each text parameter is capped by length and word count, each multi-value
 parameter at ``MAX_FILTER_VALUES`` values, and every refusal is one line naming
@@ -15,7 +16,7 @@ from typing import Any
 
 from app.services import auth_service, cedant_service, client_service, submission_service
 from app.services._common import _parse_int
-from app.services.submission_filters import has_submission_filters
+from app.services.submission_filters import _as_uuid, has_submission_filters
 
 SEARCH_MAX_CHARACTERS = 100
 SEARCH_MAX_WORDS = 10
@@ -105,6 +106,18 @@ def parse_list_filters(query_params, *, multi_keys, text_keys) -> ListFilters:
             error = error or "In force as of must be a date."
     return ListFilters(filters=filters, error=error, text=text, multi=multi,
                        in_force=in_force, as_of=as_of)
+
+
+def submitted_by_filter(query_params, current_user_id) -> tuple[list[str], list[str]]:
+    """The jobs pages' Submitted by: ``(submitted_by, by_params)``. ``by_params``
+    are the request's valid values (analyst ids or ``"any"``); ``submitted_by``
+    is the ids to match, the current analyst when none were sent and empty for
+    ``"any"``."""
+    by_params = [v.strip() for v in query_params.getlist("submitted_by")
+                 if v.strip() == "any" or _as_uuid(v) == v.strip().lower()]
+    submitted_by = ([str(current_user_id)] if not by_params
+                    else [] if "any" in by_params else by_params)
+    return submitted_by, by_params
 
 
 def picker_options() -> dict[str, Any]:
