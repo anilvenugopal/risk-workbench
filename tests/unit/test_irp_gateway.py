@@ -235,9 +235,9 @@ class _Frame:
 
 
 def _summary_gw(hits, results_by_script, calls=None):
-    def execute_query_from_file(file_path, database):
+    def execute_query_from_file(file_path, params=None, database=None):
         if calls is not None:
-            calls.append((file_path, database))
+            calls.append((file_path, params, database))
         script = file_path.replace("\\", "/").rsplit("/", 1)[-1]
         return [_Frame(results_by_script.get(script, []))]
 
@@ -363,7 +363,23 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
               "breakout_coverage": {}},
     }
     # every script ran against the databaseName of the exposureId-matched hit
-    assert [db for _, db in calls] == ["edm_db"] * 11
+    assert [db for _, _, db in calls] == ["edm_db"] * 11
+
+
+@pytest.mark.parametrize(("portfolio_irp_ids", "expected"),
+                         [(None, None), (["1", "2"], "12")])
+def test_edm_exposure_summary_passes_portfolio_ids_to_every_script(
+        portfolio_irp_ids, expected):
+    calls: list = []
+    gw = _summary_gw(
+        [{"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"}],
+        {}, calls)
+
+    gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42,
+                                portfolio_irp_ids=portfolio_irp_ids)
+
+    assert [params for _, params, _ in calls] == (
+        [{"portfolio_ids": expected}] * 11)
 
 
 def test_edm_exposure_summary_reads_a_dataframe_nan_as_no_label():

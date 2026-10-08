@@ -280,12 +280,9 @@ def test_reconfirm_created_breakout_under_its_own_name(
     fake_irp.selection_by_value = {"US-TX": [1, 2], "EQ Comm": [1, 2]}
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
     assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"   # "Coastal" is now live
-    # drain the auto-fired backfill head (FR-013) — while pending it blocks
-    # the gate, exactly as a quick breakout's does
-    execute_command(
+    execute_command(   # the follow-up refresh holds the source (P-04)
         "UPDATE rwb_job SET status_code = 'succeeded' "
-        "WHERE rwb_job_type = 'backfill_edm_detail'",
-        {}, connection="WORKBENCH")
+        "WHERE rwb_job_type = 'refresh_portfolios'", {}, connection="WORKBENCH")
 
     second = request_group_breakout(
         edm_id, pid,
@@ -353,7 +350,7 @@ def test_group_worker_unions_within_and_intersects_across(
     assert job["status_code"] == "succeeded"
     out = json.loads(job["output_data"])
     assert (out["planned"], out["created"], out["failed"]) == (1, 1, 0)
-    assert out["backfill_enqueued"] is True
+    assert out["refresh_enqueued"] is True
     # union within state = {1,2,3,7}; intersect with lob {2,3,4} → {2,3}
     assert fake_irp.created_sub_portfolios[0]["account_ids"] == [2, 3]
     assert fake_irp.created_sub_portfolios[0]["name"] == "Coastal"
@@ -399,7 +396,7 @@ def test_group_worker_empty_intersection_fails_with_nothing_created(
     assert job["status_code"] == "failed"
     assert "no account matches every filter" in job["error_detail"]
     out = json.loads(job["output_data"])
-    assert (out["failed"], out["backfill_enqueued"]) == (1, False)
+    assert (out["failed"], out["refresh_enqueued"]) == (1, False)
     assert fake_irp.created_sub_portfolios == []
     assert _generated_rows(pid) == []
 
@@ -547,7 +544,31 @@ def test_page_state_custom_flight_and_cart_banner(iteration2_db, fake_irp):
     lines = state.errors[pid]
     assert len(lines) == 1
     assert lines[0].dimension == "custom"
+    assert lines[0].value == "B"                   # the label, never the key
     assert "no account matches every filter" in lines[0].error
+
+
+def test_a_newer_cart_supersedes_a_failed_groups_error_line(
+        iteration2_db, fake_irp):
+    fake_irp.selection_by_value = {"US-TX": [1], "US-CA": [2]}
+    edm_id, pid = _eligible_pair(fake_irp)
+    [failed] = request_group_breakout(edm_id, pid, [
+        _group("B", {"lob": ["EQ Comm"]})], AS_OF, iteration2_db.user_a)
+    assert run_breakout_job(failed, "custom")["status_code"] == "failed"
+    assert pid in breakout_service.page_state(edm_id).errors
+    execute_command(   # keep the two carts apart on updated_at
+        "UPDATE rwb_job SET updated_at = :t WHERE id = :i",
+        {"t": datetime(2026, 1, 1), "i": failed}, connection="WORKBENCH")
+
+    first, second = request_group_breakout(edm_id, pid, [
+        _group("A", {"state": ["US-TX"]}), _group("C", {"state": ["US-CA"]})],
+        AS_OF, iteration2_db.user_a)
+    assert run_breakout_job(first, "custom")["status_code"] == "succeeded"
+    # the newer cart is still running, so the failed group's line stays
+    assert [line.value for line in
+            breakout_service.page_state(edm_id).errors[pid]] == ["B"]
+    assert run_breakout_job(second, "custom")["status_code"] == "succeeded"
+    assert pid not in breakout_service.page_state(edm_id).errors
 
 
 # ── list read model: the group label resolves for custom rows ────────────────────

@@ -207,30 +207,35 @@ def _load_edm_and_source(ctx: dict) -> tuple[Any, dict | None, str | None]:
     return edm, dict(source, id=_uid(source["id"])), None
 
 
-def _complete_breakout(rwb_job_id: Any, *, edm_id: Any, outcomes: list,
+def _complete_breakout(rwb_job_id: Any, *, edm_id: Any, source_id: Any,
+                       outcomes: list,
                        zero_success_error: str) -> runtime.JobResult:
     """The completion both breakout bodies share: summarize the outcomes and,
     when ≥ 1 entry succeeded, idempotently enqueue+dispatch the FR-013
-    follow-up ``backfill_edm_detail``. The head is keyed on THIS breakout job
-    row — distinct from the poller's import-keyed enqueue and the analyst
-    Sync's EDM-keyed one (``rwb_job_service.backfill_edm_detail_rows`` resolves
-    all three keys) — and revives a terminal head so a re-run refreshes figures
-    again. Zero successes fail the job with ``zero_success_error``."""
+    follow-up ``refresh_portfolios`` for the portfolios the run produced
+    (spec 207 P-01). The head is keyed on THIS breakout job row and revives a
+    terminal head, replacing its input, so a re-run refreshes that run's
+    portfolios. Its context is the source portfolio, so the breakout gate
+    refuses a re-run until the follow-up is terminal (P-04). Zero successes
+    fail the job with ``zero_success_error``."""
     output = breakout_service.summarize_outcomes(outcomes)
     succeeded = output["created"] + output["adopted"] + output["skipped_existing"]
-    output["backfill_enqueued"] = False
+    refresh_id = None
     if succeeded:
-        backfill_id = rwb_job_service.ensure_pending_rwb_job(
+        refresh_id = rwb_job_service.ensure_pending_rwb_job(
             requestor_type="rwb_job", requestor_id=str(rwb_job_id),
-            rwb_job_type="backfill_edm_detail",
+            rwb_job_type="refresh_portfolios",
             link_type="edm", link_id=edm_id,
-            context_type="edm", context_id=edm_id,
-            input_data={"edm_id": str(edm_id)},
+            context_type="portfolio", context_id=source_id,
+            input_data={"edm_id": str(edm_id),
+                        "portfolio_irp_ids": [
+                            str(o.irp_id) for o in outcomes
+                            if o.outcome != "failed" and o.irp_id is not None]},
             actor_id=rwb_job_service.get_rwb_job(rwb_job_id=rwb_job_id)["inserted_by"])
-        if backfill_id is not None:
-            dispatch.dispatch(rwb_job_id=backfill_id,
-                              rwb_job_type="backfill_edm_detail")
-        output["backfill_enqueued"] = True
+        if refresh_id is not None:
+            dispatch.dispatch(rwb_job_id=refresh_id,
+                              rwb_job_type="refresh_portfolios")
+    output["refresh_enqueued"] = refresh_id is not None
     if succeeded == 0:
         return runtime.JobResult.fail(zero_success_error, **output)
     return runtime.JobResult(status="succeeded", output=output)
@@ -241,7 +246,7 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
     succeeds when ≥ 1 entry is created/adopted/skipped-existing (partial
     success = success with outcomes — the ``_upload_rdm_body`` semantics) and
     fails only when zero succeeded. On completion including partial success,
-    idempotently enqueue ``backfill_edm_detail`` so generated portfolios
+    idempotently enqueue ``refresh_portfolios`` so generated portfolios
     acquire figures without analyst action (FR-013)."""
     ctx = rwb_job_service.load_input_data(rwb_job_id)
     edm_id = ctx.get("edm_id")
@@ -294,7 +299,8 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
             outcomes.append(_failed(entry, source_id=source["id"],
                                     actor_id=actor_id, error=str(exc)))
 
-    result = _complete_breakout(rwb_job_id, edm_id=edm_id, outcomes=outcomes,
+    result = _complete_breakout(rwb_job_id, edm_id=edm_id,
+                                source_id=source["id"], outcomes=outcomes,
                                 zero_success_error="no sub-portfolio succeeded")
     output = result.output
     logger.info("breakout %s completed for portfolio %s by analyst %s: "
@@ -315,7 +321,7 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
     entry machinery, with the lineage row carrying dimension ``custom``, the
     group_key as its value, and the ``breakout_group`` row id. An empty
     intersection fails the group with a recorded reason and creates nothing
-    (FR-008 semantics); completion enqueues ``backfill_edm_detail`` exactly
+    (FR-008 semantics); completion enqueues ``refresh_portfolios`` exactly
     like the quick body (FR-013)."""
     ctx = rwb_job_service.load_input_data(rwb_job_id)
     portfolio_id = ctx.get("portfolio_id")
@@ -376,7 +382,8 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
                                 actor_id=actor_id, error=str(exc))]
 
     result = _complete_breakout(
-        rwb_job_id, edm_id=ctx.get("edm_id"), outcomes=outcomes,
+        rwb_job_id, edm_id=ctx.get("edm_id"), source_id=source["id"],
+        outcomes=outcomes,
         zero_success_error=outcomes[0].error or "the breakout failed")
     logger.info("custom-group breakout completed for portfolio %s by analyst "
                 "%s: group %s → %s", portfolio_id, actor_id, group.label,

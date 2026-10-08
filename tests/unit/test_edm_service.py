@@ -19,12 +19,10 @@ import pytest
 
 from app.services import (
     edm_service,
-    rdm_service,
     rwb_job_service,
     submission_service,
 )
 from app.services._common import SubmissionRef
-from app.services.analysis_service import BrokerAnalysisGroup
 from app.services.errors import (
     ConcurrencyConflict,
     InvalidMemberName,
@@ -187,36 +185,26 @@ def test_contextual_detail_validates_association_and_lists_submission_edms(
         (shared, "Shared EDM"), (other, "Other EDM")]
     assert edm_service.get_contextual_edm_detail(
         submission_id=second, edm_id=other) is None
+    assert edm_service.sync_contextual_detail(
+        submission_id=second, edm_id=other,
+        actor_id=iteration2_db.user_a) is False
 
 
-def test_contextual_sync_queues_edm_and_each_submission_rdm(monkeypatch):
-    context = edm_service.ContextualEdmDetail(
-        edm=edm_service.EdmDetail(
-            id="edm-1", name="EDM", status="ready", as_of=None,
-            source_file_path=None, irp_id=1, created_by_irp_job_irp_id=None,
-            inserted_at=None, updated_at=None, portfolio_count=0,
-            portfolios=[], detail_state="empty"),
-        submission=SubmissionRef(id="submission-1", name="Submission"),
-        edm_choices=[],
-        rdms=[
-            BrokerAnalysisGroup(rdm_id="rdm-1", rdm_name="RDM 1", rdm_irp_id=1),
-            BrokerAnalysisGroup(rdm_id="rdm-2", rdm_name="RDM 2", rdm_irp_id=2),
-        ])
+def test_contextual_sync_queues_the_edm_only(monkeypatch):
+    submission = SubmissionRef(id="submission-1", name="Submission")
     calls: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        edm_service, "get_contextual_edm_detail", lambda **kwargs: context)
+        edm_service, "_submission_entity_context",
+        lambda kind, **kwargs: (submission, [submission]))
     monkeypatch.setattr(
         edm_service, "sync_detail",
         lambda **kwargs: calls.append(("edm", kwargs["edm_id"])))
-    monkeypatch.setattr(
-        rdm_service, "sync_detail",
-        lambda **kwargs: calls.append(("rdm", kwargs["rdm_id"])))
 
     exists = edm_service.sync_contextual_detail(
         submission_id="submission-1", edm_id="edm-1", actor_id="analyst-1")
 
     assert exists is True
-    assert calls == [("edm", "edm-1"), ("rdm", "rdm-1"), ("rdm", "rdm-2")]
+    assert calls == [("edm", "edm-1")]
 
 
 # ── recovery: retry + replace-file ───────────────────────────────────────────────

@@ -456,7 +456,7 @@ class EdmAnalysesSection:
 
 def latest_backfill_status(edm_id: str) -> str | None:
     """The newest ``backfill_edm_detail`` job status for this EDM across its
-    three enqueue keys — ``rwb_job_service.backfill_edm_detail_rows`` owns the
+    two enqueue keys — ``rwb_job_service.backfill_edm_detail_rows`` owns the
     membership predicate. Newest ``updated_at`` wins — a revived (re-synced)
     row keeps its ``inserted_at``, so insert order would lie. ``None`` when
     detail backfill never ran — the pre-capability / forward-only state."""
@@ -587,8 +587,7 @@ def get_contextual_edm_detail(
     edm = get_edm_detail(eid)
     if edm is None:
         return None
-    # Local import avoids the edm_service/rdm_service shared-DTO import cycle
-    # (same reason sync_contextual_detail below imports it locally).
+    # Local import avoids the edm_service/rdm_service shared-DTO import cycle.
     from app.services import rdm_service
     rdms = analysis_service.list_submission_rdms(submission_id=sid)
     for rdm in rdms:
@@ -666,16 +665,11 @@ def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
 def sync_contextual_detail(
     *, submission_id: Any, edm_id: Any, actor_id: Any,
 ) -> bool:
-    """Queue stored EDM and submission-RDM refreshes for a valid context."""
-    context = get_contextual_edm_detail(
-        submission_id=submission_id, edm_id=edm_id)
-    if context is None:
+    """Queue the stored EDM refresh for a valid context."""
+    if _submission_entity_context(
+            "edm", submission_id=submission_id, entity_id=edm_id) is None:
         return False
     sync_detail(edm_id=edm_id, actor_id=actor_id)
-    # Local import avoids the edm_service/rdm_service shared-DTO import cycle.
-    from app.services import rdm_service
-    for rdm in context.rdms:
-        rdm_service.sync_detail(rdm_id=rdm.rdm_id, actor_id=actor_id)
     return True
 
 

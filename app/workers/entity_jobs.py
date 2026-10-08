@@ -362,6 +362,42 @@ def backfill_rdm_analyses(rwb_job_id: str) -> None:
 
 # ── backfill_edm_detail (spec 004 US1) ───────────────────────────────────────────
 
+def _store_portfolio_details(*, edm_id: Any, edm_irp_id: int, portfolios: list,
+                             summary_map: dict[str, dict] | None,
+                             now: Any) -> list[str]:
+    """Read each portfolio's ``/metrics`` and upsert its ``exposure_detail``.
+    Returns the ``irp_id``s whose read failed; their prior snapshots stay."""
+    failed: list[str] = []
+    for p in portfolios:
+        try:
+            exposure = irp_gateway.get_portfolio_exposure(
+                edm_irp_id=int(edm_irp_id), portfolio_irp_id=int(p.irp_id))
+        except Exception as exc:  # noqa: BLE001 — per-portfolio isolation
+            logger.warning("exposure read failed (edm=%s portfolio=%s): %s",
+                           edm_id, p.irp_id, exc)
+            failed.append(str(p.irp_id))
+            continue  # skip — never overwrite a prior good snapshot with nothing
+        # The aggregate keys on portinfo.PORTINFOID (assumed == RM portfolioId);
+        # portfolio_name is the contract's fallback join key if they diverge.
+        summary = (summary_map or {}).get(str(p.irp_id))
+        if summary is None and summary_map:
+            summary = next((s for s in summary_map.values()
+                            if s.get("portfolio_name") == p.name), None)
+        # Namespaced snapshot (data-model §2): the /metrics payload verbatim under
+        # "metrics"; "summary" is the DataBridge aggregate (null when unavailable —
+        # never a stale prior, so the row's as_of can't overstate its freshness).
+        # "stamp_date" is the portfolio's RM stampDate from the enumeration —
+        # read BEFORE the DataBridge summary read, so the stored stamp is
+        # conservative — the FR-002a freshness anchor the breakout confirm
+        # compares against (spec 005).
+        portfolio_service.upsert_portfolio_detail(
+            edm_id=edm_id, irp_id=p.irp_id, name=p.name,
+            exposure_detail={"metrics": exposure.payload, "summary": summary,
+                             "stamp_date": p.stamp},
+            as_of=now)
+    return failed
+
+
 def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     """Fetch a finished EDM's per-portfolio exposure detail from Risk Modeler and
     idempotently upsert the ``irp_portfolio`` JSON snapshot rows (R2/R3), stamping
@@ -434,36 +470,10 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     # below skips the snapshot, not the row's existence).
     pruned_portfolios = portfolio_service.prune_missing(
         edm_id=edm_id, seen=[(p.irp_id, p.name) for p in portfolios], now=now)
-    stored = 0
-    exposure_failures = 0
-    for p in portfolios:
-        try:
-            exposure = irp_gateway.get_portfolio_exposure(
-                edm_irp_id=int(edm_irp_id), portfolio_irp_id=int(p.irp_id))
-        except Exception as exc:  # noqa: BLE001 — per-portfolio isolation
-            logger.warning("backfill_edm_detail: exposure read failed "
-                           "(edm=%s portfolio=%s): %s", edm_id, p.irp_id, exc)
-            exposure_failures += 1
-            continue  # skip — never overwrite a prior good snapshot with nothing
-        # The aggregate keys on portinfo.PORTINFOID (assumed == RM portfolioId);
-        # portfolio_name is the contract's fallback join key if they diverge.
-        summary = (summary_map or {}).get(str(p.irp_id))
-        if summary is None and summary_map:
-            summary = next((s for s in summary_map.values()
-                            if s.get("portfolio_name") == p.name), None)
-        # Namespaced snapshot (data-model §2): the /metrics payload verbatim under
-        # "metrics"; "summary" is the DataBridge aggregate (null when unavailable —
-        # never a stale prior, so the row's as_of can't overstate its freshness).
-        # "stamp_date" is the portfolio's RM stampDate from the enumeration —
-        # read BEFORE the DataBridge summary read, so the stored stamp is
-        # conservative — the FR-002a freshness anchor the breakout confirm
-        # compares against (spec 005).
-        portfolio_service.upsert_portfolio_detail(
-            edm_id=edm_id, irp_id=p.irp_id, name=p.name,
-            exposure_detail={"metrics": exposure.payload, "summary": summary,
-                             "stamp_date": p.stamp},
-            as_of=now)
-        stored += 1
+    exposure_failures = len(_store_portfolio_details(
+        edm_id=edm_id, edm_irp_id=int(edm_irp_id), portfolios=portfolios,
+        summary_map=summary_map, now=now))
+    stored = len(portfolios) - exposure_failures
 
     if portfolios and exposure_failures and stored == 0:
         return runtime.JobResult.fail(
@@ -512,6 +522,68 @@ def backfill_edm_detail(rwb_job_id: str) -> None:
                     body=lambda: _backfill_edm_detail_body(rwb_job_id))
 
 
+# ── refresh_portfolios (spec 207) ─────────────────────────────────────────────────
+
+def _refresh_portfolios_body(rwb_job_id: Any) -> runtime.JobResult:
+    """Refresh the exposure detail of the named portfolios of one EDM, after a
+    breakout or a hazard lookup. Never prunes, never reads treaties and never
+    writes ``irp_edm``: those belong to the full sync, ``backfill_edm_detail``."""
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
+    edm_id = ctx.get("edm_id")
+    covered = [str(i) for i in ctx.get("portfolio_irp_ids") or []]
+    edm = edm_service.get_edm(edm_id) if edm_id else None
+    if edm is None:
+        return runtime.JobResult.ok(skipped="edm missing")
+    if edm.irp_id is None:
+        return runtime.JobResult.ok(
+            skipped="edm has no exposureId — nothing to fetch")
+    edm_irp_id = int(edm.irp_id)
+
+    try:
+        hits = irp_gateway.list_portfolios(edm_irp_id=edm_irp_id)
+    except Exception as exc:  # noqa: BLE001 — enumeration failed → recoverable job failure
+        logger.warning("refresh_portfolios: portfolio enumeration failed for %s: %s",
+                       edm_id, exc)
+        return runtime.JobResult.fail(f"portfolio enumeration failed: {exc}")
+    portfolios = [p for p in hits if str(p.irp_id) in covered]
+    found = [str(p.irp_id) for p in portfolios]
+    missing = [i for i in covered if i not in found]
+
+    summary_map: dict[str, dict] | None = None
+    if portfolios:
+        try:
+            summary_map = irp_gateway.get_edm_exposure_summary(
+                edm_name=edm.name, edm_irp_id=edm_irp_id,
+                portfolio_irp_ids=found)
+        except Exception as exc:  # noqa: BLE001 — recoverable job failure, nothing stored
+            # A covered portfolio keeps its prior figures and stamp_date (P-06).
+            logger.warning("refresh_portfolios: exposure summary unavailable "
+                           "(edm=%s): %s", edm_id, exc)
+            return runtime.JobResult.fail(
+                f"exposure summary unavailable: {exc}", covered=covered)
+
+    failed = _store_portfolio_details(
+        edm_id=edm_id, edm_irp_id=edm_irp_id, portfolios=portfolios,
+        summary_map=summary_map, now=_utcnow())
+    out: dict[str, Any] = {"portfolios": len(portfolios) - len(failed),
+                           "covered": covered}
+    if missing:
+        out["missing"] = missing
+    if failed:
+        out["exposure_failures"] = failed
+    if failed and out["portfolios"] == 0:
+        return runtime.JobResult.fail(
+            f"refresh_portfolios stored nothing ({len(failed)} exposure reads "
+            "failed)", **out)
+    return runtime.JobResult.ok(**out)
+
+
+@rwb_actor(max_retries=0)
+def refresh_portfolios(rwb_job_id: str) -> None:
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
+                    body=lambda: _refresh_portfolios_body(rwb_job_id))
+
+
 # ── synchronous drain (unit tier + simple worker) ────────────────────────────────
 
 _BODIES: runtime.JobBodies = {
@@ -519,6 +591,7 @@ _BODIES: runtime.JobBodies = {
     "upload_rdm": _upload_rdm_body,
     "backfill_rdm_analyses": _backfill_rdm_analyses_body,
     "backfill_edm_detail": _backfill_edm_detail_body,
+    "refresh_portfolios": _refresh_portfolios_body,
 }
 
 
@@ -533,5 +606,5 @@ def run_pending(*, worker_id: str = "worker") -> int:
 
 __all__ = [
     "upload_edm", "upload_rdm", "backfill_rdm_analyses", "backfill_edm_detail",
-    "run_one", "run_pending",
+    "refresh_portfolios", "run_one", "run_pending",
 ]

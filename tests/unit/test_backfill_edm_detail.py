@@ -14,41 +14,17 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from app.poller import run as poller
 from app.services import edm_service, portfolio_service, rwb_job_service, treaty_service
 from app.workers import entity_jobs
 from db import execute, execute_command, execute_one
-
-# Real RM /metrics payloads (sandbox-confirmed shape, data-model §2) — stored
-# verbatim under the snapshot's "metrics" namespace.
-EXPOSURE_A = {
-    "totalAccounts": 1120, "totalLocations": 8240, "totalPolicies": 1180,
-    "perilsExposed": "WS, EQ",
-    "name": "Primary 2026", "number": "Primary 2026",
-    "geocodeVersion": "23.0", "hazardVersion": "23.0",
-}
-EXPOSURE_B = {
-    "totalAccounts": 720, "totalLocations": 3900, "totalPolicies": 760,
-    "perilsExposed": "WS, FL",
-    "name": "Excess 2026", "number": "Excess 2026",
-    "geocodeVersion": "23.0", "hazardVersion": "23.0",
-}
-
-
-def _edm_ready(drive, fake, actor, name="EDM") -> str:
-    """Import a standalone EDM and drive it to ``ready`` (submit → FINISHED →
-    poll). The poller pass also enqueues the ``backfill_edm_detail`` head; the
-    caller seeds fake portfolios (before or after — the worker fetches at run
-    time) then drains the queue with ``run_pending``. Returns the edm id."""
-    res = edm_service.import_edm(name=name, source_file_path=str(drive / "edm1.bak"),
-                                 actor_id=actor)
-    entity_jobs.run_pending(worker_id="w1")  # submit → irp_job(import_edm, QUEUED)
-    row = execute_one(
-        "SELECT irp_id FROM irp_job WHERE irp_edm_id=:e AND irp_job_type='import_edm'",
-        {"e": res.entity_id}, connection="WORKBENCH")
-    fake.finish(str(row["irp_id"]))
-    poller.poll_once()  # EDM → ready + exposureId; enqueues backfill_edm_detail
-    return res.entity_id
+from tests.unit.edm_detail_rows import (
+    EXPOSURE_A,
+    EXPOSURE_B,
+    SUMMARY_A,
+    TREATY_CAT,
+    edm_ready,
+    treaty_rows,
+)
 
 
 def _portfolio_rows(edm_id: str) -> list[dict]:
@@ -66,7 +42,7 @@ def _backfill_job() -> dict:
 
 def test_backfill_upserts_portfolios_with_snapshot_and_as_of(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -99,7 +75,7 @@ def test_backfill_upserts_portfolios_with_snapshot_and_as_of(
 
 def test_rerun_overwrites_snapshot_in_place_no_duplicates(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -121,7 +97,7 @@ def test_rerun_overwrites_snapshot_in_place_no_duplicates(
 
 def test_gateway_failure_fails_job_but_edm_stays_ready_and_recoverable(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -144,7 +120,7 @@ def test_gateway_failure_fails_job_but_edm_stays_ready_and_recoverable(
 
 def test_one_portfolio_exposure_failure_does_not_abort_the_rest(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -171,18 +147,9 @@ def test_one_portfolio_exposure_failure_does_not_abort_the_rest(
 # /metrics ceiling carries none of them). Enrichment only: ANY summary failure
 # degrades to "summary": null — the job still succeeds and metrics still land.
 
-SUMMARY_A = {
-    "portfolio_name": "Primary 2026",
-    "currencies": ["USD"],
-    "countries": ["US"],
-    "states": ["FL", "LA", "TX"],
-    "lines_of_business": ["Commercial"],
-}
-
-
 def test_backfill_merges_databridge_summary_per_portfolio(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -204,7 +171,7 @@ def test_backfill_merges_databridge_summary_per_portfolio(
 def test_summary_matches_by_name_when_ids_diverge(iteration2_db, fake_irp, drive):
     # The DataBridge aggregate keys on portinfo.PORTINFOID, which is only assumed
     # to equal RM's portfolioId — portfolio_name is the contract's fallback key.
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -218,7 +185,7 @@ def test_summary_matches_by_name_when_ids_diverge(iteration2_db, fake_irp, drive
 
 def test_summary_failure_degrades_to_null_and_job_still_succeeds(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -238,7 +205,7 @@ def test_summary_failure_degrades_to_null_and_job_still_succeeds(
 
 
 def test_summary_not_fetched_for_zero_portfolio_edm(iteration2_db, fake_irp, drive):
-    _edm_ready(drive, fake_irp, iteration2_db.user_a)  # no portfolios seeded
+    edm_ready(drive, fake_irp, iteration2_db.user_a)  # no portfolios seeded
     fake_irp.raise_on_exposure_summary = True  # would raise if called
 
     entity_jobs.run_pending(worker_id="w1")
@@ -255,15 +222,6 @@ def test_summary_not_fetched_for_zero_portfolio_edm(iteration2_db, fake_irp, dri
 # attribute map verbatim + as_of (R2). Attribute keys mirror the documented RM
 # treaty schema (GET /exposures/{id}/treaties — IRP knowledge base, 2026-07-23).
 
-TREATY_CAT = {
-    "treatyId": 1042, "treatyName": "Meridian Property Cat XoL",
-    "treatyNumber": "TR-1042", "treatyType": "CATA",
-    "attachmentBasis": "L", "attachmentLevel": "PORT",
-    "attachmentPoint": 25000000.0, "occurrenceLimit": 100000000.0,
-    "percentageRiShare": 20.0, "percentagePlaced": 85.0,
-    "premium": 4200000.0, "currency": {"code": "USD"},
-    "effectiveDate": "2026-01-01T00:00:00Z", "expirationDate": "2026-12-31T00:00:00Z",
-}
 TREATY_QS = {
     "treatyId": 1043, "treatyName": "Meridian Quota Share",
     "treatyNumber": "TR-1043", "treatyType": "QUOT",
@@ -273,16 +231,9 @@ TREATY_QS = {
 }
 
 
-def _treaty_rows(edm_id: str) -> list[dict]:
-    return execute(
-        "SELECT name, irp_id, attributes, as_of FROM irp_treaty "
-        "WHERE edm_id=:e ORDER BY name",
-        {"e": edm_id}, connection="WORKBENCH")
-
-
 def test_backfill_upserts_treaties_with_snapshot_and_as_of(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1042",
                         name="Meridian Property Cat XoL", attributes=TREATY_CAT)
@@ -291,7 +242,7 @@ def test_backfill_upserts_treaties_with_snapshot_and_as_of(
 
     entity_jobs.run_pending(worker_id="w1")  # runs backfill_edm_detail
 
-    rows = _treaty_rows(edm_id)
+    rows = treaty_rows(edm_id)
     assert [r["name"] for r in rows] == [
         "Meridian Property Cat XoL", "Meridian Quota Share"]
     by_irp = {r["irp_id"]: r for r in rows}
@@ -305,12 +256,12 @@ def test_backfill_upserts_treaties_with_snapshot_and_as_of(
 
 def test_treaty_rerun_overwrites_in_place_no_duplicates(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1042",
                         name="Meridian Property Cat XoL", attributes=TREATY_CAT)
     entity_jobs.run_pending(worker_id="w1")
-    assert len(_treaty_rows(edm_id)) == 1
+    assert len(treaty_rows(edm_id)) == 1
 
     # RM's attributes change; a redelivery / reconciler re-run of the SAME job
     # body must overwrite attributes/as_of in place — never insert a duplicate.
@@ -318,7 +269,7 @@ def test_treaty_rerun_overwrites_in_place_no_duplicates(
     fake_irp._treaties[str(exposure_id)][0]["attributes"] = updated
     entity_jobs._backfill_edm_detail_body(_backfill_job()["id"])
 
-    rows = _treaty_rows(edm_id)
+    rows = treaty_rows(edm_id)
     assert len(rows) == 1  # UNIQUE(edm_id, irp_id) — no duplicate row
     assert json.loads(rows[0]["attributes"])["occurrenceLimit"] == 150000000.0
 
@@ -328,7 +279,7 @@ def test_treaty_enumeration_failure_fails_job_but_keeps_portfolios(
     # Treaties are fetched AFTER the portfolio loop: an enumeration failure fails
     # the rwb_job (recoverable) but the portfolio snapshots already written stay,
     # and the EDM's ready status is never touched (FR-005).
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -342,12 +293,12 @@ def test_treaty_enumeration_failure_fails_job_but_keeps_portfolios(
     assert job["status_code"] == "failed"
     assert edm_service.get_edm(edm_id).status == edm_service.READY
     assert len(_portfolio_rows(edm_id)) == 1  # portfolios landed before the failure
-    assert _treaty_rows(edm_id) == []
+    assert treaty_rows(edm_id) == []
 
     # Recoverable: a re-run of the same body completes the treaty half.
     fake_irp.raise_on_search_treaties = False
     entity_jobs._backfill_edm_detail_body(job["id"])
-    assert len(_treaty_rows(edm_id)) == 1
+    assert len(treaty_rows(edm_id)) == 1
 
 
 def test_malformed_stored_snapshot_renders_empty_not_error(
@@ -355,7 +306,7 @@ def test_malformed_stored_snapshot_renders_empty_not_error(
     # The read models' whole defensive-parse contract: a corrupted stored
     # snapshot degrades to the graceful empty state (detail None), never an
     # exception on the page render.
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -383,7 +334,7 @@ def test_malformed_stored_snapshot_renders_empty_not_error(
 
 
 def test_sync_prunes_rows_rm_no_longer_returns(iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -394,7 +345,7 @@ def test_sync_prunes_rows_rm_no_longer_returns(iteration2_db, fake_irp, drive):
     fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1043",
                         name="Quota Share", attributes=TREATY_QS)
     entity_jobs.run_pending(worker_id="w1")
-    assert len(_portfolio_rows(edm_id)) == 2 and len(_treaty_rows(edm_id)) == 2
+    assert len(_portfolio_rows(edm_id)) == 2 and len(treaty_rows(edm_id)) == 2
 
     # The analyst deletes one of each in RM; the next sync reconciles.
     fake_irp._portfolios[str(exposure_id)] = [
@@ -425,7 +376,7 @@ def test_sync_prunes_rows_rm_no_longer_returns(iteration2_db, fake_irp, drive):
 
 def test_pruned_portfolio_resurrects_when_recreated_in_rm(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -453,7 +404,7 @@ def test_enumerated_portfolio_with_failed_exposure_read_is_not_pruned(
     # Existence comes from the enumeration, not the per-portfolio detail read: a
     # portfolio whose exposure read fails on a re-sync keeps its row AND its
     # prior good snapshot.
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -473,7 +424,7 @@ def test_enumerated_portfolio_with_failed_exposure_read_is_not_pruned(
 
 def test_failed_enumeration_never_prunes_existing_rows(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -515,7 +466,7 @@ SUMMARY_COUNTED = {
 
 def test_backfill_stores_stamp_date_and_counted_summary(
         iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     exposure_id = fake_irp.edm_exposure_id("EDM")
     fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A,
@@ -540,7 +491,7 @@ def test_pre_iteration_snapshot_still_parses(iteration2_db, fake_irp, drive):
     # A row written by the spec-004 builder — no stamp_date key, a summary with
     # no breakout_values/account_total — still parses, and its generated rows
     # carry no breakout value label (nothing to resolve one from).
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = edm_ready(drive, fake_irp, iteration2_db.user_a)
     portfolio_service.upsert_portfolio_detail(
         edm_id=edm_id, irp_id="777", name="Legacy 2025",
         exposure_detail={"metrics": EXPOSURE_A, "summary": SUMMARY_A},

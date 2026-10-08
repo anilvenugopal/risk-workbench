@@ -116,7 +116,7 @@ Existing columns, new content contract. `input_data` **is the approved plan** â€
     {"value": "MT", "name": "usfl_commercial - MT", "number": "P1-S-MT",
      "outcome": "failed",  "error": "selection returned zero accounts"}
   ],
-  "backfill_enqueued": true          // FR-013 mechanical follow-up
+  "refresh_enqueued": true           // FR-013 mechanical follow-up
 }
 ```
 
