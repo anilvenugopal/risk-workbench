@@ -1,14 +1,15 @@
 {# rwb_job monitor table (CR-04a). Inputs come from app/routers/rwb_jobs.py's
    _list_context(): rows (each carrying entity_kind, entity_name, submitted_by,
-   is_dead),
-   sort_links and live. This is the swap unit: the filter form and every
-   sortable header target #rwb-jobs-live.
+   is_dead), sort_links, page, has_next and live. This is the swap unit: the
+   filter form, every sortable header and the pager target #rwb-jobs-live.
 
-   While any listed row is still pending or running, this wrapper polls its own
-   render and swaps itself — mirrors partials/irp_jobs_table.html — so
-   a queued job starting, a job finishing, or a dead-vs-reclaimed race shows up
-   without a reload. Once every row is terminal the server stops emitting the
-   trigger and the poll ends on its own. #}
+   While any row on this page is still pending or running, this wrapper polls
+   its own render with the same filters, sort and page and swaps itself —
+   mirrors partials/irp_jobs_table.html — so a queued job starting, a job
+   finishing, or a dead-vs-reclaimed race shows up without a reload. Once every
+   row is terminal the server stops emitting the trigger and the poll ends on
+   its own. The poll and the pager take the filter form's request lock, for the
+   reason partials/irp_jobs_table.html gives. #}
 
 {# One sortable header cell (D15). The route builds the href, carrying the
    applied filters and the direction this click asks for. A real href as well as
@@ -25,11 +26,8 @@
 <div id="rwb-jobs-live"
   {%- if live %}
   hx-get="/workflows/rwb-jobs/table?{{ list_query }}" hx-trigger="every {{ ui_poll_interval_secs }}s"
-  hx-target="this" hx-swap="outerHTML"
+  hx-target="this" hx-swap="outerHTML" hx-sync="#rwb-jobs-filters:drop"
   {%- endif %}>
-
-  <div class="jobs-note">A running job that's still heartbeating can't be stopped from this page —
-    an operator has to kill its queue's worker process.</div>
 
   <table class="mk-table">
     <thead>
@@ -48,10 +46,30 @@
       {% include "partials/rwb_jobs_row.html" %}
       {% else %}
       <tr><td colspan="7" class="empty">
-        {%- if is_default_view %}You have not submitted any RWB jobs. <a href="/workflows/rwb-jobs?submitted_by=any">Show everyone's jobs</a>
+        {%- if page > 1 %}Page {{ page }} is past the last page. <a href="/workflows/rwb-jobs{{ ('?' ~ order_query) if order_query }}">Go to page 1</a>
+        {%- elif is_default_view %}You have not submitted any RWB jobs. <a href="/workflows/rwb-jobs?submitted_by=any">Show everyone's jobs</a>
         {%- else %}No RWB jobs match these filters. <a class="clear-filters" href="/workflows/rwb-jobs">Reset filters</a>
         {%- endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
+
+  {# Only shown once there is somewhere to go. The links carry the applied
+     filters and sort, and are real hrefs, so they still work with JavaScript off. #}
+  {% if rows and (page > 1 or has_next) %}
+  {% set stem = '/workflows/rwb-jobs?' ~ ((order_query ~ '&') if order_query else '') ~ 'page=' %}
+  <nav class="pager" aria-label="RWB job pages">
+    {% if page > 1 %}
+    <a class="btn btn--sm" rel="prev" href="{{ stem }}{{ page - 1 }}"
+       hx-get="{{ stem }}{{ page - 1 }}" hx-target="#rwb-jobs-live"
+       hx-swap="outerHTML" hx-push-url="true" hx-sync="#rwb-jobs-filters:drop">‹ Prev</a>
+    {% endif %}
+    <span class="pager__at">Page {{ page }}</span>
+    {% if has_next %}
+    <a class="btn btn--sm" rel="next" href="{{ stem }}{{ page + 1 }}"
+       hx-get="{{ stem }}{{ page + 1 }}" hx-target="#rwb-jobs-live"
+       hx-swap="outerHTML" hx-push-url="true" hx-sync="#rwb-jobs-filters:drop">Next ›</a>
+    {% endif %}
+  </nav>
+  {% endif %}
 </div>

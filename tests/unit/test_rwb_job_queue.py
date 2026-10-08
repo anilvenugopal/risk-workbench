@@ -594,7 +594,7 @@ def test_list_rwb_jobs_for_monitoring_returns_all_types_and_fields(iteration2_db
     claim_rwb_job(rwb_job_id=fail_id, worker_id="w1")
     complete_rwb_job(rwb_job_id=fail_id, status="failed", error_detail="boom")
 
-    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()}
+    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()[0]}
     assert wait_id in rows_by_id
     assert fail_id in rows_by_id
     assert rows_by_id[wait_id]["status_code"] == "pending"
@@ -795,17 +795,20 @@ def _stamp(job_id, *, inserted_at, submitted_at=None) -> None:
 def test_monitoring_no_filters_returns_every_row(iteration2_db):
     from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
     mine, unattributed = _dummy(actor_id=iteration2_db.user_a), _dummy()
-    ids = {r["id"] for r in list_rwb_jobs_for_monitoring()}
+    ids = {r["id"] for r in list_rwb_jobs_for_monitoring()[0]}
     assert {mine, unattributed} <= ids
 
 
-def test_monitoring_read_stops_at_the_row_cap(iteration2_db):
-    from app.services.rwb_job_service import (MONITOR_LIMIT,
-                                              list_rwb_jobs_for_monitoring)
-    for _ in range(MONITOR_LIMIT + 5):
-        _dummy()
+def test_monitoring_pages_through_every_row(iteration2_db):
+    from app.services.rwb_job_service import PAGE_SIZE, list_rwb_jobs_for_monitoring
+    ids = {_dummy() for _ in range(PAGE_SIZE + 5)}
 
-    assert len(list_rwb_jobs_for_monitoring()) == MONITOR_LIMIT
+    first, first_has_next = list_rwb_jobs_for_monitoring()
+    second, second_has_next = list_rwb_jobs_for_monitoring(page=2)
+
+    assert (len(first), first_has_next) == (PAGE_SIZE, True)
+    assert (len(second), second_has_next) == (5, False)
+    assert {r["id"] for r in first + second} == ids
 
 
 def test_monitoring_reads_one_row_by_id(iteration2_db):
@@ -814,7 +817,7 @@ def test_monitoring_reads_one_row_by_id(iteration2_db):
     job_id = _dummy()
     _dummy()
 
-    rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
+    rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])[0]
 
     assert [r["id"] for r in rows] == [job_id]
 
@@ -825,7 +828,7 @@ def test_monitoring_submitted_by_matches_inserted_by(iteration2_db):
     _dummy(actor_id=iteration2_db.user_b)
     _dummy()
 
-    rows = list_rwb_jobs_for_monitoring(submitted_by=[iteration2_db.user_a])
+    rows = list_rwb_jobs_for_monitoring(submitted_by=[iteration2_db.user_a])[0]
 
     assert [(r["id"], r["submitted_by"]) for r in rows] == [(mine, "Analyst A")]
 
@@ -838,18 +841,17 @@ def test_monitoring_lists_newest_first_by_start_or_queue_time(iteration2_db):
     _stamp(queued, inserted_at="2026-10-02 00:00:00")
     _stamp(new, inserted_at="2026-10-03 00:00:00", submitted_at="2026-10-03 00:00:05")
 
-    assert [r["id"] for r in list_rwb_jobs_for_monitoring()] == [new, queued, old]
+    assert [r["id"] for r in list_rwb_jobs_for_monitoring()[0]] == [new, queued, old]
 
 
-def test_monitoring_sorts_before_the_row_cap(iteration2_db):
-    from app.services.rwb_job_service import (MONITOR_LIMIT,
-                                              list_rwb_jobs_for_monitoring)
+def test_monitoring_sorts_before_cutting_the_page(iteration2_db):
+    from app.services.rwb_job_service import PAGE_SIZE, list_rwb_jobs_for_monitoring
     oldest = _dummy(rwb_job_type="backfill_edm_detail")
     _stamp(oldest, inserted_at="2026-01-01 00:00:00")
-    for _ in range(MONITOR_LIMIT):
+    for _ in range(PAGE_SIZE):
         _dummy()
 
-    rows = list_rwb_jobs_for_monitoring(sort="rwb_job_type", descending=False)
+    rows = list_rwb_jobs_for_monitoring(sort="rwb_job_type", descending=False)[0]
 
     assert rows[0]["id"] == oldest
 
@@ -858,14 +860,14 @@ def test_monitoring_job_type_and_status_filters(iteration2_db):
     from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
     upload_id = _dummy(rwb_job_type="upload_edm")
     backfill_id = _dummy(rwb_job_type="backfill_edm_detail")
-    rows = list_rwb_jobs_for_monitoring(rwb_job_types=["upload_edm"])
+    rows = list_rwb_jobs_for_monitoring(rwb_job_types=["upload_edm"])[0]
     ids = {r["id"] for r in rows}
     assert upload_id in ids
     assert backfill_id not in ids
 
     claim_rwb_job(rwb_job_id=backfill_id, worker_id="w1")
     complete_rwb_job(rwb_job_id=backfill_id, status="failed")
-    rows = list_rwb_jobs_for_monitoring(status_codes=["failed"])
+    rows = list_rwb_jobs_for_monitoring(status_codes=["failed"])[0]
     ids = {r["id"] for r in rows}
     assert backfill_id in ids
     assert upload_id not in ids
@@ -905,7 +907,7 @@ def test_monitoring_names_the_context_as_the_entity(iteration2_db):
         _dummy(): (None, None),
     }
 
-    rows = list_rwb_jobs_for_monitoring()
+    rows = list_rwb_jobs_for_monitoring()[0]
 
     assert {r["id"]: (r["entity_kind"], r["entity_name"]) for r in rows} == expected
 
@@ -932,7 +934,7 @@ def test_monitoring_marks_running_row_with_no_heartbeat_as_dead(iteration2_db):
                              requestor_id=str(uuid.uuid4()),
                              rwb_job_type="upload_edm", **_NO_LINK)
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
-    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()}
+    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()[0]}
     assert rows_by_id[job_id]["is_dead"] == 1
     assert rows_by_id[job_id]["status_code"] == "running"  # unchanged underneath
 
@@ -945,7 +947,7 @@ def test_monitoring_marks_running_row_with_live_heartbeat_as_not_dead(iteration2
                              rwb_job_type="upload_edm", **_NO_LINK)
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
     upsert_heartbeat(rwb_job_id=job_id, worker_id="w1")
-    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()}
+    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()[0]}
     assert rows_by_id[job_id]["is_dead"] == 0
 
 
@@ -954,7 +956,7 @@ def test_monitoring_pending_and_terminal_rows_are_never_dead(iteration2_db):
     pending_id = enqueue_rwb_job(requestor_type="analyst_request",
                                  requestor_id=str(uuid.uuid4()),
                                  rwb_job_type="upload_edm", **_NO_LINK)
-    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()}
+    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()[0]}
     assert rows_by_id[pending_id]["is_dead"] == 0
 
 
@@ -976,7 +978,7 @@ def test_monitoring_dead_status_filter_matches_only_dead_running_rows(iteration2
                                  requestor_id=str(uuid.uuid4()),
                                  rwb_job_type="upload_edm", **_NO_LINK)
 
-    ids = {r["id"] for r in list_rwb_jobs_for_monitoring(status_codes=["dead"])}
+    ids = {r["id"] for r in list_rwb_jobs_for_monitoring(status_codes=["dead"])[0]}
     assert dead_id in ids
     assert alive_id not in ids
     assert pending_id not in ids
@@ -996,6 +998,6 @@ def test_monitoring_dead_and_real_status_filter_combine_with_or(iteration2_db):
     complete_rwb_job(rwb_job_id=failed_id, status="failed")
 
     ids = {r["id"] for r in
-           list_rwb_jobs_for_monitoring(status_codes=["dead", "failed"])}
+           list_rwb_jobs_for_monitoring(status_codes=["dead", "failed"])[0]}
     assert dead_id in ids
     assert failed_id in ids

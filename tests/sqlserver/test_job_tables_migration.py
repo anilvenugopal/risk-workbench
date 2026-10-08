@@ -320,7 +320,7 @@ class TestMonitoringRead:
         # UNIQUEIDENTIFIER.
         job_id, _ = _queued(cleanup_rwb)
 
-        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id], sort=sort)
+        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id], sort=sort)[0]
 
         # SQL Server hands UNIQUEIDENTIFIER back uppercase.
         assert [str(r["id"]).lower() for r in rows] == [job_id.lower()]
@@ -330,7 +330,7 @@ class TestMonitoringRead:
         job_id, _ = _queued(cleanup_rwb)
 
         rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id],
-                                            submitted_by=[str(uuid.uuid4())])
+                                            submitted_by=[str(uuid.uuid4())])[0]
 
         assert rows == []
 
@@ -338,11 +338,11 @@ class TestMonitoringRead:
         job_id, _ = _queued(cleanup_rwb)
         claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
 
-        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
+        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])[0]
         assert rows[0]["is_dead"] == 1
 
         upsert_heartbeat(rwb_job_id=job_id, worker_id="w1")
-        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
+        rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])[0]
         assert rows[0]["is_dead"] == 0
 
     def test_dead_status_filter_selects_the_same_rows(self, cleanup_rwb):
@@ -350,6 +350,6 @@ class TestMonitoringRead:
         claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated
 
         ids = {str(r["id"]).lower()
-               for r in list_rwb_jobs_for_monitoring(status_codes=["dead"])}
+               for r in list_rwb_jobs_for_monitoring(status_codes=["dead"])[0]}
 
         assert job_id.lower() in ids

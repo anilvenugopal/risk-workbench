@@ -249,13 +249,11 @@ def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
     )
 
 
-# Capped rather than paged: ``rwb_job`` is append-only, and the filters are how
-# an analyst reaches older jobs.
-MONITOR_LIMIT = 50
+PAGE_SIZE = 50
 
 
-# The monitoring page's sortable columns. Each sort runs before MONITOR_LIMIT,
-# so no matching job is left off the page by the cap.
+# The monitoring page's sortable columns. Each sort runs in SQL before the page
+# is cut, so paging walks every matching job in that order.
 MONITOR_SORTS = {
     "rwb_job_type": "rj.rwb_job_type",
     "entity_name": "entity_name",
@@ -268,12 +266,13 @@ MONITOR_SORTS = {
 def list_rwb_jobs_for_monitoring(
     *, submitted_by: list[Any] | None = None, rwb_job_types: list[str] | None = None,
     status_codes: list[str] | None = None, rwb_job_ids: list[Any] | None = None,
-    sort: str = "submitted_at", descending: bool = True,
-) -> list[dict]:
-    """The first ``MONITOR_LIMIT`` ``rwb_job`` rows for the monitoring page in
+    sort: str = "submitted_at", descending: bool = True, page: int = 1,
+) -> tuple[list[dict], bool]:
+    """One page of ``rwb_job`` rows for the monitoring page in
     ``MONITOR_SORTS[sort]`` order, newest first by default
-    (``contracts/job-monitoring-routes.md``). Every filter is optional and
-    AND-combined; ``submitted_by`` matches ``rwb_job.inserted_by``.
+    (``contracts/job-monitoring-routes.md``), and whether a next page exists.
+    Every filter is optional and AND-combined; ``submitted_by`` matches
+    ``rwb_job.inserted_by``.
     ``rwb_job_ids`` re-reads named rows with the same computed columns, which is
     how cancel and resubmit render the one row they changed.
 
@@ -324,7 +323,7 @@ def list_rwb_jobs_for_monitoring(
     # one consistent instant rather than "now" drifting between the two reads.
     params["dead_cutoff"] = (
         _utcnow() - timedelta(seconds=settings.rwb_heartbeat_stale_secs))
-    return execute(
+    rows = execute(
         f"""
         SELECT rj.id, rj.requestor_type, rj.requestor_id, rj.link_type, rj.link_id,
                rj.context_type, rj.context_id, rj.rwb_job_type, rj.status_code,
@@ -359,10 +358,12 @@ def list_rwb_jobs_for_monitoring(
         LEFT JOIN rwb_job_heartbeat hb ON hb.rwb_job_id = rj.id
         {where}
         ORDER BY {MONITOR_SORTS[sort]} {direction}, rj.id {direction}
-        """ + row_limit(MONITOR_LIMIT),
+        """ + row_limit(PAGE_SIZE + 1, offset=(page - 1) * PAGE_SIZE),
         params,
         connection="WORKBENCH",
     )
+    # The row past the page is what "there is a next page" means, without a COUNT.
+    return rows[:PAGE_SIZE], len(rows) > PAGE_SIZE
 
 
 def job_type_kinds() -> list[tuple[str, str]]:

@@ -215,6 +215,33 @@ class TestRwbJobsSort:
         assert 'hx-target="closest tr"' in resp.text
 
 
+class TestRwbJobsPager:
+    def test_pager_and_poll_carry_the_filters_sort_and_page(self, iteration2_db):
+        from app.services.rwb_job_service import PAGE_SIZE
+        for _ in range(PAGE_SIZE + 1):
+            enqueue_rwb_job(requestor_type="analyst_request",
+                            requestor_id=str(uuid.uuid4()),
+                            rwb_job_type="dummy_wait", **_NO_LINK)
+        client = TestClient(_make_app())
+        query = "submitted_by=any&amp;sort=status_code&amp;dir=asc"
+
+        first = client.get("/workflows/rwb-jobs?submitted_by=any&sort=status_code&dir=asc")
+        second = client.get(
+            "/workflows/rwb-jobs?submitted_by=any&sort=status_code&dir=asc&page=2")
+
+        assert f'rel="next" href="/workflows/rwb-jobs?{query}&amp;page=2"' in first.text
+        assert 'rel="prev"' not in first.text
+        assert f'rel="prev" href="/workflows/rwb-jobs?{query}&amp;page=1"' in second.text
+        assert 'rel="next"' not in second.text
+        assert f"/workflows/rwb-jobs/table?{query}&amp;page=2" in second.text
+
+    def test_a_page_past_the_end_links_back_to_page_one(self, iteration2_db):
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?submitted_by=any&page=3")
+
+        assert "Page 3 is past the last page." in resp.text
+        assert 'href="/workflows/rwb-jobs?submitted_by=any">Go to page 1' in resp.text
+
+
 class TestRwbJobsCancel:
     def test_cancel_pending_row_via_route(self, iteration2_db):
         from app.auth.csrf import generate_csrf_token

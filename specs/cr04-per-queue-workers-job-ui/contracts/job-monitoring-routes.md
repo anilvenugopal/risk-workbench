@@ -6,7 +6,7 @@ Server-rendered (Article 8) — HTMX partial swaps, not a JSON API. No client-si
 
 Fills an existing, previously-stubbed nav slot: `workflows.rwb_jobs` in `app/nav/manifest.py` (under the Workflows rail root, alongside Active/Review Queue/IRP Jobs/Exceptions), now served by `app/routers/rwb_jobs.py` (moved off the placeholder stub previously in `app/routers/shell.py` / `app/templates/pages/workflows_rwb_jobs.html`). No new nav node.
 
-Monitoring page. Lists the first 50 `rwb_job` rows (`rwb_job_service.MONITOR_LIMIT`, applied with `db.row_limit`) in the order picked below, newest first by default, narrowed by the filters below (all optional, AND-combined):
+Monitoring page. Lists `rwb_job` rows 50 to a page (`rwb_job_service.PAGE_SIZE`, applied with `db.row_limit`) in the order picked below, newest first by default, narrowed by the filters below (all optional, AND-combined):
 
 | Filter | Matches on | Default |
 |---|---|---|
@@ -29,9 +29,9 @@ Each row renders:
 | Failure detail | `error_detail` | Shown only when `status_code = 'failed'`. |
 | Action | Cancel (`pending`, `failed`, or dead `running`) / Resubmit (`failed` only) / none (live `running`, `succeeded`, `cancelled`) | See below. A `failed` row shows both Cancel and Resubmit. |
 
-Every sortable column is a clickable header (same click-to-sort convention as `pages/submissions.html`, D15): clicking flips direction; clicking a different column starts it in that column's own default direction (text ascending, Submitted at descending). The sort runs in SQL before the row cap, so the cap never hides a job the sort would put on the page. With no `sort` param the page renders Submitted at descending and marks that header as sorted.
+Every sortable column is a clickable header (same click-to-sort convention as `pages/submissions.html`, D15): clicking flips direction; clicking a different column starts it in that column's own default direction (text ascending, Submitted at descending). The sort runs in SQL before the page is cut, so paging walks every matching job in that order. A header click returns to page 1. With no `sort` param the page renders Submitted at descending and marks that header as sorted.
 
-No pagination: the row cap plus the filters is how an analyst reaches older jobs. Adding a pager later is an implementation detail, not a contract change.
+Pager: `page` (default 1). Prev and Next links appear once there is a second page, carry the filters and sort, and are real hrefs, as on `/workflows/irp-jobs`. The service reads one row past the page to know a next page exists, without a `COUNT`. Changing a filter returns to page 1; a page past the last shows a link back to page 1. The 3-second poll re-renders the same page.
 
 ## `GET /workflows/rwb-jobs/table`
 

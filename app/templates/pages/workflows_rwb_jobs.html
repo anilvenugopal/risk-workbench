@@ -9,8 +9,9 @@
   {# GET, no CSRF — mirrors pages/workflows_irp_jobs.html's filter form. Naming
      #rwb-jobs-live as the target is what gets the table back on its own: the
      route reads HX-Target and skips the nav shell and the pickers. The form
-     sits outside the swap, so fields keep focus. #}
-  <form class="filters" method="get" action="/workflows/rwb-jobs"
+     sits outside the swap, so fields keep focus. It carries no page, so any
+     filter change lands on page 1. #}
+  <form id="rwb-jobs-filters" class="filters" method="get" action="/workflows/rwb-jobs"
         hx-get="/workflows/rwb-jobs" hx-trigger="input delay:300ms, submit, filter-picked"
         hx-target="#rwb-jobs-live" hx-swap="outerHTML"
         hx-push-url="true">

@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, Response
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import auth_service, rwb_job_service
-from app.services._common import _as_datetime, _format_duration, _utcnow
+from app.services._common import _as_datetime, _format_duration, _parse_int, _utcnow
 from app.services.submission_filters import _as_uuid
 
 router = APIRouter()
@@ -124,12 +124,13 @@ def _list_context(request: Request) -> dict:
         sort = "submitted_at"
     descending = {"asc": False, "desc": True}.get(
         params.get("dir", ""), _SORT_STARTS_DESCENDING[sort])
+    page = max(1, _parse_int(params.get("page")) or 1)
 
-    rows = rwb_job_service.list_rwb_jobs_for_monitoring(
+    rows, has_next = rwb_job_service.list_rwb_jobs_for_monitoring(
         submitted_by=submitted_by or None,
         rwb_job_types=rwb_job_types or None,
         status_codes=status_codes or None,
-        sort=sort, descending=descending,
+        sort=sort, descending=descending, page=page,
     )
     # Read for the row labels; the job-type and job-status pickers reuse them.
     job_types = rwb_job_service.job_type_kinds()
@@ -152,15 +153,19 @@ def _list_context(request: Request) -> dict:
     filter_query = urlencode(query_values)
     return {
         "rows": rows,
+        "page": page,
+        "has_next": has_next,
         "filter_values": filter_values,
         "job_types": job_types,
         "job_statuses": job_statuses,
         "sort_links": _sort_links(filter_query, sort, descending),
         # Only the landing view (no query at all) gets the "you have no jobs" message.
         "is_default_view": not query_values,
-        # Filters plus the sort in force, for the poll to re-render what the
-        # analyst is actually looking at.
-        "list_query": urlencode(query_values + order_values),
+        # Filters and sort, for the pager links; a header sort drops the page.
+        "order_query": urlencode(query_values + order_values),
+        # Filters, sort and page, for the poll to re-render what the analyst sees.
+        "list_query": urlencode(
+            query_values + order_values + ([("page", page)] if page > 1 else [])),
         # Any row not yet terminal keeps the poll trigger in the fragment.
         "live": any(r["status_code"] in ("pending", "running") for r in rows),
     }
@@ -169,7 +174,7 @@ def _list_context(request: Request) -> dict:
 def _row_response(request: Request, rwb_job_id: str):
     """The changed row's partial. A guarded update that matched nothing re-reads
     the row as it now stands rather than reporting an error."""
-    rows = rwb_job_service.list_rwb_jobs_for_monitoring(rwb_job_ids=[rwb_job_id])
+    rows, _ = rwb_job_service.list_rwb_jobs_for_monitoring(rwb_job_ids=[rwb_job_id])
     if not rows:
         return Response(status_code=404)
     _decorate(rows, type_labels=dict(rwb_job_service.job_type_kinds()),
