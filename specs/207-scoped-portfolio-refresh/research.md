@@ -98,8 +98,15 @@ CHAR(31)-joined, or None.
 **Risk**: `hdsteppolicy` has no index on `ACCGRPID`, only `PK_HDSTEPPOLICY` on
 `STEPPOLICYID`. The step-policy leg of `portfolio_currencies.sql` reads the whole
 table in both the full sync and a scoped refresh. The table holds step-function
-policies only. Whether the optimizer seeks the indexes above for the scoped
-form is unobserved; [quickstart.md](quickstart.md) §4 records the timing.
+policies only.
+
+**Observed** ([quickstart.md](quickstart.md) §4, 2026-10-08, the largest EDM
+available: 41 portfolios, 2,982,229 portfolio–account memberships): the full read
+took 62.3 s and the read of 3 portfolios 20.3 s. The scoped result equalled the
+full result's three entries. A scoped read keeps a floor of about 20 s that does
+not shrink with the portfolio count. The `hdsteppolicy` scan and the 11 DataBridge
+round-trips are the likely causes; neither was timed alone. A hazard lookup's
+refresh therefore refuses that portfolio's breakout for at least that long.
 
 **Alternative rejected**: per-portfolio scripts with `{{ portfolio_id }}`. With
 `N` covered portfolios, they make 11 × `N` ODBC round-trips instead of 11.
