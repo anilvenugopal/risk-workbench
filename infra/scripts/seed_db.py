@@ -145,6 +145,7 @@ def main() -> int:
                     ('upload_edm',                'Upload EDM',                10),
                     ('upload_rdm',                'Upload RDM',                20),
                     ('backfill_rdm_analyses',     'Backfill RDM Analyses',     25),
+                    ('refresh_portfolios',        'Refresh portfolios',        26),
                     ('backfill_edm_detail',       'Backfill EDM Detail',       27),
                     ('run_geohaz',                'Run GeoHaz',                28),
                     ('execute_analysis_batch',    'Execute Analysis Batch',    29),
