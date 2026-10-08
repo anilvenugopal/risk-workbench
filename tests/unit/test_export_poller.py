@@ -81,12 +81,13 @@ def test_a_running_job_enqueues_nothing_and_a_second_tick_adds_nothing(submitted
     assert len(_stage_jobs()) == 1
 
 
-def test_an_analysis_with_neither_edm_nor_rdm_links_to_the_submission(submitted, fake_irp):
-    execute_command("UPDATE irp_job SET irp_edm_id = NULL, irp_rdm_id = NULL", {},
-                    connection="WORKBENCH")
+def test_a_group_analysis_links_to_its_own_submission(submitted, fake_irp, iteration2_db):
+    owner = seed_submission(iteration2_db.user_a, name="Group owner", crm_ids=("CRM-2",))
+    execute_command("UPDATE irp_analysis SET edm_id = NULL, submission_id = :s WHERE id = :a",
+                    {"s": owner, "a": submitted["analysis_id"]}, connection="WORKBENCH")
     fake_irp.finish(submitted["irp_id"])
 
     poller.poll_once()
 
     job = _stage_jobs()[0]
-    assert job["link_type"] == "submission" and job["link_id"] == submitted["submission_id"]
+    assert job["link_type"] == "submission" and job["link_id"] == owner

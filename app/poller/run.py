@@ -218,8 +218,7 @@ def _handle_export_terminal(conn, job: dict, status: str, resolved: dict) -> Non
     """Any terminal status enqueues the stage job (spec 014, contracts/jobs.md §3):
     the stage worker reads the job's status itself and fails the analysis when
     it is not FINISHED, so the failure text lands on the manifest row."""
-    link_type, link_id = rwb_job_service.analysis_link(
-        job["irp_edm_id"], job["irp_rdm_id"], job["requested_from_submission_id"])
+    link_type, link_id = rwb_job_service.analysis_link(job["irp_analysis_id"], conn=conn)
     rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_job", requestor_id=job["id"],
         rwb_job_type="stage_results_export",

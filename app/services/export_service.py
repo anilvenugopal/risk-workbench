@@ -704,11 +704,7 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any, *,
     branch = retry_decision(manifest, job, settings.export_archive_dir, _utcnow())
     analysis_id = _uid(manifest["irp_analysis_id"])
     export_key = _uid(manifest["export_id"])
-    analysis = execute_one(
-        "SELECT edm_id, rdm_id, submission_id FROM irp_analysis WHERE id = :a",
-        {"a": analysis_id}, connection="WORKBENCH") or {}
-    link_type, link_id = rwb_job_service.analysis_link(
-        analysis.get("edm_id"), analysis.get("rdm_id"), analysis.get("submission_id"))
+    link_type, link_id = rwb_job_service.analysis_link(analysis_id)
 
     # Each branch first puts the row back into the state its job runs from, so
     # the exports table reads it as in progress (and polls) until the job stamps it.

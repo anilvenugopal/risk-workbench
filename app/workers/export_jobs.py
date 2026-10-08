@@ -84,7 +84,7 @@ def _stamp_manifest(manifest_id: int, **columns: Any) -> None:
 
 
 def _analysis_ids(irp_analysis_id: str) -> dict:
-    return execute_one("SELECT edm_id, rdm_id, submission_id FROM irp_analysis WHERE id = :a",
+    return execute_one("SELECT edm_id, rdm_id FROM irp_analysis WHERE id = :a",
                        {"a": irp_analysis_id}, connection="WORKBENCH") or {}
 
 
@@ -498,9 +498,7 @@ def _stage(targets: list[dict], irp_job_id: str, work_dir: Path) -> list[str]:
 
 def _enqueue_load(manifest: dict, stage_rwb_job_id: Any) -> str | None:
     analysis_id = _uid(manifest["irp_analysis_id"])
-    analysis = _analysis_ids(analysis_id)
-    link_type, link_id = rwb_job_service.analysis_link(
-        analysis.get("edm_id"), analysis.get("rdm_id"), analysis.get("submission_id"))
+    link_type, link_id = rwb_job_service.analysis_link(analysis_id)
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="rwb_job", requestor_id=stage_rwb_job_id,
         rwb_job_type="load_results_export",

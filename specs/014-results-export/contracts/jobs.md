@@ -71,8 +71,8 @@ Request body Risk Modeler receives:
 rwb_job_service.enqueue_rwb_job(
     requestor_type="irp_job", requestor_id=job["id"],
     rwb_job_type="stage_results_export",
-    link_type=link_type, link_id=link_id,  # rwb_job_service.analysis_link(edm, rdm, submission):
-                                           # edm, else rdm, else submission
+    link_type=link_type, link_id=link_id,  # rwb_job_service.analysis_link(
+                                           #     job["irp_analysis_id"], conn=conn)
     context_type="irp_analysis", context_id=job["irp_analysis_id"],
     input_data={"export_id": str(job["export_id"]),
                 "irp_analysis_id": str(job["irp_analysis_id"]),

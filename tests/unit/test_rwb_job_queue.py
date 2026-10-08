@@ -13,6 +13,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app import log_context
 from app.services.rwb_job_service import (
     analysis_link,
@@ -694,11 +696,25 @@ def test_enqueue_stores_link_and_context_fields(iteration2_db):
     assert row["context_id"] == edm_id
 
 
-def test_analysis_link_is_the_analysis_owner():
+def test_analysis_link_is_the_analysis_owner(iteration2_db):
     edm, rdm, sub = "e", "r", "s"
-    assert analysis_link(edm, rdm, sub) == ("edm", edm)
-    assert analysis_link(None, rdm, sub) == ("rdm", rdm)
-    assert analysis_link(None, None, sub) == ("submission", sub)
+    ids = {}
+    for owner, columns in (("edm", (edm, rdm, sub)), ("rdm", (None, rdm, sub)),
+                           ("submission", (None, None, sub))):
+        ids[owner] = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_analysis (id, edm_id, rdm_id, submission_id) "
+            "VALUES (:id, :e, :r, :s)",
+            {"id": ids[owner], "e": columns[0], "r": columns[1], "s": columns[2]},
+            connection="WORKBENCH")
+    assert analysis_link(ids["edm"]) == ("edm", edm)
+    assert analysis_link(ids["rdm"]) == ("rdm", rdm)
+    assert analysis_link(ids["submission"]) == ("submission", sub)
+
+
+def test_analysis_link_refuses_an_unknown_analysis(iteration2_db):
+    with pytest.raises(LookupError):
+        analysis_link(str(uuid.uuid4()))
 
 
 def test_enqueue_allows_null_context_when_job_has_none(iteration2_db):

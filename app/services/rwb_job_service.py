@@ -67,15 +67,23 @@ def _insert_head(params: dict, conn) -> bool:
     return rows == 1
 
 
-def analysis_link(edm_id: Any, rdm_id: Any, submission_id: Any) -> tuple[str, Any]:
+def analysis_link(analysis_id: Any, *, conn=None) -> tuple[str, Any]:
     """The ``rwb_job`` link for a job about one analysis: its owner — the EDM,
     else the RDM (broker analyses), else the submission (group and imported
-    analyses)."""
-    if edm_id:
-        return "edm", edm_id
-    if rdm_id:
-        return "rdm", rdm_id
-    return "submission", submission_id
+    analyses). Raises ``LookupError`` for an unknown ``analysis_id``.
+
+    ``conn`` reads inside a caller's open transaction."""
+    sql = "SELECT edm_id, rdm_id, submission_id FROM irp_analysis WHERE id = :a"
+    params = {"a": str(analysis_id)}
+    row = (conn.execute(text(sql), params).mappings().first() if conn is not None
+           else execute_one(sql, params, connection="WORKBENCH"))
+    if row is None:
+        raise LookupError(f"irp_analysis {analysis_id} not found")
+    if row["edm_id"]:
+        return "edm", row["edm_id"]
+    if row["rdm_id"]:
+        return "rdm", row["rdm_id"]
+    return "submission", row["submission_id"]
 
 
 def enqueue_rwb_job(
