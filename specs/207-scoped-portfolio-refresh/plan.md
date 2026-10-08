@@ -62,7 +62,7 @@
 | Poller | `run.py`: `_handle_geohaz_terminal` skips `CANCELLED` and enqueues `refresh_portfolios` for one portfolio. `_resolve_geohaz_metadata` is deleted. |
 | Services | `irp_gateway.get_edm_exposure_summary` takes `portfolio_irp_ids`. `rwb_job_service.backfill_edm_detail_rows` narrows its predicate. `breakout_service` changes the gate, the banner, and the custom-breakout failure lines. `edm_service.sync_contextual_detail` loses its RDM loop. `portfolio_service.update_exposure_metrics` is deleted. |
 | SQL | 11 `sql/databridge/portfolio_*.sql` scripts gain the `{{ portfolio_ids }}` filter. |
-| UI | None. The gate's existing "not available right now: {reason}" note shows the new reason. |
+| UI | `app/static/js/app.js`: the swap handler keeps the ticked portfolio boxes and each `.dtable-shell` scroll offset (FR-013). `edm_portfolios_section.html`: its comment names the kept boxes. The gate's existing "not available right now: {reason}" note shows the new reason. |
 | Library | None. |
 
 ## High-risk technical decisions

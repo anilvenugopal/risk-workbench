@@ -4,7 +4,7 @@
 
 **Tests**: Included. `plan.md` §Testing lists them. The unit tier (`uv run pytest tests/unit`) is the proof for every code task.
 
-**Organization**: Phase 1 adds the `refresh_portfolios` job type and worker, which stories 1 and 2 both enqueue. Phases 2–4 are stories 1–3. Phase 5 fixes the custom-breakout failure lines on the Portfolios table (spec 005 FR-012). No task adds a UI preview: the only visible change is a new gate reason in the existing modal note.
+**Organization**: Phase 1 adds the `refresh_portfolios` job type and worker, which stories 1 and 2 both enqueue. Phases 2–4 are stories 1–3. Phase 5 fixes the Portfolios section during a breakout: the poll keeps ticked boxes and sideways scroll (FR-013), and a failed custom group's line clears (FR-014). No task adds a UI preview: the visible changes are a new gate reason in the existing modal note and state the poll no longer loses.
 
 ---
 
@@ -103,14 +103,15 @@ Blocks stories 1 and 2. Story 3 does not depend on it.
 
 ---
 
-## Phase 5: Custom-breakout failure lines are superseded (spec 005 FR-012)
+## Phase 5: The Portfolios section during a breakout (FR-013, FR-014)
 
-**Goal**: a failed custom group's line on its source portfolio's row clears when the next custom cart on that portfolio finishes, and the line names the group by its label, not its hash key.
+**Goal**: the Portfolios section poll keeps the analyst's ticked boxes and each table's sideways scroll, and a failed custom group's line on its source portfolio's row clears when the next custom cart on that portfolio finishes, and the line names the group by its label, not its hash key.
 
 **Independent test**: [quickstart.md](quickstart.md) §5.
 
-- [X] T021 [005 FR-012] In `page_state` (`app/services/breakout_service.py`), build custom error lines from each source portfolio's newest terminal cart only: the first `terminal_custom` row per portfolio sets the cart, and later rows count only when they share its `cart_id`. Add `bg.label` to the `terminal_custom` query and pass it to `_collect_error_lines` as the line's `value`, which otherwise holds `group_key`.
-- [X] T022 [005 FR-012] In `tests/unit/test_breakout_groups.py`, assert the failed group's line carries its label in `test_page_state_custom_flight_and_cart_banner`, and add `test_a_newer_cart_supersedes_a_failed_groups_error_line`.
+- [X] T023 [FR-013] In `app/static/js/app.js`, the swap handler for the Portfolios section re-ticks the boxes the analyst had ticked, skipping a box the response renders disabled, and restores each `.dtable-shell` horizontal scroll offset. Update the comment at the top of `app/templates/partials/edm_portfolios_section.html` to name the kept boxes. Commits 30c3491 and abdcea6.
+- [X] T021 [FR-014] In `page_state` (`app/services/breakout_service.py`), build custom error lines from each source portfolio's newest terminal cart only: the first `terminal_custom` row per portfolio sets the cart, and later rows count only when they share its `cart_id`. Add `bg.label` to the `terminal_custom` query and pass it to `_collect_error_lines` as the line's `value`, which otherwise holds `group_key`.
+- [X] T022 [FR-014] In `tests/unit/test_breakout_groups.py`, assert the failed group's line carries its label in `test_page_state_custom_flight_and_cart_banner`, and add `test_a_newer_cart_supersedes_a_failed_groups_error_line`.
   - Proof: `uv run pytest tests/unit` passes; both tests fail without T021.
 
 **Checkpoint**: STOP. The approver runs [quickstart.md](quickstart.md) §5.

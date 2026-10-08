@@ -8,18 +8,18 @@
 
 ## Outcome
 
-After a breakout or a hazard lookup, the Workbench refreshes only the portfolios that action changed, instead of re-syncing the whole EDM. An analyst can start a breakout on another portfolio of the same EDM while that refresh runs, and the refresh takes time in proportion to the portfolios changed, not the size of the EDM. The Sync button on an EDM page inside a submission syncs that EDM only, as its place beside the EDM's "synced" time says.
+After a breakout or a hazard lookup, the Workbench refreshes only the portfolios that action changed, instead of re-syncing the whole EDM. An analyst can start a breakout on another portfolio of the same EDM while that refresh runs, and the refresh reads figures and the exposure summary only for the portfolios changed. The Sync button on an EDM page inside a submission syncs that EDM only, as its place beside the EDM's "synced" time says.
 
 ## In scope
 
 - The breakout follow-up (spec 005 FR-013) refreshes the run's generated portfolios only.
 - The hazard lookup follow-up refreshes the looked-up portfolio only, and the breakout gate refuses only that portfolio while the refresh runs; a cancelled lookup refreshes nothing.
 - The Sync on an EDM page inside a submission stops also syncing every RDM in that submission's context for the EDM.
+- During a breakout, the Portfolios section poll keeps the ticked boxes and each table's sideways scroll. A failed custom group's line clears when the next cart finishes and names the group by its label (spec 005 FR-012).
 
 ## Out of scope
 
-- EDM import and the analyst's Sync on an EDM stay full syncs of the EDM; RDM import and the Sync on an RDM's own page stay full syncs of the RDM.
-- Exports, grouping and analyses: none starts an EDM or RDM refresh, so the problem does not arise there.
+- EDM import and the analyst's Sync on an EDM stay full syncs of the EDM, and RDM import and the Sync on an RDM's own page stay full syncs of the RDM. Exports, grouping and analyses start no EDM or RDM refresh, so they are unchanged.
 
 ## Non-negotiable behavior
 
@@ -88,7 +88,7 @@ An analyst on an EDM page inside a submission clicks Sync beside the EDM's "sync
 - **FR-001**: When a breakout run finishes with at least one successful entry, the system MUST refresh the exposure figures, exposure summary and freshness stamp of the portfolios that run produced, and of no other portfolio (P-01).
 - **FR-002**: When a hazard lookup ends finished or failed, the system MUST refresh that portfolio's exposure figures, exposure summary and freshness stamp, and no other portfolio's (P-02).
 - **FR-003**: When a hazard lookup ends cancelled, the system MUST NOT start a refresh (P-02).
-- **FR-004**: A scoped refresh MUST read Risk Modeler figures once per covered portfolio and MUST compute the exposure summary for the covered portfolios only, so its cost does not grow with the number of portfolios in the EDM.
+- **FR-004**: A scoped refresh MUST read Risk Modeler figures once per covered portfolio and MUST compute the exposure summary for the covered portfolios only. The portfolio list read (`list_portfolios`, research R3) and the `hdsteppolicy` scan (research R4) still cover the whole EDM; the floor of about 20 s that [R4](research.md#r4) measured is accepted.
 - **FR-005**: A scoped refresh MUST NOT remove portfolios, change treaties, or change the EDM's "synced" time.
 - **FR-006**: A scoped refresh MUST skip a covered portfolio Risk Modeler no longer returns, and MUST continue past a covered portfolio whose read fails, keeping that portfolio's prior figures (P-06).
 - **FR-007**: EDM import completion and the analyst's Sync MUST still refresh the whole EDM, as before.
@@ -97,6 +97,8 @@ An analyst on an EDM page inside a submission clicks Sync beside the EDM's "sync
 - **FR-010**: The "figures are filling in" banner MUST show while a breakout's scoped refresh is pending or running.
 - **FR-011**: A scoped refresh's job record MUST list the portfolios it covered and the ones whose read failed.
 - **FR-012**: The Sync on an EDM page inside a submission MUST sync that EDM only and MUST NOT start an RDM sync (P-07).
+- **FR-013**: The Portfolios section poll MUST keep the analyst's ticked portfolio boxes, except a box the response renders disabled, and each table's horizontal scroll.
+- **FR-014**: A failed custom group's error line MUST clear when the next custom cart on that source portfolio finishes, and MUST name the group by its label (spec 005 FR-012).
 
 ## Key Entities
 
