@@ -89,8 +89,6 @@
   color: var(--text-secondary);
 }
 .btn-sm--primary { background: var(--color-brand); color: var(--btn-primary-fg); border-color: var(--color-brand); }
-.btn-sm--green { background: var(--color-positive); color: var(--btn-primary-fg); border-color: var(--color-positive); }
-.btn-sm--amber { background: var(--color-warning); color: var(--btn-primary-fg); border-color: var(--color-warning); }
 .btn-sm--danger:hover { border-color: var(--color-danger); color: var(--color-danger); }
 .btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
 
