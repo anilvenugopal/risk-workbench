@@ -54,33 +54,18 @@ authoritative guidance travels in the source itself — this file only points at
 
 ## Writing Style
 
-Write clearly and naturally. Applies to chat replies, commit messages, PR
-bodies, specs, docs, and code comments.
+Follow the Writing Style section of the Workbench [AGENTS.md](../AGENTS.md).
+In this package also:
 
-Name things:
-
-- Use the real name of the thing. Do not replace it with an invented synonym.
-- Do not use `genuinely`, `load-bearing`, `leverage`, `robust`, `comprehensive`, `holistic`, `utilize`, `facilitate`, `crucial`, `first-class`, or `it's worth noting`.
-- No structural metaphors. Banned: `spine`, `backbone`, `seam`, `surface`, `slice`, `glue`, `plumbing`, `rails`, `guardrails`, `bedrock`, `cornerstone`, `linchpin`, `north star`, `building block`, `primitive`, `first-class citizen`, `footprint`, `surface area`, `ecosystem`, `fabric`, `DNA`. Name the manager, method, endpoint constant, workflow, job, or module instead.
-- No inflated verbs. Banned: `unlock`, `empower`, `supercharge`, `streamline`, `elevate`, `drive`, `power`, `harden`, `bake in`, `light up`, `wire up`. Say what the code does.
-- If a word stands in for a structure instead of naming it, replace it with the structure's name.
-- Avoid vague stand-ins such as `item`, `unit`, `flow`, `piece`, `object`, `entity`, `component`, `layer`, or `handle` when a specific term exists.
-- Name the EDM, exposure set, portfolio, account, policy, location, treaty, analysis, workflow, job, manager method, endpoint constant, response field, or environment variable directly.
-- Use the API's own terms when writing about API behavior: `exposureId`, `location` header, `FINISHED`, `allowDeepFilters`. Do not paraphrase them.
-- Do not write `this`, `that`, `the above`, `the existing behavior`, or `the current approach` when the reference may be unclear.
-- Repeat the exact term when needed for clarity. Do not invent a label to avoid repeating a word.
-- Do not assume the reader remembers an earlier section or another document.
-
-Say what happened:
-
-- State what happens, who does it, and what changes.
-- Lead with the answer. Context comes after, and only if it changes what the reader does next.
-- One idea per sentence. Cut any sentence that only restates the one before it.
-- Be specific: the number, the file path, the parameter name, the status value, the limit.
-- Report the exception, not the inventory. "No violations" beats thirteen rows of "pass".
-- Give one recommendation, then the single real risk. Do not hedge both ways.
-- Keep descriptions proportional to the change. Length is not evidence of work.
-- No preamble, no closing recap.
+- Name the manager, method, endpoint constant, workflow, job, or module instead
+  of a structural metaphor.
+- Avoid `entity`, `component`, `layer`, and `handle` as vague stand-ins.
+- Name the EDM, exposure set, portfolio, account, policy, location, treaty,
+  analysis, workflow, job, manager method, endpoint constant, response field, or
+  environment variable directly.
+- Use the API's own terms when writing about API behavior: `exposureId`,
+  `location` header, `FINISHED`, `allowDeepFilters`. Do not paraphrase them.
+- Be specific: the parameter name, the status value, the limit.
 
 Bad:
 
@@ -137,9 +122,3 @@ Bad:
 Better:
 
 > `get_analysis_by_name()` raises `IRPValidationError` when `analysis_name` or `edm_name` is empty, and `IRPAPIError` when the search returns zero or more than one analysis. Both messages name the analysis and the EDM.
-
-Length:
-
-- Commit subject ≤ 72 characters. The body says why; the diff says what.
-- PR descriptions scale with the diff: what changed and why, then how to verify.
-- Chat replies answer the question asked. No status inventories, no tables of completed work.

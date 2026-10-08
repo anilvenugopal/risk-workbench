@@ -539,9 +539,9 @@ that leaves Basic Constraints non-critical, and the Zscaler root does. Add
 Certificates are still verified against `REQUESTS_CA_BUNDLE`. The setting is
 for developer machines only; the deployed server does not need it.
 
-Local machines run Python 3.14, the same as the deployed server. If you
-synced `.venv` with an older Python to get around the error, move it back to
-3.14:
+A WSL2 machine runs the app on Python 3.14, the same as the deployed server.
+The Docker `linux-box` image and CI use Python 3.12. If you synced `.venv` with
+an older Python to get around the error, move it back to 3.14:
 
 ```bash
 uv sync --python 3.14

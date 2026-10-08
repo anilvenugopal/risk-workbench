@@ -11,9 +11,9 @@
 
 <h1>4. Integrations</h1>
 
-<h2 id="risk-modeler">Moody's Risk Modeler through irp-integration</h2>
+<h2 id="risk-modeler">Moody's Risk Modeler through irp_integration</h2>
 
-<p>The Workbench calls Risk Modeler only through the Python package <code>irp-integration</code>. Every call goes through one module, <code>app/services/irp_gateway.py</code>. Its <code>_RealGateway</code> class creates an <code>IRPClient()</code> on first use. Unit tests replace the gateway with a fake through <code>irp_gateway.configure()</code>.</p>
+<p>The Workbench calls Risk Modeler only through the Python package <code>irp_integration</code>. Every call goes through one module, <code>app/services/irp_gateway.py</code>. Its <code>_RealGateway</code> class creates an <code>IRPClient()</code> on first use. Unit tests replace the gateway with a fake through <code>irp_gateway.configure()</code>.</p>
 
 <p><code>IRPClient()</code> takes no arguments and reads its own settings from the process environment:</p>
 <table>
@@ -50,8 +50,8 @@
 
 <p>DATABRIDGE is the Moody's SQL Server that holds the EDM databases. The Workbench reads it, never writes to it, and never connects to it through <code>db/</code>.</p>
 <ul>
-<li>Each read runs one of the Workbench's own SQL files in <code>sql/databridge/</code> through irp-integration's <code>databridge.execute_query_from_file</code>.</li>
-<li>irp-integration builds the connection from <code>MSSQL_DATABRIDGE_SERVER</code>, <code>_PORT</code>, <code>_USER</code>, and <code>_PASSWORD</code>.</li>
+<li>Each read runs one of the Workbench's own SQL files in <code>sql/databridge/</code> through irp_integration's <code>databridge.execute_query_from_file</code>.</li>
+<li>irp_integration builds the connection from <code>MSSQL_DATABRIDGE_SERVER</code>, <code>_PORT</code>, <code>_USER</code>, and <code>_PASSWORD</code>.</li>
 <li>The EDM's database name comes from Risk Modeler's <code>search_edms</code> result, not from DATABRIDGE.</li>
 </ul>
 
