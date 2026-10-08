@@ -28,6 +28,8 @@ the routers (contracts/data-access.md):
                              no portfolio, or selects one outside the EDM.
 - ``GeohazLaunchConflict`` — a selected portfolio already has a hazard lookup in
                              flight (P-06).
+- ``SubmissionDeleteBlocked`` — a submission delete was refused or rolled back
+                             because work on the submission is running → 409.
 
 The two hazard-lookup errors are the exception to the → HTTP-status mapping: the
 launch POST re-renders the EDM detail body and reports the message as an error
@@ -106,6 +108,10 @@ class GeohazLaunchConflict(ServiceError):
     """Raised when a selected portfolio already has a lookup in progress."""
 
 
+class SubmissionDeleteBlocked(ServiceError):
+    """Raised when a submission delete is refused; the message says why."""
+
+
 __all__ = [
     "ServiceError",
     "SubmissionClosed",
@@ -120,4 +126,5 @@ __all__ = [
     "EdmCatalogUnavailable",
     "InvalidGeohazLaunch",
     "GeohazLaunchConflict",
+    "SubmissionDeleteBlocked",
 ]

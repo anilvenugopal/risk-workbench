@@ -62,6 +62,9 @@
                           placeholder="Type a year, press Enter",
                           year_range=(min_treaty_year, max_treaty_year)) }}
       {{ forms.in_force_control(filter_values) }}
+      <label class="filters__tick">Show archived
+        <input type="checkbox" name="archived" value="1"{% if filter_values.archived %} checked{% endif %}>
+      </label>
       {# A full navigation, not an hx-get: the form sits outside the swap target, so
          only reloading the page empties the fields the analyst typed. `?owner=any`
          clears the owner too — a bare /submissions would re-apply the analyst. #}

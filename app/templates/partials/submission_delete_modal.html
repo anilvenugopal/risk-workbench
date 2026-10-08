@@ -1,0 +1,51 @@
+{# Delete confirm dialog (issue 206), fetched into #submission-delete-modal.
+   A refusal shows its reason and no Delete button. #}
+{% macro counted(n, one, many=none) %}<b>{{ n }}</b> {{ one if n == 1 else many or one ~ "s" }}{% endmacro %}
+{% set close = "document.getElementById('submission-delete-modal').replaceChildren()" %}
+<div class="modal-overlay" x-data>
+  <div class="modal-card modal-card--delete" role="dialog" aria-modal="true" aria-labelledby="submission-delete-title">
+    <div class="modal-header">
+      <h2 id="submission-delete-title" class="modal-title">Delete submission</h2>
+    </div>
+    {% if not summary.blocked %}
+    <div class="modal-warning">This cannot be undone. Archive hides a submission and can be reversed.</div>
+    {% endif %}
+    <div class="modal-body">
+      <div class="del-lead">Deleting <b>{{ submission.name }}</b> also deletes:</div>
+      <ul class="del-list">
+        {% if summary.contract_count %}<li>{{ counted(summary.contract_count, "contract") }}</li>{% endif %}
+        {% if summary.edm_count or summary.rdm_count %}
+        <li>its links to {{ [counted(summary.edm_count, "EDM") if summary.edm_count,
+                             counted(summary.rdm_count, "RDM") if summary.rdm_count]
+                            | select | join(" and ") }}</li>
+        {% endif %}
+        {% if summary.imported_count or summary.group_count %}
+        <li>{{ [counted(summary.imported_count, "imported analysis", "imported analyses") if summary.imported_count,
+                counted(summary.group_count, "analysis group") if summary.group_count]
+               | select | join(" and ") }}</li>
+        {% endif %}
+        <li>its Modeling status history</li>
+        {% for linked in summary.linking %}
+        <li>the link from <b>{{ linked.name }}</b>, which links to this submission</li>
+        {% endfor %}
+      </ul>
+      {% if summary.failed_job_count %}
+      <div class="del-kept">Also cancels {{ counted(summary.failed_job_count, "failed Workbench job") }}
+        for this submission. A cancelled job cannot be resubmitted.</div>
+      {% endif %}
+      {% if not summary.blocked and (summary.edm_count or summary.rdm_count or summary.imported_count or summary.group_count) %}
+      <div class="del-kept">Not deleted: the EDMs and RDMs and their analyses, the analyses and groups in
+        Risk Modeler, and exports already in the loss repository.</div>
+      {% endif %}
+    </div>
+    {% if summary.blocked %}<div class="modal-error" role="alert">{{ summary.blocked }}</div>{% endif %}
+    <form class="modal-footer" method="post" action="/submissions/{{ submission.id }}/delete"
+          hx-post="/submissions/{{ submission.id }}/delete" hx-target="#submission-delete-modal">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn" type="button" @click="{{ close }}">{{ "Close" if summary.blocked else "Cancel" }}</button>
+      {% if not summary.blocked %}
+      <button class="btn btn--danger" type="submit">Delete submission</button>
+      {% endif %}
+    </form>
+  </div>
+</div>

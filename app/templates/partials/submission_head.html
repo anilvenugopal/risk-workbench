@@ -35,6 +35,12 @@
   {% if head_error %}
   <div class="form-banner form-banner--error" role="alert">{{ head_error }}</div>
   {% endif %}
+  {% if submission.archived_at %}
+  <div class="form-banner form-banner--readonly">
+    Archived {{ local_time(submission.archived_at) }}{% if submission.archived_by_name %} by {{ submission.archived_by_name }}{% endif %}
+    — hidden from the Submissions list. Unarchive to list it again.
+  </div>
+  {% endif %}
   {% if not is_active %}
   <div class="form-banner form-banner--readonly">
     This deal is {{ submission.status_label or submission.status_code }} — read-only.

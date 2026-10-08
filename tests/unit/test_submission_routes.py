@@ -32,10 +32,11 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
-from app.services import rwb_job_service, submission_service
+from app.services import rwb_job_service, submission_delete_service, submission_service
 from app.services.submission_service import ContractInput
 from db import execute, execute_command, execute_scalar
 from tests.unit.conftest import cedant_id
+from tests.unit.export_rows import seed_manifest, seed_rwb_job
 from tests.unit.rm_analyses import seed_rm_analysis
 
 
@@ -77,6 +78,7 @@ def client(iteration2_db) -> TestClient:
     app.include_router(submissions.router)
     test_client = TestClient(app, follow_redirects=False)
     test_client.db = iteration2_db
+    test_client.user = user
     return test_client
 
 
@@ -2259,7 +2261,8 @@ def test_statuses_post_saves_modeling_status_and_returns_the_head_fragment(clien
         ("COMPLETED", "delivered"), ("ACTIVE", None)]
     assert "read-only" in response.text and "Contract status can still be set" in response.text
     assert response.headers["HX-Trigger"] == "modeling-status-changed"
-    assert '<span id="submission-actions" hx-swap-oob="true"></span>' in response.text
+    actions = response.text.split('<span id="submission-actions"')[1].split("</span>")[0]
+    assert 'hx-swap-oob="true"' in actions and "/edit" not in actions
 
 
 def test_statuses_post_resubmitting_the_same_modeling_status_records_an_event(client):
@@ -2621,3 +2624,146 @@ def test_twenty_one_crm_ids_return_the_message_and_no_rows(client):
     assert body.status_code == 422
     assert "CRM ID accepts 20 values or fewer." in body.text
     assert "Visible_deal" not in body.text
+
+
+# ── Archive (issue 206) ───────────────────────────────────────────────────────
+
+def _archive(client, sid: str, action: str = "archive", **kwargs):
+    return client.post(f"/submissions/{sid}/{action}",
+                       data={"csrf_token": _csrf()}, **kwargs)
+
+
+def test_archive_hides_the_deal_from_the_list_until_show_archived(client):
+    sid, marker = _deal(client, name="Archived_deal")
+    _deal(client, name="Listed_deal", cedant_name="Other Re")
+    response = _archive(client, sid, headers=_HX)
+    assert response.status_code == 200
+    assert response.text.lstrip().startswith('<div id="deal-head"')
+    assert "Archived" in response.text and "by Analyst A" in response.text
+    assert "/unarchive" in response.text  # the out-of-band actions swap
+    deal = submission_service.get_submission(sid)
+    assert deal.status_code == "ACTIVE" and str(deal.updated_at) == marker
+
+    body = client.get("/submissions").text
+    assert "Listed_deal" in body and "Archived_deal" not in body
+    shown = client.get("/submissions?archived=1").text
+    assert "Archived_deal" in shown and "status-chip--archived" in shown
+    assert 'name="archived" value="1" checked' in shown
+    assert "archived=1" in shown  # pager / sort links
+
+
+def test_unarchive_lists_the_deal_again(client):
+    sid, _ = _deal(client, name="Back_again")
+    _archive(client, sid)
+    response = _archive(client, sid, "unarchive")
+    assert response.status_code == 303
+    assert submission_service.get_submission(sid).archived_at is None
+    assert "Back_again" in client.get("/submissions").text
+
+
+def test_an_archived_deal_opens_directly_with_its_banner(client):
+    sid, _ = _deal(client, name="Opened_archived")
+    _archive(client, sid)
+    body = client.get(f"/submissions/{sid}").text
+    assert "hidden from the Submissions list" in body
+    assert ">Unarchive</button>" in body
+
+
+def test_link_suggest_skips_archived_deals(client):
+    sid, _ = _deal(client, name="Archived_link_target")
+    _archive(client, sid)
+    assert "Archived_link_target" not in client.get(
+        "/submissions/link-suggest?links_to_search=Archived+link").text
+
+
+def test_archive_without_a_csrf_token_writes_nothing(client):
+    sid, _ = _deal(client, name="No_csrf_archive")
+    response = client.post(f"/submissions/{sid}/archive", data={"csrf_token": "nope"})
+    assert response.status_code == 303
+    assert submission_service.get_submission(sid).archived_at is None
+
+
+# ── Delete (issue 206, admin only) ────────────────────────────────────────────
+
+def test_only_an_admin_sees_delete_and_reaches_its_routes(client):
+    sid, _ = _deal(client, name="Admin_only")
+    assert f'hx-get="/submissions/{sid}/delete"' not in client.get(f"/submissions/{sid}").text
+    assert client.get(f"/submissions/{sid}/delete").status_code == 302
+    denied = client.post(f"/submissions/{sid}/delete", data={"csrf_token": _csrf()})
+    assert denied.status_code == 302
+    assert submission_service.get_submission(sid) is not None
+
+    client.user.is_admin = True
+    assert f'hx-get="/submissions/{sid}/delete"' in client.get(f"/submissions/{sid}").text
+
+
+def test_the_delete_dialog_lists_what_goes(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Counted", crm_ids="DEL-1,DEL-2")
+    body = client.get(f"/submissions/{sid}/delete", headers=_HX).text
+    assert "<b>Counted</b>" in body and "<b>2</b> contracts" in body
+    assert ">Delete submission</button>" in body
+
+
+def test_the_delete_dialog_says_it_cancels_failed_jobs(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Failed_job_deal")
+    seed_rwb_job("submit_grouping", link=("submission", sid), status="failed")
+    body = client.get(f"/submissions/{sid}/delete", headers=_HX).text
+    assert "Also cancels <b>1</b> failed Workbench job" in body
+
+
+def test_delete_sends_the_browser_to_the_list(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Deleted_deal")
+    response = client.post(f"/submissions/{sid}/delete",
+                           data={"csrf_token": _csrf()}, headers=_HX)
+    assert response.status_code == 204
+    assert response.headers["HX-Redirect"] == "/submissions"
+    assert submission_service.get_submission(sid) is None
+
+
+def test_running_work_refuses_the_delete_with_its_reason(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Busy_deal")
+    execute_command(
+        "INSERT INTO irp_job (id, requested_from_submission_id, irp_job_type, status, "
+        "submission_attempt_count) VALUES (:id, :s, 'analysis', 'RUNNING', 1)",
+        {"id": str(uuid.uuid4()), "s": sid}, connection="WORKBENCH")
+    response = client.post(f"/submissions/{sid}/delete",
+                           data={"csrf_token": _csrf()}, headers=_HX)
+    assert response.status_code == 409
+    assert "still running: 1 Risk Modeler job" in response.text
+    assert ">Delete submission</button>" not in response.text
+    assert submission_service.get_submission(sid) is not None
+
+
+def test_an_unfinished_export_refuses_the_delete(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Exporting_deal")
+    seed_manifest(submission_id=sid, stage_status="failed")
+    response = client.post(f"/submissions/{sid}/delete",
+                           data={"csrf_token": _csrf()}, headers=_HX)
+    assert response.status_code == 409
+    assert "1 export is not loaded or closed" in response.text
+    assert ">Delete submission</button>" not in response.text
+    assert submission_service.get_submission(sid) is not None
+
+
+def test_a_submission_deleted_meanwhile_is_not_found(client, monkeypatch):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Gone_meanwhile")
+
+    def gone(**kwargs):
+        raise LookupError(sid)
+    monkeypatch.setattr(submission_delete_service, "delete_submission", gone)
+    response = client.post(f"/submissions/{sid}/delete", data={"csrf_token": _csrf()})
+    assert response.status_code == 404
+
+
+def test_delete_without_a_csrf_token_deletes_nothing(client):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="No_csrf_delete")
+    response = client.post(f"/submissions/{sid}/delete", data={"csrf_token": "nope"})
+    assert response.status_code == 303
+    assert submission_service.get_submission(sid) is not None

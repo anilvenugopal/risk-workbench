@@ -56,8 +56,9 @@ race cannot leave an event without its cache stamp or vice versa. There is **no 
 any transition is legal (FR-012), reopening a closed deal is an ordinary transition (FR-011), and
 setting the status it already has is a *recorded* no-op rather than an error.
 
-**There is no delete** (FR-014). CANCELLED is how a deal goes away, and the history keeps every
-transition with its reason and its author, newest first.
+CANCELLED is how a deal leaves the modeling workflow, and the history keeps every transition with
+its reason and its author, newest first. Archive and the admin-only delete (issue #206) follow
+[PRD §7.2a](../../PRD.md#72a-modeling-status-and-contract-status).
 
 ## Edit, reassign, tags
 
