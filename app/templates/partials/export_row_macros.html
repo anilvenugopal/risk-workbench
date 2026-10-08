@@ -9,7 +9,7 @@
   <span class="l"><span class="geohaz-pick">
     <input type="checkbox" name="analysis_ids" value="{{ a.id }}" @change="onChange()"
            {% if checked and not a.disabled_reason %}checked{% endif %}{% if a.disabled_reason %} disabled{% endif %}></span></span>
-  <span class="l"><span class="dt-title" title="{{ a.name }}">{{ a.name }}</span></span>
+  <span class="l dt-wrap"><span class="dt-title" title="{{ a.name }}">{{ a.name }}</span></span>
   <span class="l">{{ a.perspectives|join(', ') }}</span>
   <span class="l">{{ a.origin }}</span>
   <span class="l">{{ a.peril_code or '—' }}</span>

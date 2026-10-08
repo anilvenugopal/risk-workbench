@@ -90,7 +90,7 @@
               {% set a = treaty.attributes or {} %}
               <label class="drow-static">
                 <span class="geohaz-pick"><input type="checkbox" name="treaty_names" value="{{ treaty.name }}"></span>
-                <span class="l" title="{{ treaty.name }}">{{ treaty.name }}</span>
+                <span class="l dt-wrap" title="{{ treaty.name }}">{{ treaty.name }}</span>
                 <span class="l">{% if a.get('treatyNumber') %}{{ a.get('treatyNumber') }}{% elif treaty.irp_id %}ID {{ treaty.irp_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</span>
                 <span class="l">{{ attr_val(treaty.display('treatyType')) }}</span>
                 <span>{{ money(a.get('riskLimit')) }}</span>

@@ -74,12 +74,12 @@ a.sec__note--link:hover { text-decoration: underline; }
    than losing its last letters. */
 .dtable--wraphead .dtable__head > span { white-space: normal; line-height: 1.15;
   overflow: visible; text-overflow: clip; }
-/* The EDM portfolio table wraps the name in its track instead of cutting
-   a breakout name off at the ellipsis; a name with no space to break at still
-   wraps rather than being clipped by the cell. */
-.dtable--wrapname .drow > summary > :nth-child(2) { white-space: normal; }
-.dtable--wrapname .dt-title { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
-.dtable--wrapname .dt-namecol { gap: var(--space-1); }
+/* A name column the analyst must read in full wraps in its track instead of
+   ending at the ellipsis; a name with no space to break at still wraps rather
+   than being clipped by the cell. */
+.drow > summary > .dt-wrap, .drow-static > .dt-wrap { white-space: normal; overflow-wrap: anywhere; }
+.dt-wrap .dt-title { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.dt-wrap .dt-namecol { gap: var(--space-1); }
 /* .drow-static and .dtable__group set display, which beats the UA [hidden] rule;
    the export form's name search hides rows with el.hidden. */
 .drow-static[hidden], .dtable__group[hidden] { display: none; }
@@ -300,7 +300,7 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .bo-list__head .r { text-align: right; }
 .bo-row { border-bottom: 1px solid var(--c-border-faint); font-size: var(--fs-label); }
 .bo-row:last-child { border-bottom: none; }
-.bo-row__value { font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bo-row__value { font-weight: var(--fw-semibold); white-space: normal; overflow-wrap: anywhere; }
 .bo-row__label { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-regular); }
 .bo-row__name { font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bo-row__name input[type=text] { width: 100%; height: 26px; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 0 var(--space-2); font: inherit; color: var(--text-primary); }
@@ -394,9 +394,6 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .export-pick__search { display: flex; align-items: center; gap: var(--space-3); }
 .export-pick__search input { flex: 1 1 auto; max-width: 340px; }
 .export-pick__count { font-size: var(--fs-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
-/* the analysis name is the reason the analyst is here — wrap it rather than clip it */
-.export-pick .drow-static > :nth-child(2), .export-analyses .drow-static > :nth-child(2) { white-space: normal; }
-.export-pick .dt-title, .export-analyses .dt-title { white-space: normal; overflow: visible; }
 .export-cart { flex: 0 0 360px; display: flex; flex-direction: column; gap: var(--space-2); }
 /* the cart panel stacks its label over its control instead of the 120px label grid */
 .export-cart .wf-field { grid-template-columns: 1fr; }

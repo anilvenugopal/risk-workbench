@@ -68,7 +68,7 @@
       <div class="drow-static export-analysis{% if loop.changed(a.export_id) %} export-analysis--first{% endif %}"
            id="export-analysis-{{ a.export_id }}-{{ a.manifest_id }}">
         <span class="l export-ordinal">#{{ a.export_ordinal }}</span>
-        <span class="l"><span class="dt-title" title="{{ a.analysis_name }}">{{ a.analysis_name }}</span></span>
+        <span class="l dt-wrap"><span class="dt-title" title="{{ a.analysis_name }}">{{ a.analysis_name }}</span></span>
         <span class="l" title="{{ 'Treaty IDs ' ~ a.treaty_ids|join(', ') if a.treaty_ids else '' }}">{{ a.treaty_label or '—' }}</span>
         <span class="l">{{ a.origin }}</span>
         <span class="l">{{ a.engine or '—' }}</span>
@@ -88,7 +88,7 @@
         <span class="l">{{ '{:,}'.format(a.std_dev_zeroed_count) if a.std_dev_zeroed_count is not none else '—' }}</span>
         <span class="l">{{ a.irp_app_analysis_id if a.irp_app_analysis_id is not none else '—' }}</span>
         <span class="l">{{ a.engine_type or '—' }}</span>
-        <span class="l">{{ a.client_name or '—' }}</span>
+        <span class="l dt-wrap">{{ a.client_name or '—' }}</span>
         <span class="l">{{ a.crm_id or '—' }}</span>
         <span class="l">{{ a.treaty_incept }}</span>
         <span class="l">{{ a.data_vintage }}</span>
