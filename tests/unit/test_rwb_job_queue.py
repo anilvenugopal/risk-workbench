@@ -366,6 +366,7 @@ _EXPECTED_QUEUE_NAMES = [
     "execute_analysis_batch",
     "finalize_analysis",
     "load_results_export",
+    "refresh_portfolios",
     "retrieve_analysis_results",
     "run_breakout_country",
     "run_breakout_custom",

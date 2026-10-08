@@ -103,7 +103,7 @@ _INSERT = """
 def upsert_portfolio_detail(*, edm_id: Any, irp_id: str | None, name: str,
                             exposure_detail: dict, as_of: Any,
                             conn=None) -> None:
-    """Worker-side (``backfill_edm_detail``). Insert the ``irp_portfolio`` row or
+    """Worker-side. Insert the ``irp_portfolio`` row or
     OVERWRITE ``exposure_detail`` (verbatim JSON) + ``as_of`` in place — never a
     duplicate (R2/FR-004). Runs in the caller's transaction when ``conn`` is
     given, else in its own short one (Article 7) — the caller must never hold a
