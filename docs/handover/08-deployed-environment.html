@@ -120,7 +120,6 @@
 <li>Unzip: <code>unzip -o /rms/risk-workbench.zip -d /tmp/risk-workbench-deploy</code>.</li>
 <li>Delete the Git history and your local settings file from the unzipped copy: <code>rm -rf /tmp/risk-workbench-deploy/risk-workbench/.git</code> and <code>rm -f /tmp/risk-workbench-deploy/risk-workbench/infra/.env</code>. Deleting <code>infra/.env</code> keeps the next step from overwriting the server's <code>/rms/infra/.env</code>.</li>
 <li>Copy the new code over the app directory: <code>cp -a /tmp/risk-workbench-deploy/risk-workbench/. /rms/</code>.</li>
-<li>Once, on the first deployment that includes <code>irp_integration/</code>: remove the PyPI copy of the package from <code>.venv</code>, so the app imports the copy in <code>/rms/irp_integration/</code>: <code>/rms/.venv/bin/python -m pip uninstall -y irp-integration</code>.</li>
 <li>Apply the Alembic revisions. The server has no <code>uv</code>, so source <code>infra/.env</code> and run Alembic from <code>.venv</code>, as <code>rhel9-app-install.sh</code> does: <code>cd /rms &amp;&amp; set -a &amp;&amp; source infra/.env &amp;&amp; set +a &amp;&amp; .venv/bin/alembic upgrade head</code>.</li>
 <li>Start the app: <code>APP_DIR=/rms bash /rms/infra/scripts/deploy/rhel9-start.sh</code>, then check <code>curl -s http://127.0.0.1:8000/api/health</code>.</li>
 <li>Clean up: <code>rm -rf /tmp/risk-workbench-deploy</code> and <code>rm /rms/risk-workbench.zip</code>.</li>

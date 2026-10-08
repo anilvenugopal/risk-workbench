@@ -684,7 +684,7 @@ class IRPGateway(Protocol):
 # ── The real implementation — imports irp-integration lazily ─────────────────────
 
 class _RealGateway:
-    """Thin wrapper over ``irp-integration`` 0.2.0 (manager-based). ``IRPClient()``
+    """Thin wrapper over the ``irp_integration`` package (manager-based). ``IRPClient()``
     reads all config from env vars — no constructor args. The library is imported
     lazily (inside ``_client``) so importing this module never imports
     ``irp_integration``; unit tests inject a fake and never construct this class.

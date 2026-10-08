@@ -731,7 +731,7 @@ An **optional** pre-analysis operation that runs Moody's hazard lookup on a port
 
 The action lives on the **EDM/portfolio summary page**: the analyst selects **one or more portfolios** and clicks Run hazard lookup once; no parameter modal opens. The workbench submits **one geohaz job per selected portfolio** (design sessions 2026-08-07 and 2026-08-14).
 
-Async: `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` → `irp_job_type = geohaz` (§14.3), polled via `client.portfolio.get_geohaz_job(id)` (§14.4). *(Confirm the exact `submit_geohaz_job` parameter set against the installed `irp-integration` wheel before implementing — §14.3.)*
+Async: `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` → `irp_job_type = geohaz` (§14.3), polled via `client.portfolio.get_geohaz_job(id)` (§14.4). *(Confirm the exact `submit_geohaz_job` parameter set in `irp_integration/portfolio.py` before implementing — §14.3.)*
 
 ### 10B.2 Fixed DLM parameters
 
@@ -961,7 +961,7 @@ Each IRP-backed op sets `irp_job.irp_job_type` (a kind-table FK, for poll routin
 
 > **Batch analysis — ordered positional mapping.** The batch submit is an **app-side loop** over `submit_portfolio_analysis_job`, once per item, capturing each `(job_id, request_body)`. Each item gets its own `irp_job` row written in the same order; there is no stage-position index anymore.
 
-> **API method signatures** are from `irp-integration` v0.2.1.dev23 (pre-release). Verify against the installed version before implementing any IRP-backed op.
+> **API method signatures** are defined in `irp_integration/`. Check them there before implementing any IRP-backed op.
 
 ### 14.4 The poller
 

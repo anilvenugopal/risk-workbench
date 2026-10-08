@@ -465,7 +465,7 @@ reachable **read-only**, **worker-side only**, and **exclusively through
 `irp_gateway`). App code MUST NEVER send raw SQL to DataBridge — not through
 `db.execute`, not through the `db.scripts` trusted path — and MUST NEVER run
 DDL, migrations, or bootstrap against it. Moody's EDM schema knowledge lives in
-the `irp_integration/` package, not in `app/`, `db/` or `sql/`. A DataBridge read failure is
+the `irp_integration/` package. A DataBridge read failure is
 enrichment degradation, never a page error (the graceful-empty doctrine applies).
 
 **Request-path exception (added v3.2.0, 2026-08-12):** a **bounded, single-row,

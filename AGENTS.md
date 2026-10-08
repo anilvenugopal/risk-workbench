@@ -188,7 +188,7 @@ Full rules in the constitution. Key points for implementation:
 | `rwb_workbench` | `MSSQL_WORKBENCH_*` | App state, workflow, audit | Alembic (`make db-migrate`) |
 | `rwb_exposure` | `MSSQL_EXPOSURE_*` | Reserved for exposure data; no tables yet | Created empty by `infra/scripts/bootstrap_db.py` |
 | `rwb_loss` | `MSSQL_LOSS_*` | Loss results (dev copy of CIC's loss repository) | Bootstrap SQL scripts (`infra/scripts/bootstrap_loss.py`) |
-| DATABRIDGE | `MSSQL_DATABRIDGE_*` | Moody's — read-only | **Read-only, only via irp-integration methods, worker-side** — except a bounded single-row point-of-action check, which may run on the request path and must fail open (constitution Art. 11 v3.2.0); never migrated/bootstrapped; never raw SQL from app code |
+| DATABRIDGE | `MSSQL_DATABRIDGE_*` | Moody's — read-only | **Read-only, only via `irp_integration` methods, worker-side** — except a bounded single-row point-of-action check, which may run on the request path and must fail open (constitution Art. 11 v3.2.0); never migrated/bootstrapped; never raw SQL from app code |
 
 ## Schema Changes
 
@@ -220,7 +220,7 @@ make db-migrate                                              # alembic upgrade h
 - `rwb_exposure` and `rwb_loss` are not managed by Alembic. `rwb_exposure` is
   created empty; `rwb_loss` uses the bootstrap SQL scripts in `db/bootstrap/`.
   DATABRIDGE is never in schema scope (no DDL/migrations/bootstrap; reads only via
-  irp-integration, worker-side).
+  `irp_integration`, worker-side).
 
 ## irp_integration (Risk Modeler client)
 
