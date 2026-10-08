@@ -51,11 +51,12 @@ def test_import_creates_pending_edm_and_one_upload_head(iteration2_db, fake_irp,
     assert edm is not None
     assert edm.status == edm_service.PENDING
     assert edm.source_file_path.endswith("edm1.bak")
-    n = execute_scalar(
-        "SELECT COUNT(*) FROM rwb_job WHERE requestor_type='analyst_request' "
-        "AND requestor_id=:r AND rwb_job_type='upload_edm'",
-        {"r": res.entity_id}, connection="WORKBENCH")
-    assert n == 1
+    job = execute_one(
+        "SELECT * FROM rwb_job WHERE rwb_job_type='upload_edm'", {}, connection="WORKBENCH")
+    assert job["requestor_type"] == "analyst_request" and job["requestor_id"] == res.entity_id
+    assert job["link_type"] == "edm" and job["link_id"] == res.entity_id
+    assert job["context_type"] == "edm" and job["context_id"] == res.entity_id
+    assert job["inserted_by"] == iteration2_db.user_a
     assert fake_irp.submits == []  # NO Risk Modeler call on the request path (FR-042)
 
 
@@ -240,9 +241,13 @@ def test_retry_import_resets_failed_head(iteration2_db, fake_irp, drive):
     res = _import(drive, iteration2_db.user_a)
     _fail_head(res.entity_id)
     edm_service.retry_import(edm_id=res.entity_id, actor_id=iteration2_db.user_a)
-    row = execute_one("SELECT status_code FROM rwb_job WHERE requestor_id=:r",
+    row = execute_one("SELECT * FROM rwb_job WHERE requestor_id=:r",
                       {"r": res.entity_id}, connection="WORKBENCH")
     assert row["status_code"] == "pending"  # failed → reset to pending for a re-run
+    assert row["requestor_type"] == "analyst_request" and row["rwb_job_type"] == "upload_edm"
+    assert row["link_type"] == "edm" and row["link_id"] == res.entity_id
+    assert row["context_type"] == "edm" and row["context_id"] == res.entity_id
+    assert row["inserted_by"] == iteration2_db.user_a
 
 
 def test_replace_source_file_updates_path_and_reenqueues(iteration2_db, fake_irp, drive):
@@ -255,9 +260,13 @@ def test_replace_source_file_updates_path_and_reenqueues(iteration2_db, fake_irp
     refreshed = edm_service.get_edm(res.entity_id)
     assert refreshed.source_file_path.endswith("edm2.bak")
     assert refreshed.status == edm_service.PENDING
-    row = execute_one("SELECT status_code FROM rwb_job WHERE requestor_id=:r",
+    row = execute_one("SELECT * FROM rwb_job WHERE requestor_id=:r",
                       {"r": res.entity_id}, connection="WORKBENCH")
     assert row["status_code"] == "pending"
+    assert row["requestor_type"] == "analyst_request" and row["rwb_job_type"] == "upload_edm"
+    assert row["link_type"] == "edm" and row["link_id"] == res.entity_id
+    assert row["context_type"] == "edm" and row["context_id"] == res.entity_id
+    assert row["inserted_by"] == iteration2_db.user_a
 
 
 def test_replace_source_file_stale_marker_conflicts(iteration2_db, fake_irp, drive):

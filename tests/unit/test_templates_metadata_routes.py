@@ -221,10 +221,16 @@ def test_sync_enqueues_and_dispatches_once_then_refuses_second_request(
     )
     assert len(sent) == 1
     jobs = execute(
-        "SELECT status_code FROM rwb_job WHERE rwb_job_type='sync_irp_metadata'",
+        "SELECT * FROM rwb_job WHERE rwb_job_type='sync_irp_metadata'",
         connection="WORKBENCH",
     )
     assert [job["status_code"] for job in jobs] == ["pending"]
+    job = jobs[0]
+    assert job["requestor_type"] == "analyst_request"
+    assert job["requestor_id"] == templates._METADATA_SYNC_REQUESTOR_ID
+    assert job["link_type"] == "not_applicable" and job["link_id"] is None
+    assert job["context_type"] is None and job["context_id"] is None
+    assert job["inserted_by"] == "00000000-0000-0000-0000-000000000001"
     banner = client.get(second.headers["location"])
     assert "Sync already in progress." in banner.text
 

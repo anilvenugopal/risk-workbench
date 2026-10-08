@@ -225,7 +225,8 @@ def _complete_breakout(rwb_job_id: Any, *, edm_id: Any, outcomes: list,
             rwb_job_type="backfill_edm_detail",
             link_type="edm", link_id=edm_id,
             context_type="edm", context_id=edm_id,
-            input_data={"edm_id": str(edm_id)})
+            input_data={"edm_id": str(edm_id)},
+            actor_id=rwb_job_service.get_rwb_job(rwb_job_id=rwb_job_id)["inserted_by"])
         if backfill_id is not None:
             dispatch.dispatch(rwb_job_id=backfill_id,
                               rwb_job_type="backfill_edm_detail")

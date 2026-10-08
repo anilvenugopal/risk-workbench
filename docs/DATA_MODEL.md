@@ -583,7 +583,7 @@ erDiagram
 - **`irp_job_resource`** carries the typed `(resource_type, resource_uri)` submit payload; the URI must be captured at submit time (RM's completion response omits it).
 
 **`rwb_job`:**
-- **`requestor_type` + `requestor_id`** discriminate the trigger: `irp_job` completion, an analyst action, or a chained parent `rwb_job`. `requestor_id` has no DB FK (target varies by type). Dedup / chaining key: `UNIQUE(requestor_type, requestor_id, rwb_job_type)`.
+- **`requestor_type` + `requestor_id`** name the trigger: a finished `irp_job`, an analyst action, a parent `rwb_job`, a `breakout_group`, or an `irp_analysis`. `requestor_id` has no DB FK (target varies by type). Dedup / chaining key: `UNIQUE(requestor_type, requestor_id, rwb_job_type)`. For `analyst_request`, `requestor_id` is the row the request is about (EDM, RDM, portfolio, execution, grouping request, or export), so the key allows one live job of a type per row; the analyst is `inserted_by`.
 - **Worker lifecycle:** claim atomically (`UPDATE ... SET status_code='running' WHERE id=:id AND status_code='pending'`; rowcount 0 → already claimed), heartbeat via a daemon thread, set `succeeded`/`failed`, create chained tail rows on success. Stale `running` rows (heartbeat older than `RWB_HEARTBEAT_STALE_SECS`) are recovered by the reconciler in the poller.
 
 | `rwb_job_type` | Worker responsibility | Chains to |
@@ -610,6 +610,33 @@ finishes and `backfill_rdm_analyses` when an RDM import finishes. EDM completion
 never starts RDM upload work. Association detach is request-path SQL only.
 
 **Context (`rwb_job.context_type` / `context_id`):** the object a job's own operation acts on, typed by `rwb_job_context_type_kind` (`edm` / `rdm` / `irp_analysis` / `portfolio` / `breakout_group` / `execution` / `result_export`). `result_export` names a loss results export by its `export_id`; the export record itself is `stage.rwb_loss_result_manifest` in the loss repository, not a Workbench table (spec 014 T-03).
+
+**Link (`rwb_job.link_type` / `link_id`):** the EDM, RDM, or submission the job concerns, typed by `rwb_job_link_type_kind`; `not_applicable` when none applies. A job about one analysis links to the analysis's owner: `irp_analysis.edm_id`, else `rdm_id`, else `submission_id`.
+
+**`rwb_job.inserted_by`:** the analyst whose action caused the job. A job the poller enqueues takes the finished `irp_job`'s `inserted_by`; a job another job enqueues takes the parent `rwb_job`'s `inserted_by`. An analyst's retry revives the row and leaves `inserted_by` as it was.
+
+**What each job type records.** The RWB Jobs page's Entity column shows the context's name and kind.
+
+| `rwb_job_type` | Requestor (`requestor_type` → `requestor_id`) | Link | Context | Entity | `inserted_by` |
+|---|---|---|---|---|---|
+| `upload_edm` | `analyst_request` → EDM | EDM | `edm` | EDM | analyst |
+| `upload_rdm` | `analyst_request` → RDM | RDM | `rdm` | RDM | analyst |
+| `backfill_edm_detail` | `irp_job` → the finished `import_edm` or `geohaz` job; `rwb_job` → the finished `run_breakout_*` job; `analyst_request` → EDM (Sync) | EDM | `edm` | EDM | from the `irp_job` or `rwb_job`; analyst for a Sync |
+| `backfill_rdm_analyses` | `irp_job` → the finished `import_rdm` job; `analyst_request` → RDM (Sync) | RDM | `rdm` | RDM | from the `irp_job`; analyst for a Sync |
+| `run_geohaz` | `analyst_request` → portfolio | EDM | `portfolio` | Portfolio | analyst |
+| `run_breakout_lob`, `_state`, `_country`, `_peril` | `analyst_request` → source portfolio | EDM | `portfolio` | Portfolio | analyst |
+| `run_breakout_custom` | `breakout_group` → `breakout_group` row | EDM | `breakout_group` | Breakout group (label) | analyst |
+| `execute_analysis_batch` | `analyst_request` → execution id | EDM | `execution` | EDM, from the link (no execution table) | analyst |
+| `submit_grouping` | `analyst_request` → grouping request id | submission | `irp_analysis` (the group) | Analysis | analyst |
+| `finalize_analysis` | `irp_job` → the finished `analysis` or `grouping` job; `irp_analysis` → the imported analysis | analysis's owner | `irp_analysis` | Analysis | from the `irp_job`; analyst for an import |
+| `retrieve_analysis_results` | `irp_analysis` → the analysis | analysis's owner | `irp_analysis` | Analysis | from the parent `finalize_analysis` or `backfill_rdm_analyses`; analyst when a retry finds no earlier row |
+| `submit_results_export` | `analyst_request` → export id | submission (`input_data.submission_id`) | `result_export` | Submission, from the link (export record is in the loss repository) | analyst |
+| `stage_results_export` | `irp_job` → the finished `export` job | analysis's owner | `irp_analysis` | Analysis | from the `irp_job` |
+| `load_results_export` | `rwb_job` → the `stage_results_export` job | analysis's owner | `irp_analysis` | Analysis | from the parent `rwb_job` |
+| `sync_irp_metadata` | `analyst_request` → fixed id (`_METADATA_SYNC_REQUESTOR_ID`) | `not_applicable` | none | — | analyst |
+| `dummy_wait`, `dummy_fail` | `analyst_request` → new UUID per run | `not_applicable` | none | — | none (CLI) |
+
+`notify_analyst` has no enqueue call site.
 
 ---
 

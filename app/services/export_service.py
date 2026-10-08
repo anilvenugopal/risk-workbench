@@ -537,7 +537,7 @@ def create_export(*, submission_id: Any, user_email: str, analysis_ids: list[str
         job_id = rwb_job_service.enqueue_rwb_job(
             requestor_type="analyst_request", requestor_id=export_id,
             rwb_job_type="submit_results_export",
-            link_type="not_applicable", link_id=None,
+            link_type="submission", link_id=_uid(submission_id),
             context_type="result_export", context_id=export_id,
             input_data={"export_id": export_id, "submission_id": _uid(submission_id)},
             actor_id=actor_id)
@@ -704,10 +704,11 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any, *,
     branch = retry_decision(manifest, job, settings.export_archive_dir, _utcnow())
     analysis_id = _uid(manifest["irp_analysis_id"])
     export_key = _uid(manifest["export_id"])
-    analysis = execute_one("SELECT edm_id, rdm_id FROM irp_analysis WHERE id = :a",
-                           {"a": analysis_id}, connection="WORKBENCH") or {}
-    link_type, link_id = rwb_job_service.analysis_link(analysis.get("edm_id"),
-                                                       analysis.get("rdm_id"))
+    analysis = execute_one(
+        "SELECT edm_id, rdm_id, submission_id FROM irp_analysis WHERE id = :a",
+        {"a": analysis_id}, connection="WORKBENCH") or {}
+    link_type, link_id = rwb_job_service.analysis_link(
+        analysis.get("edm_id"), analysis.get("rdm_id"), analysis.get("submission_id"))
 
     # Each branch first puts the row back into the state its job runs from, so
     # the exports table reads it as in progress (and polls) until the job stamps it.
@@ -751,7 +752,7 @@ def apply_retry(submission_id: Any, export_id: Any, manifest_id: Any, *,
         job_type = "submit_results_export"
         rwb_job_id = rwb_job_service.ensure_pending_rwb_job(
             requestor_type="analyst_request", requestor_id=export_key, rwb_job_type=job_type,
-            link_type="not_applicable", link_id=None,
+            link_type="submission", link_id=_uid(manifest["requested_from_submission_id"]),
             context_type="result_export", context_id=export_key,
             input_data={"export_id": export_key,
                         "submission_id": _uid(manifest["requested_from_submission_id"])},

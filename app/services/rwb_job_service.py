@@ -67,14 +67,15 @@ def _insert_head(params: dict, conn) -> bool:
     return rows == 1
 
 
-def analysis_link(edm_id: Any, rdm_id: Any) -> tuple[str, Any]:
-    """The ``rwb_job`` link for a job about one analysis: its EDM, else its RDM
-    (broker analyses), else ``not_applicable``."""
+def analysis_link(edm_id: Any, rdm_id: Any, submission_id: Any) -> tuple[str, Any]:
+    """The ``rwb_job`` link for a job about one analysis: its owner — the EDM,
+    else the RDM (broker analyses), else the submission (group and imported
+    analyses)."""
     if edm_id:
         return "edm", edm_id
     if rdm_id:
         return "rdm", rdm_id
-    return "not_applicable", None
+    return "submission", submission_id
 
 
 def enqueue_rwb_job(

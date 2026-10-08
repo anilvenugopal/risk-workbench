@@ -81,7 +81,7 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
             link_type="edm", link_id=job["irp_edm_id"],
             context_type="edm", context_id=job["irp_edm_id"],
             input_data={"edm_id": str(job["irp_edm_id"])},
-            conn=conn,
+            actor_id=job["inserted_by"], conn=conn,
         )
     else:
         edm_service.backfill_on_terminal(
@@ -103,7 +103,7 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
             input_data={
                 "rdm_id": (str(job["irp_rdm_id"]) if job["irp_rdm_id"] else None),
                 "apply_irp_id": job["irp_id"]},
-            conn=conn,
+            actor_id=job["inserted_by"], conn=conn,
         )
         if jid:
             logger.info("chained backfill_rdm_analyses head")
@@ -154,7 +154,7 @@ def _handle_analysis_terminal(conn, job: dict, status: str, resolved: dict) -> N
             context_type="irp_analysis", context_id=job["irp_analysis_id"],
             input_data={"analysis_id": str(job["irp_analysis_id"]),
                         "rm_analysis_id": _analysis_created_id(resolved.get("result"))},
-            conn=conn,
+            actor_id=job["inserted_by"], conn=conn,
         )
     else:
         conn.execute(text(
@@ -178,7 +178,7 @@ def _handle_grouping_terminal(conn, job: dict, status: str, resolved: dict) -> N
             link_type="submission", link_id=job["requested_from_submission_id"],
             context_type="irp_analysis", context_id=job["irp_analysis_id"],
             input_data={"analysis_id": str(job["irp_analysis_id"])},
-            conn=conn,
+            actor_id=job["inserted_by"], conn=conn,
         )
     else:
         conn.execute(text(
@@ -209,7 +209,7 @@ def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> Non
         link_type="edm", link_id=job["irp_edm_id"],
         context_type="edm", context_id=job["irp_edm_id"],
         input_data={"edm_id": str(job["irp_edm_id"])},
-        conn=conn,
+        actor_id=job["inserted_by"], conn=conn,
     )
 
 
@@ -217,7 +217,8 @@ def _handle_export_terminal(conn, job: dict, status: str, resolved: dict) -> Non
     """Any terminal status enqueues the stage job (spec 014, contracts/jobs.md §3):
     the stage worker reads the job's status itself and fails the analysis when
     it is not FINISHED, so the failure text lands on the manifest row."""
-    link_type, link_id = rwb_job_service.analysis_link(job["irp_edm_id"], job["irp_rdm_id"])
+    link_type, link_id = rwb_job_service.analysis_link(
+        job["irp_edm_id"], job["irp_rdm_id"], job["requested_from_submission_id"])
     rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_job", requestor_id=job["id"],
         rwb_job_type="stage_results_export",
@@ -226,7 +227,7 @@ def _handle_export_terminal(conn, job: dict, status: str, resolved: dict) -> Non
         input_data={"export_id": str(job["export_id"]),
                     "irp_analysis_id": str(job["irp_analysis_id"]),
                     "irp_job_id": str(job["id"])},
-        conn=conn,
+        actor_id=job["inserted_by"], conn=conn,
     )
 
 

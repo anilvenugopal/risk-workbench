@@ -31,7 +31,8 @@ def _rows(submission_id: str) -> list[dict]:
 
 def _jobs(analysis_id: str, rwb_job_type: str) -> list[dict]:
     return [dict(r) for r in execute(
-        "SELECT link_type, link_id, status_code, input_data FROM rwb_job "
+        "SELECT link_type, link_id, context_type, context_id, status_code, input_data, "
+        "inserted_by FROM rwb_job "
         "WHERE requestor_type = 'irp_analysis' AND requestor_id = :a "
         "AND rwb_job_type = :t",
         {"a": analysis_id, "t": rwb_job_type}, connection="WORKBENCH")]
@@ -199,6 +200,8 @@ def test_import_inserts_the_row_and_enqueues_its_finalize(
     [job] = _jobs(row["id"], "finalize_analysis")
     assert job["link_type"] == "submission"
     assert job["link_id"].lower() == submission
+    assert job["context_type"] == "irp_analysis" and job["context_id"] == row["id"]
+    assert job["inserted_by"] == iteration2_db.user_a
     assert job["status_code"] == "pending"
     assert json.loads(job["input_data"]) == {"analysis_id": row["id"],
                                              "rm_analysis_id": PLATFORM_ID}

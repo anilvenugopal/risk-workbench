@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from app import log_context
 from app.services.rwb_job_service import (
+    analysis_link,
     cancel_rwb_job,
     claim_rwb_job,
     complete_rwb_job,
@@ -714,6 +715,13 @@ def test_enqueue_stores_link_and_context_fields(iteration2_db):
     assert row["link_id"] == edm_id
     assert row["context_type"] == "edm"
     assert row["context_id"] == edm_id
+
+
+def test_analysis_link_is_the_analysis_owner():
+    edm, rdm, sub = "e", "r", "s"
+    assert analysis_link(edm, rdm, sub) == ("edm", edm)
+    assert analysis_link(None, rdm, sub) == ("rdm", rdm)
+    assert analysis_link(None, None, sub) == ("submission", sub)
 
 
 def test_enqueue_allows_null_context_when_job_has_none(iteration2_db):

@@ -102,7 +102,8 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
         dispatch.reset()
 
     rows = execute(
-        "SELECT id, requestor_id, status_code, input_data, inserted_by "
+        "SELECT id, requestor_type, requestor_id, link_type, link_id, context_type, "
+        "context_id, status_code, input_data, inserted_by "
         "FROM rwb_job WHERE rwb_job_type = 'run_geohaz' ORDER BY requestor_id",
         {}, connection="WORKBENCH")
     assert len(rows) == 2
@@ -121,6 +122,10 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
         assert input_data["irp_portfolio_id"] == str(row["requestor_id"])
         assert input_data["requested_by_user_id"] == iteration2_db.user_a
         assert str(row["inserted_by"]) == iteration2_db.user_a
+        assert row["requestor_type"] == "analyst_request"
+        assert row["link_type"] == "edm" and row["link_id"] == edm_id
+        assert (row["context_type"] == "portfolio"
+                and row["context_id"] == row["requestor_id"])
         assert row["status_code"] == "pending"
     assert set(sent) == {(str(row["id"]), "run_geohaz") for row in rows}
 

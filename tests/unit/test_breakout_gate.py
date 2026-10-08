@@ -32,7 +32,7 @@ from app.services.breakout_service import (
     load_approved_plan,
     request_breakout,
 )
-from db import execute_command
+from db import execute_command, execute_one
 from tests.unit.breakout_rows import (
     AS_OF,
     PRE_ITERATION_SUMMARY,
@@ -261,6 +261,12 @@ def test_confirm_happy_path_persists_plan_and_enqueues_one_job(
     assert job["rwb_job_type"] == "run_breakout_lob"
     assert job["requestor_type"] == "analyst_request"
     assert job["requestor_id"] == pid          # the SOURCE portfolio (FR-015)
+    attribution = execute_one(
+        "SELECT link_type, link_id, context_type, context_id, inserted_by "
+        "FROM rwb_job WHERE id = :i", {"i": job["id"]}, connection="WORKBENCH")
+    assert attribution["link_type"] == "edm" and attribution["link_id"] == edm_id
+    assert attribution["context_type"] == "portfolio" and attribution["context_id"] == pid
+    assert attribution["inserted_by"] == iteration2_db.user_a
     data = json.loads(job["input_data"])
     assert data["edm_id"] == edm_id
     assert data["portfolio_id"] == pid
