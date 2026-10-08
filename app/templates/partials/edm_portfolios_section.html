@@ -37,7 +37,6 @@
     <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
     {% endif %}
     <span class="sec__spacer"></span>
-    <span class="sec__note">Break out creates one sub-portfolio per value of the chosen dimension</span>
     {% if edm.portfolios %}
     <button class="btn-sm" type="button" data-collapse-all onclick="event.preventDefault()"
             title="Collapse every expanded row">Collapse all</button>
@@ -66,7 +65,6 @@
     <input type="hidden" name="submission_id" value="{{ gh_sub }}">
     {% endif %}
     <div class="section-head">
-      <span class="tag-empty">Select one or more available portfolios.</span>
       <div class="section-head__actions">
         <button class="btn-sm btn-sm--primary" type="submit"
                 :disabled="count === 0">Run hazard lookup</button>
