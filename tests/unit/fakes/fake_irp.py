@@ -18,6 +18,7 @@ Name-collision hits are seeded via ``add_edm_name`` / ``add_rdm_name``.
 from __future__ import annotations
 
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,7 @@ class FakeIRP:
         self._summaries: dict[str, dict[str, dict]] = {}
         self.raise_on_exposure_summary = False
         self.summary_reads: list[str] = []
+        self.summary_portfolio_ids: list[list[str] | None] = []
         # per-analysis metadata failure knob (US3 — blank, never error)
         self.raise_on_analysis_metadata = False
         # ── spec-005 breakout knobs ──────────────────────────────────────────
@@ -559,12 +561,18 @@ class FakeIRP:
                 return ExposureDetail(payload=p["exposure"])
         raise RuntimeError(f"fake IRP: unknown portfolio {portfolio_irp_id}")
 
-    def get_edm_exposure_summary(self, *, edm_name: str,
-                                 edm_irp_id: int) -> dict[str, dict]:
+    def get_edm_exposure_summary(
+            self, *, edm_name: str, edm_irp_id: int,
+            portfolio_irp_ids: Sequence[str] | None = None) -> dict[str, dict]:
         self.summary_reads.append(edm_name)
+        self.summary_portfolio_ids.append(
+            None if portfolio_irp_ids is None else list(portfolio_irp_ids))
         if self.raise_on_exposure_summary:
             raise RuntimeError("fake IRP: forced exposure-summary failure")
-        return self._summaries.get(edm_name, {})
+        summary = self._summaries.get(edm_name, {})
+        if portfolio_irp_ids is None:
+            return summary
+        return {k: v for k, v in summary.items() if k in set(portfolio_irp_ids)}
 
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:
         if self.raise_on_search_treaties:

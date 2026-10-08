@@ -14,6 +14,9 @@
 -- region into ~30 single-island countries and leave nothing to select for the
 -- whole-Caribbean breakout CIC actually runs, so CB wins over the ISO code and
 -- portfolio_states.sql takes the island as the state value (D5).
+--
+-- portfolio_ids holds the Risk Modeler portfolio ids to read, joined on CHAR(31),
+-- or NULL for every portfolio (spec 207).
 
 SELECT
     pa.PORTINFOID AS PortfolioId,
@@ -30,6 +33,8 @@ INNER JOIN dbo.Address AS a
     ON a.AddressID = p.ADDRESSID
 WHERE CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryRMSCode
            ELSE COALESCE(NULLIF(a.CountryCode, ''), a.CountryRMSCode) END IS NOT NULL
+  AND ({{ portfolio_ids }} IS NULL OR pa.PORTINFOID IN (
+          SELECT CAST(value AS INT) FROM STRING_SPLIT({{ portfolio_ids }}, CHAR(31))))
 GROUP BY pa.PORTINFOID, pi.PORTNAME,
     CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryRMSCode
          ELSE COALESCE(NULLIF(a.CountryCode, ''), a.CountryRMSCode) END

@@ -3,6 +3,9 @@
 -- the breakout preview's per-value account count). Read-only SELECT; the
 -- target EDM database is selected at the connection level (no USE here).
 -- Adapted (set-based) from knowledge/sql scripts/portfolio_lines_of_business.sql.
+--
+-- portfolio_ids holds the Risk Modeler portfolio ids to read, joined on CHAR(31),
+-- or NULL for every portfolio (spec 207).
 
 SELECT
     pa.PORTINFOID AS PortfolioId,
@@ -17,5 +20,7 @@ INNER JOIN dbo.policy AS p
 INNER JOIN dbo.lobdet AS l
     ON l.LOBDETID = p.LOBDETID
 WHERE NULLIF(LTRIM(RTRIM(l.LOBNAME)), '') IS NOT NULL
+  AND ({{ portfolio_ids }} IS NULL OR pa.PORTINFOID IN (
+          SELECT CAST(value AS INT) FROM STRING_SPLIT({{ portfolio_ids }}, CHAR(31))))
 GROUP BY pa.PORTINFOID, pi.PORTNAME, l.LOBNAME
 ORDER BY PortfolioId, LineOfBusiness;
