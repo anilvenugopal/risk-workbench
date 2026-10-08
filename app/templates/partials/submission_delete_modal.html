@@ -1,6 +1,6 @@
 {# Delete confirm dialog (issue 206), fetched into #submission-delete-modal.
-   Markup fixed by docs/ui_previews/submission_delete_modal.html. A refusal
-   shows its reason and no Delete button. #}
+   A refusal shows its reason and no Delete button. #}
+{% macro counted(n, one, many=none) %}<b>{{ n }}</b> {{ one if n == 1 else many or one ~ "s" }}{% endmacro %}
 {% set close = "document.getElementById('submission-delete-modal').replaceChildren()" %}
 <div class="modal-overlay" x-data>
   <div class="modal-card modal-card--delete" role="dialog" aria-modal="true" aria-labelledby="submission-delete-title">
@@ -13,18 +13,16 @@
     <div class="modal-body">
       <div class="del-lead">Deleting <b>{{ submission.name }}</b> also deletes:</div>
       <ul class="del-list">
-        {% if summary.contract_count %}<li><b>{{ summary.contract_count }}</b> contract{{ "s" if summary.contract_count != 1 }}</li>{% endif %}
+        {% if summary.contract_count %}<li>{{ counted(summary.contract_count, "contract") }}</li>{% endif %}
         {% if summary.edm_count or summary.rdm_count %}
-        <li>its links to
-          {% if summary.edm_count %}<b>{{ summary.edm_count }}</b> EDM{{ "s" if summary.edm_count != 1 }}{% endif %}
-          {% if summary.edm_count and summary.rdm_count %} and {% endif %}
-          {% if summary.rdm_count %}<b>{{ summary.rdm_count }}</b> RDM{{ "s" if summary.rdm_count != 1 }}{% endif %}</li>
+        <li>its links to {{ [counted(summary.edm_count, "EDM") if summary.edm_count,
+                             counted(summary.rdm_count, "RDM") if summary.rdm_count]
+                            | select | join(" and ") }}</li>
         {% endif %}
         {% if summary.imported_count or summary.group_count %}
-        <li>
-          {% if summary.imported_count %}<b>{{ summary.imported_count }}</b> imported analys{{ "es" if summary.imported_count != 1 else "is" }}{% endif %}
-          {% if summary.imported_count and summary.group_count %} and {% endif %}
-          {% if summary.group_count %}<b>{{ summary.group_count }}</b> analysis group{{ "s" if summary.group_count != 1 }}{% endif %}</li>
+        <li>{{ [counted(summary.imported_count, "imported analysis", "imported analyses") if summary.imported_count,
+                counted(summary.group_count, "analysis group") if summary.group_count]
+               | select | join(" and ") }}</li>
         {% endif %}
         <li>its Modeling status history</li>
         {% for linked in summary.linking %}
