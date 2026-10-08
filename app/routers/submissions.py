@@ -26,7 +26,6 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy.exc import IntegrityError
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
@@ -71,10 +70,10 @@ from app.services.errors import (
     NameCollisionError,
     SelfLinkError,
     SubmissionClosed,
+    SubmissionDeleteBlocked,
     UnknownLinkError,
 )
 from app.services.grouping_view import build_inspection_screen
-from app.services.submission_delete_service import SubmissionDeleteBlocked
 
 router = APIRouter()
 
@@ -1585,10 +1584,11 @@ def _set_archived(request: Request, submission_id: str, csrf_token: str,
                   archived: bool):
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-    if submission_service.get_submission(submission_id) is None:
+    try:
+        submission_service.set_archived(submission_id=submission_id, archived=archived,
+                                        actor_id=request.state.user.id)
+    except LookupError:
         return _not_found(request)
-    submission_service.set_archived(submission_id=submission_id, archived=archived,
-                                    actor_id=request.state.user.id)
     if _is_htmx(request):
         return _head_partial(request, submission_id)
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
@@ -1614,7 +1614,6 @@ def _delete_modal(request: Request, submission, summary, status_code: int = 200)
 
 @router.get("/submissions/{submission_id}/delete", response_class=HTMLResponse)
 def delete_modal(request: Request, submission_id: str):
-    """The confirm dialog: what the delete removes, or why it is refused."""
     _, denied = require_admin(request)
     if denied:
         return denied
@@ -1627,8 +1626,6 @@ def delete_modal(request: Request, submission_id: str):
 
 @router.post("/submissions/{submission_id}/delete")
 def delete(request: Request, submission_id: str, csrf_token: str = Form(...)):
-    """Success sends the browser to the Submissions list; a refusal re-renders
-    the dialog with its reason and 409."""
     _, denied = require_admin(request)
     if denied:
         return denied
@@ -1640,13 +1637,12 @@ def delete(request: Request, submission_id: str, csrf_token: str = Form(...)):
     try:
         submission_delete_service.delete_submission(
             submission_id=submission_id, actor_id=request.state.user.id)
-    except (SubmissionDeleteBlocked, IntegrityError) as exc:
-        reason = (exc.reason if isinstance(exc, SubmissionDeleteBlocked) else
-                  "Work on this submission started while it was being deleted. "
-                  "Nothing was deleted; try again.")
+    except SubmissionDeleteBlocked as exc:
         summary = replace(submission_delete_service.delete_summary(submission_id),
-                          blocked=reason)
+                          blocked=str(exc))
         return _delete_modal(request, submission, summary, status_code=409)
+    except LookupError:
+        return _not_found(request)
     if _is_htmx(request):
         return Response(status_code=204, headers={"HX-Redirect": "/submissions"})
     return RedirectResponse("/submissions", status_code=303)

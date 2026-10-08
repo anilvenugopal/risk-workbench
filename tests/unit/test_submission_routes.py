@@ -32,7 +32,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
-from app.services import rwb_job_service, submission_service
+from app.services import rwb_job_service, submission_delete_service, submission_service
 from app.services.submission_service import ContractInput
 from db import execute, execute_command, execute_scalar
 from tests.unit.conftest import cedant_id
@@ -2683,7 +2683,7 @@ def test_archive_without_a_csrf_token_writes_nothing(client):
 
 # ── Delete (issue 206, admin only) ────────────────────────────────────────────
 
-def test_only_an_admin_sees_delete_and_reaches_its_routes(client, loss_db):
+def test_only_an_admin_sees_delete_and_reaches_its_routes(client):
     sid, _ = _deal(client, name="Admin_only")
     assert f'hx-get="/submissions/{sid}/delete"' not in client.get(f"/submissions/{sid}").text
     assert client.get(f"/submissions/{sid}/delete").status_code == 302
@@ -2695,7 +2695,7 @@ def test_only_an_admin_sees_delete_and_reaches_its_routes(client, loss_db):
     assert f'hx-get="/submissions/{sid}/delete"' in client.get(f"/submissions/{sid}").text
 
 
-def test_the_delete_dialog_lists_what_goes(client, loss_db):
+def test_the_delete_dialog_lists_what_goes(client):
     client.user.is_admin = True
     sid, _ = _deal(client, name="Counted", crm_ids="DEL-1,DEL-2")
     body = client.get(f"/submissions/{sid}/delete", headers=_HX).text
@@ -2703,7 +2703,7 @@ def test_the_delete_dialog_lists_what_goes(client, loss_db):
     assert ">Delete submission</button>" in body
 
 
-def test_delete_sends_the_browser_to_the_list(client, loss_db):
+def test_delete_sends_the_browser_to_the_list(client):
     client.user.is_admin = True
     sid, _ = _deal(client, name="Deleted_deal")
     response = client.post(f"/submissions/{sid}/delete",
@@ -2713,7 +2713,7 @@ def test_delete_sends_the_browser_to_the_list(client, loss_db):
     assert submission_service.get_submission(sid) is None
 
 
-def test_running_work_refuses_the_delete_with_its_reason(client, loss_db):
+def test_running_work_refuses_the_delete_with_its_reason(client):
     client.user.is_admin = True
     sid, _ = _deal(client, name="Busy_deal")
     execute_command(
@@ -2728,7 +2728,18 @@ def test_running_work_refuses_the_delete_with_its_reason(client, loss_db):
     assert submission_service.get_submission(sid) is not None
 
 
-def test_delete_without_a_csrf_token_deletes_nothing(client, loss_db):
+def test_a_submission_deleted_meanwhile_is_not_found(client, monkeypatch):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Gone_meanwhile")
+
+    def gone(**kwargs):
+        raise LookupError(sid)
+    monkeypatch.setattr(submission_delete_service, "delete_submission", gone)
+    response = client.post(f"/submissions/{sid}/delete", data={"csrf_token": _csrf()})
+    assert response.status_code == 404
+
+
+def test_delete_without_a_csrf_token_deletes_nothing(client):
     client.user.is_admin = True
     sid, _ = _deal(client, name="No_csrf_delete")
     response = client.post(f"/submissions/{sid}/delete", data={"csrf_token": "nope"})

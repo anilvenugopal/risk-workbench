@@ -189,6 +189,46 @@ def seed_export_job(*, export_id: str, irp_analysis_id: str, irp_id: str, status
     return job_id
 
 
+def wb(sql: str, params: dict) -> None:
+    execute_command(sql, params, connection="WORKBENCH")
+
+
+def seed_submission_analysis(submission_id: str, *, is_group: int = 0) -> str:
+    """An imported analysis (``is_group=0``) or analysis group on the submission."""
+    analysis_id = str(uuid.uuid4())
+    wb("INSERT INTO irp_analysis (id, submission_id, name, status_code, is_group, "
+       "inserted_at, updated_at) VALUES (:id, :s, :n, 'ready', :g, :now, :now)",
+       {"id": analysis_id, "s": submission_id, "n": f"A-{analysis_id[:6]}",
+        "g": is_group, "now": NOW})
+    return analysis_id
+
+
+def seed_irp_job(*, submission_id: str | None = None, analysis_id: str | None = None,
+                 status: str = "FINISHED") -> str:
+    job_id = str(uuid.uuid4())
+    wb("INSERT INTO irp_job (id, requested_from_submission_id, irp_analysis_id, "
+       "irp_job_type, irp_id, status, submission_attempt_count, inserted_at, updated_at) "
+       "VALUES (:id, :s, :a, 'analysis', :irp, :st, 1, :now, :now)",
+       {"id": job_id, "s": submission_id, "a": analysis_id, "irp": job_id[:8],
+        "st": status, "now": NOW})
+    return job_id
+
+
+def seed_rwb_job(job_type: str, *, requestor=("analyst_request", None),
+                 link=("not_applicable", None), context=(None, None),
+                 input_data: dict | None = None, status: str = "succeeded") -> str:
+    job_id = str(uuid.uuid4())
+    wb("INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, link_id, "
+       "context_type, context_id, rwb_job_type, status_code, input_data, attempt_count, "
+       "inserted_at, updated_at) VALUES (:id, :rt, :rid, :lt, :lid, :ct, :cid, :jt, :st, "
+       ":input, 1, :now, :now)",
+       {"id": job_id, "rt": requestor[0], "rid": requestor[1] or str(uuid.uuid4()),
+        "lt": link[0], "lid": link[1], "ct": context[0], "cid": context[1],
+        "jt": job_type, "st": status,
+        "input": json.dumps(input_data) if input_data else None, "now": NOW})
+    return job_id
+
+
 def rwb_jobs(rwb_job_type: str) -> list[dict]:
     return [dict(r) for r in __import__("db").execute(
         "SELECT * FROM rwb_job WHERE rwb_job_type = :t ORDER BY inserted_at, id",
@@ -198,5 +238,6 @@ def rwb_jobs(rwb_job_type: str) -> list[dict]:
 __all__ = [
     "NOW", "seed_submission", "seed_edm_for", "seed_rdm_for", "seed_analysis", "seed_client",
     "seed_lookup_versions", "seed_manifest", "manifest_row", "manifest_for", "seed_export_job",
-    "rwb_jobs", "loss_results", "date",
+    "rwb_jobs", "loss_results", "date", "wb", "seed_submission_analysis", "seed_irp_job",
+    "seed_rwb_job",
 ]
