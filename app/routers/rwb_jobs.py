@@ -17,9 +17,9 @@ from fastapi.responses import HTMLResponse, Response
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._list_filters import submitted_by_filter
 from app.services import auth_service, rwb_job_service
 from app.services._common import _as_datetime, _format_duration, _parse_int, _utcnow
-from app.services.submission_filters import _as_uuid
 
 router = APIRouter()
 
@@ -27,11 +27,6 @@ _NAV_KEY = "workflows.rwb_jobs"
 # The table fragment's element id; a request naming it as its HTMX target gets
 # the table alone, skipping the picker reads htmx would only discard.
 _LIST_TARGET = "rwb-jobs-live"
-# Direction a column starts in on its first click: text up, time down.
-_SORT_STARTS_DESCENDING = {
-    "rwb_job_type": False, "entity_name": False, "submitted_by": False,
-    "status_code": False, "submitted_at": True,
-}
 
 
 def _elapsed_seconds(row: dict, *, now: datetime) -> float | None:
@@ -74,15 +69,19 @@ def _partial(request: Request, template: str, ctx: dict, status_code: int = 200)
     )
 
 
+def _starts_descending(sort: str) -> bool:
+    # Direction a column starts in on its first click: text up, time down.
+    return sort == "submitted_at"
+
+
 def _sort_links(filter_query: str, sort: str, descending: bool) -> dict[str, dict]:
     """One link per sortable header cell (D15). Clicking the sorted column flips
     its direction; each link carries the filters, so sorting never drops them."""
     stem = "/workflows/rwb-jobs?" + (f"{filter_query}&" if filter_query else "")
     links = {}
-    for key in _SORT_STARTS_DESCENDING:
+    for key in rwb_job_service.MONITOR_SORTS:
         active = key == sort
-        next_descending = (not descending if active
-                           else _SORT_STARTS_DESCENDING[key])
+        next_descending = not descending if active else _starts_descending(key)
         links[key] = {
             "href": f"{stem}sort={key}&dir={'desc' if next_descending else 'asc'}",
             "active": active,
@@ -113,17 +112,14 @@ def _list_context(request: Request) -> dict:
     params = request.query_params
     rwb_job_types = [v.strip() for v in params.getlist("job_type") if v.strip()]
     status_codes = [v.strip() for v in params.getlist("job_status") if v.strip()]
-    by_params = [v.strip() for v in params.getlist("submitted_by")
-                 if v.strip() == "any" or _as_uuid(v) == v.strip().lower()]
-    submitted_by = ([str(request.state.user.id)] if not by_params
-                    else [] if "any" in by_params else by_params)
+    submitted_by, by_params = submitted_by_filter(params, request.state.user.id)
     # A URL without a sort param is newest first, Submitted at's own order.
     sort = params.get("sort", "")
-    explicit_sort = sort in _SORT_STARTS_DESCENDING
+    explicit_sort = sort in rwb_job_service.MONITOR_SORTS
     if not explicit_sort:
         sort = "submitted_at"
     descending = {"asc": False, "desc": True}.get(
-        params.get("dir", ""), _SORT_STARTS_DESCENDING[sort])
+        params.get("dir", ""), _starts_descending(sort))
     page = max(1, _parse_int(params.get("page")) or 1)
 
     rows, has_next = rwb_job_service.list_rwb_jobs_for_monitoring(
