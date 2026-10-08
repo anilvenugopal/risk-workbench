@@ -238,6 +238,8 @@ class FakeIRP:
         self.analysis_submits: list[dict] = []
         # job_name -> forced IRPIntegrationError on the next submit for that name
         self.raise_on_submit_analysis_for: set[str] = set()
+        # job_name -> HTTP status of the IRPAPIError the submit raises for that name
+        self.submit_analysis_status_for: dict[str, int] = {}
         # recorded delete_analysis calls, in order
         self.deleted_analyses: list[str] = []
         # irp_id -> forced IRPIntegrationError on delete_analysis (per-id,
@@ -723,6 +725,11 @@ class FakeIRP:
         if job_name in self.raise_on_submit_analysis_for:
             raise IRPIntegrationError(
                 f"fake IRP: forced analysis submit failure for '{job_name}'")
+        if job_name in self.submit_analysis_status_for:
+            status = self.submit_analysis_status_for[job_name]
+            raise IRPAPIError(
+                f"fake IRP: analysis submit for '{job_name}' got HTTP {status}",
+                status_code=status)
         irp_id = self._next_id()
         self.jobs[irp_id] = "QUEUED"
         request_body = {

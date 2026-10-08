@@ -36,8 +36,8 @@
         <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
         <div class="form-banner" role="status" x-show="queued" x-cloak>{{ entity_kind }} import started: <span x-text="queued"></span>.</div>
         <div class="modal-footer entity-modal-footer">
-          <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
-          <button class="modal-btn modal-btn--primary" type="submit" :disabled="!canSubmit">Import {{ entity_kind }}</button>
+          <button class="btn" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
+          <button class="btn btn--primary" type="submit" :disabled="!canSubmit">Import {{ entity_kind }}</button>
         </div>
       </form>
 
@@ -72,8 +72,8 @@
             </div>
           </div>
           <div class="modal-footer entity-modal-footer">
-            <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
-            <button class="modal-btn modal-btn--primary" type="submit">Add selected</button>
+            <button class="btn" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
+            <button class="btn btn--primary" type="submit">Add selected</button>
           </div>
         </form>
       </div>

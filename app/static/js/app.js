@@ -1455,11 +1455,13 @@ document.addEventListener('grouping-submitted', (e) => {
 // deleted or no longer deletable simply has no box to restore); one bubbling
 // change event makes analysisPicks() recount. Keyed by the section's own id;
 // data-restore-open marks the EDM page's Analyses section, the submission
-// page's Results section, and its Exports section (spec 014).
+// page's Results section, its Exports section (spec 014), and the RDM page's
+// #rdm-detail body.
 let _analysesRestore = null;
 document.addEventListener('htmx:beforeSwap', (e) => {
   const target = e.detail.target;
-  if (!target || !target.hasAttribute
+  // A 204 fires beforeSwap with shouldSwap false and no afterSwap follows.
+  if (!e.detail.shouldSwap || !target || !target.hasAttribute
       || !target.hasAttribute('data-restore-open')) return;
   _analysesRestore = {
     id: target.id,
@@ -1570,6 +1572,13 @@ document.addEventListener('click', (e) => {
   area.remove();
   btn.focus();
   (ok ? copied : failed)();
+});
+document.addEventListener('click', (e) => {
+  const btn = e.target instanceof Element && e.target.closest('[data-collapse-all]');
+  if (!btn) return;
+  btn.closest('details.sec')
+    .querySelectorAll('details.drow[open], details.dtable__rdm[open]')
+    .forEach((row) => { row.open = false; });
 });
 
 // The checked ids travel in tick order — kept per section by a document-level

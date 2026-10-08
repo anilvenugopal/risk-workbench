@@ -34,7 +34,12 @@ from typing import Any, Literal, Protocol, Sequence, runtime_checkable
 # Re-exported so callers (workers, FakeIRP) never import irp-integration directly
 # — this module stays the sole importer (T007). ``submit_portfolio_analysis``
 # raises this on any submit failure (spec 010, contracts/irp-gateway.md).
-from irp_integration.exceptions import IRPAPIError, IRPGroupingValidationError, IRPIntegrationError
+from irp_integration.exceptions import (
+    IRPAPIError,
+    IRPAuthenticationError,
+    IRPGroupingValidationError,
+    IRPIntegrationError,
+)
 
 # Spec 012 grouping types (contracts/grouping-worker.md): the service renders
 # ``GroupingInspection`` and the worker reads ``IRPGroupingValidationError.problems``.
@@ -53,6 +58,18 @@ from irp_integration.grouping import (
 from app.services._common import _utcnow
 
 logger = logging.getLogger(__name__)
+
+
+def is_permanent_submit_failure(exc: BaseException) -> bool:
+    """Whether Risk Modeler rejected the submit itself, so resending the same
+    request fails the same way: an HTTP 4xx other than 429. A bearer login
+    rejected while ``IRPClient()`` is built raises ``IRPAuthenticationError``,
+    not ``IRPAPIError``. A connection error, a 5xx or a failure with no HTTP
+    status stays retryable."""
+    if (not isinstance(exc, (IRPAPIError, IRPAuthenticationError))
+            or exc.status_code is None):
+        return False
+    return 400 <= exc.status_code < 500 and exc.status_code != 429
 
 # Repo-owned, read-only DataBridge scripts — the per-EDM summary aggregates
 # (get_edm_exposure_summary) and the per-portfolio breakout selection and
@@ -1842,4 +1859,5 @@ __all__ = [
     "GroupingProblem",
     "GroupingTreaty", "SimulationSetOption",
     "IRPIntegrationError", "IRPAPIError", "IRPGroupingValidationError",
+    "is_permanent_submit_failure",
 ]

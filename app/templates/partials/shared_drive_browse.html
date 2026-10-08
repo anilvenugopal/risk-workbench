@@ -9,11 +9,11 @@
   <div class="drive-browse__bar">
     <span class="drive-browse__path" title="{{ listing.path }}">{{ listing.path }}</span>
     {% if dirs_only %}
-    <button class="btn-sm" type="button" data-select-dir="{{ listing.path }}">
+    <button class="btn btn--sm" type="button" data-select-dir="{{ listing.path }}">
       Use this folder</button>
     {% endif %}
     {% if listing.parent %}
-    <a class="btn-sm" href="#" hx-get="/browse?path={{ listing.parent | urlencode }}{{ mode }}"
+    <a class="btn btn--sm" href="#" hx-get="/browse?path={{ listing.parent | urlencode }}{{ mode }}"
        hx-target="#shared-drive-browse" hx-swap="outerHTML">↑ Up</a>
     {% endif %}
   </div>

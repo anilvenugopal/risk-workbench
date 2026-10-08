@@ -45,7 +45,7 @@
     <span class="contract-band__label">Contracts{% if contracts %} ({{ contracts|length }}){% endif %}</span>
     {% if is_active %}
     <span class="contract-band__actions">
-      <button class="btn-sm" type="button" x-show="!adding" @click="adding = true">+ Add contract</button>
+      <button class="btn btn--sm" type="button" x-show="!adding" @click="adding = true">+ Add contract</button>
     </span>
     {% endif %}
   </div>
@@ -61,8 +61,8 @@
     {% set reopened = edit_row and edit_row.id == c.id %}
     <div class="contract-row" x-data="{ editing: {{ 'true' if reopened else 'false' }} }"
          :class="editing && 'contract-row--edit'">
-      <span class="contract-row__id" x-show="!editing">{{ c.crm_id }}</span>
-      <span class="contract-row__type" x-show="!editing">{{ c.treaty_type_label or c.treaty_type_code }}</span>
+      <span class="contract-row__id" title="{{ c.crm_id }}" x-show="!editing">{{ c.crm_id }}</span>
+      <span class="contract-row__type" title="{{ c.treaty_type_label or c.treaty_type_code }}" x-show="!editing">{{ c.treaty_type_label or c.treaty_type_code }}</span>
       <span class="contract-date" x-show="!editing">{{ c.inception_date }}</span>
       <span class="contract-date" x-show="!editing">{{ c.expiration_date }}</span>
       {# Won / Lost / Open, set in place in every Modeling status (P-02, P-12). #}
@@ -100,8 +100,8 @@
         {{ editor_fields(edit_row if reopened else c, status_field=False) }}
         <span></span>
         <span class="contract-row__foot">
-          <button class="btn-sm btn-sm--primary" type="submit">Save</button>
-          <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
+          <button class="btn btn--sm btn--primary" type="submit">Save</button>
+          <button class="btn btn--sm" type="button" @click="editing = false">Cancel</button>
         </span>
       </form>
       {% endif %}
@@ -123,8 +123,8 @@
       {{ editor_fields(fresh) }}
       <span></span>
       <span class="contract-row__foot">
-        <button class="btn-sm btn-sm--primary" type="submit">Add</button>
-        <button class="btn-sm" type="button" @click="adding = false">Cancel</button>
+        <button class="btn btn--sm btn--primary" type="submit">Add</button>
+        <button class="btn btn--sm" type="button" @click="adding = false">Cancel</button>
       </span>
     </form>
     {% endif %}

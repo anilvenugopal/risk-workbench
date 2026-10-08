@@ -441,7 +441,8 @@ def _retry_submission(row: dict) -> None:
         irp_id, request_body = irp_gateway.submit_portfolio_analysis(**params)
     except Exception as exc:  # noqa: BLE001 — stays SUBMISSION FAILED, retried again later
         attempts = row["submission_attempt_count"] + 1
-        exhausted = attempts >= settings.irp_submission_max_retries
+        exhausted = (attempts >= settings.irp_submission_max_retries
+                     or irp_gateway.is_permanent_submit_failure(exc))
         with get_connection("WORKBENCH") as conn, conn.begin():
             conn.execute(text(
                 "UPDATE irp_job SET status = 'SUBMISSION FAILED', "
@@ -544,6 +545,7 @@ def _submission_retry() -> None:
             AND irp_analysis_id IS NOT NULL
         ) j
         JOIN irp_analysis a ON a.id = j.irp_analysis_id AND a.deleted_at IS NULL
+          AND a.status_code = 'pending'
         WHERE j.row_num = 1
           AND j.submission_attempt_count < :max_retries
         """,

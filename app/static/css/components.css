@@ -79,19 +79,35 @@
 .icon-btn:hover  { background: var(--surface-hover); color: var(--text-primary); }
 .icon-btn:active { background: var(--surface-recessed); }
 
-/* ── Small text button ───────────────────────────────────────────────────── */
-.btn-sm {
-  font-size: var(--fs-caption);
-  padding: 4px 10px;
+/* ── Button ──────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
   border: 1px solid var(--border-default);
   background: var(--surface-panel);
-  border-radius: var(--radius-sm);
   cursor: pointer;
-  color: var(--text-secondary);
+  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease, color var(--dur-fast) ease;
 }
-.btn-sm--primary { background: var(--color-brand); color: var(--btn-primary-fg); border-color: var(--color-brand); }
-.btn-sm--danger:hover { border-color: var(--color-danger); color: var(--color-danger); }
-.btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn--sm {
+  height: auto;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-regular);
+}
+.btn--primary { color: var(--btn-primary-fg); background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); }
+.btn--danger  { color: var(--color-danger); border-color: var(--color-danger-border); }
+.btn:hover:not(:disabled)  { background: var(--surface-hover); border-color: var(--border-strong); color: var(--text-primary); }
+.btn:active:not(:disabled) { background: var(--surface-recessed); }
+.btn--primary:hover:not(:disabled) { background: var(--color-brand-hover); border-color: var(--color-brand-hover); color: var(--btn-primary-fg); }
+.btn--danger:hover:not(:disabled)  { background: var(--color-danger-bg); border-color: var(--color-danger); color: var(--color-danger); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Modal ──────────────────────────────────────────────────────────────── */
 .modal-overlay {
@@ -224,36 +240,6 @@
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border-faint);
 }
-.modal-btn {
-  display: inline-flex;
-  align-items: center;
-  height: 30px;
-  padding: 0 var(--space-4);
-  border-radius: var(--radius-md);
-  font-size: var(--fs-label);
-  font-weight: var(--fw-medium);
-  cursor: pointer;
-  transition: background var(--dur-fast) ease, opacity var(--dur-fast) ease;
-}
-.modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.modal-btn--secondary {
-  color: var(--text-secondary);
-  border: 1px solid var(--border-default);
-  background: transparent;
-}
-.modal-btn--secondary:hover:not(:disabled) { background: var(--surface-hover); }
-.modal-btn--primary {
-  color: var(--btn-primary-fg);
-  background: var(--btn-primary-bg);
-  border: 1px solid transparent;
-}
-.modal-btn--primary:hover:not(:disabled) { background: var(--color-brand-hover); }
-.modal-btn--danger {
-  background: var(--color-danger);
-  color: #fff;
-  border: 1px solid var(--color-danger);
-}
-.modal-btn--danger:hover { filter: brightness(.94); }
 
 /* ── Compare modal (spec 013): candidate list, cart, base tag ────────────── */
 .cmp-hint { font-size: var(--fs-label); color: var(--text-tertiary); }

@@ -28,9 +28,9 @@
       {%- if default_persp and default_persp.produced and default_persp.aal is not none -%}
       <span class="aal-num" title="{{ default_persp.aal }}" data-value="{{ default_persp.aal }}">{{ default_persp.aal_display }}</span>
       {%- elif a.results_state == 'failed' -%}
-      <span class="aal-state aal-state--failed">retrieval failed</span>
+      <span class="aal-state aal-state--failed" title="retrieval failed">retrieval failed</span>
       {%- elif a.results_state == 'pending' and run_finished -%}
-      <span class="aal-state">retrieving&hellip;</span>
+      <span class="aal-state" title="retrieving&hellip;">retrieving&hellip;</span>
       {%- else -%}
       <span class="na">&mdash;</span>
       {%- endif -%}
@@ -40,7 +40,7 @@
 {# Re-runs the analysis's own retrieval job (spec 011 FR-007). Rendered
    inside an existing cell, never as a new <summary> child. #}
 {%- macro retry_button(a) -%}
-<button class="btn-sm" type="button" onclick="event.stopPropagation()"
+<button class="btn btn--sm" type="button" onclick="event.stopPropagation()"
         hx-post="/results/analyses/{{ a.id }}/retry" hx-include="#analyses-csrf"
         hx-swap="none">Retry</button>
 {%- endmacro -%}
@@ -71,3 +71,25 @@
       {% else %}<span class="na">&mdash;</span>{% endif %}
     </span>
 {%- endmacro -%}
+
+{# One click-to-sort header cell (note 27 D6, copying the 8/9 D15 pattern).
+   A <button>, not the <a> the two submissions copies use: the target here is an
+   HTML fragment, so an href would be a broken ctrl-click destination, and an
+   <a> without one gets no tab stop and no Enter key. `aria-label`, not
+   `aria-sort`, because this grid is a CSS grid of <span>s rather than a table;
+   it repeats the column name because aria-label replaces the visible text.
+   `data-value` keeps the caret glyph out of Copy table. The sort state arrives
+   as an argument — a macro cannot read this template's own variables; its
+   optional `trigger` replaces the plain click. #}
+{% macro sort_th(key, label, st, cls='l') %}
+{% set active = st.key == key %}
+{% set next_desc = (not st.desc) if active else (key in ('submitted', 'aal')) %}
+<span{% if cls %} class="{{ cls }}"{% endif %} data-value="{{ label }}" title="{{ label }}">
+  <button type="button" class="sort-th{{ ' is-sorted' if active }}"
+          aria-label="{{ label }}{{ (', sorted descending' if st.desc else ', sorted ascending') if active }}"
+          hx-get="{{ st.stem }}sort={{ key }}&amp;dir={{ 'desc' if next_desc else 'asc' }}"
+          hx-target="#{{ st.target }}" hx-swap="outerHTML"
+          {%- if st.trigger %} hx-trigger="{{ st.trigger }}"{% endif %}>{{ label
+    }}<span class="sort-th__caret" aria-hidden="true">{{ ('▼' if st.desc else '▲') if active else '' }}</span></button>
+</span>
+{% endmacro %}

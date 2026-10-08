@@ -42,9 +42,9 @@
     <form class="modal-footer" method="post" action="/submissions/{{ submission.id }}/delete"
           hx-post="/submissions/{{ submission.id }}/delete" hx-target="#submission-delete-modal">
       <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-      <button class="modal-btn modal-btn--secondary" type="button" @click="{{ close }}">{{ "Close" if summary.blocked else "Cancel" }}</button>
+      <button class="btn" type="button" @click="{{ close }}">{{ "Close" if summary.blocked else "Cancel" }}</button>
       {% if not summary.blocked %}
-      <button class="modal-btn modal-btn--danger" type="submit">Delete submission</button>
+      <button class="btn btn--danger" type="submit">Delete submission</button>
       {% endif %}
     </form>
   </div>
