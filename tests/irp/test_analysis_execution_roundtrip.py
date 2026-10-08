@@ -1,11 +1,11 @@
 """Sandbox round-trip for analysis execution (spec 010, T024).
 
-One real submit → single-status poll → completion backfill, against the active
-wheel (``make irp-status`` — signatures are pre-release and move). Needs a
-pre-existing sandbox EDM with at least one portfolio already imported — this
-tier assumes a populated tenant, not a bootstrap; set ``IRP_TEST_EDM_NAME`` /
-``IRP_TEST_PORTFOLIO_NAME`` to point at it. Skips (not fails) when unset, since
-no fixture name is safe to hardcode against someone else's sandbox tenant.
+One real submit → single-status poll → completion backfill, against the IRP
+sandbox. Needs a pre-existing sandbox EDM with at least one portfolio already
+imported — this tier assumes a populated tenant, not a bootstrap; set
+``IRP_TEST_EDM_NAME`` / ``IRP_TEST_PORTFOLIO_NAME`` to point at it. Skips (not
+fails) when unset, since no fixture name is safe to hardcode against someone
+else's sandbox tenant.
 
 Run: ``make shell`` then ``uv run pytest tests/irp --run-irp``.
 """

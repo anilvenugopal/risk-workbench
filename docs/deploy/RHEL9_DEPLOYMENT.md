@@ -113,9 +113,8 @@ differently (`--no-editable` still produces an unhashed local-path line
 for the same structural reason); see the script's own comments for the
 full reasoning.
 
-`requirements.txt` pins `irp-integration` 0.11.0 from PyPI. The server needs
-HTTPS access to PyPI during installation unless the packages are staged on
-the server before the deployment.
+The server needs HTTPS access to PyPI during installation unless the
+packages are staged on the server before the deployment.
 
 The three application databases must already exist. `rhel9-app-install.sh`
 does not create databases; it applies the Workbench Alembic migrations and

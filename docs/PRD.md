@@ -2,7 +2,7 @@
 
 **Status:** Draft for build · **Format:** Living document, kept in the repo  
 **Intended builder:** Claude Code (agent-built, iteration-sequenced)  
-**Source of domain truth:** `irp-workbench/` (IRP integration ground truth) + the active `irp-integration` wheel selected by the uv dependency groups
+**Source of domain truth:** `irp-workbench/` (IRP integration ground truth) + the `irp_integration/` package
 
 ---
 

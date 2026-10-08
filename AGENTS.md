@@ -97,7 +97,7 @@ Read these before any implementation work:
 
 - [docs/PRD.md](docs/PRD.md) — product requirements, feature scope, iteration roadmap
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — canonical entity and relationship definitions
-- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v4.3.0); all compliance gates
+- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v4.3.1); all compliance gates
 
 ## Specification Workflow
 
@@ -222,9 +222,9 @@ make db-migrate                                              # alembic upgrade h
   DATABRIDGE is never in schema scope (no DDL/migrations/bootstrap; reads only via
   irp-integration, worker-side).
 
-## irp-integration (source-switchable: PyPI / TestPyPI / local)
+## irp_integration (Risk Modeler client)
 
-- Source is switchable via uv dependency groups — `make irp-pypi` (latest allowed stable PyPI release, production mode), `make irp-testpypi` (the pinned TestPyPI pre-release), `make irp-local` (editable checkout at `../../IRP/irp-integration`). `make irp-status` shows the active source and version; `uv.lock` records every resolved version. Confirm method signatures against the **active** wheel — it is pre-release and moves.
+- The package lives in `irp_integration/`, copied from premiumiq/irp-integration v0.12.0. Edit it in place; there is no PyPI release. Its tests are in `tests/unit/irp_integration/`; its agent guidance is `irp_integration/AGENTS.md`.
 - `IRPClient()` reads all config from env vars — no constructor args
 - Batch analysis: `submit_portfolio_analysis_jobs(list)` → `List[int]` (ordered, positional)
 - Single analysis: `submit_portfolio_analysis_job()` → `Tuple[int, request_body]`; store `request_body["resourceUri"]` as `irp_job_resource.resource_uri` immediately — not available in completion response

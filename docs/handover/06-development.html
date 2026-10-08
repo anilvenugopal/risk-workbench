@@ -55,7 +55,6 @@
 <tr><td></td><td><code>make wsl-user-setup</code></td><td>The interactive user CLI.</td></tr>
 <tr><td><code>make test</code>, <code>make test-sql</code></td><td><code>make wsl-test</code>, <code>make wsl-test-sql</code></td><td>The unit and SQL Server test tiers.</td></tr>
 <tr><td><code>make lint</code>, <code>make format</code></td><td></td><td>ruff.</td></tr>
-<tr><td colspan="2"><code>make irp-pypi</code>, <code>irp-testpypi</code>, <code>irp-local</code>, <code>irp-status</code></td><td>Switch or show the irp-integration source. See <a href="04-integrations.html#risk-modeler">page 4</a>.</td></tr>
 </table>
 
 <p>Scripts in <code>infra/scripts/</code>:</p>
@@ -82,7 +81,7 @@
 
 <ul>
 <li>Python 3.12 or later (<code>requires-python</code> in <code>pyproject.toml</code>). The Docker image uses Python 3.12 on Debian 12 with ODBC Driver 18.</li>
-<li><code>pyproject.toml</code> lists the runtime packages. Dependency groups add <code>dev</code> (pytest, pytest-asyncio, pytest-cov, httpx, ruff, debugpy) and one group per irp-integration source (<code>irp-pypi</code>, <code>irp-testpypi</code>, <code>irp-local</code>). <code>default-groups</code> selects <code>dev</code> and <code>irp-pypi</code>.</li>
+<li><code>pyproject.toml</code> lists the runtime packages. The <code>dev</code> dependency group adds pytest, pytest-asyncio, pytest-cov, httpx, ruff, debugpy and pdoc.</li>
 <li><code>uv.lock</code> pins every resolved version. Install with <code>uv sync</code>.</li>
 <li>Upgrade one package at a time with <code>uv sync --upgrade-package &lt;name&gt;</code>.</li>
 <li>uv is a developer tool only. The RHEL9 server has no uv.</li>

@@ -36,15 +36,7 @@
 </table>
 <p>No code calls a <code>poll_*_to_completion</code> method. They block for minutes.</p>
 
-<p>The package source is chosen by a uv dependency group in <code>pyproject.toml</code>. The committed default is PyPI.</p>
-<table>
-<tr><th>Command</th><th>Source</th><th>Pin</th></tr>
-<tr><td><code>make irp-pypi</code></td><td>PyPI, the production source</td><td><code>irp-integration[databridge]&gt;=0.2,&lt;1</code>; <code>uv.lock</code> resolves 0.11.0</td></tr>
-<tr><td><code>make irp-testpypi</code></td><td>TestPyPI pre-release</td><td><code>==0.11.0rc1</code></td></tr>
-<tr><td><code>make irp-local</code></td><td>Editable checkout at <code>../../IRP/irp-integration</code></td><td>none</td></tr>
-<tr><td><code>make irp-status</code></td><td colspan="2">Shows the active source and installed version.</td></tr>
-</table>
-<p>Each switch command rewrites <code>default-groups</code> in <code>pyproject.toml</code> and re-syncs. Commit the change only if CI and production should use that source.</p>
+<p>The package source is in this repository, in <code>irp_integration/</code>, copied from <a href="https://github.com/premiumiq/irp-integration">premiumiq/irp-integration</a> v0.12.0 (MIT license). Change it like the rest of the code. Its tests are in <code>tests/unit/irp_integration/</code>.</p>
 
 <p>Known Risk Modeler limits the Workbench works around:</p>
 <table>

@@ -127,26 +127,26 @@ Do this once per server.
 
 The manual deployment installs no Python packages. If a package version in
 `requirements.txt` changed, copy that package's wheel to the server before
-starting the app. For example, for `irp-integration` 0.11.0:
+starting the app:
 
 1. On your machine, which can reach PyPI, download the wheel:
 
    ```powershell
-   py -m pip download --only-binary=:all: --no-deps --dest C:\Users\<you>\Desktop\wheels irp-integration==0.11.0
+   py -m pip download --only-binary=:all: --no-deps --dest C:\Users\<you>\Desktop\wheels <package>==<version>
    ```
 
 2. Upload it to the server. `/rms/deploy/wheels` is not in the repository,
    so on a new server run `mkdir -p /rms/deploy/wheels` there first.
 
    ```powershell
-   scp C:\Users\<you>\Desktop\wheels\irp_integration-0.11.0-py3-none-any.whl bbaile4@<server>:/rms/deploy/wheels/
+   scp C:\Users\<you>\Desktop\wheels\<wheel file> bbaile4@<server>:/rms/deploy/wheels/
    ```
 
 3. On the server, as `cinreadmd`, install it into `.venv`:
 
    ```bash
    cd /rms && .venv/bin/python -m pip install --no-index --no-deps --upgrade \
-       deploy/wheels/irp_integration-0.11.0-py3-none-any.whl
+       deploy/wheels/<wheel file>
    ```
 
 A wheel downloaded on Windows installs on the server only if its file name
