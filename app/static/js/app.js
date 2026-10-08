@@ -1309,15 +1309,18 @@ document.addEventListener('htmx:load', (e) => fillTimeZone(e.detail.elt));
 
 // ── Swap state preservation ───────────────────────────────────────────────────
 // Three things live only in the DOM, and an HTMX swap replaces DOM: how far the
-// analyst has scrolled, which <details> are open, and which portfolio boxes
-// are ticked for a hazard lookup or an execution. The EDM detail page's
+// analyst has scrolled, down the page and sideways across each wide table,
+// which <details> are open, and which portfolio boxes are ticked for a hazard
+// lookup or an execution. The EDM detail page's
 // #edm-detail wrapper is the scrolling element (.shell is height:100vh with
 // overflow hidden — the page itself never scrolls), so a poll that swaps it, or
 // that swaps a section inside it, must not cost the analyst their place.
 // Recorded for the swap target's subtree before the swap and reapplied after it
 // settles: every <details id> keeps its open/closed state, every ticked
-// portfolio box stays ticked, and the scroller keeps its offset. Elements the response added (a generated portfolio row) are
-// absent from the record and render at their server-rendered default.
+// portfolio box stays ticked, the scroller keeps its offset, and each
+// .dtable-shell keeps its sideways offset, matched by position in the target.
+// Elements the response added (a generated portfolio row) are absent from the
+// record and render at their server-rendered default.
 //
 // Keyed by the target element: up to four swaps are in flight at once during a
 // breakout episode, and each afterSettle must read its own record.
@@ -1346,6 +1349,8 @@ document.addEventListener('htmx:beforeSwap', (e) => {
     portfolioIds: [...target.querySelectorAll('input[name="portfolio_ids"]:checked')]
       .map((box) => box.value),
     scrollTop: scroller ? scroller.scrollTop : null,
+    scrollLefts: [...target.querySelectorAll('.dtable-shell')]
+      .map((shell) => shell.scrollLeft),
   });
 });
 
@@ -1368,6 +1373,13 @@ document.addEventListener('htmx:afterSettle', (e) => {
     if (box) { box.checked = true; ticked = box; }
   });
   if (ticked) ticked.dispatchEvent(new Event('change', { bubbles: true }));
+  // An outerHTML swap detaches the target; its replacement carries the same id.
+  const root = target.isConnected ? target : document.getElementById(target.id);
+  if (root) {
+    root.querySelectorAll('.dtable-shell').forEach((shell, i) => {
+      if (state.scrollLefts[i]) shell.scrollLeft = state.scrollLefts[i];
+    });
+  }
   // The swap may have replaced #edm-detail itself — re-resolve it by id. A
   // recorded 0 is a real offset, so compare against null rather than testing
   // truthiness.
