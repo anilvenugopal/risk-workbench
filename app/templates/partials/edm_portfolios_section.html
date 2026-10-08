@@ -27,6 +27,8 @@
 {% set bo_live = edm.breakout_running
      or (edm.breakout_banner and edm.breakout_banner.filling_in) %}
 <details class="sec" open id="edm-portfolios"
+  x-data="checkPicks({ name: 'portfolio_ids', observe: true })"
+  @change="onChange()"
   {%- if bo_live %}
   hx-get="{{ section_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s [!document.querySelector('#edm-detail .sub-links--open')]"
   hx-target="this" hx-swap="outerHTML"
@@ -42,6 +44,29 @@
             title="Collapse every expanded row">Collapse all</button>
     {% endif %}
     <span class="sec__spacer"></span>
+    {% if edm.detail_state == 'populated' %}
+    {# The geohaz form is below the header, so Run hazard lookup submits it
+       through form=. Execute Suite / Execute Template (spec 010) share the
+       geohaz selection: hx-include reads the same portfolio_ids boxes at
+       click time. #}
+    <button class="btn btn--sm" type="submit" form="geohaz-form"
+            onclick="event.stopPropagation()"
+            :disabled="count === 0">Run hazard lookup</button>
+    {% if edm.status == 'ready' %}
+    {% set execute_url = ('/submissions/' ~ gh_sub if gh_sub else '')
+         ~ '/edms/' ~ edm.id ~ '/execute' %}
+    <button class="btn btn--sm" type="button" onclick="event.stopPropagation()"
+            :disabled="count === 0"
+            hx-get="{{ execute_url }}?kind=suite"
+            hx-include="[name='portfolio_ids']"
+            hx-target="#execute-modal" hx-swap="innerHTML">Execute Suite</button>
+    <button class="btn btn--sm" type="button" onclick="event.stopPropagation()"
+            :disabled="count === 0"
+            hx-get="{{ execute_url }}?kind=template"
+            hx-include="[name='portfolio_ids']"
+            hx-target="#execute-modal" hx-swap="innerHTML">Execute Template</button>
+    {% endif %}
+    {% endif %}
   </summary>
 
   {# ── breakout completion banner (spec 005 FR-012) — the newest terminal
@@ -56,36 +81,13 @@
   {% endif %}
 
   {% if edm.detail_state == 'populated' %}
-  <form method="post" action="/edms/{{ edm.id }}/geohaz"
+  <form id="geohaz-form" method="post" action="/edms/{{ edm.id }}/geohaz"
         hx-post="/edms/{{ edm.id }}/geohaz"
-        hx-target="#edm-detail" hx-swap="outerHTML"
-        x-data="checkPicks({ name: 'portfolio_ids', observe: true })"
-        @change="onChange()">
+        hx-target="#edm-detail" hx-swap="outerHTML">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     {% if gh_sub %}
     <input type="hidden" name="submission_id" value="{{ gh_sub }}">
     {% endif %}
-    <div class="section-head">
-      <div class="section-head__actions">
-        <button class="btn btn--sm" type="submit"
-                :disabled="count === 0">Run hazard lookup</button>
-        {# Execute Suite / Execute Template (spec 010) share the geohaz selection:
-           hx-include reads the same portfolio_ids boxes at click time. type=button
-           keeps them from submitting the surrounding geohaz form. #}
-        {% if edm.status == 'ready' %}
-        {% set execute_url = ('/submissions/' ~ gh_sub if gh_sub else '')
-             ~ '/edms/' ~ edm.id ~ '/execute' %}
-        <button class="btn btn--sm" type="button" :disabled="count === 0"
-                hx-get="{{ execute_url }}?kind=suite"
-                hx-include="[name='portfolio_ids']"
-                hx-target="#execute-modal" hx-swap="innerHTML">Execute Suite</button>
-        <button class="btn btn--sm" type="button" :disabled="count === 0"
-                hx-get="{{ execute_url }}?kind=template"
-                hx-include="[name='portfolio_ids']"
-                hx-target="#execute-modal" hx-swap="innerHTML">Execute Template</button>
-        {% endif %}
-      </div>
-    </div>
     <div class="dtable-shell">
       <div class="dtable dtable--selectable" style="--cols:var(--pick-w) 280px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px 130px;min-width:1407px">
         <div class="dtable__head">
