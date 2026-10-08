@@ -895,13 +895,11 @@ def test_monitoring_names_the_context_as_the_entity(iteration2_db):
         job("upload_edm", "edm", edm_id, "edm", edm_id): ("EDM", "Meridian Property"),
         job("run_geohaz", "edm", edm_id, "portfolio", portfolio_id): ("Portfolio", "FL Comm"),
         job("finalize_analysis", "edm", edm_id, "irp_analysis", analysis_id):
-            ("Analysis", "FL DLM"),
+            ("IRP Analysis", "FL DLM"),
         job("run_breakout_custom", "edm", edm_id, "breakout_group", group_id):
-            ("Breakout group", "Coastal"),
-        # No execution table: the linked EDM names the job.
+            ("Breakout Group", "Coastal"),
         job("execute_analysis_batch", "edm", edm_id, "execution", str(uuid.uuid4())):
             ("EDM", "Meridian Property"),
-        # The export record is in the loss repository: the linked submission names it.
         job("submit_results_export", "submission", sub_id, "result_export",
             str(uuid.uuid4())): ("Submission", "American Family"),
         _dummy(): (None, None),

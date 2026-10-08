@@ -276,10 +276,8 @@ def list_rwb_jobs_for_monitoring(
     ``rwb_job_ids`` re-reads named rows with the same computed columns, which is
     how cancel and resubmit render the one row they changed.
 
-    ``entity_name``/``entity_kind`` name the job's context (docs/DATA_MODEL.md
-    §8): an ``execution`` has no table, so it names the linked EDM, and a
-    ``result_export`` record lives in the loss repository, so it names the
-    linked submission.
+    ``entity_name``/``entity_kind`` name the job's context per
+    docs/DATA_MODEL.md §8.
 
     Elapsed time is computed by the caller: it changes on every render.
 
@@ -332,17 +330,15 @@ def list_rwb_jobs_for_monitoring(
                u.display_name AS submitted_by,
                COALESCE(e.name, r.name, a.name, p.name, bg.label, le.name, ls.name)
                    AS entity_name,
-               CASE rj.context_type
-                    WHEN 'edm' THEN 'EDM' WHEN 'rdm' THEN 'RDM'
-                    WHEN 'irp_analysis' THEN 'Analysis' WHEN 'portfolio' THEN 'Portfolio'
-                    WHEN 'breakout_group' THEN 'Breakout group'
-                    WHEN 'execution' THEN 'EDM' WHEN 'result_export' THEN 'Submission'
-               END AS entity_kind,
+               CASE WHEN rj.context_type IN ('execution', 'result_export')
+                    THEN lk.label ELSE ck.label END AS entity_kind,
                CASE WHEN rj.status_code = 'running'
                          AND (hb.heartbeat_at IS NULL OR hb.heartbeat_at < :dead_cutoff)
                     THEN 1 ELSE 0 END AS is_dead
         FROM rwb_job rj
         LEFT JOIN app_user u ON u.id = rj.inserted_by
+        LEFT JOIN rwb_job_context_type_kind ck ON ck.code = rj.context_type
+        LEFT JOIN rwb_job_link_type_kind lk ON lk.code = rj.link_type
         LEFT JOIN irp_edm e ON rj.context_type = 'edm' AND e.id = rj.context_id
         LEFT JOIN irp_rdm r ON rj.context_type = 'rdm' AND r.id = rj.context_id
         LEFT JOIN irp_analysis a ON rj.context_type = 'irp_analysis' AND a.id = rj.context_id
