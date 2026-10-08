@@ -13,8 +13,9 @@
    scrolling element: replacing it threw the analyst back to the top of the page
    on every poll. The poll response additionally OOB-swaps the header meta
    line — the one place outside this section that carries a portfolio count.
-   app.js reapplies the open/closed state of every <details>
-   here after the swap, so an expanded row stays expanded. #}
+   app.js reapplies the open/closed state of every <details> and the ticked
+   portfolio boxes here after the swap, so an expanded row stays expanded and
+   a selection survives the poll. #}
 {# The poll render (edm_portfolios_live.html) has no contextual `sync_url` in
    scope, hence the default. `gh_sub` is the submission the analyst came
    through, carried on the poll URL so the GeoHaz form keeps its

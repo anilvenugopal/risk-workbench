@@ -1308,14 +1308,15 @@ if (document.readyState !== 'loading') {
 document.addEventListener('htmx:load', (e) => fillTimeZone(e.detail.elt));
 
 // ── Swap state preservation ───────────────────────────────────────────────────
-// Two things live only in the DOM, and an HTMX swap replaces DOM: how far the
-// analyst has scrolled, and which <details> are open. The EDM detail page's
+// Three things live only in the DOM, and an HTMX swap replaces DOM: how far the
+// analyst has scrolled, which <details> are open, and which portfolio boxes
+// are ticked for a hazard lookup or an execution. The EDM detail page's
 // #edm-detail wrapper is the scrolling element (.shell is height:100vh with
 // overflow hidden — the page itself never scrolls), so a poll that swaps it, or
 // that swaps a section inside it, must not cost the analyst their place.
 // Recorded for the swap target's subtree before the swap and reapplied after it
-// settles: every <details id> keeps its open/closed state, and the scroller
-// keeps its offset. Elements the response added (a generated portfolio row) are
+// settles: every <details id> keeps its open/closed state, every ticked
+// portfolio box stays ticked, and the scroller keeps its offset. Elements the response added (a generated portfolio row) are
 // absent from the record and render at their server-rendered default.
 //
 // Keyed by the target element: up to four swaps are in flight at once during a
@@ -1342,6 +1343,8 @@ document.addEventListener('htmx:beforeSwap', (e) => {
   const scroller = document.getElementById('edm-detail');
   swapState.set(target, {
     details: detailsOpenState(target),
+    portfolioIds: [...target.querySelectorAll('input[name="portfolio_ids"]:checked')]
+      .map((box) => box.value),
     scrollTop: scroller ? scroller.scrollTop : null,
   });
 });
@@ -1356,6 +1359,15 @@ document.addEventListener('htmx:afterSettle', (e) => {
     const el = document.getElementById(id);
     if (el && el.tagName === 'DETAILS') el.open = state.details[id];
   });
+  // A portfolio whose box the response renders disabled (a hazard lookup now
+  // running on it) stays unticked. checkPicks recounts on a bubbling change.
+  let ticked = null;
+  state.portfolioIds.forEach((value) => {
+    const box = document.querySelector(
+      `input[type="checkbox"][name="portfolio_ids"][value="${value}"]:not(:disabled)`);
+    if (box) { box.checked = true; ticked = box; }
+  });
+  if (ticked) ticked.dispatchEvent(new Event('change', { bubbles: true }));
   // The swap may have replaced #edm-detail itself — re-resolve it by id. A
   // recorded 0 is a real offset, so compare against null rather than testing
   // truthiness.
