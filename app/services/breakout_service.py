@@ -88,6 +88,7 @@ _PERIL_MNEMONIC = {"1": "EQ", "2": "WS", "3": "CS/WT", "4": "FL", "5": "FR",
 MISSING_SUMMARY_REASON = "exposure summary not available — run Sync"
 REFRESH_IN_FLIGHT_REASON = ("this EDM is syncing — the exposure summary is "
                             "being rewritten")
+PORTFOLIO_REFRESHING_REASON = "this portfolio is refreshing after its hazard lookup"
 
 
 def display_value(value: str, dimension: str) -> str:
@@ -306,8 +307,10 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
     """The prerequisite gate, computed per request from entity state alone
     (Article 2 — never cached, never stored). Rule (R5): EDM exists ∧ not
     deleted ∧ status 'ready' ∧ portfolio live ∧ no ``backfill_edm_detail``
-    pending|running for the EDM; per dimension: the stored summary carries
-    ``breakout_values[dimension]`` with ≥ 2 distinct values."""
+    pending|running for the EDM ∧ no hazard-lookup ``refresh_portfolios``
+    pending|running for the portfolio (spec 207 P-03); per dimension: the
+    stored summary carries ``breakout_values[dimension]`` with ≥ 2 distinct
+    values."""
     edm, portfolio = _load_rows(edm_id, portfolio_id)
 
     reason: str | None = None
@@ -322,6 +325,13 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
                          if reason is None else False)
     if reason is None and refresh_in_flight:
         reason = REFRESH_IN_FLIGHT_REASON
+    if reason is None and execute_one(
+            "SELECT 1 AS hit FROM rwb_job "
+            "WHERE rwb_job_type = 'refresh_portfolios' "
+            "AND context_type = 'portfolio' AND context_id = :p "
+            "AND status_code IN ('pending', 'running')",
+            {"p": str(portfolio_id)}, connection="WORKBENCH"):
+        reason = PORTFOLIO_REFRESHING_REASON
 
     portfolio_eligible = reason is None
     summary = (_parse_summary(portfolio["exposure_detail"])
@@ -1499,6 +1509,7 @@ def summarize_outcomes(outcomes: Sequence[SubPortfolioOutcome]) -> dict:
 __all__ = [
     "PORTFOLIO_NAME_MAX", "PORTFOLIO_NUMBER_MAX", "LARGE_FANOUT_THRESHOLD",
     "MISSING_SUMMARY_REASON", "REFRESH_IN_FLIGHT_REASON",
+    "PORTFOLIO_REFRESHING_REASON",
     "BreakoutRefused", "GateRefused", "SummaryRewritten", "StaleSummary",
     "NameRefused",
     "display_value",

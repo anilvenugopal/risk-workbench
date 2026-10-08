@@ -139,6 +139,20 @@ def mk_refresh_job(edm_id: str, *, breakout_job_id: str,
          "s": status, "now": datetime.utcnow()}, connection="WORKBENCH")
 
 
+def mk_hazard_refresh_job(edm_id: str, portfolio_id: str, *,
+                          status: str = "pending") -> None:
+    """A hazard lookup's ``refresh_portfolios``, keyed on its portfolio (spec 207)."""
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
+        "status_code, attempt_count, inserted_at, updated_at) "
+        "VALUES (:i, 'irp_job', :r, 'edm', :edm, 'portfolio', :p, "
+        "'refresh_portfolios', :s, 0, :now, :now)",
+        {"i": str(uuid.uuid4()), "r": str(uuid.uuid4()), "edm": edm_id,
+         "p": portfolio_id, "s": status, "now": datetime.utcnow()},
+        connection="WORKBENCH")
+
+
 def mk_backfill_job(edm_id: str, *, status: str = "pending",
                     via_irp_job: bool = False) -> None:
     requestor_id = edm_id
