@@ -666,16 +666,11 @@ def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
 def sync_contextual_detail(
     *, submission_id: Any, edm_id: Any, actor_id: Any,
 ) -> bool:
-    """Queue stored EDM and submission-RDM refreshes for a valid context."""
-    context = get_contextual_edm_detail(
-        submission_id=submission_id, edm_id=edm_id)
-    if context is None:
+    """Queue the stored EDM refresh for a valid context."""
+    if get_contextual_edm_detail(
+            submission_id=submission_id, edm_id=edm_id) is None:
         return False
     sync_detail(edm_id=edm_id, actor_id=actor_id)
-    # Local import avoids the edm_service/rdm_service shared-DTO import cycle.
-    from app.services import rdm_service
-    for rdm in context.rdms:
-        rdm_service.sync_detail(rdm_id=rdm.rdm_id, actor_id=actor_id)
     return True
 
 

@@ -96,7 +96,7 @@ Blocks stories 1 and 2. Story 3 does not depend on it.
 
 **Independent test**: [quickstart.md](quickstart.md) §3.
 
-- [ ] T015 [US3] [FR-012] [P-07] [T-09] In `sync_contextual_detail` (`app/services/edm_service.py:666`), delete the RDM loop and its local `rdm_service` import. Keep the context check that returns False. Change the docstring to "Queue the stored EDM refresh for a valid context." In `tests/unit/test_edm_service.py` (around line 214), assert `calls == [("edm", "edm-1")]`, and drop the `rdm_service.sync_detail` monkeypatch.
+- [X] T015 [US3] [FR-012] [P-07] [T-09] In `sync_contextual_detail` (`app/services/edm_service.py:666`), delete the RDM loop and its local `rdm_service` import. Keep the context check that returns False. Change the docstring to "Queue the stored EDM refresh for a valid context." In `tests/unit/test_edm_service.py` (around line 214), assert `calls == [("edm", "edm-1")]`, and drop the `rdm_service.sync_detail` monkeypatch.
   - Proof: `uv run pytest tests/unit` passes.
 
 **Checkpoint**: STOP. The approver runs [quickstart.md](quickstart.md) §3.

@@ -19,7 +19,6 @@ import pytest
 
 from app.services import (
     edm_service,
-    rdm_service,
     rwb_job_service,
     submission_service,
 )
@@ -188,7 +187,7 @@ def test_contextual_detail_validates_association_and_lists_submission_edms(
         submission_id=second, edm_id=other) is None
 
 
-def test_contextual_sync_queues_edm_and_each_submission_rdm(monkeypatch):
+def test_contextual_sync_queues_the_edm_only(monkeypatch):
     context = edm_service.ContextualEdmDetail(
         edm=edm_service.EdmDetail(
             id="edm-1", name="EDM", status="ready", as_of=None,
@@ -207,15 +206,12 @@ def test_contextual_sync_queues_edm_and_each_submission_rdm(monkeypatch):
     monkeypatch.setattr(
         edm_service, "sync_detail",
         lambda **kwargs: calls.append(("edm", kwargs["edm_id"])))
-    monkeypatch.setattr(
-        rdm_service, "sync_detail",
-        lambda **kwargs: calls.append(("rdm", kwargs["rdm_id"])))
 
     exists = edm_service.sync_contextual_detail(
         submission_id="submission-1", edm_id="edm-1", actor_id="analyst-1")
 
     assert exists is True
-    assert calls == [("edm", "edm-1"), ("rdm", "rdm-1"), ("rdm", "rdm-2")]
+    assert calls == [("edm", "edm-1")]
 
 
 # ── recovery: retry + replace-file ───────────────────────────────────────────────
