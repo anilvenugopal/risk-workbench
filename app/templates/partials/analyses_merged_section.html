@@ -147,16 +147,16 @@
         <span class="l"><span class="geohaz-pick">
           <input type="checkbox" x-ref="selectAll" title="Select all — untick to exclude"
                  @change="all($event.target.checked)"></span></span>
-        <span class="l">Portfolio</span><span class="l">Template</span>
-        {% if show_edm %}<span class="l">EDM</span>{% endif %}
+        <span class="l" title="Portfolio">Portfolio</span><span class="l" title="Template">Template</span>
+        {% if show_edm %}<span class="l" title="EDM">EDM</span>{% endif %}
         {{ sort_th('peril', 'Peril', sort_state) }}
         {{ sort_th('region', 'Region', sort_state) }}
         {{ sort_th('engine', 'Engine', sort_state) }}
         {{ sort_th('currency', 'Currency', sort_state) }}
         {{ sort_th('aal', 'AAL · ' ~ default_perspective_label, sort_state, '') }}
-        <span class="l">Status</span>
+        <span class="l" title="Status">Status</span>
         {{ sort_th('submitted', 'Submitted', sort_state) }}
-        <span class="l">Risk Modeler</span>
+        <span class="l" title="Risk Modeler">Risk Modeler</span>
       </div>
       {% set shown = namespace(n=0) %}
       {% for a in analyses %}

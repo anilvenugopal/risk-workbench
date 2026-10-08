@@ -350,7 +350,7 @@ def test_merged_section_columns_and_the_four_aal_states(client):
         assert header in html
     # the five click-to-sort headers (note 27 D6) name themselves in data-value
     for label in ("Peril", "Region", "Engine", "Currency", "Submitted"):
-        assert f'<span class="l" data-value="{label}">' in html
+        assert f'<span class="l" data-value="{label}" title="{label}">' in html
     assert ">EDM</span>" not in html
     assert ">Type</span>" not in html            # analysis type moved to the expansion
     # the split name (D4) and the abbreviated peril/region (D2)

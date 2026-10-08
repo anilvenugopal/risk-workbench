@@ -489,11 +489,11 @@ def test_broker_table_uses_the_merged_analyses_column_set(monkeypatch):
     html = _client().get("/rdms/rdm-1").text
 
     for header in ("Status", "Risk Modeler"):
-        assert f'<span class="l">{header}</span>' in html
+        assert f'<span class="l" title="{header}">{header}</span>' in html
     for key in ("peril", "region", "engine", "currency", "aal", "submitted"):
         assert f'hx-get="/rdms/rdm-1/body?sort={key}&amp;' in html
     assert 'data-value="AAL · Pre-Cat Net"' in html
-    assert '<span class="l dt-span2">Analysis</span>' in html
+    assert '<span class="l dt-span2" title="Analysis">Analysis</span>' in html
     assert "data-collapse-all" in html
     # no checkbox column — selection lives in the merged section, not here
     assert 'name="analysis_ids"' not in html

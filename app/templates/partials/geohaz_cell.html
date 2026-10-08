@@ -2,7 +2,7 @@
   {%- if state and state.live %}
   hx-get="/edms/{{ edm_id }}/portfolios/{{ state.portfolio_id }}/geohaz-cell"
   hx-trigger="every {{ ui_poll_interval_secs }}s" hx-target="this" hx-swap="outerHTML"
-  {%- endif %}>
+  {%- endif %}{% if state and state.label %} title="{{ state.label }}"{% endif %}>
   {% if state %}{{ state.label }}{% else %}<span class="na">&mdash;</span>{% endif %}
 </span>
 {% if refresh_details and state %}

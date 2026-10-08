@@ -139,15 +139,15 @@
     <div class="dtable-shell">
       <div class="dtable" style="--cols:minmax(210px,1.4fr) minmax(210px,1.4fr) 84px 84px minmax(120px,1fr) 90px 136px minmax(190px,1.3fr) 180px 90px;min-width:1434px">
         <div class="dtable__head">
-          <span class="l dt-span2">Analysis</span>
+          <span class="l dt-span2" title="Analysis">Analysis</span>
           {{ sort_th('peril', 'Peril', sort_state) }}
           {{ sort_th('region', 'Region', sort_state) }}
           {{ sort_th('engine', 'Engine', sort_state) }}
           {{ sort_th('currency', 'Currency', sort_state) }}
           {{ sort_th('aal', 'AAL · ' ~ default_perspective_label, sort_state, '') }}
-          <span class="l">Status</span>
+          <span class="l" title="Status">Status</span>
           {{ sort_th('submitted', 'Submitted', sort_state) }}
-          <span class="l">Risk Modeler</span>
+          <span class="l" title="Risk Modeler">Risk Modeler</span>
         </div>
         {% for group in analyses %}
         {% for a in group.analyses %}

@@ -46,7 +46,7 @@
           eligible=not p.geohaz_state.live %}
     {% include "partials/geohaz_checkbox.html" %}
   {% endwith %}
-  <span class="l">
+  <span class="l dt-wrap">
     <span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">
         <span class="dt-title" title="{{ p.name }}">{{ p.name }}</span>
@@ -73,38 +73,41 @@
       </span>
     </span>
   </span>
-  <span>{{ num(m.get('totalLocations')) }}</span>
-  <span>{{ num(m.get('totalAccounts')) }}</span>
-  <span>{{ num(m.get('totalPolicies')) }}</span>
-  <span class="l">
-    {#- perilsExposed is a comma-style string, e.g. "WS, EQ" -#}
-    {%- set perils = (m.get('perilsExposed') or '').split(',') | map('trim') | select | list -%}
-    {{ csv(perils) }}
-  </span>
-  <span class="l">
+  {%- for key in ['totalLocations', 'totalAccounts', 'totalPolicies'] %}
+  {%- set v = m.get(key) %}
+  <span{% if v is not none %} title="{{ num(v)|striptags }}"{% endif %}>{{ num(v) }}</span>
+  {%- endfor %}
+  {#- perilsExposed is a comma-style string, e.g. "WS, EQ" -#}
+  {%- set perils = (m.get('perilsExposed') or '').split(',') | map('trim') | select | list %}
+  <span class="l"{% if perils %} title="{{ csv(perils) }}"{% endif %}>{{ csv(perils) }}</span>
+  {%- set txt -%}
     {%- if lobs -%}
       {{ lobs[:3]|join(', ') }}{% if lobs|length > 3 %} <span class="dt-geo-sub">+{{ lobs|length - 3 }} more</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
-  </span>
-  <span class="l">
-    {#- Collapse rule (8/4 D11): the single value when there is one, otherwise
-        "multi-country" / a state count. Named regions are never the collapse
-        value — regions are treaty-dependent (note 06 §2.2). Countries are
-        codes (US, CA): dbo.Address has no country-name column. -#}
+  {%- endset %}
+  <span class="l"{% if lobs %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+  {#- Collapse rule (8/4 D11): the single value when there is one, otherwise
+      "multi-country" / a state count. Named regions are never the collapse
+      value — regions are treaty-dependent (note 06 §2.2). Countries are
+      codes (US, CA): dbo.Address has no country-name column. -#}
+  {%- set txt -%}
     {%- if countries|length == 1 -%}{{ countries[0] }}
     {%- elif countries -%}multi-country <span class="dt-geo-sub">({{ countries|length }})</span>
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
-  </span>
-  <span class="l">
+  {%- endset %}
+  <span class="l"{% if countries %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+  {%- set txt -%}
     {%- if states|length == 1 -%}{{ states[0] }}
     {%- elif states -%}{{ states|length }} states
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
-  </span>
-  <span class="l">
+  {%- endset %}
+  <span class="l"{% if states %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+  {%- set txt -%}
     {%- if curr -%}
       {{ curr[:3]|join(', ') }}{% if curr|length > 3 %} <span class="dt-geo-sub">+{{ curr|length - 3 }}</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
-  </span>
+  {%- endset %}
+  <span class="l"{% if curr %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
   {% with state=p.geohaz_state, edm_id=p.edm_id %}
   {% include "partials/geohaz_cell.html" %}
   {% endwith %}
