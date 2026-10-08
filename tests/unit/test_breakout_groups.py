@@ -545,7 +545,7 @@ def test_page_state_custom_flight_and_cart_banner(iteration2_db, fake_irp):
 
 def test_a_newer_cart_supersedes_a_failed_groups_error_line(
         iteration2_db, fake_irp):
-    fake_irp.selection_by_value = {"US-TX": [1]}
+    fake_irp.selection_by_value = {"US-TX": [1], "US-CA": [2]}
     edm_id, pid = _eligible_pair(fake_irp)
     [failed] = request_group_breakout(edm_id, pid, [
         _group("B", {"lob": ["EQ Comm"]})], AS_OF, iteration2_db.user_a)
@@ -555,9 +555,14 @@ def test_a_newer_cart_supersedes_a_failed_groups_error_line(
         "UPDATE rwb_job SET updated_at = :t WHERE id = :i",
         {"t": datetime(2026, 1, 1), "i": failed}, connection="WORKBENCH")
 
-    [ok] = request_group_breakout(edm_id, pid, [
-        _group("A", {"state": ["US-TX"]})], AS_OF, iteration2_db.user_a)
-    assert run_breakout_job(ok, "custom")["status_code"] == "succeeded"
+    first, second = request_group_breakout(edm_id, pid, [
+        _group("A", {"state": ["US-TX"]}), _group("C", {"state": ["US-CA"]})],
+        AS_OF, iteration2_db.user_a)
+    assert run_breakout_job(first, "custom")["status_code"] == "succeeded"
+    # the newer cart is still running, so the failed group's line stays
+    assert [line.value for line in
+            breakout_service.page_state(edm_id).errors[pid]] == ["B"]
+    assert run_breakout_job(second, "custom")["status_code"] == "succeeded"
     assert pid not in breakout_service.page_state(edm_id).errors
 
 

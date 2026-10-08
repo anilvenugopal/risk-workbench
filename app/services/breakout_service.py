@@ -741,12 +741,14 @@ def page_state(edm_id: Any) -> BreakoutPageState:
     live_by_pid: dict[str, list] = {}
     for row in live_custom:
         live_by_pid.setdefault(_uid(row["pid"]), []).append(row)
+    live_carts = {pid: {_cart_id_of(r) for r in live_rows}
+                  for pid, live_rows in live_by_pid.items()}
     for pid, live_rows in live_by_pid.items():
         # The episode is the cart (FR-020): "custom breakouts: k of n done" counts
         # every group of the live jobs' cart — the already-completed ones
         # included — with done = the groups whose live lineage row exists, so
         # the counter advances every poll like the quick flight's.
-        carts = {_cart_id_of(r) for r in live_rows}
+        carts = live_carts[pid]
         keys = {str(r["group_key"]) for r in live_rows}
         keys.update(str(r["group_key"]) for r in terminal_custom
                     if _uid(r["pid"]) == pid and _cart_id_of(r) in carts)
@@ -771,11 +773,14 @@ def page_state(edm_id: Any) -> BreakoutPageState:
         code, noun = _noun_for_job_type(row["rwb_job_type"])
         _collect_error_lines(errors, _uid(row["requestor_id"]), code, noun, row)
     # Each group has its own job row and a re-run of a failed group repeats its
-    # filters, so for custom breakouts the next terminal run is the next cart.
+    # filters, so for custom breakouts the next terminal run is the next cart,
+    # once every group of that cart is terminal.
     newest_cart: dict[str, str | None] = {}
     for row in terminal_custom:
         pid = _uid(row["pid"])
         cart_id = _cart_id_of(row)
+        if cart_id in live_carts.get(pid, ()):
+            continue
         if pid not in newest_cart:
             newest_cart[pid] = cart_id
         elif cart_id is None or cart_id != newest_cart[pid]:
