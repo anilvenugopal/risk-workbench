@@ -78,7 +78,7 @@ def test_refresh_rewrites_only_the_covered_portfolios(
     assert json.loads(after["501"]["exposure_detail"])["metrics"]["totalLocations"] == 1
     assert after["502"] == before["502"]
     assert job["status_code"] == "succeeded"
-    assert job["output"] == {"portfolios": 1, "covered": ["501"], "summary": "ok"}
+    assert job["output"] == {"portfolios": 1, "covered": ["501"]}
 
 
 def test_refresh_leaves_the_edm_treaties_and_uncovered_portfolios(
@@ -141,17 +141,18 @@ def test_every_read_failing_fails_the_job(iteration2_db, fake_irp, drive):
     assert job["error_detail"]
 
 
-def test_databridge_failure_stores_a_null_summary_and_succeeds(
+def test_databridge_failure_fails_the_job_and_stores_nothing(
         iteration2_db, fake_irp, drive):
-    edm_id, _ = _synced_edm(drive, fake_irp, iteration2_db.user_a)
-    fake_irp.set_exposure_summary("EDM", {"501": SUMMARY_A})
+    edm_id, exposure_id = _synced_edm(drive, fake_irp, iteration2_db.user_a)
+    before = _rows(edm_id)
+    _set_exposure(fake_irp, exposure_id, "501", dict(EXPOSURE_A, totalLocations=1))
     fake_irp.raise_on_exposure_summary = True
 
-    job = _refresh(edm_id, ["501"])
+    job = _refresh(edm_id, ["501", "502"])
 
-    assert job["status_code"] == "succeeded"
-    assert job["output"]["summary"] == "unavailable"
-    assert json.loads(_rows(edm_id)["501"]["exposure_detail"])["summary"] is None
+    assert job["status_code"] == "failed"
+    assert job["error_detail"].startswith("exposure summary unavailable")
+    assert _rows(edm_id) == before
 
 
 def test_summary_is_read_for_the_covered_portfolios_only(

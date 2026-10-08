@@ -554,9 +554,12 @@ def _refresh_portfolios_body(rwb_job_id: Any) -> runtime.JobResult:
             summary_map = irp_gateway.get_edm_exposure_summary(
                 edm_name=edm.name, edm_irp_id=edm_irp_id,
                 portfolio_irp_ids=found)
-        except Exception as exc:  # noqa: BLE001 — enrichment only
+        except Exception as exc:  # noqa: BLE001 — recoverable job failure, nothing stored
+            # A covered portfolio keeps its prior figures and stamp_date (P-06).
             logger.warning("refresh_portfolios: exposure summary unavailable "
                            "(edm=%s): %s", edm_id, exc)
+            return runtime.JobResult.fail(
+                f"exposure summary unavailable: {exc}", covered=covered)
 
     failed = _store_portfolio_details(
         edm_id=edm_id, edm_irp_id=edm_irp_id, portfolios=portfolios,
@@ -567,8 +570,6 @@ def _refresh_portfolios_body(rwb_job_id: Any) -> runtime.JobResult:
         out["missing"] = missing
     if failed:
         out["exposure_failures"] = failed
-    if portfolios:
-        out["summary"] = "ok" if summary_map is not None else "unavailable"
     if failed and out["portfolios"] == 0:
         return runtime.JobResult.fail(
             f"refresh_portfolios stored nothing ({len(failed)} exposure reads "
