@@ -118,7 +118,23 @@ Blocks stories 1 and 2. Story 3 does not depend on it.
 
 ---
 
-## Phase 6: Documentation and verification
+## Phase 6: PR #216 review fixes
+
+**Goal**: close the four bugs and two cleanups the review of PR #216 found.
+
+- [X] T024 [P-04] [FR-009] [T-06] In `_complete_breakout` (`app/workers/portfolio_jobs.py`), take a `source_id` keyword and enqueue the follow-up with `context_type='portfolio'`, `context_id=source_id`; both breakout bodies pass `source["id"]`. Change `PORTFOLIO_REFRESHING_REASON` to "this portfolio is refreshing". In `tests/unit/breakout_rows.py`, every `mk_refresh_job` row gets portfolio context; `test_breakout_gate.py` asserts the follow-up refuses its source and no other portfolio; the worker tests assert the head's context and mark the follow-up terminal before a re-run.
+- [X] T025 [FR-001] Rename the output key `backfill_enqueued` to `refresh_enqueued` and set it to whether this run enqueued a head. Rename it in `summarize_outcomes` and in spec 005 `data-model.md`, `contracts/worker-poller.md` and `tasks.md`.
+- [X] T026 [FR-006] [P-06] [T-08] In `_refresh_portfolios_body` (`app/workers/entity_jobs.py`), fail with "exposure summary unavailable" when `get_edm_exposure_summary` raises, before any write, and drop the `summary` output key. `test_refresh_portfolios.py` asserts the job fails and every covered row is unchanged.
+- [X] T027 [FR-014] In `page_state`, skip a terminal custom row whose cart is still live before choosing the newest cart. Extend `test_a_newer_cart_supersedes_a_failed_groups_error_line` with a two-group cart.
+- [X] T028 [FR-013] In `app/static/js/app.js`, record ticked boxes only for the `#edm-portfolios` swap target and re-tick them inside the swapped-in root.
+- [X] T029 [P-07] In `sync_contextual_detail`, check membership with `_submission_entity_context`. Drop the stale import-cycle parenthetical in `get_contextual_edm_detail`.
+  - Proof: `uv run pytest tests/unit` passes.
+
+**Checkpoint**: STOP. The approver runs [quickstart.md](quickstart.md) §1 step 5, §2 step 5 and §5 step 3.
+
+---
+
+## Phase 7: Documentation and verification
 
 - [X] T016 [P] [T-01] In `docs/DATA_MODEL.md`, add a `refresh_portfolios` row after `backfill_edm_detail` in the `rwb_job_type` table (line 589): "Read and store the exposure detail of named portfolios in one EDM, after a breakout or hazard lookup (spec 207)". Add the code to the `rwb_job_type_kind` list (line 812) with "added by spec 207".
 - [X] T017 [P] [FR-001] [P-04] In `specs/005-subportfolio-breakouts/spec.md`, append one line to FR-013 (line 130) and one to P-16 (line 164), each pointing to spec 207. The line on FR-013 says the follow-up refreshes the generated portfolios only. The line on P-16 says the follow-up no longer holds the gate.
@@ -137,6 +153,7 @@ Blocks stories 1 and 2. Story 3 does not depend on it.
 - Story 1 (T008–T011) and story 2 (T012–T014) touch different enqueuers but share `app/services/breakout_service.py` (T010, T013). Run them in story order.
 - Story 3 (T015) depends on nothing above and can ship first if needed.
 - Phase 5 (T021–T022) depends on nothing above.
+- Phase 6 (T024–T029) follows stories 1 and 2 and Phase 5.
 - T016–T018 can run any time after T001. T019 needs T003 and T004 on a stack with DataBridge access. T020 comes last.
 
 ## Parallel opportunities

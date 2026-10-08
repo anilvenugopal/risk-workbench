@@ -14,7 +14,9 @@ portfolios and a hazard-lookup-capable account.
 4. While it runs, open Break out on another portfolio of the same EDM. The
    breakout is available, the banner reads "figures are filling in", and the
    EDM does not show as syncing.
-5. After it finishes, the EDM's "synced" time and the unrelated portfolio's
+5. While it runs, open Break out on the source portfolio. The breakout is
+   refused with "this portfolio is refreshing".
+6. After it finishes, the EDM's "synced" time and the unrelated portfolio's
    figures are unchanged. The generated portfolios show figures.
 
 ## 2. Hazard lookup refreshes only its portfolio (story 2)
@@ -27,6 +29,10 @@ portfolios and a hazard-lookup-capable account.
    passes the freshness check.
 4. Run a hazard lookup and cancel it in Risk Modeler. No `refresh_portfolios`
    job appears for it.
+5. Force the summary read to fail (for example, stop DataBridge access for the
+   worker) and run a hazard lookup on portfolio A. Its `refresh_portfolios` job
+   fails with "exposure summary unavailable", and A keeps its prior figures,
+   summary and "as of" time.
 
 ## 3. EDM Sync inside a submission syncs only the EDM (story 3)
 
@@ -59,7 +65,8 @@ counts in [research.md](research.md#r4).
 2. Run another custom breakout on the same portfolio that succeeds. After it
    finishes, the failure line is gone.
 3. Tick two portfolio boxes, then start a breakout. The boxes stay ticked
-   across the Portfolios section polls.
+   across the Portfolios section polls. Tick boxes on `/edms/X`, then follow a
+   link to `/submissions/S/edms/X`. No box is ticked.
 4. While the breakout runs, scroll the Portfolios table sideways. The offset
    stays across the polls.
 

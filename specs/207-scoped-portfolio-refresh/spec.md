@@ -12,7 +12,7 @@ After a breakout or a hazard lookup, the Workbench refreshes only the portfolios
 
 ## In scope
 
-- The breakout follow-up (spec 005 FR-013) refreshes the run's generated portfolios only.
+- The breakout follow-up (spec 005 FR-013) refreshes the run's generated portfolios only, and the breakout gate refuses the source portfolio while that refresh runs.
 - The hazard lookup follow-up refreshes the looked-up portfolio only, and the breakout gate refuses only that portfolio while the refresh runs; a cancelled lookup refreshes nothing.
 - The Sync on an EDM page inside a submission stops also syncing every RDM in that submission's context for the EDM.
 - During a breakout, the Portfolios section poll keeps the ticked boxes and each table's sideways scroll. A failed custom group's line clears when the next cart finishes and names the group by its label (spec 005 FR-012).
@@ -33,7 +33,7 @@ After a breakout or a hazard lookup, the Workbench refreshes only the portfolios
 | P-01 | A breakout follow-up covers every portfolio the run created, adopted, or found already existing | Approved | issue #207; user 2026-10-07 |
 | P-02 | A hazard lookup refreshes its portfolio when it ends finished or failed, and nothing when it ends cancelled — including one cancelled after it started running; the analyst's Sync covers that case | Approved | issue #207 |
 | P-03 | While a hazard lookup's refresh is pending or running, the breakout gate refuses that portfolio, with a reason saying the portfolio is refreshing; other portfolios in the EDM stay available | Approved | user 2026-10-07 |
-| P-04 | A breakout follow-up does not hold the gate on its portfolios: a new one has no figures until the refresh lands, so the gate already refuses it, and FR-002b refuses a confirm whose summary was rewritten mid-preview | Approved | issue #207; user 2026-10-07 |
+| P-04 | While a breakout follow-up is pending or running, the breakout gate refuses the source portfolio, so a re-run waits for the follow-up and its new portfolios get refreshed. The follow-up does not hold the gate on its generated portfolios: a new one has no figures until the refresh lands, so the gate already refuses it, and FR-002b refuses a confirm whose summary was rewritten mid-preview | Approved | user 2026-10-08 |
 | P-05 | A scoped refresh neither shows the EDM as syncing nor holds back the analyst's Sync | Approved | issue #207; user 2026-10-07 |
 | P-06 | A failed scoped refresh keeps each portfolio's prior figures and adds no new on-screen error; the Jobs monitor shows the failure and the analyst's Sync recovers | Approved | issue #207; user 2026-10-07 |
 | P-07 | The Sync on an EDM page inside a submission syncs that EDM only. An RDM syncs when its import finishes and from the Sync on its own page | Approved | user 2026-10-07 |
@@ -50,9 +50,10 @@ An analyst breaks out a portfolio in an EDM that holds hundreds of portfolios. W
 
 1. **Given** an EDM with many portfolios, **When** a breakout run creating 4 portfolios finishes, **Then** the follow-up refresh reads figures for those 4 portfolios only, and its job record lists those 4 portfolios.
 2. **Given** that follow-up refresh is pending or running, **When** the analyst opens the breakout on another portfolio of the same EDM, **Then** the breakout is available.
-3. **Given** that follow-up refresh is pending or running, **When** the analyst views the EDM, **Then** the "figures are filling in" banner shows and the EDM does not show as syncing.
-4. **Given** the follow-up refresh finished, **When** the analyst views the EDM, **Then** every other portfolio's figures, the treaties, and the EDM's "synced" time are as they were before the breakout.
-5. **Given** a breakout run in which every entry failed, **When** the run finishes, **Then** no refresh starts.
+3. **Given** that follow-up refresh is pending or running, **When** the analyst opens the breakout on the source portfolio, **Then** the breakout is refused with a reason saying the portfolio is refreshing.
+4. **Given** that follow-up refresh is pending or running, **When** the analyst views the EDM, **Then** the "figures are filling in" banner shows and the EDM does not show as syncing.
+5. **Given** the follow-up refresh finished, **When** the analyst views the EDM, **Then** every other portfolio's figures, the treaties, and the EDM's "synced" time are as they were before the breakout.
+6. **Given** a breakout run in which every entry failed, **When** the run finishes, **Then** no refresh starts.
 
 ### 2. A hazard lookup refreshes only its portfolio (P1)
 
@@ -90,10 +91,10 @@ An analyst on an EDM page inside a submission clicks Sync beside the EDM's "sync
 - **FR-003**: When a hazard lookup ends cancelled, the system MUST NOT start a refresh (P-02).
 - **FR-004**: A scoped refresh MUST read Risk Modeler figures once per covered portfolio and MUST compute the exposure summary for the covered portfolios only. The portfolio list read (`list_portfolios`, research R3) and the `hdsteppolicy` scan (research R4) still cover the whole EDM; the floor of about 20 s that [R4](research.md#r4) measured is accepted.
 - **FR-005**: A scoped refresh MUST NOT remove portfolios, change treaties, or change the EDM's "synced" time.
-- **FR-006**: A scoped refresh MUST skip a covered portfolio Risk Modeler no longer returns, and MUST continue past a covered portfolio whose read fails, keeping that portfolio's prior figures (P-06).
+- **FR-006**: A scoped refresh MUST skip a covered portfolio Risk Modeler no longer returns, and MUST continue past a covered portfolio whose read fails, keeping that portfolio's prior figures. When the exposure summary read fails, the refresh MUST store nothing and fail (P-06).
 - **FR-007**: EDM import completion and the analyst's Sync MUST still refresh the whole EDM, as before.
-- **FR-008**: A scoped refresh MUST NOT make the breakout gate refuse a portfolio other than the one P-03 names, MUST NOT show the EDM as syncing, and MUST NOT hold back the analyst's Sync (P-04, P-05).
-- **FR-009**: While a hazard lookup's refresh is pending or running, the breakout gate MUST refuse that portfolio with a reason saying the portfolio is refreshing (P-03).
+- **FR-008**: A scoped refresh MUST NOT make the breakout gate refuse a portfolio other than the ones FR-009 names, MUST NOT show the EDM as syncing, and MUST NOT hold back the analyst's Sync (P-04, P-05).
+- **FR-009**: While a hazard lookup's refresh or a breakout's follow-up is pending or running, the breakout gate MUST refuse the looked-up portfolio or the breakout's source portfolio, with a reason saying the portfolio is refreshing (P-03, P-04).
 - **FR-010**: The "figures are filling in" banner MUST show while a breakout's scoped refresh is pending or running.
 - **FR-011**: A scoped refresh's job record MUST list the portfolios it covered and the ones whose read failed.
 - **FR-012**: The Sync on an EDM page inside a submission MUST sync that EDM only and MUST NOT start an RDM sync (P-07).

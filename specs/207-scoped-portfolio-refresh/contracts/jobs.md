@@ -19,11 +19,12 @@
 | `covered` | always | `portfolio_irp_ids` as received (FR-011) |
 | `missing` | some covered id absent from `list_portfolios` | those ids; their rows are untouched (FR-006) |
 | `exposure_failures` | some `/metrics` read failed | those ids; their prior snapshots stay (FR-006, FR-011) |
-| `summary` | at least one covered portfolio found | `"ok"` or `"unavailable"` (DataBridge failure writes `summary: null`, as the full sync does) |
 | `skipped` | EDM missing or without `irp_id` | reason string; job succeeds |
 
-The job fails when `portfolios == 0` and `exposure_failures` is non-empty, or
-when `list_portfolios` raises. Every other outcome succeeds.
+The job fails when `list_portfolios` or `get_edm_exposure_summary` raises, or
+when `portfolios == 0` and `exposure_failures` is non-empty. A failed summary
+read stores nothing; its failure output is `covered` only. Every other outcome
+succeeds.
 
 The job writes `irp_portfolio.exposure_detail` and `irp_portfolio.as_of` for
 covered portfolios only. It never writes `irp_edm`, `irp_treaty`, or
@@ -33,7 +34,7 @@ covered portfolios only. It never writes `irp_edm`, `irp_treaty`, or
 
 | Enqueuer | Call | `requestor` | `link` | `context` |
 |---|---|---|---|---|
-| Breakout completion (`_complete_breakout`) | `ensure_pending_rwb_job`, then `dispatch` | `rwb_job`, the breakout job id | `edm`, edm id | `edm`, edm id |
+| Breakout completion (`_complete_breakout`) | `ensure_pending_rwb_job`, then `dispatch` | `rwb_job`, the breakout job id | `edm`, edm id | `portfolio`, the source `irp_portfolio.id` |
 | Hazard lookup terminal (`_handle_geohaz_terminal`), `FINISHED` or `FAILED` only | `enqueue_rwb_job` on the poller's connection | `irp_job`, the geohaz job id | `edm`, edm id | `portfolio`, the looked-up `irp_portfolio.id` |
 
 The breakout enqueue is skipped when no outcome succeeded. On a resubmitted
@@ -44,7 +45,7 @@ that run's outcomes.
 
 | Reader | Predicate |
 |---|---|
-| `breakout_service.evaluate_gate` (P-03) | `rwb_job_type = 'refresh_portfolios' AND context_type = 'portfolio' AND context_id = :portfolio AND status_code IN ('pending','running')` → `reason` = the portfolio-refreshing reason |
+| `breakout_service.evaluate_gate` (P-03, P-04) | `rwb_job_type = 'refresh_portfolios' AND context_type = 'portfolio' AND context_id = :portfolio AND status_code IN ('pending','running')` → `reason` = the portfolio-refreshing reason. Matches both enqueuers: the hazard lookup's portfolio and the breakout's source portfolio |
 | `breakout_service._follow_up_pending` (FR-010) | `requestor_type = 'rwb_job' AND requestor_id = :breakout_job AND rwb_job_type = 'refresh_portfolios'` |
 | `rwb_job_service.backfill_edm_detail_rows` | unchanged type `backfill_edm_detail`; keys reduced to the `import_edm` irp_job and `(analyst_request, edm_id)` |
 

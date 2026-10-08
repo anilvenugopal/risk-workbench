@@ -13,7 +13,8 @@
   takes `input_data = {edm_id, portfolio_irp_ids}` ([contracts/jobs.md](contracts/jobs.md)) (T-01, T-02).
 - `_complete_breakout` (`app/workers/portfolio_jobs.py`) enqueues
   `refresh_portfolios` in place of `backfill_edm_detail`. The enqueue keeps the
-  breakout job as its requestor and `context_type='edm'`. `portfolio_irp_ids`
+  breakout job as its requestor, with `context_type='portfolio'` and
+  `context_id` set to the source portfolio (P-04, T-06). `portfolio_irp_ids`
   holds the `irp_id` of every created, adopted or skipped-existing outcome (P-01).
 - `_handle_geohaz_terminal` (`app/poller/run.py`) no longer reads or writes
   the portfolio's metrics; `refresh_portfolios` rewrites them. It returns
@@ -30,8 +31,9 @@
   per-portfolio loop extracted from `_backfill_edm_detail_body` (T-03). It never
   prunes, never reads treaties, and never writes `irp_edm.as_of`.
 - A covered id that `list_portfolios` no longer returns is skipped, and its row
-  stays. A failed `/metrics` read keeps the prior snapshot. The job fails only
-  when it stored nothing and at least one read failed (T-08).
+  stays. A failed `/metrics` read keeps the prior snapshot. A failed summary
+  read fails the job before any `/metrics` read, so nothing is stored. Otherwise
+  the job fails only when it stored nothing and at least one read failed (T-08).
 - The 11 `sql/databridge/portfolio_*.sql` scripts the summary runs gain the
   clause `{{ portfolio_ids }} IS NULL OR PORTINFOID IN (STRING_SPLIT(...))` at
   their `portacct` read, which seeks `UIX_PORTACCT`.
@@ -43,8 +45,9 @@
   refusal (P-04, P-05, T-07).
 - `breakout_service.evaluate_gate` refuses a portfolio that has a pending or
   running `refresh_portfolios` with `context_type='portfolio'` and
-  `context_id` equal to that portfolio. The refusal carries a "this portfolio
-  is refreshing" reason (P-03, T-06).
+  `context_id` equal to that portfolio: a hazard lookup's portfolio or a
+  breakout's source portfolio. The refusal carries a "this portfolio is
+  refreshing" reason (P-03, P-04, T-06).
 - `_follow_up_pending` reads `refresh_portfolios`, so the "figures are filling
   in" banner tracks the scoped refresh (FR-010).
 - `edm_service.sync_contextual_detail` drops its RDM loop. The Sync on an EDM
@@ -62,22 +65,22 @@
 | Poller | `run.py`: `_handle_geohaz_terminal` skips `CANCELLED` and enqueues `refresh_portfolios` for one portfolio. `_resolve_geohaz_metadata` is deleted. |
 | Services | `irp_gateway.get_edm_exposure_summary` takes `portfolio_irp_ids`. `rwb_job_service.backfill_edm_detail_rows` narrows its predicate. `breakout_service` changes the gate, the banner, and the custom-breakout failure lines. `edm_service.sync_contextual_detail` loses its RDM loop. `portfolio_service.update_exposure_metrics` is deleted. |
 | SQL | 11 `sql/databridge/portfolio_*.sql` scripts gain the `{{ portfolio_ids }}` filter. |
-| UI | `app/static/js/app.js`: the swap handler keeps the ticked portfolio boxes and each `.dtable-shell` scroll offset (FR-013). `edm_portfolios_section.html`: its comment names the kept boxes. The gate's existing "not available right now: {reason}" note shows the new reason. |
+| UI | `app/static/js/app.js`: the swap handler keeps the ticked portfolio boxes on the Portfolios section poll, and each `.dtable-shell` scroll offset (FR-013). `edm_portfolios_section.html`: its comment names the kept boxes. The gate's existing "not available right now: {reason}" note shows the new reason. |
 | Library | None. |
 
 ## High-risk technical decisions
 
 | ID | Decision | Status | Detail |
 |---|---|---|---|
-| T-01 | Scoped refresh is its own job type, `refresh_portfolios`, not a `portfolio_ids` input on `backfill_edm_detail` | Proposed | Every EDM-sync read keys on the job type. A shared type makes each reader parse `input_data`. [R1](research.md#r1) |
-| T-02 | `input_data` carries Risk Modeler portfolio ids | Proposed | Breakout outcomes already hold them. `list_portfolios` and DataBridge both match on them. [R2](research.md#r2) |
-| T-03 | One per-portfolio store loop shared by both bodies | Proposed | Prune, treaties, `irp_edm.as_of` and the exposureId-by-name resolution stay in `_backfill_edm_detail_body` only. |
-| T-04 | Stamps come from one `list_portfolios` call filtered client-side | Proposed | `fetch_portfolio_stamp` enumerates the same search, so a per-portfolio stamp read costs more. [R3](research.md#r3) |
+| T-01 | Scoped refresh is its own job type, `refresh_portfolios`, not a `portfolio_ids` input on `backfill_edm_detail` | Approved | Every EDM-sync read keys on the job type. A shared type makes each reader parse `input_data`. [R1](research.md#r1) |
+| T-02 | `input_data` carries Risk Modeler portfolio ids | Approved | Breakout outcomes already hold them. `list_portfolios` and DataBridge both match on them. [R2](research.md#r2) |
+| T-03 | One per-portfolio store loop shared by both bodies | Approved | Prune, treaties, `irp_edm.as_of` and the exposureId-by-name resolution stay in `_backfill_edm_detail_body` only. |
+| T-04 | Stamps come from one `list_portfolios` call filtered client-side | Approved | `fetch_portfolio_stamp` enumerates the same search, so a per-portfolio stamp read costs more. [R3](research.md#r3) |
 | T-05 | The summary scripts filter on `{{ portfolio_ids }}`, CHAR(31)-joined, NULL for the full sync | Approved | The wheel inlines NULL as a literal, so the full sync's plan is unchanged. On a 41-portfolio EDM, 3 portfolios read in 20.3 s against 62.3 s for all, with identical entries; the 20 s floor includes the full `hdsteppolicy` read in the currencies script. [R4](research.md#r4) |
-| T-06 | The hazard refresh keys `context_type='portfolio'`. The breakout follow-up keys `'edm'`. The gate refuses through `reason`, not `refresh_in_flight` | Proposed | `refresh_in_flight` keeps meaning "the EDM is syncing", so the modal note stays correct. [R5](research.md#r5) |
-| T-07 | `backfill_edm_detail_rows` deletes its `rwb_job`, `breakout_group` and `irp_portfolio` joins | Proposed | After this change, `backfill_edm_detail` has no breakout requestor left. The `irp_job` join matches only `import_edm`, the one remaining `irp_job` requestor. [R5](research.md#r5) |
-| T-08 | A scoped refresh fails only when it stored nothing and a read failed | Proposed | This is the full sync's rule. A missing portfolio is a skip, not a failure (FR-006). |
-| T-09 | Story 3 is a deletion in `sync_contextual_detail`. The route and template are unchanged | Proposed | No requirement asks for the RDM loop. |
+| T-06 | Both enqueuers key `context_type='portfolio'`: the hazard refresh on the looked-up portfolio, the breakout follow-up on the source portfolio. The gate refuses through `reason`, not `refresh_in_flight` | Approved | `ensure_pending_rwb_job` skips a head that is pending or running, so a re-run during the follow-up would leave its new portfolios unrefreshed; the source key makes the gate hold the re-run instead. The existing gate query covers both enqueuers. `refresh_in_flight` keeps meaning "the EDM is syncing", so the modal note stays correct. [R5](research.md#r5) |
+| T-07 | `backfill_edm_detail_rows` deletes its `rwb_job`, `breakout_group` and `irp_portfolio` joins | Approved | After this change, `backfill_edm_detail` has no breakout requestor left. The `irp_job` join matches only `import_edm`, the one remaining `irp_job` requestor. [R5](research.md#r5) |
+| T-08 | A scoped refresh fails when the summary read fails, or when it stored nothing and a `/metrics` read failed | Approved | The second rule is the full sync's. A failed summary read stores nothing, so each covered portfolio keeps its prior figures, summary and `stamp_date` (P-06). A missing portfolio is a skip, not a failure (FR-006). [R5](research.md#r5) |
+| T-09 | Story 3 is a deletion in `sync_contextual_detail`. The route and template are unchanged | Approved | No requirement asks for the RDM loop. |
 
 ---
 
@@ -125,7 +128,7 @@ specs/005-subportfolio-breakouts/spec.md   # one-line pointers on FR-013 and P-1
   - The `refresh_portfolios` body with a fake gateway. It covers the target portfolios only. It writes no prune, no treaties and no `irp_edm.as_of`. It skips a missing id. It isolates a failed read. It records its output keys.
   - The poller: `CANCELLED` enqueues nothing; `FINISHED` and `FAILED` enqueue one portfolio.
   - The breakout completion: the input lists every non-failed outcome's `irp_id`.
-  - The gate: it refuses the hazard portfolio only, and the EDM's sync state ignores scoped jobs.
+  - The gate: it refuses the hazard portfolio and the breakout's source portfolio only, and the EDM's sync state ignores scoped jobs.
   - The banner reads the new type.
   - `sync_contextual_detail` queues no `backfill_rdm_analyses`.
 - **SQL Server integration**: revision `0008` applies and its downgrade removes the row; existing `backfill_edm_detail_rows` tests rerun against the narrowed predicate.

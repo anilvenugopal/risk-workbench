@@ -127,8 +127,25 @@ blocked every portfolio in the EDM, which is the behavior issue #207 reports.
   (`context_type='portfolio'`, a seeded `rwb_job_context_type_kind` code). The
   gate reads that context with one `rwb_job` lookup, narrowed by
   `ix_rwb_job_status_code` to pending and running rows. No new index is needed.
-- The breakout follow-up records `context_type='edm'`, so no portfolio matches
-  it (P-04).
+- The breakout follow-up records the source portfolio as its context, so the
+  same lookup refuses the source while the follow-up is pending or running
+  (P-04).
+
+**Rejected — breakout follow-up keyed `context_type='edm'`**: the PR #216
+review found a gap. `ensure_pending_rwb_job` keys the follow-up on the breakout
+job row and skips that row while it is pending or running. A re-run of the same
+breakout confirmed during that window enqueues nothing, so the re-run's new
+portfolios never refresh. Keying on the source portfolio makes the gate refuse
+the re-run until the follow-up is terminal. The breakout confirm runs the gate
+before it revives the breakout job, and the follow-up is enqueued before the
+breakout job goes terminal, so no re-run fits between them.
+
+**Rejected — a failed summary read stores `summary: null`**: the full sync's
+rule. For a scoped refresh it replaced a portfolio's stored summary with null
+and stamped a fresh `stamp_date`, so the breakout gate refused the portfolio as
+having no summary and the confirm's freshness check passed on figures that
+lacked one. P-06 keeps prior figures on a failed refresh, so the job fails
+before any write.
 
 **Modal**: `breakout_modal.html` shows "when the sync finishes the page updates
 on its own" whenever `gate.refresh_in_flight` is true. That text is wrong for a
