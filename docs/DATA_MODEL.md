@@ -616,7 +616,7 @@ never starts RDM upload work. Association detach is request-path SQL only.
 
 **`rwb_job.inserted_by`:** the analyst whose action caused the job. A job the poller enqueues takes the finished `irp_job`'s `inserted_by`; a job another job enqueues takes the parent `rwb_job`'s `inserted_by`. An analyst's retry revives the row and leaves `inserted_by` as it was.
 
-**What each job type records.** The RWB Jobs page's Entity column shows the context's name and kind.
+**What each job type records.** Entity names the job: its context, or its link when the context has no Workbench table.
 
 | `rwb_job_type` | Requestor (`requestor_type` → `requestor_id`) | Link | Context | Entity | `inserted_by` |
 |---|---|---|---|---|---|
@@ -627,14 +627,14 @@ never starts RDM upload work. Association detach is request-path SQL only.
 | `backfill_rdm_analyses` | `irp_job` → the finished `import_rdm` job; `analyst_request` → RDM (Sync) | RDM | `rdm` | RDM | from the `irp_job`; analyst for a Sync |
 | `run_geohaz` | `analyst_request` → portfolio | EDM | `portfolio` | Portfolio | analyst |
 | `run_breakout_lob`, `_state`, `_country`, `_peril` | `analyst_request` → source portfolio | EDM | `portfolio` | Portfolio | analyst |
-| `run_breakout_custom` | `breakout_group` → `breakout_group` row | EDM | `breakout_group` | Breakout group (label) | analyst |
+| `run_breakout_custom` | `breakout_group` → `breakout_group` row | EDM | `breakout_group` | Breakout Group (label) | analyst |
 | `execute_analysis_batch` | `analyst_request` → execution id | EDM | `execution` | EDM, from the link (no execution table) | analyst |
-| `submit_grouping` | `analyst_request` → grouping request id | submission | `irp_analysis` (the group) | Analysis | analyst |
-| `finalize_analysis` | `irp_job` → the finished `analysis` or `grouping` job; `irp_analysis` → the imported analysis | analysis's owner | `irp_analysis` | Analysis | from the `irp_job`; analyst for an import |
-| `retrieve_analysis_results` | `irp_analysis` → the analysis | analysis's owner | `irp_analysis` | Analysis | from the parent `finalize_analysis` or `backfill_rdm_analyses`; analyst when a retry finds no earlier row |
+| `submit_grouping` | `analyst_request` → grouping request id | submission | `irp_analysis` (the group) | IRP Analysis | analyst |
+| `finalize_analysis` | `irp_job` → the finished `analysis` or `grouping` job; `irp_analysis` → the imported analysis | analysis's owner | `irp_analysis` | IRP Analysis | from the `irp_job`; analyst for an import |
+| `retrieve_analysis_results` | `irp_analysis` → the analysis | analysis's owner | `irp_analysis` | IRP Analysis | from the parent `finalize_analysis` or `backfill_rdm_analyses`; analyst when a retry finds no earlier row |
 | `submit_results_export` | `analyst_request` → export id | submission (`input_data.submission_id`) | `result_export` | Submission, from the link (export record is in the loss repository) | analyst |
-| `stage_results_export` | `irp_job` → the finished `export` job | analysis's owner | `irp_analysis` | Analysis | from the `irp_job` |
-| `load_results_export` | `rwb_job` → the `stage_results_export` job | analysis's owner | `irp_analysis` | Analysis | from the parent `rwb_job` |
+| `stage_results_export` | `irp_job` → the finished `export` job | analysis's owner | `irp_analysis` | IRP Analysis | from the `irp_job` |
+| `load_results_export` | `rwb_job` → the `stage_results_export` job | analysis's owner | `irp_analysis` | IRP Analysis | from the parent `rwb_job` |
 | `sync_irp_metadata` | `analyst_request` → fixed id (`_METADATA_SYNC_REQUESTOR_ID`) | `not_applicable` | none | — | analyst |
 | `dummy_wait`, `dummy_fail` | `analyst_request` → new UUID per run | `not_applicable` | none | — | none (CLI) |
 

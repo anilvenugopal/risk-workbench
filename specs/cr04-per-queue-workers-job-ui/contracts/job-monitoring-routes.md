@@ -14,18 +14,18 @@ Monitoring page. Lists `rwb_job` rows 50 to a page (`rwb_job_service.PAGE_SIZE`,
 | Job status | `rwb_job.status_code`, plus the computed "dead" | off |
 | Submitted by | `rwb_job.inserted_by` | **current user** (no `submitted_by` param at all); `submitted_by=any` clears it; an explicit list narrows to those analysts |
 
-A job with no `inserted_by` (a chained job queued before #219, or a `dummy_*` job from the CLI) is listed only under Anyone. With no query at all and no rows, the table says the analyst has submitted no RWB jobs and links to `submitted_by=any`.
+A job with no `inserted_by` (a `dummy_*` job from the CLI) is listed only under Anyone. With no query at all and no rows, the table says the analyst has submitted no RWB jobs and links to `submitted_by=any`.
 
 Each row renders:
 
 | Field | Source | Notes |
 |---|---|---|
 | Job type | `rwb_job.rwb_job_type` | Sortable. |
-| Entity | the job's context, as kind · name (`docs/DATA_MODEL.md` §8): EDM, RDM, Analysis, Portfolio, or Breakout group by `context_id`; an `execution` names its linked EDM; a `result_export` names its linked submission | Sortable by name. "—" for a job with no context. |
+| Entity | kind · name per `docs/DATA_MODEL.md` §8, kind label from `rwb_job_context_type_kind` (link kind for `execution`/`result_export`) | Sortable by name. "—" for a job with no context. |
 | Submitted by | `rwb_job.inserted_by` → `app_user.display_name` | Sortable. "—" when null. |
 | Status | `rwb_job.status_code`, plus the computed `is_dead` flag | Sortable. `pending` rows render as a distinct "queued" marker. A `running` row with `is_dead = 1` (heartbeat missing or older than `settings.rwb_heartbeat_stale_secs`) renders as a "Dead" chip, not "Running" — `status_code` is still `running` underneath. |
 | Submitted at | `submitted_at` | Sortable by `COALESCE(submitted_at, inserted_at)`, so a queued job sorts by when it was queued. Shows "—" for `pending` (null until claimed). |
-| Elapsed | a computed duration, not a timestamp | Not sortable: it changes on every render and needs date arithmetic SQLite and SQL Server do not share. `pending`: now minus `inserted_at`, prefixed "queued". `running`/dead: now minus `submitted_at`. Terminal: `completed_at` minus `submitted_at` (a fixed span). "—" when there's nothing to compute (a terminal row that never got a `submitted_at`, e.g. `dummy_wait`/`sync_irp_metadata` failing before being claimed). |
+| Elapsed | a computed duration, not a timestamp | Not sortable. `pending`: now minus `inserted_at`, prefixed "queued". `running`/dead: now minus `submitted_at`. Terminal: `completed_at` minus `submitted_at` (a fixed span). "—" when there's nothing to compute (a terminal row that never got a `submitted_at`, e.g. `dummy_wait`/`sync_irp_metadata` failing before being claimed). |
 | Failure detail | `error_detail` | Shown only when `status_code = 'failed'`. |
 | Action | Cancel (`pending`, `failed`, or dead `running`) / Resubmit (`failed` only) / none (live `running`, `succeeded`, `cancelled`) | See below. A `failed` row shows both Cancel and Resubmit. |
 

@@ -43,3 +43,7 @@ An earlier draft referenced a `request_key` column when describing why the claim
 ## R5: `ensure_pending_rwb_job` — confirmed single-row reset, no new mechanism needed for resubmit
 
 Read directly from `app/services/rwb_job_service.py`: when the existing row for `(requestor_type, requestor_id, rwb_job_type)` is terminal (`succeeded`/`failed`), `ensure_pending_rwb_job` resets that same row — same `id`, `attempt_count + 1`, `output_data`/`error_detail`/`completed_at`/`submitted_at` cleared, `input_data`/`correlation_id` replaced. No second row is ever created for that triple; the `UNIQUE` constraint prevents it. This is why CR-004a's resubmit action can call this function unchanged rather than needing new dedup logic — confirmed by reading the function, not assumed from its docstring alone.
+
+## R6: RWB Jobs Elapsed column — not sortable
+
+Elapsed is now minus `inserted_at` for a `pending` row, now minus `submitted_at` for a `running` row, and `completed_at` minus `submitted_at` for a terminal row. Sorting on it in SQL needs date arithmetic, and the SQLite unit tier and SQL Server do not share a function for it (`julianday` against `DATEDIFF`). `app/routers/rwb_jobs.py` computes it per render instead, so the column has no sort link.
