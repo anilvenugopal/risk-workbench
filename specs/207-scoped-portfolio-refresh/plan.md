@@ -18,7 +18,7 @@
 - `_handle_geohaz_terminal` (`app/poller/run.py`) no longer reads or writes
   the portfolio's metrics; `refresh_portfolios` rewrites them. It returns
   without enqueuing when the lookup ends `CANCELLED`. On `FINISHED` or `FAILED` it reads the
-  portfolio's `irp_id` and enqueues `refresh_portfolios` with
+  `irp_id` of the portfolio, when it is not soft-deleted, and enqueues `refresh_portfolios` with
   `context_type='portfolio'` and `context_id` set to the looked-up portfolio
   (P-02, T-06).
 - The `refresh_portfolios` worker (`app/workers/entity_jobs.py`) makes three

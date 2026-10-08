@@ -199,7 +199,7 @@ def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> Non
     if status == "CANCELLED" or job["irp_portfolio_id"] is None:
         return
     irp_id = conn.execute(text(
-        "SELECT irp_id FROM irp_portfolio WHERE id = :id"
+        "SELECT irp_id FROM irp_portfolio WHERE id = :id AND deleted_at IS NULL"
     ), {"id": str(job["irp_portfolio_id"])}).scalar()
     if irp_id is None:
         return

@@ -101,6 +101,20 @@ def test_cancelled_geohaz_refreshes_nothing(iteration2_db, fake_irp):
     assert execute("SELECT id FROM rwb_job", {}, connection="WORKBENCH") == []
 
 
+def test_geohaz_on_a_deleted_portfolio_refreshes_nothing(iteration2_db, fake_irp):
+    edm_id, [portfolio_id] = _edm_with_portfolios(1)
+    execute_command("UPDATE irp_portfolio SET deleted_at = '2026-09-01' WHERE id = :i",
+                    {"i": portfolio_id}, connection="WORKBENCH")
+    irp_job_service.record_submitted_irp_job(
+        irp_job_type="geohaz", irp_id="25234202",
+        irp_edm_id=edm_id, irp_portfolio_id=portfolio_id)
+    fake_irp.finish("25234202")
+
+    poller.poll_once()
+
+    assert _rwb_jobs_of("refresh_portfolios") == []
+
+
 def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str, str]:
     """Import an EDM then run its upload_edm worker body → returns (edm_id, irp_id)."""
     res = edm_service.import_edm(name=name, source_file_path=str(drive / fname),
