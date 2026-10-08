@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>UI Preview Scaffold · Risk Workbench</title>
+<title>Delete Submission Modal · Risk Workbench</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -65,15 +65,13 @@ h1,h2,h3{margin:0}
 .badge--negative{background:var(--color-negative-wash);color:var(--color-negative);border-color:var(--color-negative-border)}
 .badge--info{background:var(--color-info-bg);color:var(--color-info);border-color:var(--color-info-border)}
 
-.btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);color:var(--text-secondary);border:1px solid var(--border-default);background:var(--surface-panel);cursor:pointer;transition:background var(--dur-fast,120ms) ease,border-color var(--dur-fast,120ms) ease,color var(--dur-fast,120ms) ease}
-.btn--sm{height:auto;padding:4px 10px;border-radius:var(--radius-sm);font-size:var(--fs-caption);font-weight:var(--fw-regular)}
-.btn--primary{color:var(--btn-primary-fg);background:var(--btn-primary-bg);border-color:var(--btn-primary-bg)}
-.btn--danger{color:var(--color-danger);border-color:var(--color-danger-border)}
-.btn:hover:not(:disabled){background:var(--surface-hover);border-color:var(--border-strong);color:var(--text-primary)}
-.btn:active:not(:disabled){background:var(--surface-recessed)}
-.btn--primary:hover:not(:disabled){background:var(--color-brand-hover);border-color:var(--color-brand-hover);color:var(--btn-primary-fg)}
-.btn--danger:hover:not(:disabled){background:var(--color-danger-bg);border-color:var(--color-danger);color:var(--color-danger)}
+.btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer;border:1px solid transparent;transition:background var(--dur-fast,120ms) ease}
 .btn:disabled{opacity:.5;cursor:not-allowed}
+.btn--secondary{color:var(--text-secondary);border-color:var(--border-default);background:transparent}
+.btn--secondary:hover:not(:disabled){background:var(--surface-hover)}
+.btn--primary{color:var(--btn-primary-fg);background:var(--btn-primary-bg)}
+.btn--primary:hover:not(:disabled){background:var(--color-brand-hover)}
+.btn--danger{background:var(--color-danger);color:#fff;border-color:var(--color-danger)}
 
 .card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-4)}
 .field{display:flex;flex-direction:column;gap:var(--space-1);margin-bottom:var(--space-3)}
@@ -101,108 +99,144 @@ h1,h2,h3{margin:0}
 .tile{display:flex;flex-direction:column;gap:var(--space-2)}
 .tile__label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase}
 .kit{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;margin-bottom:var(--space-4)}
+.btn-sm{font-size:var(--fs-caption);padding:4px 10px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary);font-family:inherit}
+.btn-sm--danger:hover{border-color:var(--color-danger);color:var(--color-danger)}
+.pagehdr{display:flex;align-items:center;justify-content:space-between;background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-3) var(--space-4)}
+.pagehdr__title{font-weight:var(--fw-semibold)}
+.pagehdr__actions{display:flex;gap:var(--space-2)}
+.modal-card{width:440px}
+.del-lead{font-size:var(--fs-label);color:var(--text-primary)}
+.del-list{margin:0;padding-left:var(--space-5);font-size:var(--fs-label);color:var(--text-secondary);display:flex;flex-direction:column;gap:2px}
+.del-list b{color:var(--text-primary);font-weight:var(--fw-semibold)}
+.del-kept{font-size:var(--fs-caption);color:var(--text-tertiary)}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <div class="scaffold-note">
-    <strong>PREVIEW SCAFFOLD.</strong> Copy this file to <code>&lt;screen&gt;.html</code>, build your screen
-    in the slot below, and show <em>every</em> state. Reuses real design tokens; IBM&nbsp;Plex falls back to
-    system fonts when offline or sandboxed. See <code>docs/UI_WORKFLOW.md</code>.
+  <div class="scaffold-note"><strong>PREVIEW</strong> — issue #206, user story 2. The delete dialog on the
+    submission page (admins only). Reuses <code>.modal-card</code> and <code>.modal-btn--danger</code> from
+    components.css.</div>
+
+  <div class="hero">Delete a submission</div>
+  <div class="sub">Admin only. Opens from the Delete button in the submission page header.</div>
+
+  <div class="eyebrow">Page header — admin sees Delete beside Edit and Archive</div>
+  <div class="pagehdr">
+    <span class="pagehdr__title">Acme Re 2026 Property Cat</span>
+    <span class="pagehdr__actions">
+      <button class="btn-sm">Edit</button>
+      <button class="btn-sm">Archive</button>
+      <button class="btn-sm btn-sm--danger">Delete</button>
+    </span>
   </div>
 
-  <div class="hero">UI Preview Scaffold</div>
-  <div class="sub">Risk Workbench — navy + amber DocIntel system. Build previews here before wiring anything.</div>
-
-  <!-- ── COMPONENT KIT (reference — reuse these, don't invent) ───────────────── -->
-  <div class="eyebrow">Component kit</div>
-  <div class="card">
-    <div class="kit">
-      <button class="btn btn--primary">Primary</button>
-      <button class="btn">Secondary</button>
-      <button class="btn btn--sm">Small</button>
-      <button class="btn btn--danger">Danger</button>
-      <button class="btn btn--primary" disabled>Disabled</button>
-    </div>
-    <div class="kit">
-      <span class="badge badge--neutral">pending_import</span>
-      <span class="badge badge--info">importing</span>
-      <span class="badge badge--positive">ready</span>
-      <span class="badge badge--warning">warning</span>
-      <span class="badge badge--negative">error</span>
-      <span class="badge badge--brand">brand</span>
-    </div>
-    <div class="field" style="max-width:260px;margin:0">
-      <label for="demo">Package name</label>
-      <input id="demo" type="text" placeholder="Optional">
-    </div>
-  </div>
-
-  <!-- ── WORKED EXAMPLE: one screen shown in every state ─────────────────────── -->
-  <div class="eyebrow">Worked example — "New package" modal, all states</div>
+  <div class="eyebrow">Delete dialog — every state</div>
   <div class="board">
 
     <div class="tile">
-      <div class="tile__label">empty</div>
+      <div class="tile__label">confirm — submission with work</div>
       <div class="modal-card">
-        <div class="modal-header"><span class="modal-title">New package</span></div>
-        <div class="modal-body"><div class="empty">No members yet.<br>Tick files above to add them.</div></div>
-        <div class="modal-footer">
-          <button class="btn">Cancel</button>
-          <button class="btn btn--primary" disabled>Save</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="tile">
-      <div class="tile__label">loading</div>
-      <div class="modal-card">
-        <div class="modal-header"><span class="modal-title">New package</span></div>
-        <div class="modal-body"><div class="spinner"></div><div class="empty">Loading the shared drive…</div></div>
-        <div class="modal-footer">
-          <button class="btn">Cancel</button>
-          <button class="btn btn--primary" disabled>Save</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="tile">
-      <div class="tile__label">error</div>
-      <div class="modal-card">
-        <div class="modal-header"><span class="modal-title">New package</span></div>
+        <div class="modal-header"><span class="modal-title">Delete submission</span></div>
+        <div class="modal-warning">This cannot be undone. Archive hides a submission and can be reversed.</div>
         <div class="modal-body">
-          <div class="member"><span class="badge badge--neutral">EDM</span><span class="path">\\share\edm-2024.mdf</span></div>
+          <div class="del-lead">Deleting <b>Acme Re 2026 Property Cat</b> also deletes:</div>
+          <ul class="del-list">
+            <li><b>3</b> contracts</li>
+            <li>its links to <b>2</b> EDMs and <b>1</b> RDM</li>
+            <li><b>4</b> imported analyses and <b>2</b> analysis groups</li>
+            <li>its Modeling status history</li>
+            <li>the link from <b>Acme Re 2027 Property Cat</b>, which links to this submission</li>
+          </ul>
+          <div class="del-kept">Also cancels <b>1</b> failed Workbench job for this submission. A cancelled
+            job cannot be resubmitted.</div>
+          <div class="del-kept">Not deleted: the EDMs and RDMs and their analyses, the analyses and groups in
+            Risk Modeler, and exports already in the loss repository.</div>
         </div>
-        <div class="modal-error">A package must have at least one valid member.</div>
         <div class="modal-footer">
-          <button class="btn">Cancel</button>
-          <button class="btn btn--primary">Save</button>
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--danger">Delete submission</button>
         </div>
       </div>
     </div>
 
     <div class="tile">
-      <div class="tile__label">populated</div>
+      <div class="tile__label">confirm — nothing attached</div>
       <div class="modal-card">
-        <div class="modal-header"><span class="modal-title">New package</span></div>
-        <div class="modal-warning">A name like "edm-2024" already exists in Risk Modeler.</div>
+        <div class="modal-header"><span class="modal-title">Delete submission</span></div>
+        <div class="modal-warning">This cannot be undone. Archive hides a submission and can be reversed.</div>
         <div class="modal-body">
-          <div class="member"><span class="badge badge--neutral">EDM</span><span class="path">edm-2024.mdf</span><span class="badge badge--info badge--sm">importing</span></div>
-          <div class="member"><span class="badge badge--neutral">RDM</span><span class="path">results-q1.mdf</span><span class="badge badge--neutral badge--sm">pending</span></div>
+          <div class="del-lead">Deleting <b>Test submission 7</b> also deletes:</div>
+          <ul class="del-list">
+            <li>its Modeling status history</li>
+          </ul>
         </div>
         <div class="modal-footer">
-          <button class="btn">Cancel</button>
-          <button class="btn">Save</button>
-          <button class="btn btn--primary">Save &amp; Sync</button>
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--danger">Delete submission</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">refused — work still running</div>
+      <div class="modal-card">
+        <div class="modal-header"><span class="modal-title">Delete submission</span></div>
+        <div class="modal-body">
+          <div class="del-lead">Deleting <b>Acme Re 2026 Property Cat</b> also deletes:</div>
+          <ul class="del-list">
+            <li><b>3</b> contracts</li>
+            <li><b>4</b> imported analyses and <b>2</b> analysis groups</li>
+            <li>its Modeling status history</li>
+          </ul>
+        </div>
+        <div class="modal-error">Cannot delete while work on this submission is still running:
+          2 Risk Modeler jobs, 1 Workbench job. Try again when they finish.</div>
+        <div class="modal-footer">
+          <button class="btn btn--secondary">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">refused — export not loaded or closed</div>
+      <div class="modal-card">
+        <div class="modal-header"><span class="modal-title">Delete submission</span></div>
+        <div class="modal-body">
+          <div class="del-lead">Deleting <b>Acme Re 2026 Property Cat</b> also deletes:</div>
+          <ul class="del-list">
+            <li><b>3</b> contracts</li>
+            <li>its Modeling status history</li>
+          </ul>
+        </div>
+        <div class="modal-error">2 exports are not loaded or closed. Retry or close them in the
+          Exports section first.</div>
+        <div class="modal-footer">
+          <button class="btn btn--secondary">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">refused — loss repository unreachable</div>
+      <div class="modal-card">
+        <div class="modal-header"><span class="modal-title">Delete submission</span></div>
+        <div class="modal-body">
+          <div class="del-lead">Deleting <b>Acme Re 2026 Property Cat</b> also deletes:</div>
+          <ul class="del-list">
+            <li><b>3</b> contracts</li>
+            <li>its Modeling status history</li>
+          </ul>
+        </div>
+        <div class="modal-error">Cannot check this submission's exports: the loss repository is unreachable.
+          Try again later.</div>
+        <div class="modal-footer">
+          <button class="btn btn--secondary">Close</button>
         </div>
       </div>
     </div>
 
   </div>
-
-  <!-- ▲ Replace the worked example above with your screen. Keep one tile per state. -->
-
 </div>
 </body>
 </html>

@@ -370,6 +370,8 @@ class ExecutedAnalysis:
         if self.run_state == "submitting":
             return "Submitting…"
         if self.run_state == "submit_failed":
+            if self.status_code == "error":
+                return "Failed to submit"
             return (f"Failed to submit · attempt {self.submission_attempt_count}/"
                     f"{settings.irp_submission_max_retries}")
         if self.job_status == "RUNNING" and self.job_progress is not None:
@@ -452,40 +454,67 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
     )
 
 
-# The grid columns the header can sort on (note 27 D6). Peril, Region, Engine and
-# Currency are read off settings_metadata in Python, not columns, so the order is
-# applied to the built rows. "submitted" is the query's own order and has no
-# key here: inserted_at is TEXT on the SQLite mirror and DATETIME2 on SQL
-# Server, so comparing it in Python would compare different types on the two
-# tiers.
+def _default_aal(a) -> float | None:
+    """The AAL the grid's AAL column shows: the default perspective's, when
+    produced."""
+    p = next((r for r in a.results if r.code == DEFAULT_PERSPECTIVE), None)
+    return p.aal if p is not None and p.produced else None
+
+
+# The grid columns the header can sort on (note 27 D6). Peril, Region, Engine,
+# Currency and AAL are read off settings_metadata and loss_results in Python, not
+# columns, so the order is applied to the built rows. "submitted" is the query's
+# own order and has no key here: inserted_at is TEXT on the SQLite mirror and
+# DATETIME2 on SQL Server, so comparing it in Python would compare different
+# types on the two tiers.
 SORT_KEYS = {
     "peril": lambda a: a.display.peril,
     "region": lambda a: a.display.region,
     "engine": lambda a: "Group" if a.is_group else a.display.engine,
     "currency": lambda a: a.display.currency,
+    "aal": _default_aal,
 }
 
 
 def sort_from_query(params) -> tuple[str, bool]:
-    """The grid's ``?sort=``/``?dir=`` pair as ``(sort, descending)``, for both
-    the submission and EDM Analyses sections."""
+    """The grid's ``?sort=``/``?dir=`` pair as ``(sort, descending)``, for the
+    submission and EDM Analyses sections and the RDM page's broker analyses."""
     sort = (params.get("sort") or "").strip()
     return sort, (params.get("dir") or "desc") != "asc"
 
 
-def sort_analyses(rows: list, sort: str, descending: bool) -> list:
-    """The built rows in header order. A ``sort`` outside ``SORT_KEYS`` — the
-    default ``submitted`` included — keeps the query order. Blank and missing
-    values land last in both directions — an em-dash row belongs at the bottom
-    whichever way the caret points."""
-    key = SORT_KEYS.get(sort)
+# Broker rows can sort on Submitted in Python: createDate is a string from the
+# settings_metadata JSON on both tiers.
+BROKER_SORT_KEYS = {**SORT_KEYS, "submitted": lambda a: a.created_at}
+
+
+def sort_analyses(rows: list, sort: str, descending: bool,
+                  keys: dict = SORT_KEYS) -> list:
+    """The built rows in header order. A ``sort`` outside ``keys`` — the
+    default ``submitted`` included for own rows — keeps the query order. Blank
+    and missing values land last in both directions — an em-dash row belongs at
+    the bottom whichever way the caret points."""
+    key = keys.get(sort)
     if key is None:
         return list(rows) if descending else list(reversed(rows))
+
+    def value(row):
+        v = key(row)
+        return v.strip().casefold() if isinstance(v, str) else v
+
     present, missing = [], []
     for row in rows:
-        (present if (key(row) or "").strip() else missing).append(row)
-    present.sort(key=lambda a: key(a).strip().casefold(), reverse=descending)
+        (missing if value(row) in (None, "") else present).append(row)
+    present.sort(key=value, reverse=descending)
     return present + missing
+
+
+def sort_broker_analyses(rows: list, sort: str, descending: bool) -> list:
+    """One RDM group's broker rows in header order, ties newest createDate
+    first. The default sort is createDate, newest first."""
+    by_date = sort_analyses(rows, "submitted", True, keys=BROKER_SORT_KEYS)
+    return sort_analyses(by_date, sort or "submitted", descending,
+                         keys=BROKER_SORT_KEYS)
 
 
 def analyses_hash(analyses: list, groups: list) -> str:

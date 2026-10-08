@@ -312,7 +312,7 @@ def test_broker_row_renders_link_date_and_not_returned_fields(monkeypatch):
     # Portfolio and Template tracks, and the hidden sibling keeps the copied
     # row rectangular against the own rows (D5)
     assert "Portfolio" not in html
-    assert 'class="l dt-span2"' in html
+    assert 'class="l dt-span2 dt-wrap"' in html
     assert "<span hidden></span>" in html
 
 

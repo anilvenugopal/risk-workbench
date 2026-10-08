@@ -562,6 +562,7 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
                             portfolios=[base, quick, quick_peril, custom],
                             as_of="2026-08-11 10:00:00"))
     html = _client().get("/edms/edm-1/portfolios-section").text
+    assert "data-collapse-all" in html
     assert html.count("dt-frommark") == 3      # the three generated rows only
     assert "Line of business IN (Homeowners)" in html
     # peril reads as its mnemonic, not the stored loccvg.PERIL code (D4) —
@@ -629,6 +630,11 @@ def test_treaties_header_holds_export_and_rm_link(monkeypatch):
     assert "sec__action" not in html          # in-line with the header now
     assert f'href="{rm_url}"' in html
     assert 'target="_blank"' in html
+    start = html.index('id="edm-treaties"')
+    treaties = html[start:html.find('<details class="sec"', start)]
+    assert "data-collapse-all" in treaties
+    # the id lets app.js keep a hand-opened treaty row open across swaps
+    assert 'id="treaty-t1"' in treaties
 
 
 def test_treaties_header_without_treaties_or_rm_url(monkeypatch):
@@ -640,6 +646,7 @@ def test_treaties_header_without_treaties_or_rm_url(monkeypatch):
     html = _client().get("/edms/edm-1").text
     assert "treaties.xlsx" not in html
     assert "edit in Risk Modeler" in html
+    assert "data-collapse-all" not in html   # no portfolios or treaties either
 
 
 def test_treaties_rm_link_hidden_until_import_finishes(monkeypatch):

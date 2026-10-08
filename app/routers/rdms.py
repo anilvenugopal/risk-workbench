@@ -16,7 +16,7 @@ from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._entity_notes import save_notes
 from app.routers._list_filters import library_filters, picker_options
-from app.services import edm_service, rdm_service
+from app.services import analysis_service, edm_service, rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
     InvalidMemberName,
@@ -150,6 +150,21 @@ def create_import(
 
 # ── Detail + recovery ────────────────────────────────────────────────────────────
 
+def _sorted(request: Request, ctx: dict) -> dict:
+    sort, descending = analysis_service.sort_from_query(request.query_params)
+    for group in ctx["analyses"]:
+        group.analyses = analysis_service.sort_broker_analyses(
+            group.analyses, sort, descending)
+    ctx.update(sort=sort, sort_desc=descending)
+    return ctx
+
+
+# htmx names the polling element in HX-Trigger. A sort click comes from a button
+# with no id, so it always renders.
+def _is_self_poll(request: Request) -> bool:
+    return request.headers.get("HX-Trigger") == "rdm-detail"
+
+
 def _detail(request: Request, rdm_id: str, status_code: int = 200):
     ctx = rdm_service.get_rdm_detail(rdm_id)
     if ctx is None:
@@ -160,7 +175,8 @@ def _detail(request: Request, rdm_id: str, status_code: int = 200):
     # wipe it on the first poll swap): the import was saved fail-open because the
     # name-collision check couldn't reach Risk Modeler.
     ctx["nc_unchecked"] = request.query_params.get("nc") == "unchecked"
-    return _render(request, "pages/rdm_detail.html", ctx, status_code=status_code)
+    return _render(request, "pages/rdm_detail.html", _sorted(request, ctx),
+                   status_code=status_code)
 
 
 def _contextual_not_found(request: Request):
@@ -194,12 +210,12 @@ def _contextual_body_partial(
             '<div class="page-pad" id="rdm-detail">'
             '<div class="state-box state-box--warn">'
             'This RDM is no longer related to the submission.</div></div>')
-    if (poll and context["sync_running"]
+    if (poll and _is_self_poll(request) and context["sync_running"]
             and any(group.analyses for group in context["analyses"])):
         return Response(status_code=204)
     return _partial(
         request, "partials/rdm_detail_body.html",
-        _contextual_template_context(context))
+        _contextual_template_context(_sorted(request, context)))
 
 
 @router.get(
@@ -213,7 +229,8 @@ def contextual_detail(request: Request, submission_id: str, rdm_id: str):
         return _contextual_not_found(request)
     return _render(
         request, "pages/rdm_detail.html",
-        {**_contextual_template_context(context), "nc_unchecked": False},
+        {**_contextual_template_context(_sorted(request, context)),
+         "nc_unchecked": False},
         nav_key="submissions.detail")
 
 
@@ -231,6 +248,8 @@ def contextual_sync(
     csrf_token: str = Form(...),
 ):
     url = f"/submissions/{submission_id}/rdms/{rdm_id}"
+    if request.url.query:
+        url += f"?{request.url.query}"
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(csrf_token):
         if is_htmx:
@@ -271,13 +290,13 @@ def _body_partial(request: Request, rdm_id: str, *, poll: bool = False):
             '<div class="page-pad" id="rdm-detail">'
             '<div class="state-box state-box--warn">This RDM no longer exists.'
             '</div></div>')
-    if poll and ctx["sync_running"] and any(g.analyses for g in ctx["analyses"]):
-        # A populated page mid-sync: swapping the body on every poll would collapse
-        # every <details> the analyst opened. 204 → htmx swaps nothing and the
-        # poll keeps ticking; the first post-sync poll returns the fresh body
-        # (whose trigger is gone), rendering the result exactly once.
+    if (poll and _is_self_poll(request) and ctx["sync_running"]
+            and any(g.analyses for g in ctx["analyses"])):
+        # A populated page mid-sync: the self-poll gets 204, so htmx swaps
+        # nothing and the poll keeps ticking; the first post-sync poll returns
+        # the fresh body (whose trigger is gone), rendering the result once.
         return Response(status_code=204)
-    return _partial(request, "partials/rdm_detail_body.html", ctx)
+    return _partial(request, "partials/rdm_detail_body.html", _sorted(request, ctx))
 
 
 @router.get("/rdms/{rdm_id}", response_class=HTMLResponse)
@@ -289,8 +308,9 @@ def detail(request: Request, rdm_id: str):
 def detail_body(request: Request, rdm_id: str):
     # The live body's poll target (GET, read-only, no CSRF) — re-renders the
     # #rdm-detail wrapper; the template stops emitting its own hx-trigger once
-    # the backfill lands, so polling self-terminates. A populated page mid-sync
-    # gets a 204 (poll continues, nothing swaps) so open rows aren't collapsed.
+    # the backfill lands, so polling self-terminates. The self-poll of a
+    # populated page mid-sync gets a 204 (poll continues, nothing swaps); a sort
+    # click renders.
     return _body_partial(request, rdm_id, poll=True)
 
 
@@ -301,17 +321,20 @@ def sync(request: Request, rdm_id: str, csrf_token: str = Form(...)):
     # request path (Article 11). HTMX path: swap the #rdm-detail wrapper in place
     # (it then self-polls until the head lands). No-JS fallback: Post/Redirect/
     # Get, so a refresh never re-prompts a form re-submission.
+    url = f"/rdms/{rdm_id}"
+    if request.url.query:
+        url += f"?{request.url.query}"
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(csrf_token):
         if is_htmx:
             # Never swap a redirect-followed full page into the wrapper — force
             # a clean reload (which also mints fresh tokens).
             return Response(status_code=204, headers={"HX-Refresh": "true"})
-        return RedirectResponse(f"/rdms/{rdm_id}", status_code=303)
+        return RedirectResponse(url, status_code=303)
     rdm_service.sync_detail(rdm_id=rdm_id, actor_id=request.state.user.id)
     if is_htmx:
         return _body_partial(request, rdm_id)
-    return RedirectResponse(f"/rdms/{rdm_id}", status_code=303)
+    return RedirectResponse(url, status_code=303)
 
 
 @router.post("/rdms/{rdm_id}/retry")

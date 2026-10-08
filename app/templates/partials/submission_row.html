@@ -2,7 +2,8 @@
    that ends a drag-selection must leave the selected CRM ID alone (D17). The Name
    cell is a real link, so keyboard and open-in-new-tab work. #}
 <tr class="data-row" data-href="/submissions/{{ row.id }}">
-  <td><a class="open-link" href="/submissions/{{ row.id }}">{{ row.name }}</a></td>
+  <td><a class="open-link" href="/submissions/{{ row.id }}">{{ row.name }}</a>
+    {% if row.archived_at %}<span class="status-chip status-chip--archived">Archived</span>{% endif %}</td>
   <td>{{ row.cedant_name }}</td>
   <td>{% if row.client_id %}{{ row.client_display }}{% else %}<span class="na">—</span>{% endif %}</td>
   <td>

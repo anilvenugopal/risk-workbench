@@ -30,9 +30,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._analysis_delete import delete_analyses_response
-from app.routers._analysis_rows import analysis_rows_response, retarget_section
+from app.routers._analysis_rows import (
+    analysis_rows_response, open_rdm_ids, retarget_section,
+)
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
+from app.routers._guards import require_admin
 from app.routers._list_filters import (
     MAX_TREATY_YEAR,
     MIN_TREATY_YEAR,
@@ -53,9 +56,10 @@ from app.services import (
     name_check,
     rdm_service,
     shared_drive,
+    submission_delete_service,
     submission_service,
 )
-from app.services._common import _parse_int, _uid
+from app.services._common import _parse_int, _rm_ui_root, _uid
 from app.services.analysis_execution_service import ExecutionGateError
 from app.services.cedant_service import CedantValidationError, NewCedant
 from app.services.submission_service import ContractInput, ContractInvalid
@@ -66,6 +70,7 @@ from app.services.errors import (
     NameCollisionError,
     SelfLinkError,
     SubmissionClosed,
+    SubmissionDeleteBlocked,
     UnknownLinkError,
 )
 from app.services.grouping_view import build_inspection_screen
@@ -440,8 +445,10 @@ def submission_analyses(request: Request, submission_id: str):
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _results_gone()
-    return _partial(request, "partials/analyses_merged_section.html",
-                    _results_section_context(request, submission_id, submission))
+    ctx = _results_section_context(request, submission_id, submission)
+    ctx["open_rdm_ids"] = open_rdm_ids(request, ctx["groups"], submission_id,
+                                       ctx["sort"], ctx["sort_desc"])
+    return _partial(request, "partials/analyses_merged_section.html", ctx)
 
 
 @router.post("/submissions/{submission_id}/analyses/rows",
@@ -476,8 +483,11 @@ def submission_rdm_analyses(request: Request, submission_id: str, rdm_id: str):
     rdm = next((g for g in groups if g.rdm_id == rdm_id.lower()), None)
     if rdm is None:
         return _not_found(request)
-    return _partial(request, "partials/contextual_rdm_analyses.html",
-                    {"analyses": analyses, "rdm": rdm, "show_edm": True})
+    sort, descending = analysis_service.sort_from_query(request.query_params)
+    return _partial(request, "partials/contextual_rdm_analyses.html", {
+        "analyses": analysis_service.sort_broker_analyses(
+            analyses, sort, descending),
+        "rdm": rdm, "show_edm": True})
 
 
 # ── Group compose dialog (spec 012, contracts/routes.md) ─────────────────────
@@ -659,11 +669,14 @@ async def group_compose_submit(request: Request, submission_id: str):
 def _import_context(submission, entries, *, entry_value: str = "",
                     message: str | None = None,
                     message_kind: str = "error") -> dict:
+    root = _rm_ui_root()
     return {"submission": submission, "entries": entries,
             "entry_value": entry_value, "message": message,
             "message_kind": message_kind,
             "check_url": f"/submissions/{submission.id}/analyses/import/check",
-            "import_url": f"/submissions/{submission.id}/analyses/import"}
+            "import_url": f"/submissions/{submission.id}/analyses/import",
+            "rm_analyses_url": (f"{root}/riskmodeler/datasources/analysislist"
+                                if root else None)}
 
 
 def _retarget_import_body(response):
@@ -1046,6 +1059,7 @@ def list_submissions_page(request: Request):
         **parsed.filters,
         "owner_ids": owner_ids,
         "inception_date": _parse_date(request.query_params.get("inception")),
+        "include_archived": request.query_params.get("archived") == "1",
     }
     page = _parse_int(request.query_params.get("page")) or 1
     # A hand-edited ?sort=/&dir= falls back to the default order rather than 422.
@@ -1066,6 +1080,7 @@ def list_submissions_page(request: Request):
     filter_values |= multi_values
     filter_values["in_force"] = parsed.in_force
     filter_values["as_of"] = parsed.as_of
+    filter_values["archived"] = filters["include_archived"]
     # The resolved ids, not the raw parameter: on the default landing the hidden
     # input has to hold the analyst's own id so the next request keeps it.
     filter_values["owner"] = owner_ids or ["any"]
@@ -1081,6 +1096,8 @@ def list_submissions_page(request: Request):
         query_values += [(key, value) for value in filter_values[key]]
     if parsed.in_force:
         query_values += [("in_force", "1"), ("as_of", filter_values["as_of"])]
+    if filters["include_archived"]:
+        query_values.append(("archived", "1"))
     # Lowercased: the id arrives from a query string, `app_user.id` from the driver.
     if ([value.lower() for value in filter_values["owner"]]
             == [str(request.state.user.id).lower()]):
@@ -1559,6 +1576,76 @@ def reassign(
     if _is_htmx(request):
         return _head_partial(request, submission_id)
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+# ── Archive (issue 206) ───────────────────────────────────────────────────────
+
+def _set_archived(request: Request, submission_id: str, csrf_token: str,
+                  archived: bool):
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    try:
+        submission_service.set_archived(submission_id=submission_id, archived=archived,
+                                        actor_id=request.state.user.id)
+    except LookupError:
+        return _not_found(request)
+    if _is_htmx(request):
+        return _head_partial(request, submission_id)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+@router.post("/submissions/{submission_id}/archive")
+def archive(request: Request, submission_id: str, csrf_token: str = Form(...)):
+    return _set_archived(request, submission_id, csrf_token, archived=True)
+
+
+@router.post("/submissions/{submission_id}/unarchive")
+def unarchive(request: Request, submission_id: str, csrf_token: str = Form(...)):
+    return _set_archived(request, submission_id, csrf_token, archived=False)
+
+
+# ── Delete (issue 206, admin only) ────────────────────────────────────────────
+
+def _delete_modal(request: Request, submission, summary, status_code: int = 200):
+    return _partial(request, "partials/submission_delete_modal.html",
+                    {"submission": submission, "summary": summary},
+                    status_code=status_code)
+
+
+@router.get("/submissions/{submission_id}/delete", response_class=HTMLResponse)
+def delete_modal(request: Request, submission_id: str):
+    _, denied = require_admin(request)
+    if denied:
+        return denied
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    return _delete_modal(request, submission,
+                         submission_delete_service.delete_summary(submission_id))
+
+
+@router.post("/submissions/{submission_id}/delete")
+def delete(request: Request, submission_id: str, csrf_token: str = Form(...)):
+    _, denied = require_admin(request)
+    if denied:
+        return denied
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    try:
+        submission_delete_service.delete_submission(
+            submission_id=submission_id, actor_id=request.state.user.id)
+    except SubmissionDeleteBlocked as exc:
+        summary = replace(submission_delete_service.delete_summary(submission_id),
+                          blocked=str(exc))
+        return _delete_modal(request, submission, summary, status_code=409)
+    except LookupError:
+        return _not_found(request)
+    if _is_htmx(request):
+        return Response(status_code=204, headers={"HX-Redirect": "/submissions"})
+    return RedirectResponse("/submissions", status_code=303)
 
 
 # ── Modeling status (spec 017 P-12, P-14) ─────────────────────────────────────

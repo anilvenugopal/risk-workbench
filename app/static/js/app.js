@@ -1363,6 +1363,16 @@ document.addEventListener('htmx:afterSettle', (e) => {
   if (scroller && state.scrollTop !== null) scroller.scrollTop = state.scrollTop;
 });
 
+// Restoring an RDM group's `open` after the swap collapses it, then refetches
+// its rows. So every request names the open groups, and a route that re-renders
+// the Analyses section renders them open with their rows (open_rdm_ids in
+// app/routers/_analysis_rows.py). Other routes ignore the header.
+document.addEventListener('htmx:configRequest', (e) => {
+  const ids = [...document.querySelectorAll('details.dtable__rdm[open]')]
+    .map((group) => group.dataset.rdmId);
+  if (ids.length) e.detail.headers['X-Open-Rdms'] = ids.join(',');
+});
+
 // ── Toasts + global error surfacing ───────────────────────────────────────────
 // Nothing should fail silently: every HTMX response error / network error raises a
 // toast. HTMX drops non-2xx responses by default, so without this an error is
@@ -1445,11 +1455,13 @@ document.addEventListener('grouping-submitted', (e) => {
 // deleted or no longer deletable simply has no box to restore); one bubbling
 // change event makes analysisPicks() recount. Keyed by the section's own id;
 // data-restore-open marks the EDM page's Analyses section, the submission
-// page's Results section, and its Exports section (spec 014).
+// page's Results section, its Exports section (spec 014), and the RDM page's
+// #rdm-detail body.
 let _analysesRestore = null;
 document.addEventListener('htmx:beforeSwap', (e) => {
   const target = e.detail.target;
-  if (!target || !target.hasAttribute
+  // A 204 fires beforeSwap with shouldSwap false and no afterSwap follows.
+  if (!e.detail.shouldSwap || !target || !target.hasAttribute
       || !target.hasAttribute('data-restore-open')) return;
   _analysesRestore = {
     id: target.id,
@@ -1561,6 +1573,13 @@ document.addEventListener('click', (e) => {
   btn.focus();
   (ok ? copied : failed)();
 });
+document.addEventListener('click', (e) => {
+  const btn = e.target instanceof Element && e.target.closest('[data-collapse-all]');
+  if (!btn) return;
+  btn.closest('details.sec')
+    .querySelectorAll('details.drow[open], details.dtable__rdm[open]')
+    .forEach((row) => { row.open = false; });
+});
 
 // The checked ids travel in tick order — kept per section by a document-level
 // listener, because Alpine's analysisPicks is re-instantiated by every full
@@ -1658,4 +1677,30 @@ document.addEventListener('htmx:responseError', (e) => {
 });
 document.addEventListener('htmx:sendError', () => {
   showToast('Network error — please check your connection and try again.', 'error');
+});
+
+// A plain POST navigates away, so the first one locks every other plain-post
+// submit on the page until the next page load. A slow redirect otherwise lets a
+// second click create a second export batch.
+let plainPost = null;
+document.addEventListener('submit', (e) => {
+  const form = e.target;
+  // hx-post forms and forms whose own handler cancelled the submit arrive here
+  // already prevented; only a real browser navigation is locked.
+  if (e.defaultPrevented || form.method !== 'post') return;
+  if (plainPost) { e.preventDefault(); return; }
+  const btn = e.submitter;
+  plainPost = { btn, label: btn && btn.textContent };
+  if (!btn) return;
+  btn.textContent = 'Submitting…';
+  // Disabled after the browser has read the submitter into the form data;
+  // a disabled submitter's name/value would be left out of the post.
+  setTimeout(() => { btn.disabled = true; });
+});
+// Back/forward cache restores the page with the lock still set.
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted || !plainPost) return;
+  const { btn, label } = plainPost;
+  if (btn) { btn.textContent = label; btn.disabled = false; }
+  plainPost = null;
 });

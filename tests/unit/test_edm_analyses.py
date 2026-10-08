@@ -5,6 +5,7 @@ expanded row with inline condensed results)."""
 from __future__ import annotations
 
 import json
+import re
 import uuid
 
 import pytest
@@ -34,13 +35,14 @@ def _rdm(name: str, irp_id: int) -> str:
     return rdm_id
 
 
-def _analysis(rdm_id: str, irp_id: str, name: str) -> None:
+def _analysis(rdm_id: str, irp_id: str, name: str,
+              settings: dict | None = None) -> None:
     execute_command(
         "INSERT INTO irp_analysis "
         "(id, rdm_id, irp_id, name, status_code, settings_metadata) "
         "VALUES (:id, :rdm, :irp, :name, 'ready', :settings)",
-        {"id": str(uuid.uuid4()), "rdm": rdm_id, "irp": irp_id,
-         "name": name, "settings": json.dumps({"analysisType": "EP"})},
+        {"id": str(uuid.uuid4()), "rdm": rdm_id, "irp": irp_id, "name": name,
+         "settings": json.dumps({"analysisType": "EP", **(settings or {})})},
         connection="WORKBENCH")
 
 
@@ -296,6 +298,26 @@ def test_merged_section_sort_orders_the_rows_and_carries_the_status_filter(clien
             '&amp;dir=asc"' in html)
 
 
+def test_merged_section_sorts_by_aal_largest_first_with_no_aal_last(client):
+    edm_id = _seed_edm()
+    for name, aal in (("small", 1_000.0), ("large", 9_000.0)):
+        results = _extract()
+        results["perspectives"]["RL"]["aal"] = aal
+        _seed_executed(edm_id=edm_id, name=name, portfolio_name=name,
+                       loss_results=results)
+    _seed_executed(edm_id=edm_id, name="pending", portfolio_name="pending")
+
+    html = client.get(f"/edms/{edm_id}/analyses").text
+    descending = client.get(f"/edms/{edm_id}/analyses?sort=aal&dir=desc").text
+    ascending = client.get(f"/edms/{edm_id}/analyses?sort=aal&dir=asc").text
+
+    assert f'hx-get="/edms/{edm_id}/analyses?sort=aal&amp;dir=desc"' in html
+    assert (descending.index('data-value="large"') < descending.index('data-value="small"')
+            < descending.index('data-value="pending"'))
+    assert (ascending.index('data-value="small"') < ascending.index('data-value="large"')
+            < ascending.index('data-value="pending"'))
+
+
 def test_the_headers_are_clickable_from_the_page_and_body_routes_too(client):
     """Both render the section from a context that carries no sort state — the
     href is built in the template so they get working links anyway."""
@@ -323,12 +345,12 @@ def test_merged_section_columns_and_the_four_aal_states(client):
 
     # one column set (FR-010) — no EDM column on the EDM page
     for header in (">Portfolio</span>", ">Template</span>",
-                   ">AAL &middot; Pre-Cat Net</span>", ">Status</span>",
+                   'data-value="AAL · Pre-Cat Net"', ">Status</span>",
                    ">Risk Modeler</span>"):
         assert header in html
     # the five click-to-sort headers (note 27 D6) name themselves in data-value
     for label in ("Peril", "Region", "Engine", "Currency", "Submitted"):
-        assert f'<span class="l" data-value="{label}">' in html
+        assert f'<span class="l" data-value="{label}" title="{label}">' in html
     assert ">EDM</span>" not in html
     assert ">Type</span>" not in html            # analysis type moved to the expansion
     # the split name (D4) and the abbreviated peril/region (D2)
@@ -346,6 +368,7 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     assert '<time data-utc="2026-08-26T00:00:00"' in html
     # the copy sliver's hooks (FR-018): the button and the data-value attributes
     assert "data-copy-table" in html
+    assert "data-collapse-all" in html
     assert "data-analyses-section" in html
 
 
@@ -420,3 +443,73 @@ def test_contextual_rdm_lazy_rows_use_the_merged_columns(client, iteration2_db):
     assert 'name="analysis_ids"' in html and "data-broker" in html
     assert ">Finished</span>" in html
     assert "Portfolio" not in html
+
+
+def test_contextual_rdm_lazy_rows_follow_the_section_sort(client, iteration2_db):
+    submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
+    _analysis(rdm_id, "1", "Alpha wind", {"perilCode": "WS"})
+    _analysis(rdm_id, "2", "Bravo quake", {"perilCode": "EQ"})
+    url = f"/submissions/{submission_id}/edms/{edm_id}/rdms/{rdm_id}/analyses"
+
+    ascending = client.get(f"{url}?sort=peril&dir=asc").text
+    descending = client.get(f"{url}?sort=peril&dir=desc").text
+    section = client.get(f"/submissions/{submission_id}/edms/{edm_id}"
+                         "/analyses?sort=peril&dir=asc").text
+
+    assert ascending.index("Bravo quake") < ascending.index("Alpha wind")
+    assert descending.index("Alpha wind") < descending.index("Bravo quake")
+    assert f'/rdms/{rdm_id}/analyses?sort=peril&amp;dir=asc"' in section
+
+
+def _rdm_group_tag(html: str, rdm_id: str) -> str:
+    return re.search(rf'<details class="dtable__rdm" id="rdm-group-{rdm_id}"[^>]*>',
+                     html).group(0)
+
+
+def test_contextual_section_renders_named_rdm_groups_open_with_rows(
+        client, iteration2_db):
+    submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
+    _analysis(rdm_id, "1", "Alpha wind", {"perilCode": "WS"})
+    _analysis(rdm_id, "2", "Bravo quake", {"perilCode": "EQ"})
+    closed_id = _rdm("Second Broker RDM", 4822)
+    execute_command(
+        "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+        {"s": submission_id, "r": closed_id}, connection="WORKBENCH")
+    _analysis(closed_id, "3", "Charlie flood")
+
+    html = client.get(f"/submissions/{submission_id}/edms/{edm_id}"
+                      "/analyses?sort=peril&dir=asc",
+                      headers={"X-Open-Rdms": rdm_id}).text
+
+    open_tag = _rdm_group_tag(html, rdm_id)
+    assert open_tag.endswith("open>") and "hx-get" not in open_tag
+    rows = html[html.index(f'id="rdm-analyses-{rdm_id}"'):]
+    assert rows.index("Bravo quake") < rows.index("Alpha wind")
+    assert "hx-get" in _rdm_group_tag(html, closed_id)
+    assert "Charlie flood" not in html
+
+
+def test_contextual_body_renders_named_rdm_groups_open_with_rows(
+        client, iteration2_db):
+    submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
+    _analysis(rdm_id, "1", "Alpha wind")
+
+    html = client.get(f"/submissions/{submission_id}/edms/{edm_id}/body",
+                      headers={"X-Open-Rdms": rdm_id}).text
+
+    assert _rdm_group_tag(html, rdm_id).endswith("open>")
+    assert "Alpha wind" in html
+
+
+def test_open_rdm_header_ignores_rdms_off_the_submission(client, iteration2_db):
+    submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
+    _analysis(rdm_id, "1", "Alpha wind")
+    other_id = _rdm("Unrelated RDM", 4999)
+    _analysis(other_id, "2", "Unrelated analysis")
+
+    html = client.get(f"/submissions/{submission_id}/edms/{edm_id}/analyses",
+                      headers={"X-Open-Rdms": other_id}).text
+
+    assert "hx-get" in _rdm_group_tag(html, rdm_id)
+    assert f"rdm-group-{other_id}" not in html
+    assert "Alpha wind" not in html and "Unrelated analysis" not in html

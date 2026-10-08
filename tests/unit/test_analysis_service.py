@@ -291,7 +291,8 @@ def test_submission_failed_shows_attempt_count_and_stays_live_while_retrying(ite
     assert row.is_live is True  # status_code stays pending while retries remain
 
 
-def test_submission_failed_exhausted_flips_error_but_label_unchanged(iteration2_db):
+def test_submission_failed_exhausted_flips_error_and_drops_the_attempt_counter(
+        iteration2_db):
     edm = _edm()
     max_retries = app_settings.irp_submission_max_retries
     analysis = _executed(edm_id=edm, status_code="error",
@@ -299,7 +300,7 @@ def test_submission_failed_exhausted_flips_error_but_label_unchanged(iteration2_
     _job(analysis_id=analysis, status="SUBMISSION FAILED", attempts=max_retries)
 
     [row] = analysis_service.list_executed_analyses(edm_id=edm)
-    assert row.status_label == f"Failed to submit · attempt {max_retries}/{max_retries}"
+    assert row.status_label == "Failed to submit"
     assert row.is_live is False
 
 
@@ -1333,6 +1334,71 @@ def test_sort_analyses_default_and_unknown_keys_keep_the_query_order():
     assert analysis_service.sort_analyses(rows, "", True) == rows
     assert analysis_service.sort_analyses(rows, "nonsense", True) == rows
     assert analysis_service.sort_analyses(rows, "submitted", False) == rows[::-1]
+
+
+def _sortable_broker(name, created_at=None, peril=None):
+    return analysis_service.BrokerAnalysis(
+        id=str(uuid.uuid4()), irp_id="1", name=name, rdm_id="r", rdm_name="R",
+        created_at=created_at,
+        display=analysis_service.AnalysisSettings(peril=peril))
+
+
+def test_sort_broker_analyses_defaults_to_create_date_newest_first():
+    rows = [_sortable_broker("old", "2026-01-01T09:00:00"),
+            _sortable_broker("none"),
+            _sortable_broker("new", "2026-03-01T09:00:00")]
+
+    default = analysis_service.sort_broker_analyses(rows, "", True)
+    ascending = analysis_service.sort_broker_analyses(rows, "submitted", False)
+
+    assert [a.name for a in default] == ["new", "old", "none"]
+    assert [a.name for a in ascending] == ["old", "new", "none"]
+
+
+def test_sort_broker_analyses_breaks_ties_on_create_date_newest_first():
+    rows = [_sortable_broker("wind-old", "2026-01-01T09:00:00", "WS"),
+            _sortable_broker("quake", "2026-02-01T09:00:00", "EQ"),
+            _sortable_broker("wind-new", "2026-03-01T09:00:00", "WS")]
+
+    ascending = analysis_service.sort_broker_analyses(rows, "peril", False)
+    descending = analysis_service.sort_broker_analyses(rows, "peril", True)
+
+    assert [a.name for a in ascending] == ["quake", "wind-new", "wind-old"]
+    assert [a.name for a in descending] == ["wind-new", "wind-old", "quake"]
+
+
+def _rl(aal, produced=True):
+    return [analysis_service.PerspectiveResults(
+        code="RL", label="Pre-Cat Net", produced=produced, aal=aal)]
+
+
+def test_sort_analyses_orders_aal_largest_first_with_no_aal_last_both_ways():
+    rows = [_sortable(), _sortable(), _sortable(), _sortable(is_group=True),
+            _sortable()]
+    rows[0].results = _rl(1_000.0)
+    rows[1].results = _rl(None, produced=False)
+    rows[2].results_state = "failed"
+    rows[3].results = _rl(9_000.0)
+    rows[4].results = _rl(5_000.0)
+
+    descending = analysis_service.sort_analyses(rows, "aal", True)
+    ascending = analysis_service.sort_analyses(rows, "aal", False)
+
+    assert descending == [rows[3], rows[4], rows[0], rows[1], rows[2]]
+    assert ascending == [rows[0], rows[4], rows[3], rows[1], rows[2]]
+
+
+def test_sort_broker_analyses_breaks_aal_ties_on_create_date_newest_first():
+    rows = [_sortable_broker("old", "2026-01-01T09:00:00"),
+            _sortable_broker("new", "2026-03-01T09:00:00"),
+            _sortable_broker("big", "2026-02-01T09:00:00")]
+    rows[0].results = _rl(1_000.0)
+    rows[1].results = _rl(1_000.0)
+    rows[2].results = _rl(9_000.0)
+
+    descending = analysis_service.sort_broker_analyses(rows, "aal", True)
+
+    assert [a.name for a in descending] == ["big", "new", "old"]
 
 
 # ── spec 015: the run details the expanded row reads (FR-001/FR-006/FR-013) ────

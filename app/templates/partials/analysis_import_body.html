@@ -11,11 +11,11 @@
              placeholder="e.g. 35810" value="{{ entry_value }}" x-model="entry" autofocus
              @keydown.enter.prevent="$refs.add.click()">
     </div>
-    <button class="modal-btn modal-btn--secondary" type="button" x-ref="add" :disabled="!entry.trim()"
+    <button class="btn" type="button" x-ref="add" :disabled="!entry.trim()"
             hx-post="{{ check_url }}" hx-include="closest form"
             hx-target="#import-body" hx-swap="innerHTML" hx-indicator="#import-check">Add</button>
   </div>
-  <div class="wf-field__hint">The id Risk Modeler shows on the analysis &mdash; a group and a single analysis both.</div>
+  <div class="wf-field__hint">The id Risk Modeler shows on the analysis &mdash; a group and a single analysis both.{% if rm_analyses_url %} <a class="sec__note--link" href="{{ rm_analyses_url }}" target="_blank" rel="noopener" title="Open the analyses list in Risk Modeler (new tab)">Find it in Risk Modeler ↗</a>{% endif %}</div>
   <div id="import-check" class="import-check"><span class="spin" role="status" aria-label="Checking"></span>Checking in Risk Modeler&hellip;</div>
   {% if message %}
   <div class="import-msg import-msg--{{ message_kind }}">{{ message }}</div>
@@ -44,6 +44,6 @@
 </div>
 <div class="modal-footer">
   <span class="import-count">{% if entries %}{{ entries|length }} {{ 'analysis' if entries|length == 1 else 'analyses' }} added{% endif %}</span>
-  <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('import-modal').replaceChildren()">Cancel</button>
-  <button class="modal-btn modal-btn--primary" type="submit"{% if not entries %} disabled{% endif %}>Import{% if entries %} {{ entries|length }}{% endif %}</button>
+  <button class="btn" type="button" @click="document.getElementById('import-modal').replaceChildren()">Cancel</button>
+  <button class="btn btn--primary" type="submit"{% if not entries %} disabled{% endif %}>Import{% if entries %} {{ entries|length }}{% endif %}</button>
 </div>

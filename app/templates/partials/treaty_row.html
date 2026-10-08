@@ -14,9 +14,9 @@
    Missing fields render "—", never an error. Read-only (FR-025). #}
 {%- from "partials/treaty_macros.html" import money, attr_val, presence -%}
 {%- set a = t.attributes or {} -%}
-<details class="drow">
+<details class="drow" id="treaty-{{ t.id }}">
   <summary>
-    <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+    <span class="l dt-wrap"><span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">
         <span class="dt-title" title="{{ t.name }}">{{ t.name }}</span>
         {#- name and number both stay, LABELED (8/5 D4 — neither was legible
@@ -24,18 +24,27 @@
         {% if a.get('treatyNumber') %}<span class="dt-sub">No. {{ a.get('treatyNumber') }}</span>
         {% elif t.irp_id %}<span class="dt-sub">ID {{ t.irp_id }}</span>{% endif %}
       </span></span></span>
-    <span class="l">{{ attr_val(t.display('treatyType')) }}</span>
-    <span>{{ money(a.get('attachmentPoint')) }}</span>
-    <span class="l">{{ attr_val(t.display('attachmentBasis')) }}</span>
-    <span>{{ money(a.get('occurrenceLimit')) }}</span>
-    <span>{{ money(a.get('riskLimit')) }}</span>
-    <span class="l">{{ presence(t.display_presence('cedant')) }}</span>
-    <span class="l">{{ presence(t.display_presence('lobs')) }}</span>
-    <span class="l">{{ attr_val(t.display('currency')) }}</span>
-    <span class="l">
-      {%- set eff = (a.get('effectiveDate') or '')[:10] -%}
-      {%- set exp = (a.get('expirationDate') or '')[:10] -%}
-      {%- if eff or exp -%}{{ eff or '…' }} → {{ exp[5:] if exp[:4] == eff[:4] and exp else (exp or '…') }}
+    {%- set v = t.display('treatyType') %}{% set txt = attr_val(v) %}
+    <span class="l"{% if v is not none and v != '' %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+    {%- set v = a.get('attachmentPoint') %}{% set txt = money(v) %}
+    <span{% if v is not none %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+    {%- set v = t.display('attachmentBasis') %}{% set txt = attr_val(v) %}
+    <span class="l"{% if v is not none and v != '' %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+    {%- set v = a.get('occurrenceLimit') %}{% set txt = money(v) %}
+    <span{% if v is not none %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+    {%- set v = a.get('riskLimit') %}{% set txt = money(v) %}
+    <span{% if v is not none %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+    {%- set v = t.display_presence('cedant') %}{% set txt = presence(v) %}
+    <span class="l"{% if v[0] is not none and v[0] != '' %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+    {%- set v = t.display_presence('lobs') %}{% set txt = presence(v) %}
+    <span class="l"{% if v[0] is not none and v[0] != '' %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+    {%- set v = t.display('currency') %}{% set txt = attr_val(v) %}
+    <span class="l"{% if v is not none and v != '' %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+    {%- set eff = (a.get('effectiveDate') or '')[:10] -%}
+    {%- set exp = (a.get('expirationDate') or '')[:10] %}
+    {%- set period = (eff or '…') ~ ' → ' ~ (exp[5:] if exp[:4] == eff[:4] and exp else (exp or '…')) %}
+    <span class="l"{% if eff or exp %} title="{{ period }}"{% endif %}>
+      {%- if eff or exp -%}{{ period }}
       {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
     </span>
   </summary>
