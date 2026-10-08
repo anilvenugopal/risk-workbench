@@ -603,30 +603,6 @@ def test_list_rwb_jobs_for_monitoring_returns_all_types_and_fields(iteration2_db
     assert rows_by_id[fail_id]["error_detail"] == "boom"
 
 
-def test_list_rwb_jobs_for_monitoring_orders_by_type_then_status_then_recency(iteration2_db):
-    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-
-    # Two rows of the SAME type, both pending — updated_at DESC within the
-    # group means the more-recently-touched one (job_b, cancelled after
-    # job_a was enqueued) sorts first.
-    job_a = enqueue_rwb_job(requestor_type="analyst_request",
-                            requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
-                            **_NO_LINK)
-    job_b = enqueue_rwb_job(requestor_type="analyst_request",
-                            requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
-                            **_NO_LINK)
-    cancel_rwb_job(rwb_job_id=job_b)  # touches job_b's updated_at
-
-    rows = [r for r in list_rwb_jobs_for_monitoring()
-            if r["id"] in (job_a, job_b)]
-    # Different status_code ('cancelled' vs 'pending') sorts by status_code
-    # first (alphabetical: 'cancelled' < 'pending'), so job_b comes first
-    # here for that reason, not recency — this pins the actual ORDER BY
-    # clause (rwb_job_type, status_code, updated_at DESC), not just "newest
-    # first" in general.
-    assert [r["id"] for r in rows] == [job_b, job_a]
-
-
 def test_resubmit_rwb_job_by_id_matches_ensure_pending_contract(iteration2_db):
     from app.services.rwb_job_service import resubmit_rwb_job
 
@@ -778,94 +754,56 @@ def test_resubmit_rwb_job_carries_link_and_context_through_unchanged(iteration2_
     assert row["context_id"] == edm_id
 
 
-# ── monitoring search — submission join via link_type/link_id (CR-04a) ───────
+# ── monitoring read: Submitted by, Entity, sort order (#219) ─────────────────
 
 def _edm(*, name="EDM") -> str:
     eid = str(uuid.uuid4())
     execute_command(
         "INSERT INTO irp_edm (id, source_file_path, name, status, "
         "inserted_at, updated_at) VALUES (:id, :src, :name, 'ready', :now, :now)",
-        {"id": eid, "src": r"\\share\intake\x.bak", "name": name,
+        {"id": eid, "src": r"\share\intake\x.bak", "name": name,
          "now": "2026-01-01 00:00:00"},
         connection="WORKBENCH")
     return eid
 
 
-def _rdm(*, name="RDM") -> str:
-    rid = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO irp_rdm (id, source_file_path, name, status, "
-        "inserted_at, updated_at) VALUES (:id, :src, :name, 'ready', :now, :now)",
-        {"id": rid, "src": r"\\share\intake\x.bak", "name": name,
-         "now": "2026-01-01 00:00:00"},
-        connection="WORKBENCH")
-    return rid
-
-
-def _submission(*, name="Sub", cedant_name="Cedant", status_code="ACTIVE",
-                assigned_analyst_id) -> str:
+def _submission(*, name="Sub", assigned_analyst_id) -> str:
     sid = str(uuid.uuid4())
     execute_command(
         "INSERT INTO submission (id, assigned_analyst_id, name, cedant_id, "
         "status_code, inserted_at, updated_at) "
-        "VALUES (:id, :a, :name, :cedant, :status, :now, :now)",
-        {"id": sid, "a": assigned_analyst_id, "name": name,
-         "cedant": cedant_id(cedant_name),
-         "status": status_code, "now": "2026-01-01 00:00:00"},
+        "VALUES (:id, :a, :name, :cedant, 'ACTIVE', :now, :now)",
+        {"id": sid, "a": assigned_analyst_id, "name": name, "cedant": cedant_id(),
+         "now": "2026-01-01 00:00:00"},
         connection="WORKBENCH")
     return sid
 
 
-def _attach_edm(submission_id, edm_id) -> None:
+def _dummy(**kwargs) -> str:
+    return enqueue_rwb_job(requestor_type="analyst_request",
+                           requestor_id=str(uuid.uuid4()),
+                           rwb_job_type=kwargs.pop("rwb_job_type", "dummy_wait"),
+                           **_NO_LINK, **kwargs)
+
+
+def _stamp(job_id, *, inserted_at, submitted_at=None) -> None:
     execute_command(
-        "INSERT INTO submission_edm (submission_id, edm_id, inserted_at) "
-        "VALUES (:s, :e, :now)",
-        {"s": submission_id, "e": edm_id, "now": "2026-01-01 00:00:00"},
-        connection="WORKBENCH")
-
-
-def _attach_rdm(submission_id, rdm_id) -> None:
-    execute_command(
-        "INSERT INTO submission_rdm (submission_id, rdm_id, inserted_at) "
-        "VALUES (:s, :r, :now)",
-        {"s": submission_id, "r": rdm_id, "now": "2026-01-01 00:00:00"},
-        connection="WORKBENCH")
-
-
-def _job_for(*, link_type, link_id, rwb_job_type="backfill_edm_detail") -> str:
-    return enqueue_rwb_job(
-        requestor_type="analyst_request", requestor_id=str(uuid.uuid4()),
-        rwb_job_type=rwb_job_type, link_type=link_type, link_id=link_id,
-        context_type=link_type if link_type != "not_applicable" else None,
-        context_id=link_id)
-
-
-def _grouping_job(submission_id) -> str:
-    return enqueue_rwb_job(
-        requestor_type="analyst_request", requestor_id=str(uuid.uuid4()),
-        rwb_job_type="submit_grouping", link_type="submission",
-        link_id=submission_id, context_type="irp_analysis",
-        context_id=str(uuid.uuid4()))
+        "UPDATE rwb_job SET inserted_at = :i, submitted_at = :s WHERE id = :id",
+        {"i": inserted_at, "s": submitted_at, "id": job_id}, connection="WORKBENCH")
 
 
 def test_monitoring_no_filters_returns_every_row(iteration2_db):
     from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    edm_id = _edm()
-    job_id = _job_for(link_type="edm", link_id=edm_id)
-    dummy_id = enqueue_rwb_job(requestor_type="analyst_request",
-                              requestor_id=str(uuid.uuid4()),
-                              rwb_job_type="dummy_wait", **_NO_LINK)
+    mine, unattributed = _dummy(actor_id=iteration2_db.user_a), _dummy()
     ids = {r["id"] for r in list_rwb_jobs_for_monitoring()}
-    assert {job_id, dummy_id} <= ids
+    assert {mine, unattributed} <= ids
 
 
 def test_monitoring_read_stops_at_the_row_cap(iteration2_db):
     from app.services.rwb_job_service import (MONITOR_LIMIT,
                                               list_rwb_jobs_for_monitoring)
     for _ in range(MONITOR_LIMIT + 5):
-        enqueue_rwb_job(requestor_type="analyst_request",
-                        requestor_id=str(uuid.uuid4()),
-                        rwb_job_type="dummy_wait", **_NO_LINK)
+        _dummy()
 
     assert len(list_rwb_jobs_for_monitoring()) == MONITOR_LIMIT
 
@@ -873,110 +811,53 @@ def test_monitoring_read_stops_at_the_row_cap(iteration2_db):
 def test_monitoring_reads_one_row_by_id(iteration2_db):
     # How cancel and resubmit re-render the row they changed.
     from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    job_id = _job_for(link_type="edm", link_id=_edm())
-    enqueue_rwb_job(requestor_type="analyst_request",
-                    requestor_id=str(uuid.uuid4()),
-                    rwb_job_type="dummy_wait", **_NO_LINK)
+    job_id = _dummy()
+    _dummy()
 
     rows = list_rwb_jobs_for_monitoring(rwb_job_ids=[job_id])
 
     assert [r["id"] for r in rows] == [job_id]
 
 
-def test_monitoring_submission_name_matches_via_edm_link(iteration2_db):
+def test_monitoring_submitted_by_matches_inserted_by(iteration2_db):
     from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    user_a, _ = iteration2_db.user_a, iteration2_db.user_b
-    edm_id = _edm()
-    sub_id = _submission(name="American Family Renewal", assigned_analyst_id=user_a)
-    _attach_edm(sub_id, edm_id)
-    job_id = _job_for(link_type="edm", link_id=edm_id)
+    mine = _dummy(actor_id=iteration2_db.user_a)
+    _dummy(actor_id=iteration2_db.user_b)
+    _dummy()
 
-    rows = list_rwb_jobs_for_monitoring(submission_name="american fam")
-    assert job_id in {r["id"] for r in rows}
+    rows = list_rwb_jobs_for_monitoring(submitted_by=[iteration2_db.user_a])
+
+    assert [(r["id"], r["submitted_by"]) for r in rows] == [(mine, "Analyst A")]
 
 
-def test_monitoring_submission_name_matches_via_rdm_link(iteration2_db):
+def test_monitoring_lists_newest_first_by_start_or_queue_time(iteration2_db):
+    # A queued job has no submitted_at yet, so it sorts by when it was queued.
     from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    user_a = iteration2_db.user_a
-    rdm_id = _rdm()
-    sub_id = _submission(name="Coastal Re", assigned_analyst_id=user_a)
-    _attach_rdm(sub_id, rdm_id)
-    job_id = _job_for(link_type="rdm", link_id=rdm_id, rwb_job_type="backfill_rdm_analyses")
+    old, queued, new = _dummy(), _dummy(), _dummy()
+    _stamp(old, inserted_at="2026-10-01 00:00:00", submitted_at="2026-10-01 00:00:05")
+    _stamp(queued, inserted_at="2026-10-02 00:00:00")
+    _stamp(new, inserted_at="2026-10-03 00:00:00", submitted_at="2026-10-03 00:00:05")
 
-    rows = list_rwb_jobs_for_monitoring(submission_name="coastal")
-    assert job_id in {r["id"] for r in rows}
+    assert [r["id"] for r in list_rwb_jobs_for_monitoring()] == [new, queued, old]
 
 
-def test_monitoring_submission_filter_excludes_not_applicable_link(iteration2_db):
+def test_monitoring_sorts_before_the_row_cap(iteration2_db):
+    from app.services.rwb_job_service import (MONITOR_LIMIT,
+                                              list_rwb_jobs_for_monitoring)
+    oldest = _dummy(rwb_job_type="backfill_edm_detail")
+    _stamp(oldest, inserted_at="2026-01-01 00:00:00")
+    for _ in range(MONITOR_LIMIT):
+        _dummy()
+
+    rows = list_rwb_jobs_for_monitoring(sort="rwb_job_type", descending=False)
+
+    assert rows[0]["id"] == oldest
+
+
+def test_monitoring_job_type_and_status_filters(iteration2_db):
     from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    dummy_id = enqueue_rwb_job(requestor_type="analyst_request",
-                              requestor_id=str(uuid.uuid4()),
-                              rwb_job_type="dummy_wait", **_NO_LINK)
-    rows = list_rwb_jobs_for_monitoring(submission_name="anything")
-    assert dummy_id not in {r["id"] for r in rows}
-
-
-def test_monitoring_submission_filter_excludes_edm_with_no_submission(iteration2_db):
-    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    edm_id = _edm()  # never attached to any submission
-    job_id = _job_for(link_type="edm", link_id=edm_id)
-    rows = list_rwb_jobs_for_monitoring(submission_status_codes=["ACTIVE"])
-    assert job_id not in {r["id"] for r in rows}
-
-
-def test_monitoring_no_submission_filter_still_shows_unlinked_jobs(iteration2_db):
-    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    dummy_id = enqueue_rwb_job(requestor_type="analyst_request",
-                              requestor_id=str(uuid.uuid4()),
-                              rwb_job_type="dummy_wait", **_NO_LINK)
-    rows = list_rwb_jobs_for_monitoring(rwb_job_types=["dummy_wait"])
-    assert dummy_id in {r["id"] for r in rows}
-
-
-def test_monitoring_submission_status_filter(iteration2_db):
-    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    user_a = iteration2_db.user_a
-    edm_active = _edm(name="Active EDM")
-    edm_done = _edm(name="Completed EDM")
-    sub_active = _submission(status_code="ACTIVE", assigned_analyst_id=user_a)
-    sub_done = _submission(status_code="COMPLETED", assigned_analyst_id=user_a)
-    _attach_edm(sub_active, edm_active)
-    _attach_edm(sub_done, edm_done)
-    job_active = _job_for(link_type="edm", link_id=edm_active)
-    job_done = _job_for(link_type="edm", link_id=edm_done)
-
-    rows = list_rwb_jobs_for_monitoring(submission_status_codes=["COMPLETED"])
-    ids = {r["id"] for r in rows}
-    assert job_done in ids
-    assert job_active not in ids
-
-
-def test_monitoring_owner_filter(iteration2_db):
-    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    user_a, user_b = iteration2_db.user_a, iteration2_db.user_b
-    edm_a = _edm(name="A's EDM")
-    edm_b = _edm(name="B's EDM")
-    sub_a = _submission(assigned_analyst_id=user_a)
-    sub_b = _submission(assigned_analyst_id=user_b)
-    _attach_edm(sub_a, edm_a)
-    _attach_edm(sub_b, edm_b)
-    job_a = _job_for(link_type="edm", link_id=edm_a)
-    job_b = _job_for(link_type="edm", link_id=edm_b)
-
-    rows = list_rwb_jobs_for_monitoring(owner_ids=[user_a])
-    ids = {r["id"] for r in rows}
-    assert job_a in ids
-    assert job_b not in ids
-
-
-def test_monitoring_job_type_and_status_filters_independent_of_submission(iteration2_db):
-    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    upload_id = enqueue_rwb_job(requestor_type="analyst_request",
-                               requestor_id=str(uuid.uuid4()),
-                               rwb_job_type="upload_edm", **_NO_LINK)
-    backfill_id = enqueue_rwb_job(requestor_type="analyst_request",
-                                 requestor_id=str(uuid.uuid4()),
-                                 rwb_job_type="backfill_edm_detail", **_NO_LINK)
+    upload_id = _dummy(rwb_job_type="upload_edm")
+    backfill_id = _dummy(rwb_job_type="backfill_edm_detail")
     rows = list_rwb_jobs_for_monitoring(rwb_job_types=["upload_edm"])
     ids = {r["id"] for r in rows}
     assert upload_id in ids
@@ -990,99 +871,43 @@ def test_monitoring_job_type_and_status_filters_independent_of_submission(iterat
     assert upload_id not in ids
 
 
-def test_monitoring_returns_linked_entity_name(iteration2_db):
+def test_monitoring_names_the_context_as_the_entity(iteration2_db):
     from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
     edm_id = _edm(name="Meridian Property")
-    job_id = _job_for(link_type="edm", link_id=edm_id)
-    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()}
-    assert rows_by_id[job_id]["entity_name"] == "Meridian Property"
+    portfolio_id, analysis_id, group_id = (str(uuid.uuid4()) for _ in range(3))
+    execute_command("INSERT INTO irp_portfolio (id, edm_id, name) VALUES (:id, :e, 'FL Comm')",
+                    {"id": portfolio_id, "e": edm_id}, connection="WORKBENCH")
+    execute_command("INSERT INTO irp_analysis (id, edm_id, name) VALUES (:id, :e, 'FL DLM')",
+                    {"id": analysis_id, "e": edm_id}, connection="WORKBENCH")
+    execute_command("INSERT INTO breakout_group (id, label) VALUES (:id, 'Coastal')",
+                    {"id": group_id}, connection="WORKBENCH")
+    sub_id = _submission(name="American Family", assigned_analyst_id=iteration2_db.user_a)
 
+    def job(rwb_job_type, link_type, link_id, context_type, context_id):
+        return enqueue_rwb_job(
+            requestor_type="analyst_request", requestor_id=str(uuid.uuid4()),
+            rwb_job_type=rwb_job_type, link_type=link_type, link_id=link_id,
+            context_type=context_type, context_id=context_id)
 
-def test_list_submissions_for_rwb_jobs_resolves_multiple_submissions(iteration2_db):
-    from app.services.rwb_job_service import list_submissions_for_rwb_jobs
-    user_a = iteration2_db.user_a
-    edm_id = _edm()
-    sub1 = _submission(name="First Deal", assigned_analyst_id=user_a)
-    sub2 = _submission(name="Second Deal", assigned_analyst_id=user_a)
-    _attach_edm(sub1, edm_id)
-    _attach_edm(sub2, edm_id)
+    expected = {
+        job("upload_edm", "edm", edm_id, "edm", edm_id): ("EDM", "Meridian Property"),
+        job("run_geohaz", "edm", edm_id, "portfolio", portfolio_id): ("Portfolio", "FL Comm"),
+        job("finalize_analysis", "edm", edm_id, "irp_analysis", analysis_id):
+            ("Analysis", "FL DLM"),
+        job("run_breakout_custom", "edm", edm_id, "breakout_group", group_id):
+            ("Breakout group", "Coastal"),
+        # No execution table: the linked EDM names the job.
+        job("execute_analysis_batch", "edm", edm_id, "execution", str(uuid.uuid4())):
+            ("EDM", "Meridian Property"),
+        # The export record is in the loss repository: the linked submission names it.
+        job("submit_results_export", "submission", sub_id, "result_export",
+            str(uuid.uuid4())): ("Submission", "American Family"),
+        _dummy(): (None, None),
+    }
 
-    result = list_submissions_for_rwb_jobs([("edm", edm_id)])
-    names = {s["name"] for s in result[("edm", edm_id)]}
-    assert names == {"First Deal", "Second Deal"}
+    rows = list_rwb_jobs_for_monitoring()
 
-
-def test_list_submissions_for_rwb_jobs_empty_for_unattached_link(iteration2_db):
-    from app.services.rwb_job_service import list_submissions_for_rwb_jobs
-    edm_id = _edm()
-    result = list_submissions_for_rwb_jobs([("edm", edm_id)])
-    assert result.get(("edm", edm_id), []) == []
-
-
-def test_monitoring_owner_filter_reaches_submission_link(iteration2_db):
-    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    user_a, user_b = iteration2_db.user_a, iteration2_db.user_b
-    job_a = _grouping_job(_submission(assigned_analyst_id=user_a))
-    job_b = _grouping_job(_submission(assigned_analyst_id=user_b))
-
-    rows = list_rwb_jobs_for_monitoring(owner_ids=[user_a])
-    ids = {r["id"] for r in rows}
-    assert job_a in ids
-    assert job_b not in ids
-
-
-def test_monitoring_submission_name_matches_via_submission_link(iteration2_db):
-    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    user_a = iteration2_db.user_a
-    job_id = _grouping_job(_submission(name="American Family Renewal",
-                                       assigned_analyst_id=user_a))
-    other = _grouping_job(_submission(name="Other Deal", assigned_analyst_id=user_a))
-
-    rows = list_rwb_jobs_for_monitoring(submission_name="american fam")
-    ids = {r["id"] for r in rows}
-    assert job_id in ids
-    assert other not in ids
-
-
-def test_monitoring_submission_status_filter_via_submission_link(iteration2_db):
-    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    user_a = iteration2_db.user_a
-    job_active = _grouping_job(_submission(status_code="ACTIVE",
-                                           assigned_analyst_id=user_a))
-    job_done = _grouping_job(_submission(status_code="COMPLETED",
-                                         assigned_analyst_id=user_a))
-
-    rows = list_rwb_jobs_for_monitoring(submission_status_codes=["COMPLETED"])
-    ids = {r["id"] for r in rows}
-    assert job_done in ids
-    assert job_active not in ids
-
-
-def test_monitoring_submission_link_has_no_entity_name(iteration2_db):
-    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
-    job_id = _grouping_job(_submission(assigned_analyst_id=iteration2_db.user_a))
-    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()}
-    assert rows_by_id[job_id]["entity_name"] is None
-
-
-def test_list_submissions_for_rwb_jobs_resolves_submission_link(iteration2_db):
-    from app.services.rwb_job_service import list_submissions_for_rwb_jobs
-    sub_id = _submission(name="Grouped Deal", assigned_analyst_id=iteration2_db.user_a)
-    result = list_submissions_for_rwb_jobs([("submission", sub_id)])
-    assert [s["name"] for s in result[("submission", sub_id)]] == ["Grouped Deal"]
-
-
-def test_list_submissions_for_rwb_jobs_mixes_edm_and_submission_links(iteration2_db):
-    from app.services.rwb_job_service import list_submissions_for_rwb_jobs
-    user_a = iteration2_db.user_a
-    edm_id = _edm()
-    edm_sub = _submission(name="EDM Deal", assigned_analyst_id=user_a)
-    _attach_edm(edm_sub, edm_id)
-    group_sub = _submission(name="Grouped Deal", assigned_analyst_id=user_a)
-
-    result = list_submissions_for_rwb_jobs([("edm", edm_id), ("submission", group_sub)])
-    assert [s["name"] for s in result[("edm", edm_id)]] == ["EDM Deal"]
-    assert [s["name"] for s in result[("submission", group_sub)]] == ["Grouped Deal"]
+    assert {r["id"]: (r["entity_kind"], r["entity_name"]) for r in rows} == expected
 
 
 def test_job_type_kinds_returns_seeded_codes(iteration2_db):
