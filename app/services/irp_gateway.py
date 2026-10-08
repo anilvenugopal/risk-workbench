@@ -34,7 +34,12 @@ from typing import Any, Literal, Protocol, Sequence, runtime_checkable
 # Re-exported so callers (workers, FakeIRP) never import irp-integration directly
 # — this module stays the sole importer (T007). ``submit_portfolio_analysis``
 # raises this on any submit failure (spec 010, contracts/irp-gateway.md).
-from irp_integration.exceptions import IRPAPIError, IRPGroupingValidationError, IRPIntegrationError
+from irp_integration.exceptions import (
+    IRPAPIError,
+    IRPAuthenticationError,
+    IRPGroupingValidationError,
+    IRPIntegrationError,
+)
 
 # Spec 012 grouping types (contracts/grouping-worker.md): the service renders
 # ``GroupingInspection`` and the worker reads ``IRPGroupingValidationError.problems``.
@@ -54,6 +59,18 @@ from app.services._common import _utcnow
 
 logger = logging.getLogger(__name__)
 
+
+def is_permanent_submit_failure(exc: BaseException) -> bool:
+    """Whether Risk Modeler rejected the submit itself, so resending the same
+    request fails the same way: an HTTP 4xx other than 429. A bearer login
+    rejected while ``IRPClient()`` is built raises ``IRPAuthenticationError``,
+    not ``IRPAPIError``. A connection error, a 5xx or a failure with no HTTP
+    status stays retryable."""
+    if (not isinstance(exc, (IRPAPIError, IRPAuthenticationError))
+            or exc.status_code is None):
+        return False
+    return 400 <= exc.status_code < 500 and exc.status_code != 429
+
 # Repo-owned, read-only DataBridge scripts — the per-EDM summary aggregates
 # (get_edm_exposure_summary) and the per-portfolio breakout selection and
 # member-count reads (select_breakout_accounts / populate_sub_portfolio) —
@@ -68,8 +85,8 @@ _ADD_CHUNK_SIZE = 1000
 # DataBridge scripts ({{ portfolio_id }}), executed by select_breakout_accounts
 # below. Each script mirrors its summary script's joins, so the selection
 # vocabulary matches the stored breakout_values the plan was approved from
-# (LOBNAME for lob, Admin1Code for state — or the island's ISO3A CountryCode
-# where the country is CB, D5 — P-12).
+# (LOBNAME for lob, `{country}-{Admin1Code}` for state — or `CB-{island ISO3A}`
+# where the country is CB, D5 — P-31).
 _SELECTION_SCRIPTS = {
     "lob": "breakout_lob_accounts.sql",
     "state": "breakout_state_accounts.sql",
@@ -1065,7 +1082,7 @@ class _RealGateway:
                 name = row.get("PortfolioName")
                 summary[key] = {
                     "portfolio_name": (str(name) if name is not None else None),
-                    "countries": [], "states": [],
+                    "countries": [],
                     "lines_of_business": [], "currencies": [],
                     # spec 005 (R11): the overlap denominator and the breakout
                     # enumeration source, keyed by breakout_dimension_kind.code.
@@ -1097,21 +1114,19 @@ class _RealGateway:
                 "value": value, "label": None,
                 "accounts": (int(count) if count is not None else 0)})
         for row in rows("portfolio_states.sql"):
-            # spec 005 (FR-005/P-12): the value is Admin1Code — the summary's
-            # states list now holds codes, not the old COALESCE(name, code)
-            # mix — or the island's ISO3A country code for Caribbean addresses,
-            # which the script returns in the same column (D5). Admin1Name rides
-            # along as a nullable display label (absent until the EDM is
+            # spec 005 (FR-005/P-31): the value is `{country}-{Admin1Code}`,
+            # or `CB-{island ISO3A}` for Caribbean addresses (D5); `country`
+            # lets the expanded row group states under their country. Admin1Name
+            # rides along as a nullable display label (absent until the EDM is
             # geocoded, null for the Caribbean, never synthesized).
-            e = entry(row)
-            value = str(row["Admin1Code"])
-            e["states"].append(value)
+            country = row.get("Country")
             label = row.get("Admin1Name")
             count = row.get("AccountCount")
-            e["breakout_values"].setdefault("state", []).append({
-                "value": value,
+            entry(row)["breakout_values"].setdefault("state", []).append({
+                "value": str(row["Value"]),
                 "label": (str(label) if label else None),
-                "accounts": (int(count) if count is not None else 0)})
+                "accounts": (int(count) if count is not None else 0),
+                "country": (str(country) if country is not None else None)})
         for row in rows("portfolio_lines_of_business.sql"):
             e = entry(row)
             value = str(row["LineOfBusiness"])
@@ -1148,7 +1163,7 @@ class _RealGateway:
         for row in rows("portfolio_currencies.sql"):
             entry(row)["currencies"].append(str(row["Currency"]))
         for values in summary.values():
-            for key in ("countries", "states", "lines_of_business", "currencies"):
+            for key in ("countries", "lines_of_business", "currencies"):
                 values[key] = sorted(set(values[key]))
             for dim, entries in values["breakout_values"].items():
                 values["breakout_values"][dim] = sorted(
@@ -1844,4 +1859,5 @@ __all__ = [
     "GroupingProblem",
     "GroupingTreaty", "SimulationSetOption",
     "IRPIntegrationError", "IRPAPIError", "IRPGroupingValidationError",
+    "is_permanent_submit_failure",
 ]

@@ -7,6 +7,7 @@
    `oob_swap` is set only by partials/edm_portfolios_live.html — that render
    has no contextual `sync_url` in scope, hence the default. #}
 {% from "partials/time_macros.html" import local_time %}
+{% from "partials/submission_link_macros.html" import submission_links %}
 {% set sync_url = sync_url | default('/edms/' ~ edm.id ~ '/sync') %}
 <div class="detail-meta" id="edm-detail-meta"
      {%- if oob_swap | default(false) %} hx-swap-oob="true"{% endif %}>
@@ -22,10 +23,11 @@
           x-bind:aria-expanded="notesOpen"
           x-on:click="notesOpen = !notesOpen"
           x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
-  {% for s in edm.submissions %}
+  {% if edm.submissions %}
   <span class="crumb__sep">·</span>
-  <span>in <a class="crumb" href="/submissions/{{ s.id }}">{{ s.name }}</a></span>
-  {% endfor %}
+  {{ submission_links('in', edm.submissions,
+                      gh_sub | default(source_submission.id if source_submission else none)) }}
+  {% endif %}
   {% if edm.created_by_irp_job_irp_id %}
   <span class="crumb__sep">·</span>
   <span class="mono" title="creating import job">job #{{ edm.created_by_irp_job_irp_id }}</span>

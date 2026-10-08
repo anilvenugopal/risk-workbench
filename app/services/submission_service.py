@@ -35,6 +35,7 @@ from sqlalchemy import text
 
 from app.services import client_service
 from app.services._common import (
+    SubmissionRef,
     _escape_like,
     _import_label,
     _in_clause,
@@ -664,6 +665,22 @@ def get_submission(submission_id: Any) -> Submission | None:
         client_name=client_name,
         contracts=list_contracts(sid),
     )
+
+
+def list_linking_submissions(submission_id: Any) -> list[SubmissionRef]:
+    """Every submission whose "links to" is this one, oldest first, whatever
+    its Modeling status."""
+    sid = _as_uuid(submission_id)
+    if sid is None:
+        return []
+    return [
+        SubmissionRef(id=_uid(row["id"]), name=row["name"])
+        for row in execute(
+            "SELECT id, name FROM submission WHERE links_to_submission_id = :id "
+            "ORDER BY inserted_at, id",
+            {"id": sid}, connection="WORKBENCH",
+        )
+    ]
 
 
 def _risk_modeler_url(name: str, *, kind: str) -> str | None:

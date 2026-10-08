@@ -151,6 +151,9 @@
 .ta__opt--create { border-top: 1px solid var(--border-default);
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   color: var(--color-brand); font-weight: var(--fw-medium); }
+/* The "+N" submission list on the submission, EDM, and RDM headers. */
+.sub-links { position: relative; }
+.ta__menu--popover { right: auto; min-width: 220px; }
 .ta__opt-main { display: block; }
 .ta__opt-meta { display: block; font-size: var(--fs-caption);
   color: var(--text-tertiary); margin-top: 1px; }
@@ -295,7 +298,7 @@
   color: var(--text-tertiary); font-size: var(--fs-label); }
 .entity-table-state strong { display: block; color: var(--text-secondary);
   margin-bottom: var(--space-1); }
-.submission-entity-modal { width: 720px; max-height: calc(100vh - 40px); }
+.submission-entity-modal { width: min(1080px, 94vw); max-height: calc(100vh - 40px); }
 .submission-entity-modal > form { display: flex; flex-direction: column; min-height: 0; }
 .submission-entity-modal .modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto;
   gap: var(--space-3); }

@@ -349,6 +349,8 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .bo-picked__x { color: var(--text-tertiary); }
 .bo-addrow { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
 .bo-addrow input[type=text] { flex: 1; height: 30px; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; font-size: var(--fs-label); }
+.bo-add-check { display: none; align-items: center; white-space: nowrap; font-size: var(--fs-caption); color: var(--text-tertiary); }
+.bo-add-check.htmx-request { display: inline-flex; }
 .bo-cart { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; }
 .bo-cart__head { background: var(--surface-recessed); border-bottom: 1px solid var(--border-default); font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); padding: var(--space-2) var(--space-3); }
 #bo-cart-rows { max-height: min(26vh, 240px); overflow-y: auto; }

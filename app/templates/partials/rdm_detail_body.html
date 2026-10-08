@@ -5,12 +5,25 @@
    the work is terminal, so polling ends without a reload. The Sync forms swap
    this wrapper via HTMX (URL never changes, no re-submission prompt on refresh);
    plain-POST fallback is PRG.
-   Context: rdm, analyses, sync_running, sync_status, import_error. #}
+   Context: rdm, analyses, sync_running, sync_status, import_error, sort,
+   sort_desc. The poll and Sync URLs carry the chosen order, and omit it at the
+   default order. #}
 {% from "partials/time_macros.html" import local_time %}
+{% from "partials/analysis_row_macros.html" import sort_th %}
+{% from "partials/submission_link_macros.html" import submission_links %}
 {% set analysis_total = analyses | map(attribute='analyses') | map('length') | sum %}
 {% set live = sync_running or rdm.status in ('pending_import', 'importing') %}
 {% set body_url = detail_body_url|default('/rdms/' ~ rdm.id ~ '/body') %}
-{% set sync_url = detail_sync_url|default('/rdms/' ~ rdm.id ~ '/sync') %}
+{% set sort_key = sort|default('') or 'submitted' %}
+{% set sort_desc = sort_desc|default(true) %}
+{% set sort_query = ('' if sort_key == 'submitted' and sort_desc
+     else 'sort=' ~ sort_key ~ '&dir=' ~ ('desc' if sort_desc else 'asc')) %}
+{# A sort click re-renders the whole body, notes panel included. #}
+{% set sort_state = {'key': sort_key, 'desc': sort_desc,
+     'stem': body_url ~ '?', 'target': 'rdm-detail',
+     'trigger': "click[!document.querySelector('#rdm-detail .entity-note--editing') || confirm('Sorting discards the note you are editing. Continue?')]"} %}
+{% set sync_url = detail_sync_url|default('/rdms/' ~ rdm.id ~ '/sync')
+     ~ ('?' ~ sort_query if sort_query) %}
 {% set base_url = detail_base_url|default('/rdms/' ~ rdm.id) %}
 {% set entity_notes = rdm.notes %}
 {% set note_action = detail_notes_url|default('/rdms/' ~ rdm.id ~ '/notes') %}
@@ -20,12 +33,12 @@
 {% set note_error = note_error|default(none) %}
 {% set note_conflict = note_conflict|default(none) %}
 {% set note_conflict_active = note_conflict_active|default(false) %}
-<div class="page-pad" id="rdm-detail"
+<div class="page-pad" id="rdm-detail" data-restore-open
   x-data="{ notesOpen: {{ 'true' if note_editing else 'false' }} }"
   x-bind:class="{ 'rdm-notes-open': notesOpen }"
   x-on:entity-note-saved="notesOpen = false"
   {%- if live %}
-  hx-get="{{ body_url }}" hx-trigger="every {{ ui_poll_interval_secs }}s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open')]"
+  hx-get="{{ body_url }}{{ '?' ~ sort_query if sort_query }}" hx-trigger="every {{ ui_poll_interval_secs }}s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open') && !document.querySelector('#rdm-detail .sub-links--open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <div class="detail-head">
@@ -49,10 +62,11 @@
               x-bind:aria-expanded="notesOpen"
               x-on:click="notesOpen = !notesOpen"
               x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
-      {% for s in rdm.submissions %}
+      {% if rdm.submissions %}
       <span class="crumb__sep">·</span>
-      <span>in <a class="crumb" href="/submissions/{{ s.id }}">{{ s.name }}</a></span>
-      {% endfor %}
+      {{ submission_links('in', rdm.submissions,
+                          source_submission.id if source_submission else none) }}
+      {% endif %}
       {% if analysis_total %}
       <span class="crumb__sep">·</span>
       <span>{{ analysis_total }} broker analys{{ 'is' if analysis_total == 1 else 'es' }}</span>
@@ -120,13 +134,17 @@
 
     {% if analysis_total %}
     <div class="dtable-shell">
-      <div class="dtable" style="--cols:minmax(210px,1.4fr) minmax(210px,1.4fr) 70px 70px minmax(120px,1fr) 90px 110px minmax(190px,1.3fr) 180px 90px;min-width:1380px">
+      <div class="dtable" style="--cols:minmax(210px,1.4fr) minmax(210px,1.4fr) 84px 84px minmax(120px,1fr) 90px 136px minmax(190px,1.3fr) 180px 90px;min-width:1434px">
         <div class="dtable__head">
           <span class="l dt-span2" title="Analysis">Analysis</span>
-          <span class="l" title="Peril">Peril</span><span class="l" title="Region">Region</span><span class="l" title="Engine">Engine</span>
-          <span class="l" title="Currency">Currency</span>
-          <span title="AAL &middot; {{ default_perspective_label }}">AAL &middot; {{ default_perspective_label }}</span><span class="l" title="Status">Status</span>
-          <span class="l" title="Submitted">Submitted</span><span class="l" title="Risk Modeler">Risk Modeler</span>
+          {{ sort_th('peril', 'Peril', sort_state) }}
+          {{ sort_th('region', 'Region', sort_state) }}
+          {{ sort_th('engine', 'Engine', sort_state) }}
+          {{ sort_th('currency', 'Currency', sort_state) }}
+          {{ sort_th('aal', 'AAL · ' ~ default_perspective_label, sort_state, '') }}
+          <span class="l" title="Status">Status</span>
+          {{ sort_th('submitted', 'Submitted', sort_state) }}
+          <span class="l" title="Risk Modeler">Risk Modeler</span>
         </div>
         {% for group in analyses %}
         {% for a in group.analyses %}

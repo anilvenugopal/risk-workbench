@@ -19,13 +19,14 @@ RM_STAMP = "2026-07-31T09:15:00.000Z"
 SUMMARY = {
     "portfolio_name": "usfl_commercial",
     "total_tiv": 3.0e10,
-    "states": ["CA", "TX"],
     "lines_of_business": ["EQ Comm", "FLD Comm"],
     "currencies": ["USD"],
     "account_total": 1701,
     "breakout_values": {
-        "state": [{"value": "TX", "label": "TEXAS", "accounts": 220},
-                  {"value": "CA", "label": "CALIFORNIA", "accounts": 1481}],
+        "state": [{"value": "US-TX", "label": "TEXAS", "accounts": 220,
+                   "country": "US"},
+                  {"value": "US-CA", "label": "CALIFORNIA", "accounts": 1481,
+                   "country": "US"}],
         "lob": [{"value": "FLD Comm", "label": None, "accounts": 900},
                 {"value": "EQ Comm", "label": None, "accounts": 801}],
     },

@@ -157,14 +157,19 @@ def test_failed_with_nested_task_errors_stores_the_engine_message(
 
 # ── submission_retry batch (T-09) ────────────────────────────────────────────────
 
-def _submission_failed_row(iteration2_db, fake_irp) -> dict:
+def _submission_failed_row(iteration2_db, fake_irp,
+                           submit_status: int | None = None) -> dict:
     """One analysis whose submit was forced to fail — a SUBMISSION FAILED irp_job
-    with request_params ready for the retry batch."""
+    with request_params ready for the retry batch. ``submit_status`` fails it with
+    that HTTP status instead of a statusless error."""
     seed_currency()
     edm_id = seed_edm()
     portfolio_id = seed_portfolio(edm_id)
     template_id = seed_template()
-    fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio_A_Template_A")
+    if submit_status is None:
+        fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio_A_Template_A")
+    else:
+        fake_irp.submit_analysis_status_for["CRE_Portfolio_A_Template_A"] = submit_status
     svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
         treaty_names=[], template_ids=[template_id],
@@ -208,12 +213,14 @@ def test_retry_success_updates_the_row_in_place(iteration2_db, fake_irp):
         settings.irp_submission_retry_base_secs
         * 2 ** row["submission_attempt_count"] + 5))
     fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio_A_Template_A")
+    execute_command("UPDATE irp_job SET submitted_at = '2026-01-01 00:00:00' WHERE id = :id",
+                    {"id": row["job_id"]}, connection="WORKBENCH")
 
     poller._submission_retry()
 
     job = execute_one(
-        "SELECT id, status, irp_id, submission_attempt_count, completed_at "
-        "FROM irp_job WHERE irp_analysis_id = :a",
+        "SELECT id, status, irp_id, submission_attempt_count, completed_at, "
+        "submitted_at, updated_at FROM irp_job WHERE irp_analysis_id = :a",
         {"a": row["analysis_id"]}, connection="WORKBENCH")
     assert job["id"] == row["job_id"]  # updated in place — no new irp_job row
     assert job["status"] == "QUEUED"
@@ -221,6 +228,7 @@ def test_retry_success_updates_the_row_in_place(iteration2_db, fake_irp):
     assert job["submission_attempt_count"] == 2
     # completed_at is the backoff clock; a job back in flight has none.
     assert job["completed_at"] is None
+    assert job["submitted_at"] == job["updated_at"]  # the resubmit time
     total_jobs = execute("SELECT id FROM irp_job WHERE irp_analysis_id = :a",
                         {"a": row["analysis_id"]}, connection="WORKBENCH")
     assert len(total_jobs) == 1
@@ -331,6 +339,35 @@ def test_retry_ignores_rows_already_at_the_max(iteration2_db, fake_irp):
     poller._submission_retry()
 
     assert len(fake_irp.analysis_submits) == 1  # never resubmitted
+
+
+def test_retry_skips_an_analysis_a_4xx_already_ended(iteration2_db, fake_irp):
+    row = _submission_failed_row(iteration2_db, fake_irp, submit_status=400)
+    _age_completed_at(row["job_id"], seconds_ago=10_000_000)
+    fake_irp.submit_analysis_status_for.clear()
+
+    poller._submission_retry()
+
+    assert len(fake_irp.analysis_submits) == 1  # never resubmitted
+
+
+def test_a_4xx_on_a_retry_ends_the_analysis_before_the_max(iteration2_db, fake_irp):
+    row = _submission_failed_row(iteration2_db, fake_irp)
+    _age_completed_at(row["job_id"], seconds_ago=(
+        settings.irp_submission_retry_base_secs
+        * 2 ** row["submission_attempt_count"] + 5))
+    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio_A_Template_A")
+    fake_irp.submit_analysis_status_for["CRE_Portfolio_A_Template_A"] = 400
+
+    poller._submission_retry()
+
+    job = execute_one("SELECT status, submission_attempt_count FROM irp_job "
+                      "WHERE id = :id", {"id": row["job_id"]}, connection="WORKBENCH")
+    assert job["status"] == "SUBMISSION FAILED"
+    assert job["submission_attempt_count"] < settings.irp_submission_max_retries
+    analysis = execute_one("SELECT status_code FROM irp_analysis WHERE id = :id",
+                           {"id": row["analysis_id"]}, connection="WORKBENCH")
+    assert analysis["status_code"] == "error"
 
 
 # ── reclaiming abandoned retry claims (FR-015) ───────────────────────────────────

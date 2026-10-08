@@ -183,7 +183,9 @@
                   hx-post="{{ base_url }}/group-preview"
                   hx-target="#bo-cart-rows" hx-swap="beforeend"
                   hx-include="closest form"
+                  hx-indicator="#bo-add-check" hx-disabled-elt="this"
                   @htmx:after-request="onAdded($event)">Add breakout</button>
+          <span id="bo-add-check" class="bo-add-check"><span class="bo-spinner"></span>Validating breakout…</span>
         </div>
         {% with kind = 'portfolio', scope = 'this EDM', action = 'Creating' %}{% include "partials/name_collision.html" %}{% endwith %}
         <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>

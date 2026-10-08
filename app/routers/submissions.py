@@ -30,7 +30,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._analysis_delete import delete_analyses_response
-from app.routers._analysis_rows import analysis_rows_response, retarget_section
+from app.routers._analysis_rows import (
+    analysis_rows_response, open_rdm_ids, retarget_section,
+)
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.routers._list_filters import (
@@ -55,7 +57,7 @@ from app.services import (
     shared_drive,
     submission_service,
 )
-from app.services._common import _parse_int, _uid
+from app.services._common import _parse_int, _rm_ui_root, _uid
 from app.services.analysis_execution_service import ExecutionGateError
 from app.services.cedant_service import CedantValidationError, NewCedant
 from app.services.submission_service import ContractInput, ContractInvalid
@@ -440,8 +442,10 @@ def submission_analyses(request: Request, submission_id: str):
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _results_gone()
-    return _partial(request, "partials/analyses_merged_section.html",
-                    _results_section_context(request, submission_id, submission))
+    ctx = _results_section_context(request, submission_id, submission)
+    ctx["open_rdm_ids"] = open_rdm_ids(request, ctx["groups"], submission_id,
+                                       ctx["sort"], ctx["sort_desc"])
+    return _partial(request, "partials/analyses_merged_section.html", ctx)
 
 
 @router.post("/submissions/{submission_id}/analyses/rows",
@@ -476,8 +480,11 @@ def submission_rdm_analyses(request: Request, submission_id: str, rdm_id: str):
     rdm = next((g for g in groups if g.rdm_id == rdm_id.lower()), None)
     if rdm is None:
         return _not_found(request)
-    return _partial(request, "partials/contextual_rdm_analyses.html",
-                    {"analyses": analyses, "rdm": rdm, "show_edm": True})
+    sort, descending = analysis_service.sort_from_query(request.query_params)
+    return _partial(request, "partials/contextual_rdm_analyses.html", {
+        "analyses": analysis_service.sort_broker_analyses(
+            analyses, sort, descending),
+        "rdm": rdm, "show_edm": True})
 
 
 # ── Group compose dialog (spec 012, contracts/routes.md) ─────────────────────
@@ -659,11 +666,14 @@ async def group_compose_submit(request: Request, submission_id: str):
 def _import_context(submission, entries, *, entry_value: str = "",
                     message: str | None = None,
                     message_kind: str = "error") -> dict:
+    root = _rm_ui_root()
     return {"submission": submission, "entries": entries,
             "entry_value": entry_value, "message": message,
             "message_kind": message_kind,
             "check_url": f"/submissions/{submission.id}/analyses/import/check",
-            "import_url": f"/submissions/{submission.id}/analyses/import"}
+            "import_url": f"/submissions/{submission.id}/analyses/import",
+            "rm_analyses_url": (f"{root}/riskmodeler/datasources/analysislist"
+                                if root else None)}
 
 
 def _retarget_import_body(response):
@@ -807,6 +817,7 @@ def _head_context(submission, *, head_error: str | None = None) -> dict:
         "contracts": submission.contracts,
         "link_target": submission_service.get_submission(
             submission.links_to_submission_id),
+        "linked_from": submission_service.list_linking_submissions(submission.id),
         "analysts": auth_service.list_active_analysts(),
         "modeling_statuses": submission_service.status_kinds(),
         "contract_statuses": submission_service.contract_status_kinds(),
@@ -1903,7 +1914,8 @@ async def create_export(request: Request, submission_id: str):
             analysis_ids=analysis_ids, perspective_code=perspective,
             client_id=_parse_int(form.get("client_id")), treaty_incept=treaty_incept,
             crm_id=crm_id, data_vintage=data_vintage, model_version=model_version,
-            data_names=data_names, treaty_picks=treaty_picks)
+            data_names=data_names, treaty_picks=treaty_picks,
+            actor_id=request.state.user.id)
     except export_service.ExportValidationError as exc:
         return reshow(error=str(exc))
     return RedirectResponse(f"/submissions/{submission_id}#submission-exports", status_code=303)
@@ -1953,7 +1965,8 @@ def retry_export_analysis(request: Request, submission_id: str, export_id: str,
                                 status_code=303)
     message = None
     try:
-        export_service.apply_retry(submission_id, export_id, manifest_id)
+        export_service.apply_retry(submission_id, export_id, manifest_id,
+                                   actor_id=request.state.user.id)
     except export_service.ExportNotFound:
         return _export_not_found(request)
     except export_service.ExportActionRefused as exc:

@@ -3,7 +3,8 @@
   <div class="entity-candidate-list">
     {% for candidate in candidate_page.rows %}
     <label class="entity-candidate">
-      <input type="checkbox" name="entity_ids" value="{{ candidate.id }}">
+      <input type="checkbox" value="{{ candidate.id }}" data-name="{{ candidate.name }}"
+             :checked="picked('{{ candidate.id }}')" @change="toggle($event.target)">
       <span>{{ candidate.name }}</span>
       {% if candidate.status %}<span class="status-chip status-chip--{{ candidate.status }}">{{ candidate.import_label or (candidate.status | replace('_', ' ') | title) }}</span>{% endif %}
     </label>

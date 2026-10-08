@@ -18,6 +18,8 @@ dimension's value untouched.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from app.services.breakout_service import (
@@ -46,18 +48,21 @@ def _plan(values, *, source_name="usfl_commercial", source_irp_id="1",
 # ── naming ────────────────────────────────────────────────────────────────────────
 
 def test_plan_is_deterministic_and_sorted_by_value():
-    values = [_bv("TX", 220), _bv("CA", 1289), _bv("FL", 88)]
+    values = [_bv("US-TX", 220), _bv("US-CA", 1289), _bv("US-FL", 88)]
     first = _plan(values)
     second = _plan(list(reversed(values)))
     assert first == second
-    assert [p.value for p in first] == ["CA", "FL", "TX"]
+    assert [p.value for p in first] == ["US-CA", "US-FL", "US-TX"]
 
 
-def test_short_names_compose_untouched():
-    plan = _plan([_bv("TX"), _bv("CA")])
-    assert [p.name for p in plan] == ["usfl_commercial_CA",
-                                      "usfl_commercial_TX"]
-    assert [p.number for p in plan] == ["P1-S-CA", "P1-S-TX"]
+def test_unlabeled_state_names_by_its_value_and_hashes_its_number():
+    # P-31: the hyphen in `US-TX` is legal in a name but cannot be carried in
+    # the number token, so the number takes the hash tail.
+    plan = _plan([_bv("US-TX"), _bv("US-CA")])
+    assert [p.name for p in plan] == ["usfl_commercial_US-CA",
+                                      "usfl_commercial_US-TX"]
+    assert re.fullmatch(r"P1-S-USCA[0-9A-F]{6}", plan[0].number)
+    assert re.fullmatch(r"P1-S-USTX[0-9A-F]{6}", plan[1].number)
 
 
 def test_country_dimension_numbers_with_its_own_letter():
@@ -80,7 +85,7 @@ def test_very_long_value_truncates_value_after_source_floor():
     # A value long enough to push the source below 4 characters truncates the
     # VALUE from the right instead (safe — the number is the identity, R4).
     value = "V" * 40
-    plan = _plan([_bv(value), _bv("TX")], source_name="usfl_commercial")
+    plan = _plan([_bv(value), _bv("US-TX")], source_name="usfl_commercial")
     long_entry = next(p for p in plan if p.value == value)
     assert len(long_entry.name) <= PORTFOLIO_NAME_MAX - 4
     assert long_entry.name.startswith("usfl")          # the 4-char source floor
@@ -88,41 +93,42 @@ def test_very_long_value_truncates_value_after_source_floor():
 
 
 def test_name_uses_display_label_and_identity_keeps_the_code():
-    # P-12 as revised 2026-08-05: a Caribbean portfolio names its
-    # sub-portfolios by Admin1Name, never by the numeric Admin1Code — while
-    # the value, the number token, and the sort order all keep the code.
-    plan = _plan([_bv("200", 2437, label="Puerto Rico"),
-                  _bv("010", 74, label="St Croix")])
-    assert [p.value for p in plan] == ["010", "200"]
+    # P-12 as revised 2026-08-05: a geocoded portfolio names its
+    # sub-portfolios by Admin1Name, never by the Admin1Code — while the value,
+    # the number token, and the sort order all keep the code. BE-11 and NL-11
+    # share the code 11 and stay apart (P-31).
+    plan = _plan([_bv("NL-11", 3, label="Groningen"),
+                  _bv("BE-11", 5, label="Antwerpen")])
+    assert [p.value for p in plan] == ["BE-11", "NL-11"]
     by_value = {p.value: p for p in plan}
-    assert by_value["200"].name == "usfl_commercial_Puerto_Rico"
-    assert by_value["010"].name == "usfl_commercial_St_Croix"
-    assert by_value["200"].number == "P1-S-200"
-    assert by_value["010"].number == "P1-S-010"
+    assert by_value["BE-11"].name == "usfl_commercial_Antwerpen"
+    assert by_value["NL-11"].name == "usfl_commercial_Groningen"
+    assert by_value["BE-11"].number.startswith("P1-S-BE11")
+    assert by_value["NL-11"].number.startswith("P1-S-NL11")
 
 
 def test_identical_labels_on_distinct_values_get_collision_suffixed():
     # Two codes carrying the same label compose the same base name — the
     # intra-plan suffix keeps them distinct; the numbers never collide.
-    plan = _plan([_bv("010", label="Twin"), _bv("020", label="Twin")])
+    plan = _plan([_bv("VI-010", label="Twin"), _bv("VI-020", label="Twin")])
     assert [p.name for p in plan] == ["usfl_commercial_Twin",
                                       "usfl_commercial_Twin_2"]
     assert len({p.number for p in plan}) == 2
 
 
 def test_collision_takes_lowest_free_suffix_against_existing_names():
-    existing = {"usfl_commercial_TX", "usfl_commercial_TX_2"}
-    plan = _plan([_bv("TX")], existing_names=existing)
-    assert plan[0].name == "usfl_commercial_TX_3"
+    existing = {"usfl_commercial_US-TX", "usfl_commercial_US-TX_2"}
+    plan = _plan([_bv("US-TX")], existing_names=existing)
+    assert plan[0].name == "usfl_commercial_US-TX_3"
     assert len(plan[0].name) <= PORTFOLIO_NAME_MAX
 
 
 def test_collision_detection_ignores_case():
     # Risk Modeler rejects a duplicate name without distinguishing case, so an
-    # existing USFL_COMMERCIAL_tx must push the planned name to a suffix —
+    # existing USFL_COMMERCIAL_us-tx must push the planned name to a suffix —
     # otherwise the create fails on a name the analyst already approved.
-    plan = _plan([_bv("TX")], existing_names={"USFL_COMMERCIAL_tx"})
-    assert plan[0].name == "usfl_commercial_TX_2"
+    plan = _plan([_bv("US-TX")], existing_names={"USFL_COMMERCIAL_us-tx"})
+    assert plan[0].name == "usfl_commercial_US-TX_2"
 
 
 def test_intra_plan_collisions_are_suffixed_too():
@@ -139,8 +145,8 @@ def test_intra_plan_collisions_are_suffixed_too():
 # ── numbers ───────────────────────────────────────────────────────────────────────
 
 def test_number_shape_and_budget():
-    plan = _plan([_bv("TX")], source_irp_id="4319", dimension="state")
-    assert plan[0].number == "P4319-S-TX"      # already number-safe → verbatim
+    plan = _plan([_bv("US")], source_irp_id="4319", dimension="country")
+    assert plan[0].number == "P4319-C-US"      # already number-safe → verbatim
     plan = _plan([_bv("FLD Comm")], source_irp_id="4319", dimension="lob")
     # the space cannot be carried, so the token is hashed rather than merged
     # with the number a different value would compose
@@ -184,8 +190,8 @@ def test_long_token_gets_hash_tail_and_shared_prefixes_do_not_collide():
 def test_number_is_stable_across_runs_regardless_of_name_suffixing():
     # The number depends only on (source RM id, dimension, value) — the same
     # inputs with a different collision universe keep the identity stable (P-11).
-    clean = _plan([_bv("TX")])
-    collided = _plan([_bv("TX")], existing_names={"usfl_commercial_TX"})
+    clean = _plan([_bv("US-TX")])
+    collided = _plan([_bv("US-TX")], existing_names={"usfl_commercial_US-TX"})
     assert clean[0].name != collided[0].name
     assert clean[0].number == collided[0].number
 
@@ -193,10 +199,10 @@ def test_number_is_stable_across_runs_regardless_of_name_suffixing():
 # ── exists marking ────────────────────────────────────────────────────────────────
 
 def test_exists_marks_values_with_live_lineage_rows():
-    plan = _plan([_bv("TX"), _bv("CA")], existing_values={"TX"})
+    plan = _plan([_bv("US-TX"), _bv("US-CA")], existing_values={"US-TX"})
     by_value = {p.value: p for p in plan}
-    assert by_value["TX"].exists is True
-    assert by_value["CA"].exists is False
+    assert by_value["US-TX"].exists is True
+    assert by_value["US-CA"].exists is False
 
 
 # ── overlap arithmetic (FR-007 / P-13) ────────────────────────────────────────────

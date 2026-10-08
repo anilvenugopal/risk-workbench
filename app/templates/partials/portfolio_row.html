@@ -6,8 +6,9 @@
    defensively; a missing field renders "—", never an error. Records ==
    locations, so there is no separate Records column (preview rev 7).
    Expanding the row (8/4 CR15) reveals the full name and the FULL value
-   lists the collapsed cells truncate — lines of business, countries, states,
-   currencies — capped at 100 values each (CR19) — and, on a generated sub-portfolio, its
+   lists the collapsed cells truncate — lines of business, geography (one line
+   per country, its states after it; #62), currencies — capped at 100 values
+   per list or country line (CR19) — and, on a generated sub-portfolio, its
    lineage: the base portfolio and the breakout criteria (FR-014 as revised
    2026-08-11; the collapsed row carries no lineage). #}
 {%- macro num(v) -%}
@@ -19,23 +20,25 @@
 {%- macro csv(vals) -%}
   {%- if vals -%}{{ vals|join(', ') }}{%- else -%}<span class="na">&mdash;</span>{%- endif -%}
 {%- endmacro -%}
+{%- macro capped(vals) -%}
+  {{ vals[:100]|join(', ') }}{% if vals|length > 100 %} <span class="na">… +{{ vals|length - 100 }} more not shown</span>{% endif %}
+{%- endmacro -%}
+{%- macro geo_line(heading, entries) -%}
+  {%- set names = [] -%}
+  {%- for e in entries -%}{%- set _ = names.append(e.get('label') or e.get('value')) -%}{%- endfor -%}
+  <div><strong>{{ heading }}:</strong> {% if names %}{{ capped(names) }}{% else %}<span class="na">&mdash;</span>{% endif %}</div>
+{%- endmacro -%}
 {%- set d = p.exposure_detail or {} -%}
 {%- set m = d.get('metrics') or {} -%}
 {%- set s = d.get('summary') or {} -%}
 {%- set lobs = s.get('lines_of_business') or [] -%}
 {%- set countries = s.get('countries') or [] -%}
-{#- spec 005 (P-12 as revised 2026-08-05): a state carries its display label
-    (Admin1Name) where the summary's breakout_values hold one, falling back to
-    the Admin1Code — "St Croix", never "010". A pre-005 snapshot has no
-    breakout_values and renders its states list verbatim (the old name/code
-    mix). -#}
+{#- spec 005 (P-12, P-31): a state carries its display label (Admin1Name)
+    where the summary's breakout_values hold one, falling back to the stored
+    value: "Texas" once geocoded, "US-TX" before. -#}
+{%- set state_entries = (s.get('breakout_values') or {}).get('state') or [] -%}
 {%- set states = [] -%}
-{%- set state_entries = (s.get('breakout_values') or {}).get('state') -%}
-{%- if state_entries -%}
-  {%- for e in state_entries -%}{%- set _ = states.append(e.get('label') or e.get('value')) -%}{%- endfor -%}
-{%- else -%}
-  {%- set states = s.get('states') or [] -%}
-{%- endif -%}
+{%- for e in state_entries -%}{%- set _ = states.append(e.get('label') or e.get('value')) -%}{%- endfor -%}
 {%- set curr = s.get('currencies') or [] -%}
 <details class="drow" id="portfolio-{{ p.id }}">
   <summary>
@@ -145,13 +148,28 @@
         </dl>
         {% if lobs or countries or states or curr %}
         <dl class="drow-lists">
-          {% for label, values in [('Lines of business', lobs), ('Countries', countries),
-                                   ('States', states), ('Currencies', curr)] if values %}
+          {% if lobs %}
           <div>
-            <dt>{{ label }} ({{ values|length }})</dt>
-            <dd>{{ values[:100]|join(', ') }}{% if values|length > 100 %} <span class="na">… +{{ values|length - 100 }} more not shown</span>{% endif %}</dd>
+            <dt>Lines of business ({{ lobs|length }})</dt>
+            <dd>{{ capped(lobs) }}</dd>
           </div>
-          {% endfor %}
+          {% endif %}
+          {% if countries or states %}
+          <div>
+            <dt>Geography</dt>
+            <dd>
+              {%- for c in countries %}{{ geo_line(c, state_entries|selectattr('country', 'equalto', c)) }}{% endfor -%}
+              {%- set countryless = state_entries|selectattr('country', 'none')|list -%}
+              {%- if countryless %}{{ geo_line('—', countryless) }}{% endif -%}
+            </dd>
+          </div>
+          {% endif %}
+          {% if curr %}
+          <div>
+            <dt>Currencies ({{ curr|length }})</dt>
+            <dd>{{ capped(curr) }}</dd>
+          </div>
+          {% endif %}
         </dl>
         {% else %}
         <p class="tag-empty" style="margin:0">No value lists available — the
