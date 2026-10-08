@@ -49,6 +49,9 @@
   in" banner tracks the scoped refresh (FR-010).
 - `edm_service.sync_contextual_detail` drops its RDM loop. The Sync on an EDM
   page inside a submission calls `sync_detail` for that EDM only (P-07, T-09).
+- `breakout_service.page_state` builds custom-breakout failure lines from each
+  source portfolio's newest terminal cart only, and labels them with the
+  group's label instead of its `group_key` (spec 005 FR-012).
 
 ## Material changes
 
@@ -57,7 +60,7 @@
 | Database | Alembic revision `0008` adds a `rwb_job_type_kind` row `refresh_portfolios`. No table or column changes. |
 | Worker | `entity_jobs.py`: new actor and body `refresh_portfolios`, plus a per-portfolio store loop shared with `backfill_edm_detail`. `portfolio_jobs.py`: the follow-up job type and its input. |
 | Poller | `run.py`: `_handle_geohaz_terminal` skips `CANCELLED` and enqueues `refresh_portfolios` for one portfolio. `_resolve_geohaz_metadata` is deleted. |
-| Services | `irp_gateway.get_edm_exposure_summary` takes `portfolio_irp_ids`. `rwb_job_service.backfill_edm_detail_rows` narrows its predicate. `breakout_service` changes the gate and the banner. `edm_service.sync_contextual_detail` loses its RDM loop. `portfolio_service.update_exposure_metrics` is deleted. |
+| Services | `irp_gateway.get_edm_exposure_summary` takes `portfolio_irp_ids`. `rwb_job_service.backfill_edm_detail_rows` narrows its predicate. `breakout_service` changes the gate, the banner, and the custom-breakout failure lines. `edm_service.sync_contextual_detail` loses its RDM loop. `portfolio_service.update_exposure_metrics` is deleted. |
 | SQL | 11 `sql/databridge/portfolio_*.sql` scripts gain the `{{ portfolio_ids }}` filter. |
 | UI | None. The gate's existing "not available right now: {reason}" note shows the new reason. |
 | Library | None. |

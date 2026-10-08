@@ -536,7 +536,26 @@ def test_page_state_custom_flight_and_cart_banner(iteration2_db, fake_irp):
     lines = state.errors[pid]
     assert len(lines) == 1
     assert lines[0].dimension == "custom"
+    assert lines[0].value == "B"                   # the label, never the key
     assert "no account matches every filter" in lines[0].error
+
+
+def test_a_newer_cart_supersedes_a_failed_groups_error_line(
+        iteration2_db, fake_irp):
+    fake_irp.selection_by_value = {"US-TX": [1]}
+    edm_id, pid = _eligible_pair(fake_irp)
+    [failed] = request_group_breakout(edm_id, pid, [
+        _group("B", {"lob": ["EQ Comm"]})], AS_OF, iteration2_db.user_a)
+    assert run_breakout_job(failed, "custom")["status_code"] == "failed"
+    assert pid in breakout_service.page_state(edm_id).errors
+    execute_command(   # keep the two carts apart on updated_at
+        "UPDATE rwb_job SET updated_at = :t WHERE id = :i",
+        {"t": datetime(2026, 1, 1), "i": failed}, connection="WORKBENCH")
+
+    [ok] = request_group_breakout(edm_id, pid, [
+        _group("A", {"state": ["US-TX"]})], AS_OF, iteration2_db.user_a)
+    assert run_breakout_job(ok, "custom")["status_code"] == "succeeded"
+    assert pid not in breakout_service.page_state(edm_id).errors
 
 
 # ── list read model: the group label resolves for custom rows ────────────────────

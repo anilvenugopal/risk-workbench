@@ -693,7 +693,8 @@ def page_state(edm_id: Any) -> BreakoutPageState:
     ``ensure_pending_rwb_job`` revives them, so re-runs reuse rows rather than
     adding them. Every terminal row is needed — FR-012 renders its failed
     entries on that portfolio's row until the next terminal run supersedes
-    them, which also rules out bounding the read by age. Custom-group jobs
+    them (for custom groups, the next cart), which also rules out bounding the
+    read by age. Custom-group jobs
     reach their source portfolio through ``breakout_group.source_portfolio_id``
     (FR-015 as amended); a live cart renders one flight per portfolio
     ("custom breakouts: k of n done") and terminal jobs sharing the newest
@@ -726,7 +727,7 @@ def page_state(edm_id: Any) -> BreakoutPageState:
     terminal_custom = execute(
         "SELECT rj.id, rj.status_code, rj.output_data, rj.error_detail, "
         "rj.input_data, rj.updated_at, bg.source_portfolio_id AS pid, "
-        "bg.group_key, p.name AS source_name "
+        "bg.group_key, bg.label, p.name AS source_name "
         "FROM rwb_job rj "
         "JOIN breakout_group bg ON rj.requestor_id = bg.id "
         "JOIN irp_portfolio p ON bg.source_portfolio_id = p.id "
@@ -768,9 +769,18 @@ def page_state(edm_id: Any) -> BreakoutPageState:
     for row in terminal:
         code, noun = _noun_for_job_type(row["rwb_job_type"])
         _collect_error_lines(errors, _uid(row["requestor_id"]), code, noun, row)
+    # Each group has its own job row and a re-run of a failed group repeats its
+    # filters, so for custom breakouts the next terminal run is the next cart.
+    newest_cart: dict[str, str | None] = {}
     for row in terminal_custom:
-        _collect_error_lines(errors, _uid(row["pid"]), "custom",
-                             _DIMENSIONS["custom"].noun, row)
+        pid = _uid(row["pid"])
+        cart_id = _cart_id_of(row)
+        if pid not in newest_cart:
+            newest_cart[pid] = cart_id
+        elif cart_id is None or cart_id != newest_cart[pid]:
+            continue
+        _collect_error_lines(errors, pid, "custom", _DIMENSIONS["custom"].noun,
+                             row, value=str(row["label"]))
 
     return BreakoutPageState(running=bool(flights),
                              banner=_newest_banner(terminal, terminal_custom),
@@ -783,16 +793,18 @@ def _cart_id_of(row) -> str | None:
 
 
 def _collect_error_lines(errors: dict[str, list[BreakoutRowError]], pid: str,
-                         code: str, noun: str, row) -> None:
+                         code: str, noun: str, row, *,
+                         value: str | None = None) -> None:
     """The FR-012 durable lines of one terminal job row — its failed entries,
-    or the job error when it died before producing any."""
+    or the job error when it died before producing any. ``value`` replaces
+    each entry's stored value, which for a custom group is its hash key."""
     output = _parse_json_dict(row["output_data"], "output_data") or {}
     lines: list[BreakoutRowError] = []
     for entry in (output.get("sub_portfolios") or []):
         if isinstance(entry, dict) and entry.get("outcome") == "failed":
             lines.append(BreakoutRowError(
                 dimension=code, noun=noun,
-                value=str(entry.get("value") or ""),
+                value=value or str(entry.get("value") or ""),
                 name=str(entry.get("name") or ""),
                 error=str(entry.get("error") or "failed")))
     if not lines and row["status_code"] == "failed":

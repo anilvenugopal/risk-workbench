@@ -4,7 +4,7 @@
 
 **Tests**: Included. `plan.md` §Testing lists them. The unit tier (`uv run pytest tests/unit`) is the proof for every code task.
 
-**Organization**: Phase 1 adds the `refresh_portfolios` job type and worker, which stories 1 and 2 both enqueue. Phases 2–4 are stories 1–3. No task adds a UI preview: the only visible change is a new gate reason in the existing modal note.
+**Organization**: Phase 1 adds the `refresh_portfolios` job type and worker, which stories 1 and 2 both enqueue. Phases 2–4 are stories 1–3. Phase 5 fixes the custom-breakout failure lines on the Portfolios table (spec 005 FR-012). No task adds a UI preview: the only visible change is a new gate reason in the existing modal note.
 
 ---
 
@@ -103,7 +103,21 @@ Blocks stories 1 and 2. Story 3 does not depend on it.
 
 ---
 
-## Phase 5: Documentation and verification
+## Phase 5: Custom-breakout failure lines are superseded (spec 005 FR-012)
+
+**Goal**: a failed custom group's line on its source portfolio's row clears when the next custom cart on that portfolio finishes, and the line names the group by its label, not its hash key.
+
+**Independent test**: [quickstart.md](quickstart.md) §5.
+
+- [X] T021 [005 FR-012] In `page_state` (`app/services/breakout_service.py`), build custom error lines from each source portfolio's newest terminal cart only: the first `terminal_custom` row per portfolio sets the cart, and later rows count only when they share its `cart_id`. Add `bg.label` to the `terminal_custom` query and pass it to `_collect_error_lines` as the line's `value`, which otherwise holds `group_key`.
+- [X] T022 [005 FR-012] In `tests/unit/test_breakout_groups.py`, assert the failed group's line carries its label in `test_page_state_custom_flight_and_cart_banner`, and add `test_a_newer_cart_supersedes_a_failed_groups_error_line`.
+  - Proof: `uv run pytest tests/unit` passes; both tests fail without T021.
+
+**Checkpoint**: STOP. The approver runs [quickstart.md](quickstart.md) §5.
+
+---
+
+## Phase 6: Documentation and verification
 
 - [X] T016 [P] [T-01] In `docs/DATA_MODEL.md`, add a `refresh_portfolios` row after `backfill_edm_detail` in the `rwb_job_type` table (line 589): "Read and store the exposure detail of named portfolios in one EDM, after a breakout or hazard lookup (spec 207)". Add the code to the `rwb_job_type_kind` list (line 812) with "added by spec 207".
 - [X] T017 [P] [FR-001] [P-04] In `specs/005-subportfolio-breakouts/spec.md`, append one line to FR-013 (line 130) and one to P-16 (line 164), each pointing to spec 207. The line on FR-013 says the follow-up refreshes the generated portfolios only. The line on P-16 says the follow-up no longer holds the gate.
@@ -121,6 +135,7 @@ Blocks stories 1 and 2. Story 3 does not depend on it.
   - T007 needs T006.
 - Story 1 (T008–T011) and story 2 (T012–T014) touch different enqueuers but share `app/services/breakout_service.py` (T010, T013). Run them in story order.
 - Story 3 (T015) depends on nothing above and can ship first if needed.
+- Phase 5 (T021–T022) depends on nothing above.
 - T016–T018 can run any time after T001. T019 needs T003 and T004 on a stack with DataBridge access. T020 comes last.
 
 ## Parallel opportunities

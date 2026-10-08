@@ -51,6 +51,14 @@ Expected: `part` equals the three entries of `full`, and `t_part` is a small
 fraction of `t_full`. Record both timings and the EDM's portfolio and account
 counts in [research.md](research.md#r4).
 
+## 5. A failed custom group's line clears (spec 005 FR-012)
+
+1. Run a custom breakout whose filters match no account. The source
+   portfolio's row shows "{group label} — {name} failed: no account matches
+   every filter of this breakout — nothing was created".
+2. Run another custom breakout on the same portfolio that succeeds. After it
+   finishes, the failure line is gone.
+
 ## Tests
 
 `uv run pytest tests/unit` runs from any host shell. `make test-sql` covers
