@@ -146,6 +146,7 @@
   cursor: pointer; padding: 6px var(--space-2); border-radius: var(--radius-sm);
   font: inherit; font-size: var(--fs-label); color: var(--text-primary);
 }
+.ta__opt[hidden] { display: none; }
 .ta__opt:hover, .ta__opt.is-active { background: var(--color-brand-faint); }
 /* The Cedant field's "Add cedant" row, last in the menu. */
 .ta__opt--create { border-top: 1px solid var(--border-default);
