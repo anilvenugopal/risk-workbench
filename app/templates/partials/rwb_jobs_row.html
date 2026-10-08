@@ -4,17 +4,8 @@
 {% from "partials/time_macros.html" import local_time %}
 <tr>
   <td>{{ row.type_label or row.rwb_job_type }}</td>
-  <td>{% if row.entity_name %}<a class="crumb" href="{% if row.link_type == 'edm' %}/edms/{{ row.link_id }}{% else %}/rdms/{{ row.link_id }}{% endif %}">{{ row.entity_name }}</a>{% else %}<span class="na">—</span>{% endif %}</td>
-  <td class="jobs-deal">
-    {% if row.submissions %}
-    <a class="crumb" href="/submissions/{{ row.submissions[0].id }}" target="_blank" rel="noopener">{{ row.submissions[0].name }}</a>
-    {% if row.submissions | length > 1 %}
-    <span class="muted" title="{{ row.submissions[1:] | map(attribute='name') | join(', ') }}">+{{ row.submissions | length - 1 }} more</span>
-    {% endif %}
-    {% else %}
-    <span class="na">—</span>
-    {% endif %}
-  </td>
+  <td>{% if row.entity_name %}<span class="muted">{{ row.entity_kind }} ·</span> {{ row.entity_name }}{% else %}<span class="na">—</span>{% endif %}</td>
+  <td>{% if row.submitted_by %}{{ row.submitted_by }}{% else %}<span class="na">—</span>{% endif %}</td>
   <td>
     <span class="status-chip status-chip--job-{{ 'dead' if row.is_dead else row.status_code }}">{{ row.status_label }}</span>
     {% if row.is_dead %}

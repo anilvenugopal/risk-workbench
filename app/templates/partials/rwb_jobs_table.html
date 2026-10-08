@@ -1,5 +1,6 @@
 {# rwb_job monitor table (CR-04a). Inputs come from app/routers/rwb_jobs.py's
-   _list_context(): rows (each carrying entity_name, submissions, is_dead),
+   _list_context(): rows (each carrying entity_kind, entity_name, submitted_by,
+   is_dead),
    sort_links and live. This is the swap unit: the filter form and every
    sortable header target #rwb-jobs-live.
 
@@ -34,11 +35,11 @@
     <thead>
       <tr>
         {{ sort_th(sort_links.rwb_job_type, "Job type") }}
-        {{ sort_th(sort_links.entity_name, "EDM / RDM") }}
-        {{ sort_th(sort_links.submission, "Submission") }}
+        {{ sort_th(sort_links.entity_name, "Entity") }}
+        {{ sort_th(sort_links.submitted_by, "Submitted by") }}
         {{ sort_th(sort_links.status_code, "Status") }}
         {{ sort_th(sort_links.submitted_at, "Submitted at") }}
-        {{ sort_th(sort_links.elapsed, "Elapsed") }}
+        <th>Elapsed</th>
         <th class="col-actions">Action</th>
       </tr>
     </thead>
@@ -46,8 +47,10 @@
       {% for row in rows %}
       {% include "partials/rwb_jobs_row.html" %}
       {% else %}
-      <tr><td colspan="7" class="empty">No jobs match —
-        <a class="clear-filters" href="/workflows/rwb-jobs">reset filters</a>.</td></tr>
+      <tr><td colspan="7" class="empty">
+        {%- if is_default_view %}You have not submitted any RWB jobs. <a href="/workflows/rwb-jobs?submitted_by=any">Show everyone's jobs</a>
+        {%- else %}No RWB jobs match these filters. <a class="clear-filters" href="/workflows/rwb-jobs">Reset filters</a>
+        {%- endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

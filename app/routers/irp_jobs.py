@@ -3,7 +3,7 @@
 Display only (Article 11): no route here calls Risk Modeler. No row scoping
 (Article 6): Submitted by narrows by ``irp_job.inserted_by`` as a plain
 predicate and defaults to the current analyst, the way ``/workflows/rwb-jobs``
-defaults its owner filter.
+does.
 """
 
 from __future__ import annotations
