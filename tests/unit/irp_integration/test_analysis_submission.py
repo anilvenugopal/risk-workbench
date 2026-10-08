@@ -26,7 +26,7 @@ import pytest
 from irp_integration.analysis import AnalysisManager
 from irp_integration.exceptions import IRPReferenceDataError
 
-from conftest import FakeClient, FakeResponse
+from tests.unit.irp_integration.conftest import FakeClient, FakeResponse
 
 # Invented names. Nothing here may name a real EDM, portfolio, analysis or
 # tenant: this file ships in the sdist, so a name used here is published to PyPI.

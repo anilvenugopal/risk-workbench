@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-from conftest import FakeClient, FakeResponse
+from tests.unit.irp_integration.conftest import FakeClient, FakeResponse
 from irp_integration.analysis import AnalysisManager
 from irp_integration.exceptions import IRPAPIError
 

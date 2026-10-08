@@ -15,7 +15,7 @@ import pytest
 from irp_integration.edm import EDMManager
 from irp_integration.exceptions import IRPValidationError
 
-from conftest import FakeClient, FakeResponse
+from tests.unit.irp_integration.conftest import FakeClient, FakeResponse
 
 # Invented name. Nothing here may name a real exposure set or tenant: this file
 # ships in the sdist, so a name used here is published to PyPI.

@@ -19,7 +19,7 @@ import pytest
 from irp_integration.exceptions import IRPValidationError
 from irp_integration.rdm import RDMManager
 
-from conftest import FakeClient, FakeResponse
+from tests.unit.irp_integration.conftest import FakeClient, FakeResponse
 
 # Invented names. Nothing here may name a real EDM, exposure set, RDM or
 # tenant: this file ships in the sdist, so a name used here is published to PyPI.

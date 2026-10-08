@@ -16,7 +16,7 @@ from irp_integration.analysis import AnalysisManager
 from irp_integration.constants import EXPOSURE_RESOURCE_TYPES
 from irp_integration.exceptions import IRPValidationError
 
-from conftest import FakeClient, FakeResponse
+from tests.unit.irp_integration.conftest import FakeClient, FakeResponse
 
 ANALYSIS_ID = 42
 EXPOSURE_RESOURCE_ID = 7

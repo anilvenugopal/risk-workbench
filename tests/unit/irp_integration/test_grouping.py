@@ -1,12 +1,13 @@
 """Offline contract tests for rules-based grouping inspection and submission."""
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 import pytest
 
-from conftest import FakeClient, FakeResponse
+from tests.unit.irp_integration.conftest import FakeClient, FakeResponse
 from irp_integration.constants import GET_ANALYSIS_GROUPING_JOB
 from irp_integration.exceptions import IRPAPIError, IRPGroupingValidationError, IRPValidationError
 from irp_integration.grouping import (
@@ -1033,8 +1034,12 @@ def test_invalid_event_rate_selection_blocks_post(selections, code):
     assert client.calls == []
 
 
-def test_fingerprint_ignores_timestamp_and_display_label():
+def test_fingerprint_ignores_timestamp_and_display_label(monkeypatch):
     """Exclude inspection time and reference-data labels from the fingerprint."""
+    instants = iter([datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)])
+    monkeypatch.setattr(
+        "irp_integration.grouping.datetime", SimpleNamespace(now=lambda tz: next(instants))
+    )
     details, regions = pure_elt_fixtures(conflicting=True)
     manager, _, reference_data = make_manager(details, regions)
     first = manager.inspect(analysis_ids=[1, 2])
