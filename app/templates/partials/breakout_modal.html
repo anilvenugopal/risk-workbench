@@ -263,7 +263,7 @@
           <div class="bo-row">
             <span class="bo-row__value">{{ entry.value }}{% if entry.label %}<span class="bo-row__label">{{ entry.label }}</span>{% endif %}</span>
             {% if entry.exists %}
-            <span class="bo-row__name">{{ entry.name }} <span class="bo-row__exists">· already created</span></span>
+            <span class="bo-row__name" title="{{ entry.name }}">{{ entry.name }} <span class="bo-row__exists">· already created</span></span>
             {% else %}
             <div class="bo-row__name">
               <input type="hidden" name="value" value="{{ entry.value }}">

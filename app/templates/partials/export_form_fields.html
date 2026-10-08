@@ -55,7 +55,7 @@
             <input type="checkbox" name="treaty[{{ a.id }}]" value="{{ t.number }}"
                    {% if t.number in picked %}checked{% endif %} @change="onChange()">
             <label class="treaty-row__id"><span class="treaty-row__num">{{ t.number }}</span>
-              <span class="treaty-row__name">{{ t.name }}</span>
+              <span class="treaty-row__name" title="{{ t.name }}">{{ t.name }}</span>
               <span class="treaty-row__type">{{ t.type_label }}</span></label>
             <div class="treaty-row__terms">risk <b>{{ t.risk_limit }}</b> · att <b>{{ t.attachment_point }}</b> · occ <b>{{ t.occurrence_limit }}</b></div>
             <label class="export-cart-row__name treaty-row__name-field">Data name

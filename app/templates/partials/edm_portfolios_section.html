@@ -94,10 +94,10 @@
                    :disabled="total === 0"
                    @click.stop="all($event.target.checked)">
           </span>
-          <span class="l">Portfolio</span>
-          <span>Locations</span><span>Accounts</span><span>Policies</span>
-          <span class="l">Perils</span><span class="l">Lines of business</span><span class="l">Countries</span>
-          <span class="l">States</span><span class="l">Currency</span><span class="l">Hazard Version</span>
+          <span class="l" title="Portfolio">Portfolio</span>
+          <span title="Locations">Locations</span><span title="Accounts">Accounts</span><span title="Policies">Policies</span>
+          <span class="l" title="Perils">Perils</span><span class="l" title="Lines of business">Lines of business</span><span class="l" title="Countries">Countries</span>
+          <span class="l" title="States">States</span><span class="l" title="Currency">Currency</span><span class="l" title="Hazard Version">Hazard Version</span>
         </div>
         {% for p in edm.portfolios %}
         {% include "partials/portfolio_row.html" %}

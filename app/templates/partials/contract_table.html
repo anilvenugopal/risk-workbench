@@ -61,8 +61,8 @@
     {% set reopened = edit_row and edit_row.id == c.id %}
     <div class="contract-row" x-data="{ editing: {{ 'true' if reopened else 'false' }} }"
          :class="editing && 'contract-row--edit'">
-      <span class="contract-row__id" x-show="!editing">{{ c.crm_id }}</span>
-      <span class="contract-row__type" x-show="!editing">{{ c.treaty_type_label or c.treaty_type_code }}</span>
+      <span class="contract-row__id" title="{{ c.crm_id }}" x-show="!editing">{{ c.crm_id }}</span>
+      <span class="contract-row__type" title="{{ c.treaty_type_label or c.treaty_type_code }}" x-show="!editing">{{ c.treaty_type_label or c.treaty_type_code }}</span>
       <span class="contract-date" x-show="!editing">{{ c.inception_date }}</span>
       <span class="contract-date" x-show="!editing">{{ c.expiration_date }}</span>
       {# Won / Lost / Open, set in place in every Modeling status (P-02, P-12). #}

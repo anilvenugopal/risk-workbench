@@ -28,9 +28,9 @@
       {%- if default_persp and default_persp.produced and default_persp.aal is not none -%}
       <span class="aal-num" title="{{ default_persp.aal }}" data-value="{{ default_persp.aal }}">{{ default_persp.aal_display }}</span>
       {%- elif a.results_state == 'failed' -%}
-      <span class="aal-state aal-state--failed">retrieval failed</span>
+      <span class="aal-state aal-state--failed" title="retrieval failed">retrieval failed</span>
       {%- elif a.results_state == 'pending' and run_finished -%}
-      <span class="aal-state">retrieving&hellip;</span>
+      <span class="aal-state" title="retrieving&hellip;">retrieving&hellip;</span>
       {%- else -%}
       <span class="na">&mdash;</span>
       {%- endif -%}

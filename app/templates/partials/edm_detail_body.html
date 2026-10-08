@@ -114,11 +114,11 @@
     <div class="dtable-shell">
       <div class="dtable" style="--cols:230px minmax(110px,1fr) 115px 130px 130px 120px minmax(140px,1fr) minmax(150px,1.5fr) 80px 165px;min-width:1370px">
         <div class="dtable__head">
-          <span class="l">Treaty</span><span class="l">Type</span><span>Attachment</span>
-          <span class="l">Basis</span>
-          <span>Occurrence limit</span><span>Risk limit</span>
-          <span class="l">Cedant</span><span class="l">Lines of business</span>
-          <span class="l">Currency</span><span class="l">Effective</span>
+          <span class="l" title="Treaty">Treaty</span><span class="l" title="Type">Type</span><span title="Attachment">Attachment</span>
+          <span class="l" title="Basis">Basis</span>
+          <span title="Occurrence limit">Occurrence limit</span><span title="Risk limit">Risk limit</span>
+          <span class="l" title="Cedant">Cedant</span><span class="l" title="Lines of business">Lines of business</span>
+          <span class="l" title="Currency">Currency</span><span class="l" title="Effective">Effective</span>
         </div>
         {% for t in edm.treaties %}
         {% include "partials/treaty_row.html" %}

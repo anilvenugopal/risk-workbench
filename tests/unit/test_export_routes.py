@@ -368,7 +368,7 @@ def test_rows_show_counts_aal_error_and_stop_polling(client, export):
     assert 'hx-trigger="every 3s"' not in section.text  # every row terminal → polling stops
     assert ">loaded</span>" in section.text and ">failed</span>" in section.text
     for value in ("4127", "15,689", "15,401", "288", "12", "3"):
-        assert f'<span class="l">{value}</span>' in section.text
+        assert f'<span class="l" title="{value}">{value}</span>' in section.text
     assert section.text.count('<span class="l" title="100.0">100</span>') == 2  # AAL per row
     assert "event 1001 matches 2 historical lookup rows" in section.text
     assert section.text.count(">Retry</button>") == 1

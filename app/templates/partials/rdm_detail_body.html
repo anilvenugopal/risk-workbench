@@ -122,11 +122,11 @@
     <div class="dtable-shell">
       <div class="dtable" style="--cols:minmax(210px,1.4fr) minmax(210px,1.4fr) 70px 70px minmax(120px,1fr) 90px 110px minmax(190px,1.3fr) 180px 90px;min-width:1380px">
         <div class="dtable__head">
-          <span class="l dt-span2">Analysis</span>
-          <span class="l">Peril</span><span class="l">Region</span><span class="l">Engine</span>
-          <span class="l">Currency</span>
-          <span>AAL &middot; {{ default_perspective_label }}</span><span class="l">Status</span>
-          <span class="l">Submitted</span><span class="l">Risk Modeler</span>
+          <span class="l dt-span2" title="Analysis">Analysis</span>
+          <span class="l" title="Peril">Peril</span><span class="l" title="Region">Region</span><span class="l" title="Engine">Engine</span>
+          <span class="l" title="Currency">Currency</span>
+          <span title="AAL &middot; {{ default_perspective_label }}">AAL &middot; {{ default_perspective_label }}</span><span class="l" title="Status">Status</span>
+          <span class="l" title="Submitted">Submitted</span><span class="l" title="Risk Modeler">Risk Modeler</span>
         </div>
         {% for group in analyses %}
         {% for a in group.analyses %}

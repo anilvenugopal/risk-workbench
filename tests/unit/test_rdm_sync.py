@@ -464,9 +464,9 @@ def test_broker_table_uses_the_merged_analyses_column_set(monkeypatch):
 
     for header in ("Peril", "Region", "Engine", "Currency", "Status",
                    "Submitted", "Risk Modeler"):
-        assert f'<span class="l">{header}</span>' in html
+        assert f'<span class="l" title="{header}">{header}</span>' in html
     assert "AAL &middot;" in html
-    assert '<span class="l dt-span2">Analysis</span>' in html
+    assert '<span class="l dt-span2" title="Analysis">Analysis</span>' in html
     # no checkbox column — selection lives in the merged section, not here
     assert 'name="analysis_ids"' not in html
     assert 'class="status-chip status-chip--ready">Finished' in html
