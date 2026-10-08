@@ -44,6 +44,7 @@ from tests.unit.breakout_rows import (
     mk_breakout_job,
     mk_edm,
     mk_portfolio,
+    mk_refresh_job,
 )
 
 
@@ -244,6 +245,17 @@ def test_gate_terminal_backfill_does_not_disable(iteration2_db):
     gate = evaluate_gate(edm_id, pid)
     assert gate.refresh_in_flight is False
     assert gate.portfolio_eligible is True
+
+
+def test_gate_ignores_a_breakout_follow_up_refresh(iteration2_db):
+    # spec 207 P-04: a breakout's refresh_portfolios holds no other portfolio
+    # of the EDM.
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    mk_refresh_job(edm_id, breakout_job_id=mk_breakout_job(pid, status="succeeded"))
+    gate = evaluate_gate(edm_id, mk_portfolio(edm_id, name="other", irp_id="2"))
+    assert gate.portfolio_eligible is True
+    assert gate.refresh_in_flight is False
 
 
 # ── the confirm path (T025) ───────────────────────────────────────────────────────

@@ -289,7 +289,7 @@ def _live_breakout_dimension(portfolio_id: Any) -> str | None:
 
 def _backfill_in_flight(edm_id: Any) -> bool:
     """True while a ``backfill_edm_detail`` for this EDM is pending|running
-    under any of its three enqueue keys — ``rwb_job_service.
+    under either of its two enqueue keys — ``rwb_job_service.
     backfill_edm_detail_rows`` owns the membership predicate — the same
     condition ``edm_service.sync_detail`` applies to itself (P-16)."""
     return bool(rwb_job_service.backfill_edm_detail_rows(
@@ -626,10 +626,10 @@ class BreakoutRowError:
 @dataclass(frozen=True)
 class BreakoutBanner:
     """The completion banner for the newest terminal breakout job on the EDM.
-    Visible while ``filling_in`` (its FR-013 follow-up ``backfill_edm_detail``
+    Visible while ``filling_in`` (its FR-013 follow-up ``refresh_portfolios``
     is still pending|running — "figures are filling in") or while it carries
     failures; a fully-successful run's banner disappears once the follow-up
-    backfill lands, a failed/partial one only when the next terminal run
+    refresh lands, a failed/partial one only when the next terminal run
     supersedes it."""
     source_name: str
     noun: str
@@ -794,13 +794,13 @@ def _collect_error_lines(errors: dict[str, list[BreakoutRowError]], pid: str,
 
 
 def _follow_up_pending(job_ids: Sequence[str]) -> bool:
-    """True while any of the jobs' FR-013 follow-up ``backfill_edm_detail``
+    """True while any of the jobs' FR-013 follow-up ``refresh_portfolios``
     heads is pending|running — the banner's "figures are filling in"."""
     for jid in job_ids:
         follow_up = execute_one(
             "SELECT status_code FROM rwb_job "
             "WHERE requestor_type = 'rwb_job' AND requestor_id = :j "
-            "AND rwb_job_type = 'backfill_edm_detail' "
+            "AND rwb_job_type = 'refresh_portfolios' "
             "ORDER BY updated_at DESC",
             {"j": str(jid)}, connection="WORKBENCH")
         if (follow_up is not None

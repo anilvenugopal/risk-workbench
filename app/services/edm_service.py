@@ -456,7 +456,7 @@ class EdmAnalysesSection:
 
 def latest_backfill_status(edm_id: str) -> str | None:
     """The newest ``backfill_edm_detail`` job status for this EDM across its
-    three enqueue keys — ``rwb_job_service.backfill_edm_detail_rows`` owns the
+    two enqueue keys — ``rwb_job_service.backfill_edm_detail_rows`` owns the
     membership predicate. Newest ``updated_at`` wins — a revived (re-synced)
     row keeps its ``inserted_at``, so insert order would lie. ``None`` when
     detail backfill never ran — the pre-capability / forward-only state."""

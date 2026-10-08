@@ -126,6 +126,19 @@ def mk_breakout_job(portfolio_id: str, *, dimension: str = "lob",
     return jid
 
 
+def mk_refresh_job(edm_id: str, *, breakout_job_id: str,
+                   status: str = "pending") -> None:
+    """A breakout's follow-up ``refresh_portfolios`` (spec 207)."""
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
+        "status_code, attempt_count, inserted_at, updated_at) "
+        "VALUES (:i, 'rwb_job', :r, 'edm', :edm, 'edm', :edm, "
+        "'refresh_portfolios', :s, 0, :now, :now)",
+        {"i": str(uuid.uuid4()), "r": breakout_job_id, "edm": edm_id,
+         "s": status, "now": datetime.utcnow()}, connection="WORKBENCH")
+
+
 def mk_backfill_job(edm_id: str, *, status: str = "pending",
                     via_irp_job: bool = False) -> None:
     requestor_id = edm_id
