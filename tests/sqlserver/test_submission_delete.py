@@ -10,6 +10,7 @@ Run with:  make test-sql   (requires live SQL Server)
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +29,15 @@ from tests.unit.export_rows import (
 )
 
 pytestmark = pytest.mark.sqlserver
+
+
+@pytest.fixture(scope="module", autouse=True)
+def loss_schema():
+    """CI creates rwb_loss empty, and the delete reads its export manifest."""
+    from db.scripts import execute_script_file  # noqa: PLC0415 — trusted DDL, test only
+    bootstrap = Path(__file__).resolve().parents[2] / "db" / "bootstrap"
+    execute_script_file(bootstrap / "loss_dev_mirror.sql", connection="LOSS")
+    execute_script_file(bootstrap / "loss_schema.sql", connection="LOSS")
 
 
 def test_delete_satisfies_every_foreign_key():
@@ -56,6 +66,9 @@ def test_delete_satisfies_every_foreign_key():
         irp_job = seed_irp_job(submission_id=sid, analysis_id=group)
         jobs.append(seed_rwb_job("finalize_analysis", requestor=("irp_analysis", imported),
                                  link=("submission", sid), context=("irp_analysis", imported)))
+        failed = seed_rwb_job("execute_analysis_batch", status="failed",
+                              input_data={"submission_id": sid})
+        jobs.append(failed)
 
         delete_submission(submission_id=sid, actor_id=user)
 
@@ -65,6 +78,8 @@ def test_delete_satisfies_every_foreign_key():
             "SELECT COUNT(*) FROM irp_job WHERE id = :j AND irp_analysis_id IS NULL "
             "AND requested_from_submission_id IS NULL",
             {"j": irp_job}, connection="WORKBENCH") == 1
+        assert execute_scalar("SELECT status_code FROM rwb_job WHERE id = :j",
+                              {"j": failed}, connection="WORKBENCH") == "cancelled"
     finally:
         for sql, value in (
                 ("DELETE FROM irp_job WHERE id = :v", irp_job),

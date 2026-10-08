@@ -36,6 +36,7 @@ from app.services import rwb_job_service, submission_delete_service, submission_
 from app.services.submission_service import ContractInput
 from db import execute, execute_command, execute_scalar
 from tests.unit.conftest import cedant_id
+from tests.unit.export_rows import seed_manifest, seed_rwb_job
 from tests.unit.rm_analyses import seed_rm_analysis
 
 
@@ -2695,7 +2696,7 @@ def test_only_an_admin_sees_delete_and_reaches_its_routes(client):
     assert f'hx-get="/submissions/{sid}/delete"' in client.get(f"/submissions/{sid}").text
 
 
-def test_the_delete_dialog_lists_what_goes(client):
+def test_the_delete_dialog_lists_what_goes(client, loss_db):
     client.user.is_admin = True
     sid, _ = _deal(client, name="Counted", crm_ids="DEL-1,DEL-2")
     body = client.get(f"/submissions/{sid}/delete", headers=_HX).text
@@ -2703,7 +2704,15 @@ def test_the_delete_dialog_lists_what_goes(client):
     assert ">Delete submission</button>" in body
 
 
-def test_delete_sends_the_browser_to_the_list(client):
+def test_the_delete_dialog_says_it_cancels_failed_jobs(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Failed_job_deal")
+    seed_rwb_job("submit_grouping", link=("submission", sid), status="failed")
+    body = client.get(f"/submissions/{sid}/delete", headers=_HX).text
+    assert "Also cancels <b>1</b> failed Workbench job" in body
+
+
+def test_delete_sends_the_browser_to_the_list(client, loss_db):
     client.user.is_admin = True
     sid, _ = _deal(client, name="Deleted_deal")
     response = client.post(f"/submissions/{sid}/delete",
@@ -2713,7 +2722,7 @@ def test_delete_sends_the_browser_to_the_list(client):
     assert submission_service.get_submission(sid) is None
 
 
-def test_running_work_refuses_the_delete_with_its_reason(client):
+def test_running_work_refuses_the_delete_with_its_reason(client, loss_db):
     client.user.is_admin = True
     sid, _ = _deal(client, name="Busy_deal")
     execute_command(
@@ -2724,6 +2733,18 @@ def test_running_work_refuses_the_delete_with_its_reason(client):
                            data={"csrf_token": _csrf()}, headers=_HX)
     assert response.status_code == 409
     assert "still running: 1 Risk Modeler job" in response.text
+    assert ">Delete submission</button>" not in response.text
+    assert submission_service.get_submission(sid) is not None
+
+
+def test_an_unfinished_export_refuses_the_delete(client, loss_db):
+    client.user.is_admin = True
+    sid, _ = _deal(client, name="Exporting_deal")
+    seed_manifest(submission_id=sid, stage_status="failed")
+    response = client.post(f"/submissions/{sid}/delete",
+                           data={"csrf_token": _csrf()}, headers=_HX)
+    assert response.status_code == 409
+    assert "1 export is not loaded or closed" in response.text
     assert ">Delete submission</button>" not in response.text
     assert submission_service.get_submission(sid) is not None
 

@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.services import irp_job_service
-from app.services._common import SubmissionRef, _in_clause
+from app.services._common import SubmissionRef, _in_clause, _utcnow
 from app.services.errors import SubmissionDeleteBlocked
-from db import get_connection
+from db import execute_scalar, get_connection
+from db.errors import SQLServerError
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class DeleteSummary:
     imported_count: int
     group_count: int
     linking: list[SubmissionRef]
+    failed_job_count: int
     blocked: str | None
 
 
@@ -54,7 +56,35 @@ def _names_submission(job, sid: str, analysis_ids: set[str]) -> bool:
                for key in ("submission_id", "requested_from_submission_id"))
 
 
-def _blocked_reason(conn, sid: str, analysis_ids: list[str]) -> str | None:
+def _export_reason(sid: str) -> str | None:
+    """Refuses while an export from the submission is not loaded or closed:
+    its retry and close actions find it only through the submission."""
+    try:
+        exports = execute_scalar(
+            "SELECT COUNT(DISTINCT export_id) FROM stage.rwb_loss_result_manifest "
+            "WHERE requested_from_submission_id = :s AND closed_at IS NULL "
+            "AND load_status <> 'loaded'", {"s": sid}, connection="LOSS")
+    except (SQLServerError, SQLAlchemyError):
+        logger.warning("submission delete: loss repository unreachable", exc_info=True)
+        return ("Cannot check this submission's exports: the loss repository is "
+                "unreachable. Try again later.")
+    if not exports:
+        return None
+    return (f"{_plural(exports, 'export')} {'is' if exports == 1 else 'are'} not "
+            "loaded or closed. Retry or close them in the Exports section first.")
+
+
+def _rwb_jobs(conn, sid: str, analysis_ids: list[str]) -> list:
+    """Pending, running and failed ``rwb_job`` rows that name the submission."""
+    lowered = {a.lower() for a in analysis_ids}
+    return [job for job in conn.execute(text(
+        "SELECT id, status_code, link_type, link_id, requestor_type, requestor_id, "
+        "context_type, context_id, input_data FROM rwb_job "
+        "WHERE status_code IN ('pending', 'running', 'failed')"))
+        if _names_submission(job, sid.lower(), lowered)]
+
+
+def _blocked_reason(conn, sid: str, analysis_ids: list[str], rwb_jobs: list) -> str | None:
     terminal, params = _in_clause("status", sorted(irp_job_service.TERMINAL), "t")
     owner = "requested_from_submission_id = :s"
     if analysis_ids:
@@ -63,20 +93,20 @@ def _blocked_reason(conn, sid: str, analysis_ids: list[str]) -> str | None:
     irp_jobs = conn.execute(text(
         f"SELECT COUNT(*) FROM irp_job WHERE NOT {terminal} AND {owner}"),
         {"s": sid, **params}).scalar()
-    lowered = {a.lower() for a in analysis_ids}
-    rwb_jobs = sum(_names_submission(job, sid.lower(), lowered) for job in conn.execute(text(
-        "SELECT link_type, link_id, requestor_type, requestor_id, context_type, "
-        "context_id, input_data FROM rwb_job WHERE status_code IN ('pending', 'running')")))
+    running_rwb = sum(job.status_code != "failed" for job in rwb_jobs)
     running = [part for count, part in (
         (irp_jobs, _plural(irp_jobs, "Risk Modeler job")),
-        (rwb_jobs, _plural(rwb_jobs, "Workbench job"))) if count]
-    if not running:
-        return None
-    return ("Cannot delete while work on this submission is still running: "
-            f"{', '.join(running)}. Try again when they finish.")
+        (running_rwb, _plural(running_rwb, "Workbench job"))) if count]
+    reasons = []
+    if running:
+        reasons.append("Cannot delete while work on this submission is still running: "
+                       f"{', '.join(running)}. Try again when they finish.")
+    if exports := _export_reason(sid):
+        reasons.append(exports)
+    return " ".join(reasons) or None
 
 
-def _summary(conn, sid: str, blocked: str | None) -> DeleteSummary:
+def _summary(conn, sid: str, failed_job_count: int, blocked: str | None) -> DeleteSummary:
     def count(sql: str) -> int:
         return conn.execute(text(sql), {"s": sid}).scalar()
 
@@ -94,6 +124,7 @@ def _summary(conn, sid: str, blocked: str | None) -> DeleteSummary:
             "SELECT COUNT(*) FROM irp_analysis WHERE submission_id = :s "
             "AND deleted_at IS NULL AND is_group = 1"),
         linking=[SubmissionRef(id=str(r.id), name=r.name) for r in linking],
+        failed_job_count=failed_job_count,
         blocked=blocked)
 
 
@@ -101,20 +132,26 @@ def delete_summary(submission_id: Any) -> DeleteSummary:
     """What deleting the submission would remove, or why it cannot be deleted."""
     sid = str(submission_id)
     with get_connection("WORKBENCH") as conn:
-        return _summary(conn, sid, _blocked_reason(conn, sid, _analysis_ids(conn, sid)))
+        analysis_ids = _analysis_ids(conn, sid)
+        rwb_jobs = _rwb_jobs(conn, sid, analysis_ids)
+        return _summary(conn, sid, sum(job.status_code == "failed" for job in rwb_jobs),
+                        _blocked_reason(conn, sid, analysis_ids, rwb_jobs))
 
 
 def delete_submission(*, submission_id: Any, actor_id: Any) -> None:
-    """Delete the submission and the Workbench rows that exist only for it, in
-    one transaction. Raises ``SubmissionDeleteBlocked`` while work is running,
-    and ``LookupError`` when the submission is gone. An ``irp_job`` or
-    ``irp_analysis`` inserted between the check and the delete fails a foreign
-    key, which rolls everything back and raises ``SubmissionDeleteBlocked``."""
+    """Delete the submission and the Workbench rows that exist only for it, and
+    cancel its failed ``rwb_job`` rows, in one transaction. Raises
+    ``SubmissionDeleteBlocked`` while work is running, an export is unfinished
+    or the loss repository is unreachable, and ``LookupError`` when the
+    submission is gone. A row written during the delete that fails a foreign
+    key rolls everything back and raises ``SubmissionDeleteBlocked``; other
+    work that starts mid-delete is not caught."""
     sid = str(submission_id)
     try:
         with get_connection("WORKBENCH") as conn, conn.begin():
             analysis_ids = _analysis_ids(conn, sid)
-            blocked = _blocked_reason(conn, sid, analysis_ids)
+            rwb_jobs = _rwb_jobs(conn, sid, analysis_ids)
+            blocked = _blocked_reason(conn, sid, analysis_ids, rwb_jobs)
             if blocked:
                 raise SubmissionDeleteBlocked(blocked)
             deal = conn.execute(text(
@@ -122,6 +159,12 @@ def delete_submission(*, submission_id: Any, actor_id: Any) -> None:
                 "JOIN cedant c ON c.id = s.cedant_id WHERE s.id = :s"), {"s": sid}).first()
             if deal is None:
                 raise LookupError(f"submission {sid} not found")
+            failed = [str(job.id) for job in rwb_jobs if job.status_code == "failed"]
+            if failed:
+                ids, fp = _in_clause("id", failed, "f")
+                conn.execute(text(
+                    "UPDATE rwb_job SET status_code = 'cancelled', updated_at = :now "
+                    f"WHERE status_code = 'failed' AND {ids}"), {"now": _utcnow(), **fp})
 
             # Every foreign key is NO ACTION, so children go first.
             if analysis_ids:

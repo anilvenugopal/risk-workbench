@@ -8,7 +8,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
+from app.services import submission_delete_service
 from app.services.errors import SubmissionDeleteBlocked
 from app.services.submission_delete_service import delete_submission, delete_summary
 from db import execute_scalar
@@ -17,6 +19,7 @@ from tests.unit.export_rows import (
     seed_analysis,
     seed_edm_for,
     seed_irp_job,
+    seed_manifest,
     seed_rdm_for,
     seed_rwb_job,
     seed_submission,
@@ -34,7 +37,7 @@ def _exists(table: str, column: str, value: str) -> bool:
 
 
 def test_delete_removes_the_submission_and_keeps_the_edm_rdm_their_analyses_and_jobs(
-        iteration2_db):
+        iteration2_db, loss_db):
     user = iteration2_db.user_a
     sid = seed_submission(user, name="To_delete", crm_ids=("CRM-1", "CRM-2"))
     wb("INSERT INTO submission_status_event (id, submission_id, status_code, at, "
@@ -102,9 +105,14 @@ def test_delete_removes_the_submission_and_keeps_the_edm_rdm_their_analyses_and_
     (lambda sid: seed_rwb_job("upload_edm", link=("edm", None), status="running",
                               input_data={"requested_from_submission_id": sid}),
      "1 Workbench job"),
+    (lambda sid: seed_manifest(submission_id=sid), "1 export is not loaded or closed"),
+    (lambda sid: seed_manifest(submission_id=sid, irp_export_job_id="9001"),
+     "1 export is not loaded or closed"),
+    (lambda sid: seed_manifest(submission_id=sid, stage_status="failed"),
+     "1 export is not loaded or closed"),
 ])
 def test_unfinished_work_refuses_the_delete_and_deletes_nothing(
-        iteration2_db, make_running, reason):
+        iteration2_db, loss_db, make_running, reason):
     sid = seed_submission(iteration2_db.user_a)
     make_running(sid)
     assert reason in delete_summary(sid).blocked
@@ -112,3 +120,42 @@ def test_unfinished_work_refuses_the_delete_and_deletes_nothing(
         delete_submission(submission_id=sid, actor_id=iteration2_db.user_a)
     assert _exists("submission", "id", sid)
     assert _exists("contract", "submission_id", sid)
+
+
+@pytest.mark.parametrize("columns", [{"load_status": "loaded"}, {"closed_at": NOW}])
+def test_a_loaded_or_closed_export_allows_the_delete_and_stays(iteration2_db, loss_db, columns):
+    sid = seed_submission(iteration2_db.user_a)
+    manifest = seed_manifest(submission_id=sid, **columns)
+    assert delete_summary(sid).blocked is None
+    delete_submission(submission_id=sid, actor_id=iteration2_db.user_a)
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM stage.rwb_loss_result_manifest WHERE manifest_id = :m",
+        {"m": manifest["manifest_id"]}, connection="LOSS") == 1
+
+
+def test_an_unreachable_loss_repository_refuses_the_delete(iteration2_db, monkeypatch):
+    def unreachable(*args, **kwargs):
+        raise SQLAlchemyError("down")
+    monkeypatch.setattr(submission_delete_service, "execute_scalar", unreachable)
+    sid = seed_submission(iteration2_db.user_a)
+    assert "loss repository is unreachable" in delete_summary(sid).blocked
+    with pytest.raises(SubmissionDeleteBlocked):
+        delete_submission(submission_id=sid, actor_id=iteration2_db.user_a)
+    assert _exists("submission", "id", sid)
+
+
+def test_delete_cancels_the_failed_jobs_that_name_the_submission(iteration2_db, loss_db):
+    sid = seed_submission(iteration2_db.user_a)
+    other = seed_submission(iteration2_db.user_a, name="Other", crm_ids=("CRM-9",))
+    failed = seed_rwb_job("execute_analysis_batch", status="failed",
+                          input_data={"submission_id": sid})
+    kept = seed_rwb_job("execute_analysis_batch", status="failed",
+                        input_data={"submission_id": other})
+
+    summary = delete_summary(sid)
+    assert (summary.failed_job_count, summary.blocked) == (1, None)
+    delete_submission(submission_id=sid, actor_id=iteration2_db.user_a)
+
+    status = "SELECT status_code FROM rwb_job WHERE id = :j"
+    assert execute_scalar(status, {"j": failed}, connection="WORKBENCH") == "cancelled"
+    assert execute_scalar(status, {"j": kept}, connection="WORKBENCH") == "failed"
