@@ -125,6 +125,14 @@ class TestDetailTablesMigration:
         assert row[0]["label"] == "Backfill EDM Detail"
         assert row[0]["sort_order"] == 27
 
+    def test_refresh_portfolios_seed_present(self):
+        row = execute(
+            "SELECT code, label, sort_order FROM rwb_job_type_kind "
+            "WHERE code = 'refresh_portfolios'", {}, connection="WORKBENCH")
+        assert len(row) == 1
+        assert row[0]["label"] == "Refresh portfolios"
+        assert row[0]["sort_order"] == 26
+
     def test_live_edm_irp_id_is_unique(self):
         row = execute(
             "SELECT is_unique, has_filter, filter_definition FROM sys.indexes "
