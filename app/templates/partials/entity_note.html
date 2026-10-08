@@ -2,7 +2,7 @@
          id="entity-note" x-data="{ editing: {{ 'true' if note_editing else 'false' }} }">
   <div class="entity-note__head">
     <h2>Notes</h2>
-    <button class="btn-sm" type="button" x-show="!editing"
+    <button class="btn btn--sm" type="button" x-show="!editing"
             x-on:click="editing = true; $root.classList.add('entity-note--editing'); $nextTick(() => $refs.note.focus())">Edit</button>
   </div>
   <p class="entity-note__text" x-show="!editing">{{ entity_notes or 'No notes.' }}</p>
@@ -25,8 +25,8 @@
               x-on:input="$refs.count.textContent = $event.target.value.length">{{ note_value }}</textarea>
     <div class="entity-note__footer">
       <span class="entity-note__count"><span x-ref="count">{{ note_value|length }}</span>/250</span>
-      <button class="btn-sm btn-sm--primary" type="submit">Save</button>
-      <button class="btn-sm" type="button"
+      <button class="btn btn--sm btn--primary" type="submit">Save</button>
+      <button class="btn btn--sm" type="button"
               x-on:click="$refs.note.value = $refs.original.value; $refs.count.textContent = $refs.note.value.length; editing = false; $root.classList.remove('entity-note--editing'); $dispatch('entity-note-saved')">Cancel</button>
     </div>
   </form>

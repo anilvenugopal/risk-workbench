@@ -23,7 +23,6 @@ from app.services.rwb_job_service import (
     enqueue_rwb_job,
 )
 from db import execute_command
-from tests.unit.conftest import cedant_id
 
 _NO_LINK = {"link_type": "not_applicable", "link_id": None,
            "context_type": None, "context_id": None}
@@ -70,62 +69,29 @@ def _make_app(user=None):
     return app
 
 
-def _edm(*, name="EDM") -> str:
-    eid = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO irp_edm (id, source_file_path, name, status, "
-        "inserted_at, updated_at) VALUES (:id, :src, :name, 'ready', :now, :now)",
-        {"id": eid, "src": r"\\share\intake\x.bak", "name": name,
-         "now": "2026-01-01 00:00:00"},
-        connection="WORKBENCH")
-    return eid
-
-
-def _submission(*, name="Sub", assigned_analyst_id) -> str:
-    sid = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_id, "
-        "status_code, inserted_at, updated_at) "
-        "VALUES (:id, :a, :name, :ced, 'ACTIVE', :now, :now)",
-        {"id": sid, "a": assigned_analyst_id, "name": name, "ced": cedant_id(),
-         "now": "2026-01-01 00:00:00"},
-        connection="WORKBENCH")
-    return sid
-
-
-def _attach_edm(submission_id, edm_id) -> None:
-    execute_command(
-        "INSERT INTO submission_edm (submission_id, edm_id, inserted_at) "
-        "VALUES (:s, :e, :now)",
-        {"s": submission_id, "e": edm_id, "now": "2026-01-01 00:00:00"},
-        connection="WORKBENCH")
-
-
 class TestRwbJobsPage:
     def test_returns_200(self, iteration2_db):
         resp = TestClient(_make_app()).get("/workflows/rwb-jobs")
         assert resp.status_code == 200
 
-    def test_lists_a_job_with_no_link(self, iteration2_db):
-        # A not_applicable-linked job has no submission, so the default
-        # owner=mine filter (a submission-scoped filter) excludes it — the
-        # same as any other submission filter. owner=any turns that off.
-        job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                                 requestor_id=str(uuid.uuid4()),
-                                 rwb_job_type="dummy_wait", **_NO_LINK)
-        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+    def test_lists_an_unattributed_job_under_anyone(self, iteration2_db):
+        enqueue_rwb_job(requestor_type="analyst_request",
+                        requestor_id=str(uuid.uuid4()),
+                        rwb_job_type="dummy_wait", **_NO_LINK)
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?submitted_by=any")
         assert resp.status_code == 200
         assert "Dummy: wait" in resp.text
 
     def test_empty_state(self, iteration2_db):
         resp = TestClient(_make_app()).get("/workflows/rwb-jobs")
-        assert "No jobs match" in resp.text
+        assert "You have not submitted any RWB jobs" in resp.text
+        assert 'href="/workflows/rwb-jobs?submitted_by=any"' in resp.text
 
     def test_pending_row_shows_no_submitted_at_but_shows_queued_elapsed(self, iteration2_db):
         job_id = enqueue_rwb_job(requestor_type="analyst_request",
                                  requestor_id=str(uuid.uuid4()),
                                  rwb_job_type="dummy_wait", **_NO_LINK)
-        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?submitted_by=any")
         assert "queued " in resp.text
 
     def test_running_row_shows_submitted_at(self, iteration2_db):
@@ -143,75 +109,40 @@ class TestRwbJobsPage:
             "UPDATE rwb_job SET submitted_at = :s WHERE id = :id",
             {"s": stamped.isoformat(sep=' '), "id": job_id}, connection="WORKBENCH")
 
-        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?submitted_by=any")
         assert resp.status_code == 200
         assert f'<time data-utc="{stamped.isoformat(sep=" ")}"' in resp.text
         assert "2m 1" in resp.text or "2m 0" in resp.text  # ~2m14s, allow test-run skew
 
     def test_table_fragment(self, iteration2_db):
-        resp = TestClient(_make_app()).get("/workflows/rwb-jobs/table")
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs/table?job_type=upload_edm")
         assert resp.status_code == 200
-        assert "No jobs match" in resp.text
+        assert "No RWB jobs match these filters" in resp.text
 
-    def test_owner_defaults_to_current_user(self, iteration2_db):
-        # A job whose EDM belongs to a submission owned by someone else is
-        # excluded by default (owner defaults to the signed-in analyst).
+    def test_submitted_by_defaults_to_current_user(self, iteration2_db):
         user_a, user_b = iteration2_db.user_a, iteration2_db.user_b
-        edm_id = _edm()
-        sub_id = _submission(name="Not Mine", assigned_analyst_id=user_b)
-        _attach_edm(sub_id, edm_id)
-        enqueue_rwb_job(requestor_type="analyst_request", requestor_id=str(uuid.uuid4()),
-                        rwb_job_type="upload_edm", link_type="edm", link_id=edm_id,
-                        context_type="edm", context_id=edm_id)
+        for actor, job_type in ((user_a, "dummy_wait"), (user_b, "dummy_fail")):
+            enqueue_rwb_job(requestor_type="analyst_request",
+                            requestor_id=str(uuid.uuid4()), rwb_job_type=job_type,
+                            actor_id=actor, **_NO_LINK)
 
         resp = TestClient(_make_app(user=_fake_user(id=user_a))).get(
-            "/workflows/rwb-jobs")
-        assert "Not Mine" not in resp.text
+            "/workflows/rwb-jobs/table")
 
-    def test_grouping_job_listed_under_default_owner(self, iteration2_db):
-        # A submit_grouping job links to the submission itself (no EDM/RDM),
-        # so it must be reached by the default owner=mine filter and show
-        # its submission name.
-        user_a = iteration2_db.user_a
-        sub_id = _submission(name="Grouped Deal", assigned_analyst_id=user_a)
-        enqueue_rwb_job(requestor_type="analyst_request", requestor_id=str(uuid.uuid4()),
-                        rwb_job_type="submit_grouping", link_type="submission",
-                        link_id=sub_id, context_type="irp_analysis",
-                        context_id=str(uuid.uuid4()))
+        assert "Dummy: wait" in resp.text and "Analyst A" in resp.text
+        assert "Dummy: fail" not in resp.text
 
-        resp = TestClient(_make_app(user=_fake_user(id=user_a))).get(
-            "/workflows/rwb-jobs")
-        assert resp.status_code == 200
-        assert "Grouped Deal" in resp.text
+    def test_row_names_the_entity_with_its_kind(self, iteration2_db):
+        portfolio_id = str(uuid.uuid4())
+        execute_command("INSERT INTO irp_portfolio (id, name) VALUES (:id, 'FL Comm')",
+                        {"id": portfolio_id}, connection="WORKBENCH")
+        enqueue_rwb_job(requestor_type="analyst_request", requestor_id=portfolio_id,
+                        rwb_job_type="run_geohaz", link_type="not_applicable",
+                        link_id=None, context_type="portfolio", context_id=portfolio_id)
 
-    def test_owner_any_shows_every_submissions_jobs(self, iteration2_db):
-        user_a, user_b = iteration2_db.user_a, iteration2_db.user_b
-        edm_id = _edm()
-        sub_id = _submission(name="Someone Elses Deal", assigned_analyst_id=user_b)
-        _attach_edm(sub_id, edm_id)
-        enqueue_rwb_job(requestor_type="analyst_request", requestor_id=str(uuid.uuid4()),
-                        rwb_job_type="upload_edm", link_type="edm", link_id=edm_id,
-                        context_type="edm", context_id=edm_id)
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?submitted_by=any")
 
-        resp = TestClient(_make_app(user=_fake_user(id=user_a))).get(
-            "/workflows/rwb-jobs?owner=any")
-        assert "Someone Elses Deal" in resp.text
-
-    def test_submission_name_filter(self, iteration2_db):
-        user_a = iteration2_db.user_a
-        edm_id = _edm()
-        sub_id = _submission(name="American Family Renewal",
-                             assigned_analyst_id=user_a)
-        _attach_edm(sub_id, edm_id)
-        enqueue_rwb_job(requestor_type="analyst_request", requestor_id=str(uuid.uuid4()),
-                        rwb_job_type="upload_edm", link_type="edm", link_id=edm_id,
-                        context_type="edm", context_id=edm_id)
-
-        client = TestClient(_make_app(user=_fake_user(id=user_a)))
-        resp = client.get("/workflows/rwb-jobs?q=american+fam")
-        assert "American Family Renewal" in resp.text
-        resp = client.get("/workflows/rwb-jobs?q=zzz-no-match")
-        assert "American Family Renewal" not in resp.text
+        assert '<span class="muted">Portfolio ·</span> FL Comm' in resp.text
 
 
 class TestRwbJobsSort:
@@ -219,23 +150,19 @@ class TestRwbJobsSort:
         # Naming #rwb-jobs-live as the HTMX target returns the fragment without
         # the nav shell, and pushes the list's own URL.
         resp = TestClient(_make_app()).get(
-            "/workflows/rwb-jobs?owner=any&sort=elapsed&dir=desc",
+            "/workflows/rwb-jobs?submitted_by=any&sort=status_code&dir=desc",
             headers={"HX-Target": "rwb-jobs-live"})
 
         assert "<html" not in resp.text
         assert 'id="rwb-jobs-live"' in resp.text
         assert resp.headers["HX-Push-Url"] == (
-            "/workflows/rwb-jobs?owner=any&sort=elapsed&dir=desc")
+            "/workflows/rwb-jobs?submitted_by=any&sort=status_code&dir=desc")
 
-    def test_no_sort_param_leaves_the_query_order_in_place(self, iteration2_db):
-        # Without an explicit sort the rows keep list_rwb_jobs_for_monitoring's
-        # own ORDER BY (job type, then status), so no header renders as sorted.
-        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+    def test_no_sort_param_shows_submitted_at_newest_first(self, iteration2_db):
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?submitted_by=any")
 
-        assert 'aria-sort="none"' in resp.text
-        assert 'aria-sort="ascending"' not in resp.text
-        assert 'aria-sort="descending"' not in resp.text
-        assert "is-sorted" not in resp.text
+        assert resp.text.count('aria-sort="descending"') == 1
+        assert 'href="/workflows/rwb-jobs?submitted_by=any&amp;sort=submitted_at&amp;dir=asc"'             in resp.text
 
     def test_poll_url_carries_the_active_sort(self, iteration2_db):
         # The 3s poll re-renders the table from its own request, so its URL has
@@ -247,9 +174,9 @@ class TestRwbJobsSort:
         claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
 
         resp = TestClient(_make_app()).get(
-            "/workflows/rwb-jobs?owner=any&sort=elapsed&dir=desc")
+            "/workflows/rwb-jobs?submitted_by=any&sort=status_code&dir=desc")
 
-        assert ("/workflows/rwb-jobs/table?owner=any&amp;sort=elapsed&amp;dir=desc"
+        assert ("/workflows/rwb-jobs/table?submitted_by=any&amp;sort=status_code&amp;dir=desc"
                 in resp.text)
 
     def test_a_queued_only_page_still_polls(self, iteration2_db):
@@ -259,7 +186,7 @@ class TestRwbJobsSort:
                         requestor_id=str(uuid.uuid4()),
                         rwb_job_type="dummy_wait", **_NO_LINK)
 
-        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?submitted_by=any")
 
         assert 'hx-trigger="every 3s"' in resp.text
 
@@ -270,7 +197,7 @@ class TestRwbJobsSort:
         claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
         complete_rwb_job(rwb_job_id=job_id, status="succeeded")
 
-        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?submitted_by=any")
 
         assert 'hx-trigger="every 3s"' not in resp.text
 
@@ -281,11 +208,38 @@ class TestRwbJobsSort:
         claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
         complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
 
-        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?owner=any")
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?submitted_by=any")
 
         assert f'hx-post="/workflows/rwb-jobs/{job_id}/cancel"' in resp.text
         assert f'hx-post="/workflows/rwb-jobs/{job_id}/resubmit"' in resp.text
         assert 'hx-target="closest tr"' in resp.text
+
+
+class TestRwbJobsPager:
+    def test_pager_and_poll_carry_the_filters_sort_and_page(self, iteration2_db):
+        from app.services.rwb_job_service import PAGE_SIZE
+        for _ in range(PAGE_SIZE + 1):
+            enqueue_rwb_job(requestor_type="analyst_request",
+                            requestor_id=str(uuid.uuid4()),
+                            rwb_job_type="dummy_wait", **_NO_LINK)
+        client = TestClient(_make_app())
+        query = "submitted_by=any&amp;sort=status_code&amp;dir=asc"
+
+        first = client.get("/workflows/rwb-jobs?submitted_by=any&sort=status_code&dir=asc")
+        second = client.get(
+            "/workflows/rwb-jobs?submitted_by=any&sort=status_code&dir=asc&page=2")
+
+        assert f'rel="next" href="/workflows/rwb-jobs?{query}&amp;page=2"' in first.text
+        assert 'rel="prev"' not in first.text
+        assert f'rel="prev" href="/workflows/rwb-jobs?{query}&amp;page=1"' in second.text
+        assert 'rel="next"' not in second.text
+        assert f"/workflows/rwb-jobs/table?{query}&amp;page=2" in second.text
+
+    def test_a_page_past_the_end_links_back_to_page_one(self, iteration2_db):
+        resp = TestClient(_make_app()).get("/workflows/rwb-jobs?submitted_by=any&page=3")
+
+        assert "Page 3 is past the last page." in resp.text
+        assert 'href="/workflows/rwb-jobs?submitted_by=any">Go to page 1' in resp.text
 
 
 class TestRwbJobsCancel:

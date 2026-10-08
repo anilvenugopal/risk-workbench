@@ -29,7 +29,7 @@
       <div class="state-box state-box--warn">{{ blocking }}</div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('group-modal').replaceChildren()">Close</button>
+      <button class="btn" type="button" @click="document.getElementById('group-modal').replaceChildren()">Close</button>
     </div>
     {% else %}
     <form method="post" action="{{ action_url }}" @change="recompute()" @input="recompute()"
@@ -119,20 +119,20 @@
 
       </div>
       <div class="modal-footer">
-        <button class="modal-btn modal-btn--secondary" type="button" x-show="step === 1" @click="document.getElementById('group-modal').replaceChildren()">Cancel</button>
-        <button class="modal-btn modal-btn--secondary" type="button" x-show="step > 1" @click="back()">Back</button>
-        <button class="modal-btn modal-btn--primary" type="button" x-show="step === 1" x-ref="inspect" :disabled="!canNext1"
+        <button class="btn" type="button" x-show="step === 1" @click="document.getElementById('group-modal').replaceChildren()">Cancel</button>
+        <button class="btn" type="button" x-show="step > 1" @click="back()">Back</button>
+        <button class="btn btn--primary" type="button" x-show="step === 1" x-ref="inspect" :disabled="!canNext1"
                 hx-post="{{ inspect_url }}" hx-trigger="inspect" hx-include="closest form"
                 hx-target="#group-inspection" hx-swap="innerHTML" hx-indicator="#group-inspect-wait"
                 @click="inspect()">Next</button>
-        <button class="modal-btn modal-btn--primary" type="button" x-show="step === 1" x-ref="finish" :disabled="!canNext1"
+        <button class="btn btn--primary" type="button" x-show="step === 1" x-ref="finish" :disabled="!canNext1"
                 title="Inspect and submit at once when nothing is left to choose"
                 hx-post="{{ finish_url }}" hx-trigger="finish" hx-include="closest form"
                 hx-target="#group-inspection" hx-swap="innerHTML" hx-indicator="#group-inspect-wait"
                 @htmx:after-request="if ($event.detail.elt === $el && $event.detail.xhr.status === 204) document.getElementById('group-modal').replaceChildren()"
                 @click="finish()">Finish</button>
-        <button class="modal-btn modal-btn--primary" type="button" x-show="step === 2 && hasInspection" :disabled="!canNext2" @click="toSettings()">Next</button>
-        <button class="modal-btn modal-btn--primary" type="submit" x-show="step === 3" :disabled="!canSubmit">Group</button>
+        <button class="btn btn--primary" type="button" x-show="step === 2 && hasInspection" :disabled="!canNext2" @click="toSettings()">Next</button>
+        <button class="btn btn--primary" type="submit" x-show="step === 3" :disabled="!canSubmit">Group</button>
       </div>
     </form>
     {% endif %}

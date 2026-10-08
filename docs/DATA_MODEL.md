@@ -118,6 +118,8 @@ erDiagram
     string directory_path "nullable; per-deal shared-drive directory"
     int client_id "nullable; rwb_loss dbo.Client.ClientID — another database, no FK"
     string status_code FK "submission_status_kind; Modeling status, cached current"
+    datetime archived_at "nullable; set while archived"
+    uniqueidentifier archived_by FK "nullable; app_user who archived it"
     datetime inserted_at
     datetime updated_at
     uniqueidentifier inserted_by FK
@@ -192,7 +194,9 @@ erDiagram
 - **`client_id`** is `dbo.Client.ClientID` in `rwb_loss`, read over the `LOSS` connection and never a foreign key (another database). Optional; the Workbench never writes to the client list (spec 017 P-04).
 - **`links_to_submission_id`** is a manual, nullable self-reference to a related submission — usually last year's deal for the same cedant and treaty type, but not necessarily a renewal (design note 08 CR8, superseding the earlier `renews_from_submission_id`). Most deals have none. The analyst picks the related deal by name; a submission cannot link to itself (`ck_submission_no_self_link`).
 - **`submission.name` is NOT unique.** Two genuinely distinct deals can share every naming-convention attribute (same cedant, inception, treaty type) and differ only by the manual/optional CRM ID (design note 03 §4). The UUID `id` is the key; create and rename never compare the name with other submissions.
-- **Modeling status** (`status_code`) is `ACTIVE` / `COMPLETED` / `CANCELLED`, event-sourced, no system-enforced transition preconditions (`COMPLETED → ACTIVE` allowed). **There is no delete** — a submission can carry real Risk Modeler assets; `CANCELLED` is the withdrawal state.
+- **Modeling status** (`status_code`) is `ACTIVE` / `COMPLETED` / `CANCELLED`, event-sourced, no system-enforced transition preconditions (`COMPLETED → ACTIVE` allowed). `CANCELLED` is the withdrawal state.
+- **`archived_at` / `archived_by`** mark an archived submission (issue #206): hidden from the Submissions list and the "links to" picker. Archiving changes neither `status_code` nor `updated_at`.
+- **Delete** rules are in [PRD §7.2a](PRD.md#72a-modeling-status-and-contract-status).
 - **Contract status** (`contract.contract_status_code`) is `OPEN` / `WON` / `LOST` from `contract_status_kind`, updated in place with the contract's `updated_at` concurrency check, no reason and no event row, in every Modeling status (spec 017 P-02, P-12). Every other contract write needs Modeling status Active.
 
 **Associations:**
@@ -579,7 +583,7 @@ erDiagram
 - **`irp_job_resource`** carries the typed `(resource_type, resource_uri)` submit payload; the URI must be captured at submit time (RM's completion response omits it).
 
 **`rwb_job`:**
-- **`requestor_type` + `requestor_id`** discriminate the trigger: `irp_job` completion, an analyst action, or a chained parent `rwb_job`. `requestor_id` has no DB FK (target varies by type). Dedup / chaining key: `UNIQUE(requestor_type, requestor_id, rwb_job_type)`.
+- **`requestor_type` + `requestor_id`** name the trigger: a finished `irp_job`, an analyst action, a parent `rwb_job`, a `breakout_group`, or an `irp_analysis`. `requestor_id` has no DB FK (target varies by type). Dedup / chaining key: `UNIQUE(requestor_type, requestor_id, rwb_job_type)`. For `analyst_request`, `requestor_id` is the row the request is about (EDM, RDM, portfolio, execution, grouping request, or export), so the key allows one live job of a type per row; the analyst is `inserted_by`.
 - **Worker lifecycle:** claim atomically (`UPDATE ... SET status_code='running' WHERE id=:id AND status_code='pending'`; rowcount 0 → already claimed), heartbeat via a daemon thread, set `succeeded`/`failed`, create chained tail rows on success. Stale `running` rows (heartbeat older than `RWB_HEARTBEAT_STALE_SECS`) are recovered by the reconciler in the poller.
 
 | `rwb_job_type` | Worker responsibility | Chains to |
@@ -587,6 +591,7 @@ erDiagram
 | `upload_edm` | Submit `import_edm` for one EDM | `backfill_edm_detail` on FINISHED |
 | `upload_rdm` | Submit one standalone `import_rdm` for one RDM | `backfill_rdm_analyses` on FINISHED |
 | `backfill_edm_detail` | Read and store one EDM's portfolios, exposure detail, and treaties | — |
+| `refresh_portfolios` | Read and store the exposure detail of named portfolios in one EDM, after a breakout or hazard lookup (spec 207) | — |
 | `backfill_rdm_analyses` | Enumerate and store one RDM's broker analyses | `retrieve_analysis_results` (one per broker analysis) |
 | `execute_analysis_batch` | Submit one `irp_analysis` + `irp_job` per portfolio × template in the approved plan (spec 010) | — |
 | `submit_grouping` | Claim the group `irp_analysis` row and its `irp_analysis_group_member` rows, then submit one `grouping` `irp_job` from the approved compose plan (spec 012) | — |
@@ -606,6 +611,34 @@ finishes and `backfill_rdm_analyses` when an RDM import finishes. EDM completion
 never starts RDM upload work. Association detach is request-path SQL only.
 
 **Context (`rwb_job.context_type` / `context_id`):** the object a job's own operation acts on, typed by `rwb_job_context_type_kind` (`edm` / `rdm` / `irp_analysis` / `portfolio` / `breakout_group` / `execution` / `result_export`). `result_export` names a loss results export by its `export_id`; the export record itself is `stage.rwb_loss_result_manifest` in the loss repository, not a Workbench table (spec 014 T-03).
+
+**Link (`rwb_job.link_type` / `link_id`):** the EDM, RDM, or submission the job concerns, typed by `rwb_job_link_type_kind`; `not_applicable` when none applies. A job about one analysis links to the analysis's owner: `irp_analysis.edm_id`, else `rdm_id`, else `submission_id`.
+
+**`rwb_job.inserted_by`:** the analyst whose action caused the job. A job the poller enqueues takes the finished `irp_job`'s `inserted_by`; a job another job enqueues takes the parent `rwb_job`'s `inserted_by`. An analyst's retry revives the row and leaves `inserted_by` as it was.
+
+**What each job type records.** Entity names the job: its context, or its link when the context has no Workbench table.
+
+| `rwb_job_type` | Requestor (`requestor_type` → `requestor_id`) | Link | Context | Entity | `inserted_by` |
+|---|---|---|---|---|---|
+| `upload_edm` | `analyst_request` → EDM | EDM | `edm` | EDM | analyst |
+| `upload_rdm` | `analyst_request` → RDM | RDM | `rdm` | RDM | analyst |
+| `backfill_edm_detail` | `irp_job` → the finished `import_edm` job; `analyst_request` → EDM (Sync) | EDM | `edm` | EDM | from the `irp_job`; analyst for a Sync |
+| `refresh_portfolios` | `irp_job` → the finished `geohaz` job; `rwb_job` → the finished `run_breakout_*` job | EDM | `portfolio` (the looked-up or breakout source portfolio) | Portfolio | from the `irp_job` or `rwb_job` |
+| `backfill_rdm_analyses` | `irp_job` → the finished `import_rdm` job; `analyst_request` → RDM (Sync) | RDM | `rdm` | RDM | from the `irp_job`; analyst for a Sync |
+| `run_geohaz` | `analyst_request` → portfolio | EDM | `portfolio` | Portfolio | analyst |
+| `run_breakout_lob`, `_state`, `_country`, `_peril` | `analyst_request` → source portfolio | EDM | `portfolio` | Portfolio | analyst |
+| `run_breakout_custom` | `breakout_group` → `breakout_group` row | EDM | `breakout_group` | Breakout Group (label) | analyst |
+| `execute_analysis_batch` | `analyst_request` → execution id | EDM | `execution` | EDM, from the link (no execution table) | analyst |
+| `submit_grouping` | `analyst_request` → grouping request id | submission | `irp_analysis` (the group) | IRP Analysis | analyst |
+| `finalize_analysis` | `irp_job` → the finished `analysis` or `grouping` job; `irp_analysis` → the imported analysis | analysis's owner | `irp_analysis` | IRP Analysis | from the `irp_job`; analyst for an import |
+| `retrieve_analysis_results` | `irp_analysis` → the analysis | analysis's owner | `irp_analysis` | IRP Analysis | from the parent `finalize_analysis` or `backfill_rdm_analyses`; analyst when a retry finds no earlier row |
+| `submit_results_export` | `analyst_request` → export id | submission (`input_data.submission_id`) | `result_export` | Submission, from the link (export record is in the loss repository) | analyst |
+| `stage_results_export` | `irp_job` → the finished `export` job | analysis's owner | `irp_analysis` | IRP Analysis | from the `irp_job` |
+| `load_results_export` | `rwb_job` → the `stage_results_export` job | analysis's owner | `irp_analysis` | IRP Analysis | from the parent `rwb_job` |
+| `sync_irp_metadata` | `analyst_request` → fixed id (`_METADATA_SYNC_REQUESTOR_ID`) | `not_applicable` | none | — | analyst |
+| `dummy_wait`, `dummy_fail` | `analyst_request` → new UUID per run | `not_applicable` | none | — | none (CLI) |
+
+`notify_analyst` has no enqueue call site.
 
 ---
 
@@ -809,7 +842,7 @@ erDiagram
 | `irp_job_type_kind` | `import_edm`, `import_rdm`, `geohaz`, `analysis`, `grouping`, `export`. |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
 | `rwb_job_requestor_type_kind` | `irp_job`, `analyst_request`, `rwb_job`, `breakout_group`, `irp_analysis`. |
-| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `backfill_edm_detail`, `run_geohaz`, `run_breakout_lob`, `run_breakout_state`, `run_breakout_country`, `run_breakout_peril`, `run_breakout_custom`, `execute_analysis_batch`, `finalize_analysis`, `sync_irp_metadata`, `retrieve_analysis_results`, `notify_analyst`, `submit_grouping`, `submit_results_export`, `stage_results_export`, `load_results_export`, `dummy_wait`, `dummy_fail`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2. `backfill_edm_detail` added by spec 004; `run_geohaz` added by spec 007; the `run_breakout_*` codes added by spec 005 — one per dimension so the idempotent-enqueue key gives each dimension its own live-job slot per portfolio; `sync_irp_metadata` added by spec 009; `execute_analysis_batch`/`finalize_analysis` added by spec 010; `submit_grouping` added by spec 012; the three `*_results_export` codes added by spec 014, which dropped `download_export_file` and `push_results_to_loss_repo`.) |
+| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `backfill_edm_detail`, `run_geohaz`, `run_breakout_lob`, `run_breakout_state`, `run_breakout_country`, `run_breakout_peril`, `run_breakout_custom`, `execute_analysis_batch`, `finalize_analysis`, `sync_irp_metadata`, `retrieve_analysis_results`, `notify_analyst`, `submit_grouping`, `submit_results_export`, `stage_results_export`, `load_results_export`, `refresh_portfolios`, `dummy_wait`, `dummy_fail`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2. `backfill_edm_detail` added by spec 004; `run_geohaz` added by spec 007; the `run_breakout_*` codes added by spec 005 — one per dimension so the idempotent-enqueue key gives each dimension its own live-job slot per portfolio; `sync_irp_metadata` added by spec 009; `execute_analysis_batch`/`finalize_analysis` added by spec 010; `submit_grouping` added by spec 012; the three `*_results_export` codes added by spec 014, which dropped `download_export_file` and `push_results_to_loss_repo`; `refresh_portfolios` added by spec 207.) |
 | `breakout_dimension_kind` | `lob` (Line of business), `state` (Geography - State), `country` (Geography - Country), `peril` (Peril), `custom` (Custom group — the grouping lineage code) — spec 005. |
 | `rwb_job_status_kind` | `pending`, `running`, `succeeded`, `failed`, `cancelled`. |
 | `rwb_job_link_type_kind` | `edm`, `rdm`, `submission`, `not_applicable`. |

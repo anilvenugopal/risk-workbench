@@ -156,8 +156,8 @@ def get_user_by_id(user_id: str) -> dict | None:
 
 
 def list_active_analysts() -> list[dict]:
-    """Every active user as ``(id, display_name)`` rows, for the owner pickers on
-    ``/submissions`` and ``/workflows/rwb-jobs``."""
+    """Every active user as ``(id, display_name)`` rows, for the owner picker on
+    ``/submissions`` and the Submitted by pickers on the job pages."""
     return execute(
         "SELECT id, display_name FROM app_user WHERE is_active = 1 "
         "ORDER BY display_name",

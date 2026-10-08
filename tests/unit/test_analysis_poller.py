@@ -42,10 +42,11 @@ def _submitted_analysis(iteration2_db, fake_irp, edm_name="EDM One") -> dict:
         "SELECT id, name FROM irp_analysis WHERE edm_id = :e",
         {"e": edm_id}, connection="WORKBENCH")
     irp_job = execute_one(
-        "SELECT irp_id FROM irp_job WHERE irp_analysis_id = :a",
+        "SELECT id, irp_id FROM irp_job WHERE irp_analysis_id = :a",
         {"a": analysis["id"]}, connection="WORKBENCH")
     return {"edm_id": edm_id, "edm_name": edm_name, "id": analysis["id"],
-           "name": analysis["name"], "irp_id": irp_job["irp_id"]}
+           "name": analysis["name"], "irp_id": irp_job["irp_id"],
+           "irp_job_id": irp_job["id"]}
 
 
 # ── terminal handler ──────────────────────────────────────────────────────────────
@@ -58,12 +59,16 @@ def test_finished_enqueues_finalize_analysis(iteration2_db, fake_irp):
     poller.poll_once()
 
     head = execute_one(
-        "SELECT input_data FROM rwb_job WHERE rwb_job_type = 'finalize_analysis'",
+        "SELECT * FROM rwb_job WHERE rwb_job_type = 'finalize_analysis'",
         {}, connection="WORKBENCH")
     assert head is not None
     input_data = json.loads(head["input_data"])
     assert input_data["analysis_id"] == a["id"]
     assert input_data["rm_analysis_id"] == "9001"
+    assert head["requestor_type"] == "irp_job" and head["requestor_id"] == a["irp_job_id"]
+    assert head["link_type"] == "edm" and head["link_id"] == a["edm_id"]
+    assert head["context_type"] == "irp_analysis" and head["context_id"] == a["id"]
+    assert head["inserted_by"] == iteration2_db.user_a
     status = execute_one("SELECT status_code FROM irp_analysis WHERE id = :id",
                          {"id": a["id"]}, connection="WORKBENCH")
     assert status["status_code"] == "pending"  # untouched — finalize_analysis flips it to ready

@@ -313,7 +313,8 @@ def _finalize_analysis_body(rwb_job_id: Any) -> runtime.JobResult:
         rwb_job_type="retrieve_analysis_results",
         link_type=link_type, link_id=link_id,
         context_type="irp_analysis", context_id=analysis_id,
-        input_data={"analysis_id": analysis_id})
+        input_data={"analysis_id": analysis_id},
+        actor_id=rwb_job_service.get_rwb_job(rwb_job_id=rwb_job_id)["inserted_by"])
     dispatch.dispatch(rwb_job_id=retrieval_id,
                       rwb_job_type="retrieve_analysis_results")
     logger.info("finalize_analysis resolved analysis=%s -> irp_id=%s",

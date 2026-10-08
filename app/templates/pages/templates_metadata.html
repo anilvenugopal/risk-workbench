@@ -4,7 +4,7 @@
 {% block page_actions %}
 <form method="post" action="/templates/metadata/sync">
   <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-  <button class="btn-sm btn-sm--primary" type="submit">Sync IRP Metadata</button>
+  <button class="btn btn--sm btn--primary" type="submit">Sync IRP Metadata</button>
 </form>
 {% endblock %}
 

@@ -11,7 +11,7 @@
            value="{{ a.id }}" data-broker
            onclick="event.stopPropagation()" @change="onChange()"></span></span>
     {% endif %}
-    <span class="l dt-span2"><span class="dt-name"><span class="dt-caret">▸</span>
+    <span class="l dt-span2 dt-wrap"><span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-title" title="{{ display_name }}" data-value="{{ display_name }}">{{ display_name }}
         {%- if a.is_group %} <span class="badge badge--info badge--sm">group</span>{% endif %}</span></span></span>
     {# The name cell spans both name tracks; tableToTsv slices summary children

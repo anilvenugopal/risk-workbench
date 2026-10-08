@@ -54,7 +54,8 @@ def _submitted_group(iteration2_db, fake_irp) -> dict:
         "SELECT id, irp_id FROM irp_job WHERE irp_analysis_id = :a",
         {"a": group["id"]}, connection="WORKBENCH")
     return {"group_id": group["id"], "group_name": group["name"],
-            "irp_id": irp_job["irp_id"], "irp_job_id": irp_job["id"]}
+            "irp_id": irp_job["irp_id"], "irp_job_id": irp_job["id"],
+            "submission_id": submission_id}
 
 
 def _finalize_head() -> dict | None:
@@ -72,9 +73,14 @@ def test_finished_grouping_enqueues_finalize(iteration2_db, fake_irp):
 
     poller.poll_once()
 
-    head = _finalize_head()
+    head = execute_one("SELECT * FROM rwb_job WHERE rwb_job_type = 'finalize_analysis'",
+                       {}, connection="WORKBENCH")
     assert head is not None
     assert json.loads(head["input_data"]) == {"analysis_id": g["group_id"]}
+    assert head["requestor_type"] == "irp_job" and head["requestor_id"] == g["irp_job_id"]
+    assert head["link_type"] == "submission" and head["link_id"] == g["submission_id"]
+    assert head["context_type"] == "irp_analysis" and head["context_id"] == g["group_id"]
+    assert head["inserted_by"] == iteration2_db.user_a
     job = execute_one("SELECT status FROM irp_job WHERE id = :id",
                       {"id": g["irp_job_id"]}, connection="WORKBENCH")
     assert job["status"] == "FINISHED"

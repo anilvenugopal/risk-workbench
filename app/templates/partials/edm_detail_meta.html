@@ -49,7 +49,7 @@
   {% if edm.status == 'ready' %}
   <span class="crumb__sep">·</span>
   {% if edm.sync_running %}
-  <button class="btn-sm" type="button" disabled>Syncing…</button>
+  <button class="btn btn--sm" type="button" disabled>Syncing…</button>
   {% else %}
   {% with sync_url=sync_url, sync_target='#edm-detail',
           sync_title="Re-fetch this EDM's detail from Risk Modeler" %}

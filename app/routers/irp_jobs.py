@@ -3,7 +3,7 @@
 Display only (Article 11): no route here calls Risk Modeler. No row scoping
 (Article 6): Submitted by narrows by ``irp_job.inserted_by`` as a plain
 predicate and defaults to the current analyst, the way ``/workflows/rwb-jobs``
-defaults its owner filter.
+does.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app.nav import get_nav_context
+from app.routers._list_filters import submitted_by_filter
 from app.services import auth_service, irp_job_service
 from app.services._common import _parse_int
-from app.services.submission_filters import _as_uuid
 
 router = APIRouter()
 
@@ -53,10 +53,7 @@ def _list_context(request: Request) -> dict:
     params = request.query_params
     job_types = [v.strip() for v in params.getlist("job_type") if v.strip()]
     statuses = [v.strip() for v in params.getlist("status") if v.strip()]
-    by_params = [v.strip() for v in params.getlist("submitted_by")
-                 if v.strip() == "any" or _as_uuid(v) == v.strip().lower()]
-    submitted_by = ([str(request.state.user.id)] if not by_params
-                    else [] if "any" in by_params else by_params)
+    submitted_by, by_params = submitted_by_filter(params, request.state.user.id)
     texts = {key: (params.get(key) or "").strip()
              for key in ("submitted_from", "completed_by")}
     tz = (params.get("tz") or "").strip()

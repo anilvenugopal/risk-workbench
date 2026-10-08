@@ -43,11 +43,15 @@ def _import_and_backfill(iteration2_db, fake_irp, drive) -> str:
 def test_import_submits_one_standalone_rdm(iteration2_db, fake_irp, drive):
     result = _import(iteration2_db, drive)
 
-    assert execute_scalar(
-        "SELECT COUNT(*) FROM rwb_job WHERE requestor_id=:r "
-        "AND rwb_job_type='upload_rdm'",
-        {"r": result.entity_id}, connection="WORKBENCH",
-    ) == 1
+    head = execute(
+        "SELECT * FROM rwb_job WHERE rwb_job_type='upload_rdm'", {}, connection="WORKBENCH")
+    assert len(head) == 1
+    head = head[0]
+    assert (head["requestor_type"] == "analyst_request"
+            and head["requestor_id"] == result.entity_id)
+    assert head["link_type"] == "rdm" and head["link_id"] == result.entity_id
+    assert head["context_type"] == "rdm" and head["context_id"] == result.entity_id
+    assert head["inserted_by"] == iteration2_db.user_a
 
     entity_jobs.run_pending()
 
@@ -293,3 +297,17 @@ def test_backfill_is_idempotent(iteration2_db, fake_irp, drive):
         "SELECT COUNT(*) FROM irp_analysis WHERE rdm_id=:r",
         {"r": rdm_id}, connection="WORKBENCH",
     ) == 1
+
+
+def test_sync_enqueues_an_analyst_backfill_for_the_rdm(iteration2_db, fake_irp, drive):
+    rdm_id = _import_and_backfill(iteration2_db, fake_irp, drive)
+
+    assert rdm_service.sync_detail(rdm_id=rdm_id, actor_id=iteration2_db.user_a)
+
+    job = execute(
+        "SELECT * FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses' "
+        "AND requestor_type='analyst_request'", {}, connection="WORKBENCH")[0]
+    assert job["requestor_id"] == rdm_id
+    assert job["link_type"] == "rdm" and job["link_id"] == rdm_id
+    assert job["context_type"] == "rdm" and job["context_id"] == rdm_id
+    assert job["inserted_by"] == iteration2_db.user_a

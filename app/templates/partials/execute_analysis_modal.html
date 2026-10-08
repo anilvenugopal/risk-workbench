@@ -13,7 +13,7 @@
       <div class="state-box state-box--warn">{{ blocking }}</div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('execute-modal').replaceChildren()">Close</button>
+      <button class="btn" type="button" @click="document.getElementById('execute-modal').replaceChildren()">Close</button>
     </div>
     {% else %}
     <form method="post" action="{{ action_url }}" @change="onChange($event)"
@@ -82,22 +82,29 @@
             <div class="dtable dtable--selectable" style="--cols:var(--pick-w) minmax(160px,1.6fr) 100px 110px 120px 120px 120px minmax(110px,1fr) minmax(110px,1fr);min-width:992px">
               <div class="dtable__head">
                 <span></span>
-                <span class="l">Name</span><span class="l">Number</span><span class="l">Type</span>
-                <span>Per Risk Limit</span><span>Occurrence Limit</span><span>Attachment Point</span>
-                <span class="l">LOBs</span><span class="l">Cedant</span>
+                <span class="l" title="Name">Name</span><span class="l" title="Number">Number</span><span class="l" title="Type">Type</span>
+                <span title="Per Risk Limit">Per Risk Limit</span><span title="Occurrence Limit">Occurrence Limit</span><span title="Attachment Point">Attachment Point</span>
+                <span class="l" title="LOBs">LOBs</span><span class="l" title="Cedant">Cedant</span>
               </div>
               {% for treaty in treaties %}
               {% set a = treaty.attributes or {} %}
               <label class="drow-static">
                 <span class="geohaz-pick"><input type="checkbox" name="treaty_names" value="{{ treaty.name }}"></span>
-                <span class="l" title="{{ treaty.name }}">{{ treaty.name }}</span>
-                <span class="l">{% if a.get('treatyNumber') %}{{ a.get('treatyNumber') }}{% elif treaty.irp_id %}ID {{ treaty.irp_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</span>
-                <span class="l">{{ attr_val(treaty.display('treatyType')) }}</span>
-                <span>{{ money(a.get('riskLimit')) }}</span>
-                <span>{{ money(a.get('occurrenceLimit')) }}</span>
-                <span>{{ money(a.get('attachmentPoint')) }}</span>
-                <span class="l">{{ presence(treaty.display_presence('lobs')) }}</span>
-                <span class="l">{{ presence(treaty.display_presence('cedant')) }}</span>
+                <span class="l dt-wrap" title="{{ treaty.name }}">{{ treaty.name }}</span>
+                {%- set number = a.get('treatyNumber') or ('ID ' ~ treaty.irp_id if treaty.irp_id else '') %}
+                <span class="l"{% if number %} title="{{ number }}"{% endif %}>{% if number %}{{ number }}{% else %}<span class="na">&mdash;</span>{% endif %}</span>
+                {%- set v = treaty.display('treatyType') %}{% set txt = attr_val(v) %}
+                <span class="l"{% if v is not none and v != '' %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+                {%- set v = a.get('riskLimit') %}{% set txt = money(v) %}
+                <span{% if v is not none %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+                {%- set v = a.get('occurrenceLimit') %}{% set txt = money(v) %}
+                <span{% if v is not none %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+                {%- set v = a.get('attachmentPoint') %}{% set txt = money(v) %}
+                <span{% if v is not none %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+                {%- set v = treaty.display_presence('lobs') %}{% set txt = presence(v) %}
+                <span class="l"{% if v[0] is not none and v[0] != '' %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
+                {%- set v = treaty.display_presence('cedant') %}{% set txt = presence(v) %}
+                <span class="l"{% if v[0] is not none and v[0] != '' %} title="{{ txt|striptags }}"{% endif %}>{{ txt }}</span>
               </label>
               {% endfor %}
             </div>
@@ -108,8 +115,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('execute-modal').replaceChildren()">Cancel</button>
-        <button class="modal-btn modal-btn--primary" type="submit" :disabled="!canSubmit">Execute</button>
+        <button class="btn" type="button" @click="document.getElementById('execute-modal').replaceChildren()">Cancel</button>
+        <button class="btn btn--primary" type="submit" :disabled="!canSubmit">Execute</button>
       </div>
     </form>
     {% endif %}

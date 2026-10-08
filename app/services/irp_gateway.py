@@ -575,8 +575,9 @@ class IRPGateway(Protocol):
     def get_portfolio_exposure(self, *, edm_irp_id: int,
                                portfolio_irp_id: int) -> ExposureDetail: ...
 
-    def get_edm_exposure_summary(self, *, edm_name: str,
-                                 edm_irp_id: int) -> dict[str, dict]: ...
+    def get_edm_exposure_summary(
+            self, *, edm_name: str, edm_irp_id: int,
+            portfolio_irp_ids: Sequence[str] | None = None) -> dict[str, dict]: ...
 
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]: ...
 
@@ -1038,8 +1039,9 @@ class _RealGateway:
                 f"(exposureId {edm_irp_id}) from {len(rows)} search hit(s)")
         return str(database_name)
 
-    def get_edm_exposure_summary(self, *, edm_name: str,
-                                 edm_irp_id: int) -> dict[str, dict]:
+    def get_edm_exposure_summary(
+            self, *, edm_name: str, edm_irp_id: int,
+            portfolio_irp_ids: Sequence[str] | None = None) -> dict[str, dict]:
         # Per-EDM DataBridge SQL aggregate (geography/LOB/currency — none
         # of which any RM REST endpoint returns).
         # Interim implementation: the requested wheel method
@@ -1055,10 +1057,15 @@ class _RealGateway:
         database = self._edm_database_name(edm_name=edm_name,
                                            edm_irp_id=edm_irp_id)
         databridge = self._client().databridge
+        # None reads every portfolio. Every script names the parameter, and a
+        # missing key raises "Missing required parameter", so it is always sent.
+        params = {"portfolio_ids": (None if portfolio_irp_ids is None
+                                    else "\x1f".join(str(i) for i in portfolio_irp_ids))}
 
         def rows(script: str) -> list[dict]:
             frames = databridge.execute_query_from_file(
-                str(_DATABRIDGE_SQL_DIR / script), database=database)
+                str(_DATABRIDGE_SQL_DIR / script), params=params,
+                database=database)
             if not frames:
                 return []
             # A DataFrame turns SQL NULL into NaN, and NaN is truthy: an
@@ -1627,10 +1634,12 @@ def get_portfolio_exposure(*, edm_irp_id: int,
                                             portfolio_irp_id=portfolio_irp_id)
 
 
-def get_edm_exposure_summary(*, edm_name: str,
-                             edm_irp_id: int) -> dict[str, dict]:
-    return _active().get_edm_exposure_summary(edm_name=edm_name,
-                                              edm_irp_id=edm_irp_id)
+def get_edm_exposure_summary(
+        *, edm_name: str, edm_irp_id: int,
+        portfolio_irp_ids: Sequence[str] | None = None) -> dict[str, dict]:
+    return _active().get_edm_exposure_summary(
+        edm_name=edm_name, edm_irp_id=edm_irp_id,
+        portfolio_irp_ids=portfolio_irp_ids)
 
 
 def search_treaties(*, edm_irp_id: int) -> list[TreatyDetail]:

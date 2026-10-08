@@ -84,7 +84,7 @@ def failed(iteration2_db, loss_db, monkeypatch, tmp_path):
         return {"submission_id": submission_id, "export_id": export_id,
                 "analysis_id": analysis_id, "edm_id": edm_id, "irp_job_id": irp_job_id,
                 "manifest_id": row["manifest_id"], "tmp": tmp_path,
-                "actor": iteration2_db.user_a}
+                "actor": iteration2_db.user_a, "other_analyst": iteration2_db.user_b}
     return make
 
 
@@ -142,6 +142,8 @@ def test_load_branch_rearms_the_load_job_keyed_by_the_stage_job(failed):
     assert len(jobs) == 1
     assert jobs[0]["requestor_type"] == "rwb_job" and jobs[0]["requestor_id"] == stage_job
     assert jobs[0]["link_type"] == "edm" and jobs[0]["link_id"] == f["edm_id"]
+    assert jobs[0]["context_type"] == "irp_analysis" and jobs[0]["context_id"] == f["analysis_id"]
+    assert jobs[0]["inserted_by"] == f["actor"]
     assert json.loads(jobs[0]["input_data"]) == {
         "export_id": f["export_id"], "irp_analysis_id": f["analysis_id"]}
     # the row is back in progress and a second Retry is refused
@@ -159,7 +161,8 @@ def test_stage_branch_rearms_the_stage_job(failed):
     rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_job", requestor_id=f["irp_job_id"],
         rwb_job_type="stage_results_export", link_type="edm", link_id=f["edm_id"],
-        context_type="irp_analysis", context_id=f["analysis_id"], input_data={})
+        context_type="irp_analysis", context_id=f["analysis_id"], input_data={},
+        actor_id=f["other_analyst"])
     stage_job = rwb_jobs("stage_results_export")[0]
     rwb_job_service.claim_rwb_job(rwb_job_id=stage_job["id"], worker_id="w1")
     rwb_job_service.complete_rwb_job(rwb_job_id=stage_job["id"], status="failed",
@@ -172,6 +175,11 @@ def test_stage_branch_rearms_the_stage_job(failed):
     jobs = rwb_jobs("stage_results_export")
     assert len(jobs) == 1 and jobs[0]["status_code"] == "pending"
     assert jobs[0]["attempt_count"] == 1
+    assert jobs[0]["requestor_type"] == "irp_job" and jobs[0]["requestor_id"] == f["irp_job_id"]
+    assert jobs[0]["link_type"] == "edm" and jobs[0]["link_id"] == f["edm_id"]
+    assert jobs[0]["context_type"] == "irp_analysis" and jobs[0]["context_id"] == f["analysis_id"]
+    # the revived row keeps the analyst who caused it; the retrier is updated_by
+    assert jobs[0]["inserted_by"] == f["other_analyst"] and jobs[0]["updated_by"] == f["actor"]
     assert json.loads(jobs[0]["input_data"]) == {
         "export_id": f["export_id"], "irp_analysis_id": f["analysis_id"],
         "irp_job_id": f["irp_job_id"]}
@@ -198,6 +206,7 @@ def test_submit_branch_resets_the_row_and_rearms_the_export_submit(failed):
     assert len(jobs) == 1 and jobs[0]["id"] == submit_job
     assert jobs[0]["status_code"] == "pending"
     assert jobs[0]["updated_by"] == f["actor"]
+    assert jobs[0]["link_type"] == "submission" and jobs[0]["link_id"] == f["submission_id"]
     assert json.loads(jobs[0]["input_data"]) == {
         "export_id": f["export_id"], "submission_id": f["submission_id"]}
 
@@ -211,3 +220,7 @@ def test_submit_branch_records_the_retrying_user_on_a_new_submit_job(failed):
 
     jobs = rwb_jobs("submit_results_export")
     assert len(jobs) == 1 and jobs[0]["inserted_by"] == f["actor"]
+    assert (jobs[0]["requestor_type"] == "analyst_request"
+            and jobs[0]["requestor_id"] == f["export_id"])
+    assert jobs[0]["link_type"] == "submission" and jobs[0]["link_id"] == f["submission_id"]
+    assert jobs[0]["context_type"] == "result_export" and jobs[0]["context_id"] == f["export_id"]

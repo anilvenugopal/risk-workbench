@@ -21,6 +21,9 @@
 --
 -- The CASE expressions repeat in GROUP BY and ORDER BY rather than naming the
 -- aliases: the aliases would shadow base columns that are not grouped.
+--
+-- portfolio_ids holds the Risk Modeler portfolio ids to read, joined on CHAR(31),
+-- or NULL for every portfolio (spec 207).
 
 SELECT
     pa.PORTINFOID AS PortfolioId,
@@ -44,6 +47,8 @@ INNER JOIN dbo.Address AS a
     ON a.AddressID = p.ADDRESSID
 WHERE NULLIF(LTRIM(RTRIM(CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryCode
                               ELSE a.Admin1Code END)), '') IS NOT NULL
+  AND ({{ portfolio_ids }} IS NULL OR pa.PORTINFOID IN (
+          SELECT CAST(value AS INT) FROM STRING_SPLIT({{ portfolio_ids }}, CHAR(31))))
 GROUP BY pa.PORTINFOID, pi.PORTNAME,
     CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryRMSCode
          ELSE COALESCE(NULLIF(a.CountryCode, ''), a.CountryRMSCode) END,

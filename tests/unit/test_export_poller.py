@@ -39,6 +39,7 @@ def submitted(iteration2_db, loss_db, fake_irp):
     job = execute_one("SELECT id, irp_id FROM irp_job WHERE irp_job_type = 'export'", {},
                       connection="WORKBENCH")
     return {"export_id": export_id, "analysis_id": a, "edm_id": edm_id,
+            "submission_id": submission_id, "actor_id": iteration2_db.user_a,
             "irp_job_id": job["id"], "irp_id": job["irp_id"]}
 
 
@@ -60,6 +61,7 @@ def test_terminal_status_enqueues_one_stage_job(submitted, fake_irp, status):
     assert job["requestor_type"] == "irp_job" and job["requestor_id"] == submitted["irp_job_id"]
     assert job["link_type"] == "edm" and job["link_id"] == submitted["edm_id"]
     assert job["context_type"] == "irp_analysis" and job["context_id"] == submitted["analysis_id"]
+    assert job["inserted_by"] == submitted["actor_id"]
     assert json.loads(job["input_data"]) == {
         "export_id": submitted["export_id"], "irp_analysis_id": submitted["analysis_id"],
         "irp_job_id": submitted["irp_job_id"]}
@@ -79,12 +81,13 @@ def test_a_running_job_enqueues_nothing_and_a_second_tick_adds_nothing(submitted
     assert len(_stage_jobs()) == 1
 
 
-def test_an_analysis_with_neither_edm_nor_rdm_gets_a_not_applicable_link(submitted, fake_irp):
-    execute_command("UPDATE irp_job SET irp_edm_id = NULL, irp_rdm_id = NULL", {},
-                    connection="WORKBENCH")
+def test_a_group_analysis_links_to_its_own_submission(submitted, fake_irp, iteration2_db):
+    owner = seed_submission(iteration2_db.user_a, name="Group owner", crm_ids=("CRM-2",))
+    execute_command("UPDATE irp_analysis SET edm_id = NULL, submission_id = :s WHERE id = :a",
+                    {"s": owner, "a": submitted["analysis_id"]}, connection="WORKBENCH")
     fake_irp.finish(submitted["irp_id"])
 
     poller.poll_once()
 
     job = _stage_jobs()[0]
-    assert job["link_type"] == "not_applicable" and job["link_id"] is None
+    assert job["link_type"] == "submission" and job["link_id"] == owner

@@ -146,6 +146,7 @@
   cursor: pointer; padding: 6px var(--space-2); border-radius: var(--radius-sm);
   font: inherit; font-size: var(--fs-label); color: var(--text-primary);
 }
+.ta__opt[hidden] { display: none; }
 .ta__opt:hover, .ta__opt.is-active { background: var(--color-brand-faint); }
 /* The Cedant field's "Add cedant" row, last in the menu. */
 .ta__opt--create { border-top: 1px solid var(--border-default);
@@ -270,8 +271,7 @@
 .entity-table .count-col { text-align: center; width: 140px;
   font-variant-numeric: tabular-nums; }
 .entity-table .entity-action-col { width: 140px; text-align: right; }
-.entity-table .entity-name { display: inline-block; max-width: 100%;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+.entity-table .entity-name { overflow-wrap: anywhere;
   color: var(--color-brand); font-weight: var(--fw-medium); }
 .entity-actions { display: flex; align-items: center; justify-content: flex-end;
   gap: var(--space-2); }

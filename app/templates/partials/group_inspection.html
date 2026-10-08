@@ -16,7 +16,7 @@
 <div class="insp-notice insp-notice--block">
   <div class="insp-notice__title">The members could not be inspected</div>
   {% for error in errors %}<p>{{ error }}</p>{% endfor %}
-  <button class="btn-sm" type="button" style="margin-top:var(--space-2)" @click="inspect()">Retry</button>
+  <button class="btn btn--sm" type="button" style="margin-top:var(--space-2)" @click="inspect()">Retry</button>
 </div>
 <div id="group-summary" hx-swap-oob="true"></div>
 <div id="group-sims" hx-swap-oob="true"></div>

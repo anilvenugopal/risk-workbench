@@ -169,7 +169,7 @@ def list_non_terminal() -> list[dict]:
         f"""
         SELECT id, irp_id, irp_job_type, irp_edm_id, irp_rdm_id,
                irp_portfolio_id, irp_analysis_id, export_id,
-               requested_from_submission_id,
+               requested_from_submission_id, inserted_by,
                status, correlation_id, submitted_at
         FROM irp_job
         WHERE irp_id IS NOT NULL

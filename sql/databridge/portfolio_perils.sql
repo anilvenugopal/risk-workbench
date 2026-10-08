@@ -7,6 +7,9 @@
 -- peril's coverage rows (W-21), so loccvg alone is the enumeration source.
 -- Read-only SELECT; the target EDM database is selected at the connection
 -- level (no USE here). Joins mirror breakout_peril_accounts.sql.
+--
+-- portfolio_ids holds the Risk Modeler portfolio ids to read, joined on CHAR(31),
+-- or NULL for every portfolio (spec 207).
 
 SELECT
     pa.PORTINFOID AS PortfolioId,
@@ -21,5 +24,7 @@ INNER JOIN dbo.Property AS p
 INNER JOIN dbo.loccvg AS lc
     ON lc.LOCID = p.LOCID
 WHERE lc.PERIL IS NOT NULL
+  AND ({{ portfolio_ids }} IS NULL OR pa.PORTINFOID IN (
+          SELECT CAST(value AS INT) FROM STRING_SPLIT({{ portfolio_ids }}, CHAR(31))))
 GROUP BY pa.PORTINFOID, pi.PORTNAME, lc.PERIL
 ORDER BY PortfolioId, Peril;

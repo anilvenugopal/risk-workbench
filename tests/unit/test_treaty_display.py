@@ -140,7 +140,7 @@ def test_treaty_grid_head_spells_cedant_and_no_template_says_cedent():
     templates = [path for directory in TEMPLATE_DIRS
                  for path in Path(directory).rglob("*.html")]
     body = next(path for path in templates if path.name == "edm_detail_body.html")
-    assert '<span class="l">Cedant</span>' in body.read_text(encoding="utf-8")
+    assert '<span class="l" title="Cedant">Cedant</span>' in body.read_text(encoding="utf-8")
     # A word match: "precedent" in a template comment is not the spelling.
     assert [path.name for path in templates
             if re.search(r"cedent", path.read_text(encoding="utf-8"), re.I)] == []

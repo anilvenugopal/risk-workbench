@@ -12,7 +12,7 @@ its body through `runtime.run_job` and returns `JobResult.ok(...)` or
 | Enqueued by | Export route (§4 of routes.md) via `enqueue_rwb_job` | Poller terminal handler for `export` via `enqueue_rwb_job(conn=conn)` | Stage worker via `ensure_pending_rwb_job` |
 | Re-armed by | Retry branch 3 | Retry branch 2; stage worker re-run | Retry branch 1 |
 | `requestor_type` / `requestor_id` | `analyst_request` / `export_id` | `irp_job` / the `export` `irp_job.id` | `rwb_job` / the stage `rwb_job.id` |
-| `link_type` / `link_id` | `not_applicable` / null | `edm` / `irp_analysis.edm_id`, or `rdm` / `irp_analysis.rdm_id` | same as stage |
+| `link_type` / `link_id` | `submission` / the export's `submission_id` | the analysis's owner: `edm` / `irp_analysis.edm_id`, else `rdm` / `irp_analysis.rdm_id`, else `submission` / the export's `submission_id` | same as stage |
 | `context_type` / `context_id` | `result_export` / `export_id` | `irp_analysis` / `irp_analysis.id` | `irp_analysis` / `irp_analysis.id` |
 | `input_data` | `{"export_id", "submission_id"}` | `{"export_id", "irp_analysis_id", "irp_job_id"}` | `{"export_id", "irp_analysis_id", "manifest_id"}` |
 | Connections | `WORKBENCH`, Risk Modeler (submit), `LOSS` (manifest) | Risk Modeler (download), `LOSS`, `WORKBENCH` (load enqueue) | `LOSS` only |
@@ -71,8 +71,8 @@ Request body Risk Modeler receives:
 rwb_job_service.enqueue_rwb_job(
     requestor_type="irp_job", requestor_id=job["id"],
     rwb_job_type="stage_results_export",
-    link_type=link_type, link_id=link_id,  # rwb_job_service.analysis_link(edm, rdm):
-                                           # edm, else rdm, else not_applicable
+    link_type=link_type, link_id=link_id,  # rwb_job_service.analysis_link(
+                                           #     job["irp_analysis_id"], conn=conn)
     context_type="irp_analysis", context_id=job["irp_analysis_id"],
     input_data={"export_id": str(job["export_id"]),
                 "irp_analysis_id": str(job["irp_analysis_id"]),

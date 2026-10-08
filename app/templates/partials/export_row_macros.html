@@ -9,15 +9,15 @@
   <span class="l"><span class="geohaz-pick">
     <input type="checkbox" name="analysis_ids" value="{{ a.id }}" @change="onChange()"
            {% if checked and not a.disabled_reason %}checked{% endif %}{% if a.disabled_reason %} disabled{% endif %}></span></span>
-  <span class="l"><span class="dt-title" title="{{ a.name }}">{{ a.name }}</span></span>
-  <span class="l">{{ a.perspectives|join(', ') }}</span>
-  <span class="l">{{ a.origin }}</span>
-  <span class="l">{{ a.peril_code or '—' }}</span>
-  <span class="l">{{ a.region_code or '—' }}</span>
-  <span class="l">{{ a.engine or '—' }}</span>
-  <span class="l">{{ a.framework or '—' }}</span>
-  <span class="l">{{ a.currency or '' }}</span>
-  <span class="l">{% if a.irp_app_analysis_id %}{{ a.irp_app_analysis_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</span>
+  <span class="l dt-wrap"><span class="dt-title" title="{{ a.name }}">{{ a.name }}</span></span>
+  <span class="l"{% if a.perspectives %} title="{{ a.perspectives|join(', ') }}"{% endif %}>{{ a.perspectives|join(', ') }}</span>
+  <span class="l"{% if a.origin %} title="{{ a.origin }}"{% endif %}>{{ a.origin }}</span>
+  <span class="l"{% if a.peril_code %} title="{{ a.peril_code }}"{% endif %}>{{ a.peril_code or '—' }}</span>
+  <span class="l"{% if a.region_code %} title="{{ a.region_code }}"{% endif %}>{{ a.region_code or '—' }}</span>
+  <span class="l"{% if a.engine %} title="{{ a.engine }}"{% endif %}>{{ a.engine or '—' }}</span>
+  <span class="l"{% if a.framework %} title="{{ a.framework }}"{% endif %}>{{ a.framework or '—' }}</span>
+  <span class="l"{% if a.currency %} title="{{ a.currency }}"{% endif %}>{{ a.currency or '' }}</span>
+  <span class="l"{% if a.irp_app_analysis_id %} title="{{ a.irp_app_analysis_id }}"{% endif %}>{% if a.irp_app_analysis_id %}{{ a.irp_app_analysis_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</span>
   <span class="l">{% if a.disabled_reason %}<span class="na" title="Cannot be exported: {{ a.disabled_reason }}.">Cannot be exported: {{ a.disabled_reason }}.</span>{% endif %}</span>
 </div>
 {%- endmacro %}

@@ -24,6 +24,7 @@ import pytest
 from app.services import breakout_service
 from app.services.breakout_service import (
     MISSING_SUMMARY_REASON,
+    PORTFOLIO_REFRESHING_REASON,
     GateRefused,
     StaleSummary,
     SummaryRewritten,
@@ -32,7 +33,7 @@ from app.services.breakout_service import (
     load_approved_plan,
     request_breakout,
 )
-from db import execute_command
+from db import execute_command, execute_one
 from tests.unit.breakout_rows import (
     AS_OF,
     PRE_ITERATION_SUMMARY,
@@ -44,6 +45,7 @@ from tests.unit.breakout_rows import (
     mk_breakout_job,
     mk_edm,
     mk_portfolio,
+    mk_refresh_job,
 )
 
 
@@ -246,6 +248,43 @@ def test_gate_terminal_backfill_does_not_disable(iteration2_db):
     assert gate.portfolio_eligible is True
 
 
+def test_gate_refuses_the_source_of_a_breakout_follow_up(iteration2_db):
+    # spec 207 P-04: the follow-up holds its source portfolio and no other
+    # portfolio of the EDM.
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    mk_refresh_job(edm_id, portfolio_id=pid,
+                   breakout_job_id=mk_breakout_job(pid, status="succeeded"))
+    gate = evaluate_gate(edm_id, pid)
+    assert gate.reason == PORTFOLIO_REFRESHING_REASON
+    assert gate.refresh_in_flight is False
+    assert evaluate_gate(
+        edm_id, mk_portfolio(edm_id, name="other", irp_id="2")
+    ).portfolio_eligible is True
+
+
+@pytest.mark.parametrize("status", ["pending", "running"])
+def test_gate_refuses_the_portfolio_a_hazard_refresh_is_rewriting(
+        iteration2_db, status):
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    mk_refresh_job(edm_id, portfolio_id=pid, status=status)
+    gate = evaluate_gate(edm_id, pid)
+    assert gate.portfolio_eligible is False
+    assert gate.reason == PORTFOLIO_REFRESHING_REASON
+    assert gate.refresh_in_flight is False
+    assert evaluate_gate(
+        edm_id, mk_portfolio(edm_id, name="other", irp_id="2")
+    ).portfolio_eligible is True
+
+
+def test_gate_ignores_a_finished_hazard_refresh(iteration2_db):
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    mk_refresh_job(edm_id, portfolio_id=pid, status="succeeded")
+    assert evaluate_gate(edm_id, pid).portfolio_eligible is True
+
+
 # ── the confirm path (T025) ───────────────────────────────────────────────────────
 
 def test_confirm_happy_path_persists_plan_and_enqueues_one_job(
@@ -261,6 +300,12 @@ def test_confirm_happy_path_persists_plan_and_enqueues_one_job(
     assert job["rwb_job_type"] == "run_breakout_lob"
     assert job["requestor_type"] == "analyst_request"
     assert job["requestor_id"] == pid          # the SOURCE portfolio (FR-015)
+    attribution = execute_one(
+        "SELECT link_type, link_id, context_type, context_id, inserted_by "
+        "FROM rwb_job WHERE id = :i", {"i": job["id"]}, connection="WORKBENCH")
+    assert attribution["link_type"] == "edm" and attribution["link_id"] == edm_id
+    assert attribution["context_type"] == "portfolio" and attribution["context_id"] == pid
+    assert attribution["inserted_by"] == iteration2_db.user_a
     data = json.loads(job["input_data"])
     assert data["edm_id"] == edm_id
     assert data["portfolio_id"] == pid

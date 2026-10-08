@@ -39,7 +39,7 @@ ITERATION1_SCHEMA = [
         id TEXT PRIMARY KEY, assigned_analyst_id TEXT, name TEXT,
         cedant_id TEXT, treaty_year INTEGER, links_to_submission_id TEXT,
         directory_path TEXT, client_id INTEGER, data_vintage TEXT,
-        status_code TEXT,
+        status_code TEXT, archived_at TEXT, archived_by TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     """CREATE TABLE contract (
@@ -343,6 +343,7 @@ IRP_JOB_TYPE_SEED = [("import_edm", "Import EDM", 10), ("import_rdm", "Import RD
 IRP_JOB_RESOURCE_TYPE_SEED = [("portfolio", "Portfolio", 10)]
 RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RDM", 20),
                      ("backfill_rdm_analyses", "Backfill RDM Analyses", 25),  # D2
+                     ("refresh_portfolios", "Refresh portfolios", 26),  # spec 207
                      ("backfill_edm_detail", "Backfill EDM Detail", 27),  # spec 004
                      ("run_geohaz", "Run GeoHaz", 28),
                      ("execute_analysis_batch", "Execute Analysis Batch", 29),  # spec 010

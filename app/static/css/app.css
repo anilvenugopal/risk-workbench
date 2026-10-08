@@ -129,18 +129,15 @@
 /* keep the name/submission columns from being crowded out by the source path */
 .lib-table td.lib-src { max-width: 280px; }
 .lib-table td.lib-deal { max-width: 220px; }
-.lib-table .lib-src .mono,
-.lib-table .lib-deal a { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.lib-table .lib-src .mono { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.lib-table .lib-deal a { white-space: normal; overflow-wrap: anywhere; }
 /* trailing "clear filters" affordance on any filtered-empty row */
 .clear-filters { color: var(--color-brand); font-size: var(--fs-label); }
 
 /* ── RWB Jobs monitor (CR-04a) ────────────────────────────────── */
 /* Status chips for this page live in components.css with every other chip. */
-.jobs-deal { max-width: 220px; }
-.jobs-deal a { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .err-detail { display: block; margin-top: 2px; font-size: var(--fs-caption); color: var(--color-danger); max-width: 260px; white-space: normal; }
 .run-note { font-size: var(--fs-caption); color: var(--text-tertiary); }
-.jobs-note { border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--fs-label); margin-bottom: var(--space-3); background: var(--color-warning-wash); border: 1px solid var(--color-warning-border); color: var(--color-warning); }
 
 /* ── Analysis metadata ───────────────────────────────────────────────────── */
 .metadata-panel { background: var(--surface-panel); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: var(--space-5); }
@@ -177,7 +174,7 @@
 .deal-head__created time { font-family: var(--font-mono); color: var(--text-secondary); }
 .deal-head__created a { color: var(--color-brand); }
 .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.section-head__actions { display: flex; align-items: center; gap: var(--space-2); }
+.section-head__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
 .section-head h2 { font-size: 14px; margin: 0; color: var(--text-primary); font-weight: var(--fw-medium); }
 .wf-list { display: flex; flex-direction: column; gap: 6px; }
 .wf-link { display: flex; align-items: center; gap: var(--space-2); justify-content: space-between; padding: 9px 11px; border: 1px solid var(--border-faint); border-radius: var(--radius-sm); font-size: var(--fs-label); color: var(--text-primary); text-decoration: none; }

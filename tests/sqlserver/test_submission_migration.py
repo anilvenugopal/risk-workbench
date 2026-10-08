@@ -154,7 +154,7 @@ class TestSubmissionMigration:
             "SELECT COUNT(*) FROM sys.foreign_keys "
             "WHERE parent_object_id = OBJECT_ID('dbo.submission')",
             {}, connection="WORKBENCH")
-        assert n == 6  # analyst, cedant, status, links_to, inserted_by, updated_by
+        assert n == 7  # analyst, cedant, status, links_to, archived_by, inserted_by, updated_by
 
     @pytest.mark.parametrize("table,entity_column,index_name", [
         ("submission_edm", "edm_id", "ix_submission_edm_edm_submission"),
