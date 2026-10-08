@@ -1,6 +1,6 @@
 # API Reference
 
-_This file is generated from source docstrings by `docs/generate_api_docs.py`. Do not edit by hand — run `python docs/generate_api_docs.py` to regenerate._
+_This file is generated from source docstrings by `irp_integration/docs/generate_api_docs.py`. Do not edit by hand — run `uv run python irp_integration/docs/generate_api_docs.py` to regenerate._
 
 Python client library for Moody's Risk Modeler API.
 

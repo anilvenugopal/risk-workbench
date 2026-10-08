@@ -1,5 +1,5 @@
 """
-Generate ``docs/api.md`` from the package's source docstrings and type hints.
+Generate ``irp_integration/docs/api.md`` from the package's source docstrings and type hints.
 
 Uses pdoc's introspection and Google-style docstring conversion to walk
 ``irp_integration`` and its submodules and emit a single Markdown API reference.
@@ -7,10 +7,9 @@ Docstrings and signatures are the single source of truth, so the generated
 reference cannot drift from the code.
 
 Usage:
-    python docs/generate_api_docs.py
+    uv run python irp_integration/docs/generate_api_docs.py
 
-Requires the ``dev`` extra (``pip install irp-integration[dev]``), which provides
-pdoc.
+pdoc comes from the Workbench's ``dev`` dependency group.
 """
 
 import importlib
@@ -281,8 +280,8 @@ def main() -> None:
         "# API Reference",
         "",
         "_This file is generated from source docstrings by "
-        "`docs/generate_api_docs.py`. Do not edit by hand — run "
-        "`python docs/generate_api_docs.py` to regenerate._",
+        "`irp_integration/docs/generate_api_docs.py`. Do not edit by hand — run "
+        "`uv run python irp_integration/docs/generate_api_docs.py` to regenerate._",
         "",
     ]
     intro = render_prose(pkg_doc.docstring)

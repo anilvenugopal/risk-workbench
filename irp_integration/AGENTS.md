@@ -9,9 +9,9 @@ authoritative guidance travels in the source itself — this file only points at
 - **Cross-cutting HTTP / workflow contracts:** `irp_integration/client.py` (module docstring).
 - **Per-area operations:** one manager module each — `edm.py`, `portfolio.py`,
   `mri_import.py`, `treaty.py`, `analysis.py`, `rdm.py`, `reference_data.py`, etc.
-- **Generated API reference:** `docs/api.md` — regenerate with
-  `python docs/generate_api_docs.py` (never edit by hand).
-- **Install, configuration, and environment variables:** `README.md`
+- **Generated API reference:** `irp_integration/docs/api.md` — regenerate with
+  `uv run python irp_integration/docs/generate_api_docs.py` (never edit by hand).
+- **Configuration and environment variables:** `irp_integration/README.md`
   (§Configuration, §Authentication, §Data Bridge Configuration).
 
 ## Contracts to respect (detailed in `client.py`)
@@ -36,8 +36,8 @@ authoritative guidance travels in the source itself — this file only points at
   generated from them.
 - Google-style docstrings, summary on the second line; `py.typed` ships with the
   package.
-- Advisory lint (config in `pyproject.toml`): `mypy irp_integration` and
-  `ruff check irp_integration`.
+- Lint with the Workbench's ruff config in the root `pyproject.toml`:
+  `uv run ruff check irp_integration`.
 - Endpoint paths and status values come from `constants.py`, not from string
   literals at the call site.
 - Resource IDs come from the `location` header — use

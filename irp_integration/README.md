@@ -6,15 +6,7 @@ Not all Moody's API functionality is covered yet, but the most common operations
 
 ## Installation
 
-```bash
-pip install irp-integration
-```
-
-To include Data Bridge (SQL Server) support:
-
-```bash
-pip install irp-integration[databridge]
-```
+The package is part of the Workbench repo. Its dependencies come from the Workbench's `pyproject.toml`; `uv sync` installs them, Data Bridge's included.
 
 > **Note:** Data Bridge requires [Microsoft ODBC Driver 18 for SQL Server](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server) to be installed on your system.
 
@@ -226,8 +218,7 @@ The Data Bridge module (`client.databridge`) connects directly to Moody's SQL Se
 
 **Prerequisites:**
 
-1. Install the optional dependency: `pip install irp-integration[databridge]`
-2. Install [Microsoft ODBC Driver 18 for SQL Server](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server):
+1. Install [Microsoft ODBC Driver 18 for SQL Server](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server):
    - **Windows:** Download and run the MSI installer from Microsoft
    - **Linux (Debian/Ubuntu):** `sudo apt-get install -y unixodbc-dev && sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18`
    - **macOS:** `brew install microsoft/mssql-release/msodbcsql18`
@@ -331,17 +322,14 @@ from irp_integration.exceptions import (
 
 ## API Documentation
 
-For detailed API documentation, see [docs/api.md](https://github.com/premiumiq/irp-integration/blob/main/docs/api.md).
+For detailed API documentation, see [docs/api.md](docs/api.md).
 
-`docs/api.md` is generated from the source docstrings and type hints, so it never drifts from the code. To regenerate it after changing docstrings:
+`docs/api.md` is generated from the source docstrings and type hints. Regenerate it from the Workbench repo root after changing docstrings, and commit the result:
 
 ```bash
-pip install "irp-integration[dev,databridge]"
-python docs/generate_api_docs.py
+uv run python irp_integration/docs/generate_api_docs.py
 ```
-
-The `databridge` extra is required: the generator introspects every module, including `databridge`, so its optional dependencies must be importable. CI regenerates with the same extras and fails if the committed `docs/api.md` differs.
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](https://github.com/premiumiq/irp-integration/blob/main/LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
