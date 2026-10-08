@@ -4,7 +4,7 @@ No table or column changes.
 
 ## `rwb_job_type_kind` row
 
-Alembic revision `0007` inserts, and its downgrade deletes:
+Alembic revision `0008` inserts, and its downgrade deletes:
 
 | code | label | sort_order |
 |---|---|---|

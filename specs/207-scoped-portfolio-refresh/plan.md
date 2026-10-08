@@ -54,7 +54,7 @@
 
 | Area | Change |
 |---|---|
-| Database | Alembic revision `0007` adds a `rwb_job_type_kind` row `refresh_portfolios`. No table or column changes. |
+| Database | Alembic revision `0008` adds a `rwb_job_type_kind` row `refresh_portfolios`. No table or column changes. |
 | Worker | `entity_jobs.py`: new actor and body `refresh_portfolios`, plus a per-portfolio store loop shared with `backfill_edm_detail`. `portfolio_jobs.py`: the follow-up job type and its input. |
 | Poller | `run.py`: `_handle_geohaz_terminal` skips `CANCELLED` and enqueues `refresh_portfolios` for one portfolio. `_resolve_geohaz_metadata` is deleted. |
 | Services | `irp_gateway.get_edm_exposure_summary` takes `portfolio_irp_ids`. `rwb_job_service.backfill_edm_detail_rows` narrows its predicate. `breakout_service` changes the gate and the banner. `edm_service.sync_contextual_detail` loses its RDM loop. `portfolio_service.update_exposure_metrics` is deleted. |
@@ -100,7 +100,7 @@ Material interactions:
 ## Project Structure
 
 ```text
-alembic/versions/0007_refresh_portfolios_job_type.py   # new kind row
+alembic/versions/0008_refresh_portfolios_job_type.py   # new kind row
 app/workers/entity_jobs.py           # refresh_portfolios actor; shared store loop
 app/workers/portfolio_jobs.py        # _complete_breakout follow-up
 app/poller/run.py                    # _handle_geohaz_terminal
@@ -125,5 +125,5 @@ specs/005-subportfolio-breakouts/spec.md   # one-line pointers on FR-013 and P-1
   - The gate: it refuses the hazard portfolio only, and the EDM's sync state ignores scoped jobs.
   - The banner reads the new type.
   - `sync_contextual_detail` queues no `backfill_rdm_analyses`.
-- **SQL Server integration**: revision `0007` applies and its downgrade removes the row; existing `backfill_edm_detail_rows` tests rerun against the narrowed predicate.
+- **SQL Server integration**: revision `0008` applies and its downgrade removes the row; existing `backfill_edm_detail_rows` tests rerun against the narrowed predicate.
 - **IRP sandbox**: `get_edm_exposure_summary` with `portfolio_irp_ids` returns, for those portfolios, the same entries the unfiltered call returns ([quickstart.md](quickstart.md) §4).

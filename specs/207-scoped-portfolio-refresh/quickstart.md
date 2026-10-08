@@ -1,7 +1,7 @@
 # Quickstart: Verify Scoped Portfolio Refresh
 
 Prerequisites: the stack is up (`make start` or `make wsl-start` + `make wsl-app`),
-`make db-migrate` has applied revision `0007`, and the workers have restarted so
+`make db-migrate` has applied revision `0008`, and the workers have restarted so
 the `refresh_portfolios` queue exists. Use an imported EDM with several
 portfolios and a hazard-lookup-capable account.
 
@@ -54,4 +54,4 @@ counts in [research.md](research.md#r4).
 ## Tests
 
 `uv run pytest tests/unit` runs from any host shell. `make test-sql` covers
-revision `0007`.
+revision `0008`.
