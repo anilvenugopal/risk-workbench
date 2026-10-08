@@ -171,6 +171,7 @@ The library reads configuration from environment variables:
 | `RISK_MODELER_TENANT_NAME` | Auth | Tenant name (bearer-login strategy) |
 | `RISK_MODELER_USERNAME` | Auth | Username (bearer-login strategy) |
 | `RISK_MODELER_PASSWORD` | Auth | Password (bearer-login strategy) |
+| `RISK_MODELER_X509_STRICT` | No | `false` turns off the `VERIFY_X509_STRICT` check urllib3 sets on Python 3.13+. Certificates are still verified. Set it behind a TLS-inspecting proxy whose root CA leaves Basic Constraints non-critical. |
 
 See [Authentication](#authentication) for how a strategy is selected.
 

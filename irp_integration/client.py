@@ -54,10 +54,12 @@ Auth/config:
 import json
 import logging
 import requests
+import ssl
 import time
 import os
 from typing import Dict, List, Any, Mapping, Optional, Union
 from urllib3.util.retry import Retry
+from urllib3.util.ssl_ import create_urllib3_context
 from requests.adapters import HTTPAdapter
 from .constants import  GET_WORKFLOWS, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, GET_WORKFLOW_BY_ID
 from .constants import LOGIN_IMPLICIT
@@ -66,6 +68,21 @@ from .validators import validate_list_not_empty, validate_non_empty_string, vali
 from .utils import get_location_header
 
 logger = logging.getLogger(__name__)
+
+
+class _NonStrictX509Adapter(HTTPAdapter):
+    """
+    Verifies certificates without the ``VERIFY_X509_STRICT`` check.
+
+    urllib3 sets ``VERIFY_X509_STRICT`` on Python 3.13+. The strict check
+    rejects a CA certificate whose Basic Constraints are not marked critical,
+    such as the root CA of some TLS-inspecting proxies. The CA bundle
+    (``REQUESTS_CA_BUNDLE`` or certifi) is still loaded into this context.
+    """
+
+    def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+        kwargs['ssl_context'] = create_urllib3_context(verify_flags=ssl.VERIFY_X509_PARTIAL_CHAIN)
+        super().init_poolmanager(*args, **kwargs)
 
 
 class Client:
@@ -96,6 +113,8 @@ class Client:
             RISK_MODELER_TENANT_NAME: Tenant name (bearer strategy)
             RISK_MODELER_USERNAME: Username (bearer strategy)
             RISK_MODELER_PASSWORD: Password (bearer strategy)
+            RISK_MODELER_X509_STRICT: ``false`` turns off Python 3.13+'s
+                ``VERIFY_X509_STRICT`` check; certificates are still verified
 
         Raises:
             IRPAPIError: If required configuration is missing or no complete
@@ -142,8 +161,11 @@ class Client:
             allowed_methods=("GET", "POST", "PUT", "PATCH", "DELETE"),
             raise_on_status=False,
         )
-        session.mount("https://", HTTPAdapter(max_retries=retry))
-        session.mount("http://", HTTPAdapter(max_retries=retry))
+        adapter_class = HTTPAdapter
+        if os.environ.get('RISK_MODELER_X509_STRICT', '').lower() == 'false':
+            adapter_class = _NonStrictX509Adapter
+        session.mount("https://", adapter_class(max_retries=retry))
+        session.mount("http://", adapter_class(max_retries=retry))
         self.session = session
 
         if api_key:

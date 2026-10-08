@@ -158,6 +158,8 @@ chosen strategy is exposed as ``self.auth_mode`` (``'apikey'`` or
 > RISK_MODELER_TENANT_NAME: Tenant name (bearer strategy)
 > RISK_MODELER_USERNAME: Username (bearer strategy)
 > RISK_MODELER_PASSWORD: Password (bearer strategy)
+> RISK_MODELER_X509_STRICT: ``false`` turns off Python 3.13+'s
+>     ``VERIFY_X509_STRICT`` check; certificates are still verified
 
 **Raises:**
  - **IRPAPIError:**  If required configuration is missing or no complete
