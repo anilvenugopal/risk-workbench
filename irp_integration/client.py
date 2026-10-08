@@ -51,7 +51,6 @@ Auth/config:
     ``__init__`` raises if neither complete option set is configured.
 """
 
-import json
 import logging
 import requests
 import ssl

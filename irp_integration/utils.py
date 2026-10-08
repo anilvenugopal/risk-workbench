@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Callable, Dict, List, Any, Optional
 import requests
-from .exceptions import IRPAPIError, IRPReferenceDataError
+from .exceptions import IRPAPIError
 
 logger = logging.getLogger(__name__)
 

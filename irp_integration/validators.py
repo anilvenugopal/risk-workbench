@@ -6,7 +6,7 @@ IRPValidationError exceptions when validation fails.
 """
 
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict
 from .constants import IMPORT_FILE_EXTENSIONS
 from .exceptions import IRPValidationError
 

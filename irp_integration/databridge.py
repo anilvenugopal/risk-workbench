@@ -39,12 +39,11 @@ import pandas as pd
 import numpy as np
 
 from .exceptions import (
-    IRPDataBridgeError,
     IRPDataBridgeConnectionError,
     IRPDataBridgeQueryError,
     IRPValidationError,
 )
-from .validators import validate_non_empty_string, validate_file_exists
+from .validators import validate_file_exists
 
 logger = logging.getLogger(__name__)
 

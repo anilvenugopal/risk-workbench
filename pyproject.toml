@@ -77,7 +77,7 @@ ignore = ["E501"]
 # Copied from premiumiq/irp-integration v0.12.0 under its own style; not reformatted.
 [tool.ruff.lint.per-file-ignores]
 "irp_integration/**" = [
-    "B006", "B904", "E402", "E741", "F401", "F811", "I001", "SIM102", "SIM105", "SIM115",
+    "B006", "B904", "E402", "E741", "I001", "SIM102", "SIM105", "SIM115",
     "UP006", "UP007", "UP015", "UP017", "UP024", "UP035", "UP037", "UP042", "UP045",
 ]
 "tests/unit/irp_integration/**" = ["I001", "UP006", "UP035", "UP045"]
