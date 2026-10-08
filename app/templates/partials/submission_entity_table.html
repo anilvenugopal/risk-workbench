@@ -14,7 +14,7 @@
 <div class="section-head submission-entity-head">
   <h2>{{ kind|upper }}s</h2>
   {% if is_active %}
-  <button class="btn-sm btn-sm--primary" type="button"
+  <button class="btn btn--sm btn--primary" type="button"
           hx-get="/submissions/{{ submission.id }}/{{ kind }}s/add"
           hx-target="#submission-entity-modal" hx-swap="innerHTML">Add {{ kind|upper }}</button>
   {% endif %}

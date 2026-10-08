@@ -13,7 +13,7 @@
       <div class="state-box state-box--warn">{{ blocking }}</div>
     </div>
     <div class="modal-footer">
-      <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('execute-modal').replaceChildren()">Close</button>
+      <button class="btn" type="button" @click="document.getElementById('execute-modal').replaceChildren()">Close</button>
     </div>
     {% else %}
     <form method="post" action="{{ action_url }}" @change="onChange($event)"
@@ -108,8 +108,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('execute-modal').replaceChildren()">Cancel</button>
-        <button class="modal-btn modal-btn--primary" type="submit" :disabled="!canSubmit">Execute</button>
+        <button class="btn" type="button" @click="document.getElementById('execute-modal').replaceChildren()">Cancel</button>
+        <button class="btn btn--primary" type="submit" :disabled="!canSubmit">Execute</button>
       </div>
     </form>
     {% endif %}

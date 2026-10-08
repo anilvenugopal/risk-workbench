@@ -4,7 +4,7 @@
 {% block title %}{{ edit_user.email if edit_user else 'New User' }}{% endblock %}
 
 {% block page_actions %}
-<a href="/admin/users" class="btn-sm">← Back to users</a>
+<a href="/admin/users" class="btn btn--sm">← Back to users</a>
 {% endblock %}
 
 {% block main %}
@@ -49,7 +49,7 @@
         </select>
       </div>
     </div>
-    <button class="btn-sm btn-sm--primary" type="submit" style="margin-top: 8px;">Provision OIDC user</button>
+    <button class="btn btn--sm btn--primary" type="submit" style="margin-top: 8px;">Provision OIDC user</button>
   </form>
 
   <hr style="margin: 28px 0; border: none; border-top: 1px solid var(--color-border);">
@@ -78,7 +78,7 @@
       </div>
     </div>
     <div class="muted" style="margin-bottom: 14px;">Min 12 chars · uppercase · lowercase · number. User must change on first login.</div>
-    <button class="btn-sm" type="submit">Create password user</button>
+    <button class="btn btn--sm" type="submit">Create password user</button>
   </form>
 
   {% else %}
@@ -128,7 +128,7 @@
         {% endfor %}
       </select>
     </div>
-    <button class="btn-sm btn-sm--primary" type="submit">Assign</button>
+    <button class="btn btn--sm btn--primary" type="submit">Assign</button>
   </form>
 
   {% if not edit_user.entra_oid %}
@@ -142,7 +142,7 @@
       <label>NEW PASSWORD</label>
       <input class="wf-field__input" type="password" name="new_password" autocomplete="new-password" required>
     </div>
-    <button class="btn-sm" type="submit">Reset</button>
+    <button class="btn btn--sm" type="submit">Reset</button>
   </form>
   <div class="muted" style="margin-bottom: 24px;">User will be required to change password on next login.</div>
   {% endif %}
@@ -153,7 +153,7 @@
   </div>
   <form method="post" action="/admin/users/{{ edit_user.id }}/force-logout">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-    <button class="btn-sm btn-sm--danger" type="submit"
+    <button class="btn btn--sm btn--danger" type="submit"
             onclick="return confirm('Force-logout {{ edit_user.email }}?')">
       Force logout all sessions
     </button>
@@ -168,7 +168,7 @@
   {% elif edit_user.is_active %}
   <form method="post" action="/admin/users/{{ edit_user.id }}/deactivate">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-    <button class="btn-sm btn-sm--danger" type="submit"
+    <button class="btn btn--sm btn--danger" type="submit"
             onclick="return confirm('Deactivate {{ edit_user.email }}? They will be signed out and unable to sign in until reactivated.')">
       Deactivate user
     </button>
@@ -176,7 +176,7 @@
   {% else %}
   <form method="post" action="/admin/users/{{ edit_user.id }}/reactivate">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-    <button class="btn-sm btn-sm--primary" type="submit">
+    <button class="btn btn--sm btn--primary" type="submit">
       Reactivate user
     </button>
   </form>

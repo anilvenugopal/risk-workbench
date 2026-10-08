@@ -11,7 +11,7 @@
       <div style="display:flex;gap:var(--space-2)">
         <input id="add-name" class="wf-field__input" type="text" name="name" maxlength="255" required
                value="{{ add_value or '' }}"{% if add_error %} aria-invalid="true" autofocus{% endif %}>
-        <button class="btn-sm btn-sm--primary" type="submit">Add cedant</button>
+        <button class="btn btn--sm btn--primary" type="submit">Add cedant</button>
       </div>
       {% if add_error %}<div class="wf-field__msg wf-field__error">{{ add_error }}</div>{% endif %}
     </div>
@@ -40,7 +40,7 @@
   <div id="cedants-live" x-data="checkPicks({ name: 'cedant_ids' })" @change="onChange()">
     <form id="cedants-delete" class="lib-intro" method="post" action="/cedants/delete">
       <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-      <button class="btn-sm btn-sm--danger" type="submit" :disabled="!count"
+      <button class="btn btn--sm btn--danger" type="submit" :disabled="!count"
               @click="if (!confirm(`Delete ${count} cedant${count == 1 ? '' : 's'}?`)) $event.preventDefault()"
               x-text="count ? `Delete ${count} selected` : 'Delete selected'">Delete selected</button>
       <span class="wf-field__hint">A cedant that submissions use cannot be deleted.</span>
@@ -76,16 +76,16 @@
           <td class="col-actions"><div class="row-actions">
             <template x-if="editing">
               <div class="row-actions">
-                <button class="btn-sm" type="button" @click="editing = false">Cancel</button>
-                <button class="btn-sm btn-sm--primary" type="button" @click="$refs.rename.requestSubmit()">Save</button>
+                <button class="btn btn--sm" type="button" @click="editing = false">Cancel</button>
+                <button class="btn btn--sm btn--primary" type="button" @click="$refs.rename.requestSubmit()">Save</button>
               </div>
             </template>
             <template x-if="!editing">
               <div class="row-actions">
-                <button class="btn-sm" type="button" @click="editing = true">Rename</button>
+                <button class="btn btn--sm" type="button" @click="editing = true">Rename</button>
                 <form method="post" action="/cedants/{{ c.id }}/delete">
                   <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-                  <button class="btn-sm btn-sm--danger" type="submit"
+                  <button class="btn btn--sm btn--danger" type="submit"
                           {% if in_use %}disabled title="{{ in_use }}"{% else %}onclick="return confirm({{ ('Delete ' ~ c.name ~ '?')|tojson|forceescape }})"{% endif %}>Delete</button>
                 </form>
               </div>

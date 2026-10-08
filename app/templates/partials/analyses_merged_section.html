@@ -63,7 +63,7 @@
     <span class="sec__title">{{ section_title }}</span>
     {% if analyses or groups %}
     <span class="badge badge--neutral">{{ analyses|length }} own &middot; {{ broker_total }} broker</span>
-    <button class="btn-sm" type="button" data-collapse-all onclick="event.preventDefault()"
+    <button class="btn btn--sm" type="button" data-collapse-all onclick="event.preventDefault()"
             title="Collapse every expanded row">Collapse all</button>
     {% endif %}
     {# Import sits outside the analyses-or-groups block: an empty deal is the
@@ -71,7 +71,7 @@
        submission's Results grid passes ``import_url`` — the row lands on the
        submission leg. #}
     {% if import_url %}
-    <button class="btn-sm" type="button" onclick="event.stopPropagation()"
+    <button class="btn btn--sm" type="button" onclick="event.stopPropagation()"
             hx-get="{{ import_url }}" hx-target="#import-modal" hx-swap="innerHTML"
             title="Import analyses or groups by their Risk Modeler id">Import</button>
     {% endif %}
@@ -90,11 +90,11 @@
     {# preventDefault, not stopPropagation: Copy table and Collapse all are
        handled by document-level listeners in app.js, which stopPropagation would
        never reach. preventDefault still keeps the click from toggling the section. #}
-    <button class="btn-sm" type="button" data-copy-table onclick="event.preventDefault()"
+    <button class="btn btn--sm" type="button" data-copy-table onclick="event.preventDefault()"
             title="Copy the table with headers — pastes into Excel">⋮ Copy table</button>
     {% if delete_url %}
     <input type="hidden" id="analyses-csrf" name="csrf_token" value="{{ generate_csrf_token() }}">
-    <button class="btn-sm" type="button" onclick="event.stopPropagation()"
+    <button class="btn btn--sm" type="button" onclick="event.stopPropagation()"
             :disabled="!count || brokerCount > 0"
             :title="brokerCount ? 'Delete applies to workbench analyses only — untick the broker rows' : null"
             hx-post="{{ delete_url }}"
@@ -108,27 +108,27 @@
        it just composed. #}
     {% if source_submission is defined and source_submission
           and not (edm is defined and edm) %}
-    <button class="btn-sm" type="button" onclick="event.stopPropagation()"
+    <button class="btn btn--sm" type="button" onclick="event.stopPropagation()"
             :disabled="count < 2" data-group-analyses
             hx-get="/submissions/{{ source_submission.id }}/analyses/group"
             hx-include="[name='analysis_ids']"
             hx-target="#group-modal" hx-swap="innerHTML"
             title="Group the selected analyses (needs at least two)">Group</button>
     {% endif %}
-    <button class="btn-sm" type="button" onclick="event.preventDefault()"
+    <button class="btn btn--sm" type="button" onclick="event.preventDefault()"
             title="Pair analyses and open the comparison (new tab)"
             hx-get="{{ analyses_base }}/compare"
             hx-target="#compare-modal-mount" hx-swap="innerHTML">Compare</button>
     {% if analyses_base.startswith('/submissions/') and source_submission is defined and source_submission %}
     {# The ticked analyses ride the href so the export form opens with the same
        selection; Alpine rewrites the href as boxes are ticked. #}
-    <a class="btn-sm" href="/submissions/{{ source_submission.id }}/exports/new"
+    <a class="btn btn--sm" href="/submissions/{{ source_submission.id }}/exports/new"
        :href="'/submissions/{{ source_submission.id }}/exports/new'
               + (picked.length ? '?analysis_ids=' + picked.join('&amp;analysis_ids=') : '')"
        onclick="event.stopPropagation()"
        title="Export finished analyses to the loss repository">Export</a>
     {% endif %}
-    <button class="btn-sm btn-sm--primary" type="button" onclick="event.preventDefault()"
+    <button class="btn btn--sm btn--primary" type="button" onclick="event.preventDefault()"
             :disabled="!count" data-view-analyses data-view-url="{{ view_url }}"
             title="Open the selected analyses side by side (new tab)">View ↗</button>
     {% endif %}
