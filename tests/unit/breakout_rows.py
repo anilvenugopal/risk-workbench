@@ -126,17 +126,15 @@ def mk_breakout_job(portfolio_id: str, *, dimension: str = "lob",
     return jid
 
 
-def mk_refresh_job(edm_id: str, *, breakout_job_id: str | None = None,
-                   portfolio_id: str | None = None,
+def mk_refresh_job(edm_id: str, *, portfolio_id: str,
+                   breakout_job_id: str | None = None,
                    status: str = "pending") -> None:
-    """A ``refresh_portfolios`` row (spec 207): a hazard lookup's, keyed on
-    ``portfolio_id``, when given; otherwise a breakout's follow-up."""
-    if portfolio_id is not None:
-        requestor = ("irp_job", str(uuid.uuid4()))
-        context = ("portfolio", portfolio_id)
-    else:
-        requestor = ("rwb_job", breakout_job_id)
-        context = ("edm", edm_id)
+    """A ``refresh_portfolios`` row (spec 207) with ``portfolio_id`` as its
+    context: a breakout's follow-up on its source when ``breakout_job_id`` is
+    given; otherwise a hazard lookup's."""
+    requestor = (("rwb_job", breakout_job_id) if breakout_job_id is not None
+                 else ("irp_job", str(uuid.uuid4())))
+    context = ("portfolio", portfolio_id)
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
         "link_id, context_type, context_id, rwb_job_type, "

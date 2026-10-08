@@ -248,15 +248,19 @@ def test_gate_terminal_backfill_does_not_disable(iteration2_db):
     assert gate.portfolio_eligible is True
 
 
-def test_gate_ignores_a_breakout_follow_up_refresh(iteration2_db):
-    # spec 207 P-04: a breakout's refresh_portfolios holds no other portfolio
-    # of the EDM.
+def test_gate_refuses_the_source_of_a_breakout_follow_up(iteration2_db):
+    # spec 207 P-04: the follow-up holds its source portfolio and no other
+    # portfolio of the EDM.
     edm_id = mk_edm()
     pid = mk_portfolio(edm_id)
-    mk_refresh_job(edm_id, breakout_job_id=mk_breakout_job(pid, status="succeeded"))
-    gate = evaluate_gate(edm_id, mk_portfolio(edm_id, name="other", irp_id="2"))
-    assert gate.portfolio_eligible is True
+    mk_refresh_job(edm_id, portfolio_id=pid,
+                   breakout_job_id=mk_breakout_job(pid, status="succeeded"))
+    gate = evaluate_gate(edm_id, pid)
+    assert gate.reason == PORTFOLIO_REFRESHING_REASON
     assert gate.refresh_in_flight is False
+    assert evaluate_gate(
+        edm_id, mk_portfolio(edm_id, name="other", irp_id="2")
+    ).portfolio_eligible is True
 
 
 @pytest.mark.parametrize("status", ["pending", "running"])

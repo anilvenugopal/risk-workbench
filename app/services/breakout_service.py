@@ -88,7 +88,7 @@ _PERIL_MNEMONIC = {"1": "EQ", "2": "WS", "3": "CS/WT", "4": "FL", "5": "FR",
 MISSING_SUMMARY_REASON = "exposure summary not available — run Sync"
 REFRESH_IN_FLIGHT_REASON = ("this EDM is syncing — the exposure summary is "
                             "being rewritten")
-PORTFOLIO_REFRESHING_REASON = "this portfolio is refreshing after its hazard lookup"
+PORTFOLIO_REFRESHING_REASON = "this portfolio is refreshing"
 
 
 def display_value(value: str, dimension: str) -> str:
@@ -307,8 +307,9 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
     """The prerequisite gate, computed per request from entity state alone
     (Article 2 — never cached, never stored). Rule (R5): EDM exists ∧ not
     deleted ∧ status 'ready' ∧ portfolio live ∧ no ``backfill_edm_detail``
-    pending|running for the EDM ∧ no hazard-lookup ``refresh_portfolios``
-    pending|running for the portfolio (spec 207 P-03); per dimension: the
+    pending|running for the EDM ∧ no ``refresh_portfolios`` pending|running
+    with the portfolio as its context — a hazard lookup's refresh or a
+    breakout's follow-up on its source (spec 207 P-03, P-04); per dimension: the
     stored summary carries ``breakout_values[dimension]`` with ≥ 2 distinct
     values."""
     edm, portfolio = _load_rows(edm_id, portfolio_id)
@@ -1492,7 +1493,7 @@ class SubPortfolioOutcome:
 
 
 def summarize_outcomes(outcomes: Sequence[SubPortfolioOutcome]) -> dict:
-    """The ``output_data`` shape of data-model §4 (``backfill_enqueued`` is
+    """The ``output_data`` shape of data-model §4 (``refresh_enqueued`` is
     stamped by the worker after its completion enqueue)."""
     def count(kind: str) -> int:
         return sum(1 for o in outcomes if o.outcome == kind)

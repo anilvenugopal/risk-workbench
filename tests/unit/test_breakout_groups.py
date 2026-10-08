@@ -275,6 +275,9 @@ def test_reconfirm_created_breakout_under_its_own_name(
     fake_irp.selection_by_value = {"US-TX": [1, 2], "EQ Comm": [1, 2]}
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
     assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"   # "Coastal" is now live
+    execute_command(   # the follow-up refresh holds the source (P-04)
+        "UPDATE rwb_job SET status_code = 'succeeded' "
+        "WHERE rwb_job_type = 'refresh_portfolios'", {}, connection="WORKBENCH")
 
     second = request_group_breakout(
         edm_id, pid,
@@ -342,7 +345,7 @@ def test_group_worker_unions_within_and_intersects_across(
     assert job["status_code"] == "succeeded"
     out = json.loads(job["output_data"])
     assert (out["planned"], out["created"], out["failed"]) == (1, 1, 0)
-    assert out["backfill_enqueued"] is True
+    assert out["refresh_enqueued"] is True
     # union within state = {1,2,3,7}; intersect with lob {2,3,4} → {2,3}
     assert fake_irp.created_sub_portfolios[0]["account_ids"] == [2, 3]
     assert fake_irp.created_sub_portfolios[0]["name"] == "Coastal"
@@ -388,7 +391,7 @@ def test_group_worker_empty_intersection_fails_with_nothing_created(
     assert job["status_code"] == "failed"
     assert "no account matches every filter" in job["error_detail"]
     out = json.loads(job["output_data"])
-    assert (out["failed"], out["backfill_enqueued"]) == (1, False)
+    assert (out["failed"], out["refresh_enqueued"]) == (1, False)
     assert fake_irp.created_sub_portfolios == []
     assert _generated_rows(pid) == []
 

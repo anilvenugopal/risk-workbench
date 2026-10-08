@@ -66,7 +66,8 @@ def _generated_rows(source_id: str) -> list[dict]:
 
 def _refresh_heads() -> list[dict]:
     return execute(
-        "SELECT requestor_type, requestor_id, status_code, input_data "
+        "SELECT requestor_type, requestor_id, context_type, context_id, "
+        "status_code, input_data "
         "FROM rwb_job WHERE rwb_job_type = 'refresh_portfolios'", {},
         connection="WORKBENCH")
 
@@ -84,7 +85,7 @@ def test_happy_path_creates_rows_with_lineage_and_enqueues_refresh(
     assert job["status_code"] == "succeeded"
     out = json.loads(job["output_data"])
     assert (out["planned"], out["created"], out["failed"]) == (2, 2, 0)
-    assert out["backfill_enqueued"] is True
+    assert out["refresh_enqueued"] is True
     assert [o["outcome"] for o in out["sub_portfolios"]] == ["created"] * 2
     assert [o["accounts"] for o in out["sub_portfolios"]] == [2, 3]
 
@@ -100,6 +101,9 @@ def test_happy_path_creates_rows_with_lineage_and_enqueues_refresh(
     heads = _refresh_heads()
     assert [(h["requestor_type"], h["requestor_id"]) for h in heads] == [
         ("rwb_job", jid)]
+    # ... with the source portfolio as its context, for the gate (P-04)
+    assert (heads[0]["context_type"], heads[0]["context_id"]) == (
+        "portfolio", source_id)
     # ... and covers the generated portfolios only (spec 207 P-01)
     assert json.loads(heads[0]["input_data"]) == {
         "edm_id": edm_id,
@@ -234,7 +238,7 @@ def test_a_failing_lineage_write_fails_only_that_entry(
     # A and C persisted; B's RM portfolio stays (P-07 deletes nothing) and the
     # re-run adopts it on its number
     assert [r["breakout_value"] for r in _generated_rows(source_id)] == ["A", "C"]
-    assert out["backfill_enqueued"] is True
+    assert out["refresh_enqueued"] is True
 
 
 def test_zero_account_selection_fails_entry_with_no_create_call(
@@ -313,13 +317,16 @@ def test_full_rerun_all_skipped_reads_as_success(iteration2_db, fake_irp):
     fake_irp.selection_by_value = {"A": [1]}
     jid = _mk_job(edm_id, source_id, iteration2_db.user_a, [_plan_entry("A")])
     run_breakout_job(jid)
+    execute_command(   # the gate holds a re-run until the follow-up finishes
+        "UPDATE rwb_job SET status_code = 'succeeded' "
+        "WHERE rwb_job_type = 'refresh_portfolios'", {}, connection="WORKBENCH")
 
     job = rerun_breakout_job(jid)
 
     assert job["status_code"] == "succeeded"
     out = json.loads(job["output_data"])
     assert (out["created"], out["skipped_existing"]) == (0, 1)
-    assert out["backfill_enqueued"] is True      # figures refresh again (FR-013)
+    assert out["refresh_enqueued"] is True      # figures refresh again (FR-013)
 
 
 def test_adopt_by_number_with_exactly_one_hit(iteration2_db, fake_irp):
@@ -407,7 +414,7 @@ def test_zero_success_fails_the_job(iteration2_db, fake_irp):
     assert "no sub-portfolio succeeded" in job["error_detail"]
     out = json.loads(job["output_data"])
     assert out["failed"] == 2
-    assert out["backfill_enqueued"] is False
+    assert out["refresh_enqueued"] is False
     assert _refresh_heads() == []
 
 
@@ -472,12 +479,12 @@ def test_refresh_enqueue_is_idempotent_while_one_is_queued(
     assert json.loads(heads[0]["input_data"])["portfolio_irp_ids"] == created
 
     # re-run while the enqueued refresh is still pending → no second head,
-    # and backfill_enqueued still reads True (one IS queued)
+    # and refresh_enqueued reads False (this run enqueued nothing)
     fake_irp.fail_create_for = {}
     job = rerun_breakout_job(jid)
     heads = _refresh_heads()
     assert len(heads) == 1
-    assert json.loads(job["output_data"])["backfill_enqueued"] is True
+    assert json.loads(job["output_data"])["refresh_enqueued"] is False
 
 
 def test_audit_recoverable_from_job_row_and_generated_rows(
