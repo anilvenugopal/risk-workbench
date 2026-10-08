@@ -71,17 +71,17 @@ Blocks stories 1 and 2. Story 3 does not depend on it.
 
 **Independent test**: [quickstart.md](quickstart.md) §2.
 
-- [ ] T012 [US2] [FR-002] [FR-003] [P-02] [T-02] [T-06] In `_handle_geohaz_terminal` (`app/poller/run.py:192`):
+- [X] T012 [US2] [FR-002] [FR-003] [P-02] [T-02] [T-06] In `_handle_geohaz_terminal` (`app/poller/run.py:192`):
   - Delete the `update_exposure_metrics` call, `_resolve_geohaz_metadata`, and its `"geohaz"` entry in `_TERMINAL_RESOLVERS`. `refresh_portfolios` rewrites the metrics. Delete `update_exposure_metrics` from `app/services/portfolio_service.py` and its `__all__`; the poller is its only caller.
   - Return before the enqueue when `status == "CANCELLED"`.
   - Otherwise read `irp_id` from `irp_portfolio` for `job["irp_portfolio_id"]` on the handler's `conn`. Skip the enqueue when the portfolio id or its `irp_id` is null.
   - Enqueue `refresh_portfolios` with requestor `irp_job`/`job["id"]`, link `edm`, `context_type="portfolio"`, `context_id=job["irp_portfolio_id"]`, and `input_data={"edm_id": ..., "portfolio_irp_ids": [str(irp_id)]}`.
   - Rewrite the comment above the enqueue so it names the scoped refresh and the cancelled exception.
-- [ ] T013 [US2] [FR-009] [P-03] [T-06] In `app/services/breakout_service.py`:
+- [X] T013 [US2] [FR-009] [P-03] [T-06] In `app/services/breakout_service.py`:
   - Add `PORTFOLIO_REFRESHING_REASON = "this portfolio is refreshing after its hazard lookup"` next to `REFRESH_IN_FLIGHT_REASON` (line 89), and add it to `__all__`.
   - In `evaluate_gate` (line 305), after the EDM-wide check and only while `reason` is None, set `reason` to `PORTFOLIO_REFRESHING_REASON` when a `rwb_job` row has `rwb_job_type = 'refresh_portfolios'`, `context_type = 'portfolio'`, `context_id = :portfolio` and `status_code IN ('pending', 'running')`.
   - `refresh_in_flight` stays False for this case. The preview and both confirm paths (lines 957 and 1268) call `evaluate_gate`, so they refuse too.
-- [ ] T014 [US2] [FR-002] [FR-003] [FR-008] [FR-009] Update the unit tests:
+- [X] T014 [US2] [FR-002] [FR-003] [FR-008] [FR-009] Update the unit tests:
   - `tests/unit/test_poller.py`: replace `test_failed_geohaz_still_enqueues_the_detail_backfill` (line 79) with a test parametrized over `FINISHED` and `FAILED`. Each enqueues one `refresh_portfolios` with `context_type='portfolio'` and the portfolio's `irp_id`. Add a test that `CANCELLED` enqueues no `rwb_job`. In `test_geohaz_uses_single_status_getter_and_metadata_refresh` (line 23), drop the resolver assertion. Rename `test_geohaz_terminal_stores_summary_and_refreshes_metadata` (line 29) to `test_geohaz_terminal_stores_summary` and replace its metrics and `backfill_edm_detail` assertions with: `exposure_detail` is unchanged by the poller, and one `refresh_portfolios` is enqueued.
   - `tests/unit/test_breakout_gate.py`: a pending `refresh_portfolios` with portfolio context refuses that portfolio with `PORTFOLIO_REFRESHING_REASON` and `refresh_in_flight` False. Another portfolio of the EDM stays eligible. A terminal one does not refuse.
   - Proof: `uv run pytest tests/unit` passes.

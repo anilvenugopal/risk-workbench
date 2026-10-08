@@ -44,13 +44,12 @@ from app.services import (
     edm_service,
     irp_gateway,
     irp_job_service,
-    portfolio_service,
     rdm_service,
     rwb_job_service,
 )
 from app.services._common import _as_datetime, _format_duration, _utcnow
 from app.workers import dispatch
-from db import execute, execute_one, get_connection
+from db import execute, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -190,25 +189,27 @@ def _handle_grouping_terminal(conn, job: dict, status: str, resolved: dict) -> N
 
 
 def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> None:
-    # _resolve_geohaz_metadata returns {} unless FINISHED, so a present value is
-    # already proof of a FINISHED run.
-    metadata = resolved.get("portfolio_metadata")
-    if metadata is not None:
-        portfolio_service.update_exposure_metrics(
-            conn, portfolio_id=job["irp_portfolio_id"], metrics=metadata)
     # A hazard lookup writes hazard data onto the portfolio's locations, which
     # advances Risk Modeler's stampDate. The breakout confirm compares that
     # stamp against exposure_detail.stamp_date (spec 005 FR-002a), so without a
-    # re-sync every later breakout on this portfolio is refused as stale. The
-    # backfill rewrites metrics, summary, and stamp_date from one read, keeping
-    # the stored stamp and the summary it describes in step. Chained on any
-    # terminal status: a failed lookup can still have written part of its data.
+    # refresh every later breakout on this portfolio is refused as stale.
+    # refresh_portfolios rewrites metrics, summary, and stamp_date for this
+    # portfolio only. A failed lookup can still have written part of its data;
+    # a cancelled one wrote nothing (spec 207 P-02).
+    if status == "CANCELLED" or job["irp_portfolio_id"] is None:
+        return
+    irp_id = conn.execute(text(
+        "SELECT irp_id FROM irp_portfolio WHERE id = :id"
+    ), {"id": str(job["irp_portfolio_id"])}).scalar()
+    if irp_id is None:
+        return
     rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_job", requestor_id=job["id"],
-        rwb_job_type="backfill_edm_detail",
+        rwb_job_type="refresh_portfolios",
         link_type="edm", link_id=job["irp_edm_id"],
-        context_type="edm", context_id=job["irp_edm_id"],
-        input_data={"edm_id": str(job["irp_edm_id"])},
+        context_type="portfolio", context_id=job["irp_portfolio_id"],
+        input_data={"edm_id": str(job["irp_edm_id"]),
+                    "portfolio_irp_ids": [str(irp_id)]},
         conn=conn,
     )
 
@@ -266,23 +267,6 @@ def _resolve_edm_exposure_id(edm_id) -> str | None:
         return ids[-1]
 
 
-def _resolve_geohaz_metadata(job: dict, result) -> dict:
-    if result.status != "FINISHED" or not job.get("irp_portfolio_id"):
-        return {}
-    ids = execute_one(
-        "SELECT e.irp_id AS edm_irp_id, p.irp_id AS portfolio_irp_id "
-        "FROM irp_portfolio p JOIN irp_edm e ON e.id = p.edm_id "
-        "WHERE p.id = :id AND p.deleted_at IS NULL",
-        {"id": str(job["irp_portfolio_id"])}, connection="WORKBENCH")
-    if not ids or ids["edm_irp_id"] is None or ids["portfolio_irp_id"] is None:
-        logger.warning("portfolio metadata ids unavailable for irp_job=%s", job["id"])
-        return {}
-    exposure = irp_gateway.get_portfolio_exposure(
-        edm_irp_id=int(ids["edm_irp_id"]),
-        portfolio_irp_id=int(ids["portfolio_irp_id"]))
-    return {"portfolio_metadata": exposure.payload}
-
-
 # Terminal-time entity-id lookups that need a Risk Modeler call — run OUTSIDE the DB
 # transaction (Article 11: never hold a txn across a network round-trip). Each returns
 # a dict merged into the handler's ``resolved`` argument.
@@ -290,7 +274,6 @@ _TERMINAL_RESOLVERS = {
     "import_edm": lambda job, result: (
         {"edm_exposure_id": _resolve_edm_exposure_id(job["irp_edm_id"])}
         if result.status == "FINISHED" else {}),
-    "geohaz": _resolve_geohaz_metadata,
 }
 
 
