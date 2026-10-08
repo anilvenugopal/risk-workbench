@@ -120,6 +120,7 @@ def test_the_pager_appears_only_once_there_is_a_second_page(
 
     assert "/edms/sync?page=2" in body
     assert "Page 1" in body
+    assert "Sync before you change pages" in body
 
 
 def test_the_pager_carries_the_search_term(iteration2_db, fake_irp):

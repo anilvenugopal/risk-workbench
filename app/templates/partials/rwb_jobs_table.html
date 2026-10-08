@@ -10,6 +10,7 @@
    row is terminal the server stops emitting the trigger and the poll ends on
    its own. The poll and the pager take the filter form's request lock, for the
    reason partials/irp_jobs_table.html gives. #}
+{% from "partials/pager_macros.html" import pager %}
 
 {# One sortable header cell (D15). The route builds the href, carrying the
    applied filters and the direction this click asks for. A real href as well as
@@ -55,21 +56,10 @@
   </table>
 
   {# Only shown once there is somewhere to go. The links carry the applied
-     filters and sort, and are real hrefs, so they still work with JavaScript off. #}
+     filters and sort. #}
   {% if rows and (page > 1 or has_next) %}
   {% set stem = '/workflows/rwb-jobs?' ~ ((order_query ~ '&') if order_query else '') ~ 'page=' %}
-  <nav class="pager" aria-label="RWB job pages">
-    {% if page > 1 %}
-    <a class="btn btn--sm" rel="prev" href="{{ stem }}{{ page - 1 }}"
-       hx-get="{{ stem }}{{ page - 1 }}" hx-target="#rwb-jobs-live"
-       hx-swap="outerHTML" hx-push-url="true" hx-sync="#rwb-jobs-filters:drop">‹ Prev</a>
-    {% endif %}
-    <span class="pager__at">Page {{ page }}</span>
-    {% if has_next %}
-    <a class="btn btn--sm" rel="next" href="{{ stem }}{{ page + 1 }}"
-       hx-get="{{ stem }}{{ page + 1 }}" hx-target="#rwb-jobs-live"
-       hx-swap="outerHTML" hx-push-url="true" hx-sync="#rwb-jobs-filters:drop">Next ›</a>
-    {% endif %}
-  </nav>
+  {{ pager(stem, page, has_next, "RWB job pages",
+           target="#rwb-jobs-live", sync="#rwb-jobs-filters") }}
   {% endif %}
 </div>
