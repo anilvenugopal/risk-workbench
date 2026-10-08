@@ -587,8 +587,7 @@ def get_contextual_edm_detail(
     edm = get_edm_detail(eid)
     if edm is None:
         return None
-    # Local import avoids the edm_service/rdm_service shared-DTO import cycle
-    # (same reason sync_contextual_detail below imports it locally).
+    # Local import avoids the edm_service/rdm_service shared-DTO import cycle.
     from app.services import rdm_service
     rdms = analysis_service.list_submission_rdms(submission_id=sid)
     for rdm in rdms:
@@ -667,8 +666,8 @@ def sync_contextual_detail(
     *, submission_id: Any, edm_id: Any, actor_id: Any,
 ) -> bool:
     """Queue the stored EDM refresh for a valid context."""
-    if get_contextual_edm_detail(
-            submission_id=submission_id, edm_id=edm_id) is None:
+    if _submission_entity_context(
+            "edm", submission_id=submission_id, entity_id=edm_id) is None:
         return False
     sync_detail(edm_id=edm_id, actor_id=actor_id)
     return True
