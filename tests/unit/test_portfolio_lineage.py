@@ -3,7 +3,7 @@
 ``edm_service.get_edm_detail`` returns each generated portfolio with its
 IMMEDIATE source portfolio's name and the dimension label (FR-014) — a chained
 breakout is never rendered as a chain. A generated row carries no
-``exposure_detail`` until the follow-up ``backfill_edm_detail`` fills it in, and
+``exposure_detail`` until the follow-up ``refresh_portfolios`` fills it in, and
 that pending state renders gracefully, never as an error.
 
 Runs on the SQLite unit mirror (``iteration2_db``).

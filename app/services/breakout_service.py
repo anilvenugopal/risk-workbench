@@ -88,6 +88,7 @@ _PERIL_MNEMONIC = {"1": "EQ", "2": "WS", "3": "CS/WT", "4": "FL", "5": "FR",
 MISSING_SUMMARY_REASON = "exposure summary not available — run Sync"
 REFRESH_IN_FLIGHT_REASON = ("this EDM is syncing — the exposure summary is "
                             "being rewritten")
+PORTFOLIO_REFRESHING_REASON = "this portfolio is refreshing"
 
 
 def display_value(value: str, dimension: str) -> str:
@@ -289,7 +290,7 @@ def _live_breakout_dimension(portfolio_id: Any) -> str | None:
 
 def _backfill_in_flight(edm_id: Any) -> bool:
     """True while a ``backfill_edm_detail`` for this EDM is pending|running
-    under any of its three enqueue keys — ``rwb_job_service.
+    under either of its two enqueue keys — ``rwb_job_service.
     backfill_edm_detail_rows`` owns the membership predicate — the same
     condition ``edm_service.sync_detail`` applies to itself (P-16)."""
     return bool(rwb_job_service.backfill_edm_detail_rows(
@@ -306,8 +307,11 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
     """The prerequisite gate, computed per request from entity state alone
     (Article 2 — never cached, never stored). Rule (R5): EDM exists ∧ not
     deleted ∧ status 'ready' ∧ portfolio live ∧ no ``backfill_edm_detail``
-    pending|running for the EDM; per dimension: the stored summary carries
-    ``breakout_values[dimension]`` with ≥ 2 distinct values."""
+    pending|running for the EDM ∧ no ``refresh_portfolios`` pending|running
+    with the portfolio as its context — a hazard lookup's refresh or a
+    breakout's follow-up on its source (spec 207 P-03, P-04); per dimension: the
+    stored summary carries ``breakout_values[dimension]`` with ≥ 2 distinct
+    values."""
     edm, portfolio = _load_rows(edm_id, portfolio_id)
 
     reason: str | None = None
@@ -322,6 +326,13 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
                          if reason is None else False)
     if reason is None and refresh_in_flight:
         reason = REFRESH_IN_FLIGHT_REASON
+    if reason is None and execute_one(
+            "SELECT 1 AS hit FROM rwb_job "
+            "WHERE rwb_job_type = 'refresh_portfolios' "
+            "AND context_type = 'portfolio' AND context_id = :p "
+            "AND status_code IN ('pending', 'running')",
+            {"p": str(portfolio_id)}, connection="WORKBENCH"):
+        reason = PORTFOLIO_REFRESHING_REASON
 
     portfolio_eligible = reason is None
     summary = (_parse_summary(portfolio["exposure_detail"])
@@ -626,10 +637,10 @@ class BreakoutRowError:
 @dataclass(frozen=True)
 class BreakoutBanner:
     """The completion banner for the newest terminal breakout job on the EDM.
-    Visible while ``filling_in`` (its FR-013 follow-up ``backfill_edm_detail``
+    Visible while ``filling_in`` (its FR-013 follow-up ``refresh_portfolios``
     is still pending|running — "figures are filling in") or while it carries
     failures; a fully-successful run's banner disappears once the follow-up
-    backfill lands, a failed/partial one only when the next terminal run
+    refresh lands, a failed/partial one only when the next terminal run
     supersedes it."""
     source_name: str
     noun: str
@@ -683,7 +694,8 @@ def page_state(edm_id: Any) -> BreakoutPageState:
     ``ensure_pending_rwb_job`` revives them, so re-runs reuse rows rather than
     adding them. Every terminal row is needed — FR-012 renders its failed
     entries on that portfolio's row until the next terminal run supersedes
-    them, which also rules out bounding the read by age. Custom-group jobs
+    them (for custom groups, the next cart), which also rules out bounding the
+    read by age. Custom-group jobs
     reach their source portfolio through ``breakout_group.source_portfolio_id``
     (FR-015 as amended); a live cart renders one flight per portfolio
     ("custom breakouts: k of n done") and terminal jobs sharing the newest
@@ -716,7 +728,7 @@ def page_state(edm_id: Any) -> BreakoutPageState:
     terminal_custom = execute(
         "SELECT rj.id, rj.status_code, rj.output_data, rj.error_detail, "
         "rj.input_data, rj.updated_at, bg.source_portfolio_id AS pid, "
-        "bg.group_key, p.name AS source_name "
+        "bg.group_key, bg.label, p.name AS source_name "
         "FROM rwb_job rj "
         "JOIN breakout_group bg ON rj.requestor_id = bg.id "
         "JOIN irp_portfolio p ON bg.source_portfolio_id = p.id "
@@ -729,12 +741,14 @@ def page_state(edm_id: Any) -> BreakoutPageState:
     live_by_pid: dict[str, list] = {}
     for row in live_custom:
         live_by_pid.setdefault(_uid(row["pid"]), []).append(row)
+    live_carts = {pid: {_cart_id_of(r) for r in live_rows}
+                  for pid, live_rows in live_by_pid.items()}
     for pid, live_rows in live_by_pid.items():
         # The episode is the cart (FR-020): "custom breakouts: k of n done" counts
         # every group of the live jobs' cart — the already-completed ones
         # included — with done = the groups whose live lineage row exists, so
         # the counter advances every poll like the quick flight's.
-        carts = {_cart_id_of(r) for r in live_rows}
+        carts = live_carts[pid]
         keys = {str(r["group_key"]) for r in live_rows}
         keys.update(str(r["group_key"]) for r in terminal_custom
                     if _uid(r["pid"]) == pid and _cart_id_of(r) in carts)
@@ -758,9 +772,21 @@ def page_state(edm_id: Any) -> BreakoutPageState:
     for row in terminal:
         code, noun = _noun_for_job_type(row["rwb_job_type"])
         _collect_error_lines(errors, _uid(row["requestor_id"]), code, noun, row)
+    # Each group has its own job row and a re-run of a failed group repeats its
+    # filters, so for custom breakouts the next terminal run is the next cart,
+    # once every group of that cart is terminal.
+    newest_cart: dict[str, str | None] = {}
     for row in terminal_custom:
-        _collect_error_lines(errors, _uid(row["pid"]), "custom",
-                             _DIMENSIONS["custom"].noun, row)
+        pid = _uid(row["pid"])
+        cart_id = _cart_id_of(row)
+        if cart_id in live_carts.get(pid, ()):
+            continue
+        if pid not in newest_cart:
+            newest_cart[pid] = cart_id
+        elif cart_id is None or cart_id != newest_cart[pid]:
+            continue
+        _collect_error_lines(errors, pid, "custom", _DIMENSIONS["custom"].noun,
+                             row, value=str(row["label"]))
 
     return BreakoutPageState(running=bool(flights),
                              banner=_newest_banner(terminal, terminal_custom),
@@ -773,16 +799,18 @@ def _cart_id_of(row) -> str | None:
 
 
 def _collect_error_lines(errors: dict[str, list[BreakoutRowError]], pid: str,
-                         code: str, noun: str, row) -> None:
+                         code: str, noun: str, row, *,
+                         value: str | None = None) -> None:
     """The FR-012 durable lines of one terminal job row — its failed entries,
-    or the job error when it died before producing any."""
+    or the job error when it died before producing any. ``value`` replaces
+    each entry's stored value, which for a custom group is its hash key."""
     output = _parse_json_dict(row["output_data"], "output_data") or {}
     lines: list[BreakoutRowError] = []
     for entry in (output.get("sub_portfolios") or []):
         if isinstance(entry, dict) and entry.get("outcome") == "failed":
             lines.append(BreakoutRowError(
                 dimension=code, noun=noun,
-                value=str(entry.get("value") or ""),
+                value=value or str(entry.get("value") or ""),
                 name=str(entry.get("name") or ""),
                 error=str(entry.get("error") or "failed")))
     if not lines and row["status_code"] == "failed":
@@ -794,13 +822,13 @@ def _collect_error_lines(errors: dict[str, list[BreakoutRowError]], pid: str,
 
 
 def _follow_up_pending(job_ids: Sequence[str]) -> bool:
-    """True while any of the jobs' FR-013 follow-up ``backfill_edm_detail``
+    """True while any of the jobs' FR-013 follow-up ``refresh_portfolios``
     heads is pending|running — the banner's "figures are filling in"."""
     for jid in job_ids:
         follow_up = execute_one(
             "SELECT status_code FROM rwb_job "
             "WHERE requestor_type = 'rwb_job' AND requestor_id = :j "
-            "AND rwb_job_type = 'backfill_edm_detail' "
+            "AND rwb_job_type = 'refresh_portfolios' "
             "ORDER BY updated_at DESC",
             {"j": str(jid)}, connection="WORKBENCH")
         if (follow_up is not None
@@ -1470,7 +1498,7 @@ class SubPortfolioOutcome:
 
 
 def summarize_outcomes(outcomes: Sequence[SubPortfolioOutcome]) -> dict:
-    """The ``output_data`` shape of data-model §4 (``backfill_enqueued`` is
+    """The ``output_data`` shape of data-model §4 (``refresh_enqueued`` is
     stamped by the worker after its completion enqueue)."""
     def count(kind: str) -> int:
         return sum(1 for o in outcomes if o.outcome == kind)
@@ -1499,6 +1527,7 @@ def summarize_outcomes(outcomes: Sequence[SubPortfolioOutcome]) -> dict:
 __all__ = [
     "PORTFOLIO_NAME_MAX", "PORTFOLIO_NUMBER_MAX", "LARGE_FANOUT_THRESHOLD",
     "MISSING_SUMMARY_REASON", "REFRESH_IN_FLIGHT_REASON",
+    "PORTFOLIO_REFRESHING_REASON",
     "BreakoutRefused", "GateRefused", "SummaryRewritten", "StaleSummary",
     "NameRefused",
     "display_value",

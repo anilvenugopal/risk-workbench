@@ -4,6 +4,9 @@
 -- by the portfolio_*_coverage.sql scripts.
 -- Read-only SELECT; the target EDM database is selected at the connection
 -- level (no USE here).
+--
+-- portfolio_ids holds the Risk Modeler portfolio ids to read, joined on CHAR(31),
+-- or NULL for every portfolio (spec 207).
 
 SELECT
     pa.PORTINFOID AS PortfolioId,
@@ -12,5 +15,7 @@ SELECT
 FROM dbo.portacct AS pa
 INNER JOIN dbo.portinfo AS pi
     ON pi.PORTINFOID = pa.PORTINFOID
+WHERE ({{ portfolio_ids }} IS NULL OR pa.PORTINFOID IN (
+          SELECT CAST(value AS INT) FROM STRING_SPLIT({{ portfolio_ids }}, CHAR(31))))
 GROUP BY pa.PORTINFOID, pi.PORTNAME
 ORDER BY pa.PORTINFOID;

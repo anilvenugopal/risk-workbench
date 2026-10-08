@@ -26,10 +26,10 @@ from starlette.testclient import TestClient
 
 from app.config import settings
 from app.poller import run as poller
-from app.services import edm_service
+from app.services import edm_service, rwb_job_service
 from app.workers import dispatch, entity_jobs
 from db import execute, execute_command, execute_one
-from tests.unit.test_backfill_edm_detail import EXPOSURE_A
+from tests.unit.edm_detail_rows import EXPOSURE_A
 
 
 def _edm_ready(drive, fake, actor, name="EDM") -> str:
@@ -189,62 +189,19 @@ def test_detail_state_prefers_most_recently_updated_head(
     assert detail.sync_running is True
 
 
-def test_backfill_status_sees_breakout_fired_heads_quick_and_group(iteration2_db):
-    # A completed breakout auto-fires backfill_edm_detail keyed on its own
-    # run_breakout_* job row (FR-013). That job's requestor is the source
-    # portfolio for a quick breakout, but the breakout_group row for a custom
-    # group — both must resolve to the EDM, single and batched read alike.
-    def _portfolio(edm_id: str) -> str:
-        pid = str(uuid.uuid4())
-        execute_command(
-            "INSERT INTO irp_portfolio (id, edm_id, name, irp_id, inserted_at, "
-            "updated_at) VALUES (:i, :e, 'src', '1', '2026-01-01', '2026-01-01')",
-            {"i": pid, "e": edm_id}, connection="WORKBENCH")
-        return pid
+def test_a_breakout_refresh_neither_shows_syncing_nor_holds_back_sync(
+        iteration2_db):
+    # spec 207 P-05: a breakout's refresh_portfolios is not the EDM's sync.
+    edm_id = _legacy_edm(irp_id=77003)
+    rwb_job_service.enqueue_rwb_job(
+        requestor_type="rwb_job", requestor_id=str(uuid.uuid4()),
+        rwb_job_type="refresh_portfolios",
+        link_type="edm", link_id=edm_id, context_type="edm", context_id=edm_id,
+        input_data={"edm_id": edm_id, "portfolio_irp_ids": ["501"]})
 
-    def _job(requestor_type: str, requestor_id: str, job_type: str,
-             status: str, edm_id: str, context_type: str,
-             context_id: str) -> str:
-        jid = str(uuid.uuid4())
-        execute_command(
-            "INSERT INTO rwb_job (id, requestor_type, requestor_id, "
-            "link_type, link_id, context_type, context_id, "
-            "rwb_job_type, status_code, attempt_count, inserted_at, updated_at) "
-            "VALUES (:i, :rt, :r, 'edm', :edm, :ct, :cid, "
-            ":t, :s, 1, '2026-01-01', '2026-01-01')",
-            {"i": jid, "rt": requestor_type, "r": requestor_id, "t": job_type,
-             "s": status, "edm": edm_id, "ct": context_type, "cid": context_id},
-            connection="WORKBENCH")
-        return jid
-
-    quick_edm = _legacy_edm(name="quick_edm")
-    quick_portfolio = _portfolio(quick_edm)
-    quick_job = _job("analyst_request", quick_portfolio,
-                     "run_breakout_lob", "succeeded", quick_edm,
-                     "portfolio", quick_portfolio)
-    _job("rwb_job", quick_job, "backfill_edm_detail", "pending", quick_edm,
-        "edm", quick_edm)
-
-    group_edm = _legacy_edm(name="group_edm")
-    group_row_id = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO breakout_group (id, source_portfolio_id, group_key, "
-        "label, filters, name, number, cart_id, inserted_at, updated_at) "
-        "VALUES (:i, :p, 'k1', 'Coastal', :f, 'src - Coastal', 'src-Coastal', "
-        ":c, '2026-01-01', '2026-01-01')",
-        {"i": group_row_id, "p": _portfolio(group_edm),
-         "f": '{"state": ["US-FL"]}', "c": str(uuid.uuid4())},
-        connection="WORKBENCH")
-    group_job = _job("breakout_group", group_row_id,
-                     "run_breakout_custom", "succeeded", group_edm,
-                     "breakout_group", group_row_id)
-    _job("rwb_job", group_job, "backfill_edm_detail", "pending", group_edm,
-        "edm", group_edm)
-
-    assert edm_service.latest_backfill_status(quick_edm) == "pending"
-    assert edm_service.latest_backfill_status(group_edm) == "pending"
-    assert edm_service.latest_backfill_statuses([quick_edm, group_edm]) == {
-        quick_edm: "pending", group_edm: "pending"}
+    assert edm_service.get_edm_detail(edm_id).sync_running is False
+    assert edm_service.sync_detail(edm_id=edm_id,
+                                   actor_id=iteration2_db.user_a) is not None
 
 
 # ── the Risk Modeler treaties deep link (Treaties polish, 2026-07-24) ─────────────

@@ -13,6 +13,9 @@
 -- CoveredAccounts is the SC-002 coverage figure: portfolio_account_total.sql's
 -- AccountTotal minus this is the number of accounts that carry no LOB at all
 -- and therefore land in no sub-portfolio.
+--
+-- portfolio_ids holds the Risk Modeler portfolio ids to read, joined on CHAR(31),
+-- or NULL for every portfolio (spec 207).
 
 WITH pairs AS (
     SELECT DISTINCT
@@ -25,6 +28,8 @@ WITH pairs AS (
     INNER JOIN dbo.lobdet AS l
         ON l.LOBDETID = p.LOBDETID
     WHERE NULLIF(LTRIM(RTRIM(l.LOBNAME)), '') IS NOT NULL
+      AND ({{ portfolio_ids }} IS NULL OR pa.PORTINFOID IN (
+              SELECT CAST(value AS INT) FROM STRING_SPLIT({{ portfolio_ids }}, CHAR(31))))
 ),
 per_account AS (
     SELECT PortfolioId, AccountId, COUNT(*) AS ValueCount

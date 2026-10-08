@@ -126,6 +126,26 @@ def mk_breakout_job(portfolio_id: str, *, dimension: str = "lob",
     return jid
 
 
+def mk_refresh_job(edm_id: str, *, portfolio_id: str,
+                   breakout_job_id: str | None = None,
+                   status: str = "pending") -> None:
+    """A ``refresh_portfolios`` row (spec 207) with ``portfolio_id`` as its
+    context: a breakout's follow-up on its source when ``breakout_job_id`` is
+    given; otherwise a hazard lookup's."""
+    requestor = (("rwb_job", breakout_job_id) if breakout_job_id is not None
+                 else ("irp_job", str(uuid.uuid4())))
+    context = ("portfolio", portfolio_id)
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
+        "status_code, attempt_count, inserted_at, updated_at) "
+        "VALUES (:i, :rt, :r, 'edm', :edm, :ct, :c, "
+        "'refresh_portfolios', :s, 0, :now, :now)",
+        {"i": str(uuid.uuid4()), "rt": requestor[0], "r": requestor[1],
+         "edm": edm_id, "ct": context[0], "c": context[1],
+         "s": status, "now": datetime.utcnow()}, connection="WORKBENCH")
+
+
 def mk_backfill_job(edm_id: str, *, status: str = "pending",
                     via_irp_job: bool = False) -> None:
     requestor_id = edm_id

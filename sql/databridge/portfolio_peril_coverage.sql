@@ -7,6 +7,9 @@
 -- The joins mirror portfolio_perils.sql exactly, so these counts describe the
 -- same account population as the per-value counts. Read-only SELECT; the
 -- target EDM database is selected at the connection level (no USE here).
+--
+-- portfolio_ids holds the Risk Modeler portfolio ids to read, joined on CHAR(31),
+-- or NULL for every portfolio (spec 207).
 
 WITH pairs AS (
     SELECT DISTINCT
@@ -19,6 +22,8 @@ WITH pairs AS (
     INNER JOIN dbo.loccvg AS lc
         ON lc.LOCID = p.LOCID
     WHERE lc.PERIL IS NOT NULL
+      AND ({{ portfolio_ids }} IS NULL OR pa.PORTINFOID IN (
+              SELECT CAST(value AS INT) FROM STRING_SPLIT({{ portfolio_ids }}, CHAR(31))))
 ),
 per_account AS (
     SELECT PortfolioId, AccountId, COUNT(*) AS ValueCount

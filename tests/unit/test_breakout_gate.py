@@ -24,6 +24,7 @@ import pytest
 from app.services import breakout_service
 from app.services.breakout_service import (
     MISSING_SUMMARY_REASON,
+    PORTFOLIO_REFRESHING_REASON,
     GateRefused,
     StaleSummary,
     SummaryRewritten,
@@ -44,6 +45,7 @@ from tests.unit.breakout_rows import (
     mk_breakout_job,
     mk_edm,
     mk_portfolio,
+    mk_refresh_job,
 )
 
 
@@ -244,6 +246,43 @@ def test_gate_terminal_backfill_does_not_disable(iteration2_db):
     gate = evaluate_gate(edm_id, pid)
     assert gate.refresh_in_flight is False
     assert gate.portfolio_eligible is True
+
+
+def test_gate_refuses_the_source_of_a_breakout_follow_up(iteration2_db):
+    # spec 207 P-04: the follow-up holds its source portfolio and no other
+    # portfolio of the EDM.
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    mk_refresh_job(edm_id, portfolio_id=pid,
+                   breakout_job_id=mk_breakout_job(pid, status="succeeded"))
+    gate = evaluate_gate(edm_id, pid)
+    assert gate.reason == PORTFOLIO_REFRESHING_REASON
+    assert gate.refresh_in_flight is False
+    assert evaluate_gate(
+        edm_id, mk_portfolio(edm_id, name="other", irp_id="2")
+    ).portfolio_eligible is True
+
+
+@pytest.mark.parametrize("status", ["pending", "running"])
+def test_gate_refuses_the_portfolio_a_hazard_refresh_is_rewriting(
+        iteration2_db, status):
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    mk_refresh_job(edm_id, portfolio_id=pid, status=status)
+    gate = evaluate_gate(edm_id, pid)
+    assert gate.portfolio_eligible is False
+    assert gate.reason == PORTFOLIO_REFRESHING_REASON
+    assert gate.refresh_in_flight is False
+    assert evaluate_gate(
+        edm_id, mk_portfolio(edm_id, name="other", irp_id="2")
+    ).portfolio_eligible is True
+
+
+def test_gate_ignores_a_finished_hazard_refresh(iteration2_db):
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    mk_refresh_job(edm_id, portfolio_id=pid, status="succeeded")
+    assert evaluate_gate(edm_id, pid).portfolio_eligible is True
 
 
 # ── the confirm path (T025) ───────────────────────────────────────────────────────

@@ -64,7 +64,7 @@ def _mk_follow_up(breakout_job_id: str, edm_id: str, *, status: str) -> None:
         "link_id, context_type, context_id, rwb_job_type, "
         "status_code, attempt_count, inserted_at, updated_at) VALUES "
         "(:i, 'rwb_job', :r, 'edm', :e, 'edm', :e, "
-        "'backfill_edm_detail', :s, 1, :now, :now)",
+        "'refresh_portfolios', :s, 1, :now, :now)",
         {"i": str(uuid.uuid4()), "r": breakout_job_id, "e": edm_id, "s": status,
          "now": NOW}, connection="WORKBENCH")
 

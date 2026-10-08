@@ -63,7 +63,7 @@ input_data: {edm_id, portfolio_id, dimension, actor_id, plan}     (data-model §
 6. Completion (any succeeded): idempotently enqueue backfill_edm_detail for the EDM
    (requestor the breakout job row — distinct from the poller's import-keyed enqueue), so
    generated portfolios acquire figures without analyst action (FR-013). Record
-   backfill_enqueued.
+   refresh_enqueued.
 7. JobResult: succeeded when ≥ 1 entry created/adopted/skipped-existing (partial success =
    success with outcomes — the _upload_rdm_body semantics); fail only when zero succeeded.
    Business-event logs throughout (actor id from input_data): requested/created/adopted/

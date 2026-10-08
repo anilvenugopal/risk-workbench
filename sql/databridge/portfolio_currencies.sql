@@ -19,10 +19,15 @@
 -- pushes 15-25M rows through the UNION ALL and the portinfo join to reach a
 -- result of a few currencies per portfolio; with it, each leg hands over tens
 -- of rows. The table scans are the same either way.
+--
+-- portfolio_ids holds the Risk Modeler portfolio ids to read, joined on CHAR(31),
+-- or NULL for every portfolio (spec 207).
 
 WITH acct AS (
     SELECT pa.PORTINFOID, pa.ACCGRPID
     FROM dbo.portacct AS pa
+    WHERE ({{ portfolio_ids }} IS NULL OR pa.PORTINFOID IN (
+              SELECT CAST(value AS INT) FROM STRING_SPLIT({{ portfolio_ids }}, CHAR(31))))
 ),
 loc AS (
     SELECT a.PORTINFOID, p.LOCID
