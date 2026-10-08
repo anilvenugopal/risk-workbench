@@ -54,13 +54,13 @@
   {% set stem = '/submissions?' ~ ((filter_query ~ '&') if filter_query else '') ~ 'page=' %}
   <nav class="pager" aria-label="Submission pages">
     {% if page > 1 %}
-    <a class="btn-sm" rel="prev" href="{{ stem }}{{ page - 1 }}"
+    <a class="btn btn--sm" rel="prev" href="{{ stem }}{{ page - 1 }}"
        hx-get="{{ stem }}{{ page - 1 }}" hx-target="#sub-list"
        hx-swap="outerHTML" hx-push-url="true">‹ Prev</a>
     {% endif %}
     <span class="pager__at">Page {{ page }}</span>
     {% if has_next %}
-    <a class="btn-sm" rel="next" href="{{ stem }}{{ page + 1 }}"
+    <a class="btn btn--sm" rel="next" href="{{ stem }}{{ page + 1 }}"
        hx-get="{{ stem }}{{ page + 1 }}" hx-target="#sub-list"
        hx-swap="outerHTML" hx-push-url="true">Next ›</a>
     {% endif %}

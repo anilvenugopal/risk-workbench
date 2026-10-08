@@ -40,7 +40,7 @@
 {# Re-runs the analysis's own retrieval job (spec 011 FR-007). Rendered
    inside an existing cell, never as a new <summary> child. #}
 {%- macro retry_button(a) -%}
-<button class="btn-sm" type="button" onclick="event.stopPropagation()"
+<button class="btn btn--sm" type="button" onclick="event.stopPropagation()"
         hx-post="/results/analyses/{{ a.id }}/retry" hx-include="#analyses-csrf"
         hx-swap="none">Retry</button>
 {%- endmacro -%}

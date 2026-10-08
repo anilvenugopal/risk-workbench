@@ -87,12 +87,12 @@
     </div>
     <div class="modal-error" x-show="error" x-cloak x-text="error"></div>
     <div class="modal-footer">
-      <button type="button" class="btn-sm"
+      <button type="button" class="btn btn--sm"
               @click="$el.closest('.modal').remove()">Cancel</button>
       {% if not gone and ready|length >= 2 %}
-      <button type="button" class="btn-sm" :disabled="picks.length !== 2"
+      <button type="button" class="btn btn--sm" :disabled="picks.length !== 2"
               @click="addPair()">Add pair</button>
-      <button type="button" class="btn-sm btn-sm--primary"
+      <button type="button" class="btn btn--sm btn--primary"
               :disabled="!pairs.length" @click="open()"
               x-text="compareLabel">Compare</button>
       {% endif %}

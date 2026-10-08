@@ -36,8 +36,11 @@
     {% if edm.detail_state in ('populated', 'empty') %}
     <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
     {% endif %}
+    {% if edm.portfolios %}
+    <button class="btn btn--sm" type="button" data-collapse-all onclick="event.preventDefault()"
+            title="Collapse every expanded row">Collapse all</button>
+    {% endif %}
     <span class="sec__spacer"></span>
-    <span class="sec__note">Break out creates one sub-portfolio per value of the chosen dimension</span>
   </summary>
 
   {# ── breakout completion banner (spec 005 FR-012) — the newest terminal
@@ -62,9 +65,8 @@
     <input type="hidden" name="submission_id" value="{{ gh_sub }}">
     {% endif %}
     <div class="section-head">
-      <span class="tag-empty">Select one or more available portfolios.</span>
       <div class="section-head__actions">
-        <button class="btn-sm btn-sm--primary" type="submit"
+        <button class="btn btn--sm" type="submit"
                 :disabled="count === 0">Run hazard lookup</button>
         {# Execute Suite / Execute Template (spec 010) share the geohaz selection:
            hx-include reads the same portfolio_ids boxes at click time. type=button
@@ -72,11 +74,11 @@
         {% if edm.status == 'ready' %}
         {% set execute_url = ('/submissions/' ~ gh_sub if gh_sub else '')
              ~ '/edms/' ~ edm.id ~ '/execute' %}
-        <button class="btn-sm" type="button" :disabled="count === 0"
+        <button class="btn btn--sm" type="button" :disabled="count === 0"
                 hx-get="{{ execute_url }}?kind=suite"
                 hx-include="[name='portfolio_ids']"
                 hx-target="#execute-modal" hx-swap="innerHTML">Execute Suite</button>
-        <button class="btn-sm" type="button" :disabled="count === 0"
+        <button class="btn btn--sm" type="button" :disabled="count === 0"
                 hx-get="{{ execute_url }}?kind=template"
                 hx-include="[name='portfolio_ids']"
                 hx-target="#execute-modal" hx-swap="innerHTML">Execute Template</button>

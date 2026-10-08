@@ -14,7 +14,7 @@
    Missing fields render "—", never an error. Read-only (FR-025). #}
 {%- from "partials/treaty_macros.html" import money, attr_val, presence -%}
 {%- set a = t.attributes or {} -%}
-<details class="drow">
+<details class="drow" id="treaty-{{ t.id }}">
   <summary>
     <span class="l dt-wrap"><span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">

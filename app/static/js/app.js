@@ -1573,6 +1573,13 @@ document.addEventListener('click', (e) => {
   btn.focus();
   (ok ? copied : failed)();
 });
+document.addEventListener('click', (e) => {
+  const btn = e.target instanceof Element && e.target.closest('[data-collapse-all]');
+  if (!btn) return;
+  btn.closest('details.sec')
+    .querySelectorAll('details.drow[open], details.dtable__rdm[open]')
+    .forEach((row) => { row.open = false; });
+});
 
 // The checked ids travel in tick order — kept per section by a document-level
 // listener, because Alpine's analysisPicks is re-instantiated by every full

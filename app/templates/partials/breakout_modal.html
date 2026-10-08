@@ -179,7 +179,7 @@
                  hx-get="{{ base_url }}/name-check"
                  hx-trigger="keyup changed delay:500ms"
                  hx-target="next .name-collision" hx-swap="outerHTML">
-          <button type="button" class="btn-sm" :disabled="!nameCleared"
+          <button type="button" class="btn btn--sm" :disabled="!nameCleared"
                   hx-post="{{ base_url }}/group-preview"
                   hx-target="#bo-cart-rows" hx-swap="beforeend"
                   hx-include="closest form"
@@ -335,16 +335,16 @@
     <div class="bo-modal__footer">
       {% if confirmable %}
       <span class="bo-modal__count"><strong>{{ modal.plan|length }}</strong> sub-portfolio{{ '' if modal.plan|length == 1 else 's' }} will be created</span>
-      <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Cancel</button>
-      <button type="submit" class="btn-sm btn-sm--primary" :disabled="blocked">Create {{ modal.plan|length }} sub-portfolio{{ '' if modal.plan|length == 1 else 's' }}</button>
+      <button type="button" class="btn btn--sm" @click="$el.closest('.modal').remove()">Cancel</button>
+      <button type="submit" class="btn btn--sm btn--primary" :disabled="blocked">Create {{ modal.plan|length }} sub-portfolio{{ '' if modal.plan|length == 1 else 's' }}</button>
       {% elif cart_ready %}
       <span class="bo-modal__count"><strong x-text="n">0</strong>
         <span x-text="n === 1 ? 'breakout' : 'breakouts'">breakouts</span></span>
-      <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Cancel</button>
-      <button type="submit" class="btn-sm btn-sm--primary" :disabled="n === 0"
+      <button type="button" class="btn btn--sm" @click="$el.closest('.modal').remove()">Cancel</button>
+      <button type="submit" class="btn btn--sm btn--primary" :disabled="n === 0"
               x-text="'Create ' + n + ' sub-portfolio' + (n === 1 ? '' : 's')">Create sub-portfolios</button>
       {% else %}
-      <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Close</button>
+      <button type="button" class="btn btn--sm" @click="$el.closest('.modal').remove()">Close</button>
       {% endif %}
     </div>
 

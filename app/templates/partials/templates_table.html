@@ -32,11 +32,11 @@
           {% if current_user.is_admin %}
           <form method="post" action="/templates/suites/{{ suite.id }}/duplicate">
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-            <button class="btn-sm" type="submit">Duplicate</button>
+            <button class="btn btn--sm" type="submit">Duplicate</button>
           </form>
           <form method="post" action="/templates/suites/{{ suite.id }}/delete">
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-            <button class="btn-sm btn-sm--danger" type="submit"
+            <button class="btn btn--sm btn--danger" type="submit"
                     onclick="return confirm('Delete {{ suite.name }}? This cannot be undone.')">Delete</button>
           </form>
           {% endif %}
@@ -85,11 +85,11 @@
           {% if current_user.is_admin %}
           <form method="post" action="/templates/analysis-templates/{{ template.id }}/duplicate">
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-            <button class="btn-sm" type="submit">Duplicate</button>
+            <button class="btn btn--sm" type="submit">Duplicate</button>
           </form>
           <form method="post" action="/templates/analysis-templates/{{ template.id }}/delete">
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-            <button class="btn-sm btn-sm--danger" type="submit"
+            <button class="btn btn--sm btn--danger" type="submit"
                     onclick="return confirm('Delete {{ template.name }}? This cannot be undone.')">Delete</button>
           </form>
           {% endif %}
