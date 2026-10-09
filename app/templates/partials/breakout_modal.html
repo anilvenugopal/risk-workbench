@@ -42,7 +42,7 @@
 <div class="modal" id="breakout-modal" x-data>
   {%- set modal_class = 'bo-modal bo-modal--pane' if pane_open else 'bo-modal' -%}
   {% if confirmable %}
-  <form class="{{ modal_class }}" method="post" action="{{ base_url }}"
+  <form class="{{ modal_class }}" method="post" action="{{ base_url }}" data-submitting
         hx-post="{{ base_url }}" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
         x-data="breakoutNames()"
         @input="onInput($event)"
@@ -58,7 +58,7 @@
      group-preview route (server-composed row appended to the cart); the
      submit posts the carted group JSONs to the cart confirm. n counts the
      cart rows — a tiny Alpine sliver; the server re-validates everything. #}
-  <form class="{{ modal_class }}" method="post" action="{{ base_url }}/groups"
+  <form class="{{ modal_class }}" method="post" action="{{ base_url }}/groups" data-submitting
         hx-post="{{ base_url }}/groups" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
         x-data="{ n: 0, recount() { this.n = $el.querySelectorAll('.bo-cart-row').length } }"
         @htmx:after-settle="recount()"
