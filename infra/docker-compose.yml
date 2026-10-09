@@ -18,6 +18,7 @@ services:
       - ../app:/workspace/app               # live Python reload
       - ../alembic:/workspace/alembic       # pick up new revisions
       - ../db:/workspace/db                 # db package edits
+      - ../irp_integration:/workspace/irp_integration  # Risk Modeler client edits
       - ../deploy:/workspace/deploy         # nginx config edits
       - ../infra/scripts:/workspace/scripts # bootstrap / helper scripts
       - ../tests:/workspace/tests           # run tests inside the container

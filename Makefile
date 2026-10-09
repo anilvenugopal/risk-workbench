@@ -25,16 +25,10 @@
         wsl-workers wsl-workers-stop wsl-worker-logs \
         wsl-db-bootstrap wsl-db-migrate wsl-db-seed wsl-db-rebuild \
         wsl-test wsl-test-sql \
-        wsl-user-setup \
-        irp-pypi irp-testpypi irp-local irp-status \
-        _irp-hide-local _irp-show-local
+        wsl-user-setup
 
 COMPOSE     = docker compose -f infra/docker-compose.yml --env-file infra/.env
 BOX         = $(COMPOSE) exec linux-box
-
-# Path to the optional local editable irp-integration checkout (only used by
-# `make irp-local`). Relative to this repo root; matches [tool.uv.sources].
-IRP_LOCAL_PATH = ../../IRP/irp-integration
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 help:   ## Show all targets
@@ -195,49 +189,3 @@ wsl-test-sql:   ## [WSL2] Run SQL Server integration tests
 
 wsl-user-setup:   ## [WSL2] Interactive user provisioning CLI (provision, create, reset password)
 	@bash infra/scripts/run_user_setup.sh
-
-# ══ irp-integration SOURCE SWITCHING ══════════════════════════════════════════
-# Flip which source irp-integration resolves from, then re-sync. The choice is
-# sticky (written to default-groups in pyproject.toml), so every later `uv run` /
-# `uv sync` uses it. Commit the pyproject/uv.lock change only if you want CI/prod
-# on that source (the committed default is PyPI). Run on the host (WSL2/native);
-# Docker users re-`make start` afterwards to rebuild the image.
-#
-# The irp-local EDITABLE PATH source in [tool.uv.sources] is COMMENTED OUT by
-# default so machines that only use PyPI/TestPyPI (CI, prod, teammates without
-# the checkout) are never forced to have the local clone present just to
-# re-resolve the lock. `make irp-local` uncomments it (and requires the clone);
-# the other two targets re-comment it to keep the committed default portable.
-#   _irp-hide-local  → comment the path line out (idempotent)
-#   _irp-show-local  → uncomment the path line     (idempotent)
-_irp-hide-local:
-	@sed -i 's|^\(    \){ path = "$(IRP_LOCAL_PATH)"|\1# { path = "$(IRP_LOCAL_PATH)"|' pyproject.toml
-_irp-show-local:
-	@sed -i 's|^\(    \)# { path = "$(IRP_LOCAL_PATH)"|\1{ path = "$(IRP_LOCAL_PATH)"|' pyproject.toml
-
-irp-pypi:   ## irp-integration → PyPI (latest stable; production default) + re-sync
-	@$(MAKE) --no-print-directory _irp-hide-local
-	@sed -i 's/^default-groups = .*/default-groups = ["dev", "irp-pypi"]/' pyproject.toml
-	uv sync --upgrade-package irp-integration
-	@$(MAKE) --no-print-directory irp-status
-
-irp-testpypi:   ## irp-integration → TestPyPI (newest pre-release build) + re-sync
-	@$(MAKE) --no-print-directory _irp-hide-local
-	@sed -i 's/^default-groups = .*/default-groups = ["dev", "irp-testpypi"]/' pyproject.toml
-	uv sync --upgrade-package irp-integration
-	@$(MAKE) --no-print-directory irp-status
-
-irp-local:   ## irp-integration → your local editable checkout + re-sync
-	@test -d "$(IRP_LOCAL_PATH)" || { \
-	    echo "ERROR: local checkout not found at $(IRP_LOCAL_PATH)"; \
-	    echo "       Clone it there first:  git clone <url> $(IRP_LOCAL_PATH)"; \
-	    exit 1; }
-	@$(MAKE) --no-print-directory _irp-show-local
-	@sed -i 's/^default-groups = .*/default-groups = ["dev", "irp-local"]/' pyproject.toml
-	uv sync
-	@$(MAKE) --no-print-directory irp-status
-
-irp-status:   ## Show which irp-integration source/version is currently active
-	@grep -E '^default-groups' pyproject.toml | sed 's/^/  mode:  /'
-	@uv run --no-sync python -c "import irp_integration as m; print('  version:', getattr(m, '__version__', '?')); print('  path:   ', m.__file__)" 2>/dev/null \
-	    || echo "  (run a sync target first: make irp-pypi | irp-testpypi | irp-local)"

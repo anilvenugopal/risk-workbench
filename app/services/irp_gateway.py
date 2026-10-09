@@ -11,10 +11,8 @@ checks or any result retrieval.
 ``poll_*_to_completion`` helpers are NEVER wrapped here (they run for minutes and
 are forbidden everywhere — Article 11).
 
-**Version churn is quarantined here.** ``irp-integration`` is pre-release and its
-signatures move; it is source-switchable across PyPI / TestPyPI / a local checkout
-(``make irp-pypi | irp-testpypi | irp-local``, research R1). Re-confirming a method
-signature against the active wheel is a one-file edit, and the CI fake
+**Version churn is quarantined here.** A changed ``irp_integration`` method
+signature is a one-file edit, and the CI fake
 (``tests/unit/fakes/fake_irp.py``) implements the same ``IRPGateway`` protocol, so a
 signature change never scatters across services.
 
@@ -687,15 +685,13 @@ class IRPGateway(Protocol):
 # ── The real implementation — imports irp-integration lazily ─────────────────────
 
 class _RealGateway:
-    """Thin wrapper over ``irp-integration`` 0.2.0 (manager-based). ``IRPClient()``
+    """Thin wrapper over the ``irp_integration`` package (manager-based). ``IRPClient()``
     reads all config from env vars — no constructor args. The library is imported
-    lazily (inside ``_client``) so importing this module never requires the wheel;
-    unit tests inject a fake and never construct this class.
+    lazily (inside ``_client``) so importing this module never imports
+    ``irp_integration``; unit tests inject a fake and never construct this class.
 
     Every call maps to exactly one manager method — all single-status-check;
-    ``poll_*_to_completion`` is never wrapped (Article 11). Method signatures were
-    re-confirmed against the active 0.2.0 wheel; re-confirm before trusting a new
-    source (``make irp-status``) since the wheel is pre-release (R1).
+    ``poll_*_to_completion`` is never wrapped (Article 11).
     """
 
     def __init__(self) -> None:

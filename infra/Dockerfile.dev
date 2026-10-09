@@ -57,6 +57,7 @@ COPY alembic ./alembic
 COPY alembic.ini ./
 COPY deploy ./deploy
 COPY db ./db
+COPY irp_integration ./irp_integration
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 COPY infra/scripts/start-all.sh /usr/local/bin/start-all.sh
