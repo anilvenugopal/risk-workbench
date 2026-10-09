@@ -308,6 +308,7 @@ document.addEventListener('alpine:init', () => {
   // its first keystroke until its own check swaps in.
   Alpine.data('breakoutNames', () => ({
     blocked: false,
+    busy: false,
     recount() {
       this.blocked = !!this.$root.querySelector(
         '.bo-row .nc-input[data-pending], .bo-row .name-collision[data-nc="blocked"]');
