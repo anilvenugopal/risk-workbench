@@ -111,7 +111,7 @@ exposes `searchable_nodes()` for it; only the endpoint is missing.
   `rwb_workbench`. The probe is forward-looking, and it is the only reason those connections are
   configured at all.
 - **DATABRIDGE is not in the probe.** It is read-only, worker-side, and reached through the
-  `irp-integration` wheel rather than the `db/` package (Article 11), so it has no
+  `irp_integration` package rather than the `db/` package (Article 11), so it has no
   `test_connection` name. Its availability surfaces per-job instead, as
   `output_data.summary = "unavailable"` — see
   [backfill EDM detail](../backfill/backfill_edm_detail.md).

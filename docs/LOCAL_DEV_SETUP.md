@@ -534,9 +534,21 @@ certificate error.
 
 On Python 3.13 and later, Risk Modeler calls can still fail with
 `Basic Constraints of CA cert not marked critical`. Python rejects a root CA
-that leaves Basic Constraints non-critical, and the Zscaler root does.
-[premiumiq/irp-integration#40](https://github.com/premiumiq/irp-integration/issues/40)
-tracks the fix.
+that leaves Basic Constraints non-critical, and the Zscaler root does. Add
+`RISK_MODELER_X509_STRICT=false` to `infra/.env` to turn off that check.
+Certificates are still verified against `REQUESTS_CA_BUNDLE`. The setting is
+for developer machines only; the deployed server does not need it.
+
+A WSL2 machine runs the app on Python 3.14, the same as the deployed server.
+The Docker `linux-box` image and CI use Python 3.12. If you synced `.venv` with
+an older Python to get around the error, move it back to 3.14:
+
+```bash
+uv sync --python 3.14
+```
+
+uv removes `.venv` and rebuilds it on 3.14, downloading 3.14 if needed. Later
+`uv sync` runs keep 3.14.
 
 ### `libodbc.so.2: cannot open shared object file`
 

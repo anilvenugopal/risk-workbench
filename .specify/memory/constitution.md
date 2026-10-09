@@ -2,6 +2,17 @@
   Sync Impact Report
   ==================
 
+  --- 2026-10-07 (issue 188 — irp_integration source in this repo) ---
+  Version change: 4.3.0 → 4.3.1  (PATCH — Article 11's DataBridge clause
+  names the in-repo `irp_integration/` package; no rule changes; 13-article
+  numbering stable)
+
+  Why: the Risk Modeler client is copied from premiumiq/irp-integration
+  v0.12.0 into `irp_integration/` so the client can change it after
+  handover. DataBridge reads still go only through its client methods.
+
+  Templates: none. AGENTS.md version reference updated to v4.3.1.
+
   --- 2026-09-29 (issue 68 — analysis templates reference RM ids) ---
   Version change: 4.2.3 → 4.3.0  (MINOR — Article 2's name-based coupling
   bullet narrows to EDMs, portfolios, analyses and treaties; model profile,
@@ -450,11 +461,11 @@ inside the poller — use single-status-check `get_*` methods only.
 
 **DataBridge access (added v3.1.0, 2026-07-23):** Moody's Data Bridge SQL is
 reachable **read-only**, **worker-side only**, and **exclusively through
-`irp-integration` client methods** (e.g. `client.databridge.*` behind
+`irp_integration` client methods** (e.g. `client.databridge.*` behind
 `irp_gateway`). App code MUST NEVER send raw SQL to DataBridge — not through
 `db.execute`, not through the `db.scripts` trusted path — and MUST NEVER run
 DDL, migrations, or bootstrap against it. Moody's EDM schema knowledge lives in
-the integration library, not this codebase. A DataBridge read failure is
+the `irp_integration/` package. A DataBridge read failure is
 enrichment degradation, never a page error (the graceful-empty doctrine applies).
 
 **Request-path exception (added v3.2.0, 2026-08-12):** a **bounded, single-row,
@@ -537,4 +548,4 @@ research begins.
 
 ---
 
-**Version**: 4.3.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-09-29
+**Version**: 4.3.1 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-10-07

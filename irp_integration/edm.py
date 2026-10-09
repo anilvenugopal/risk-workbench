@@ -1,0 +1,674 @@
+"""
+EDM (Exposure Data Management) operations.
+
+Handles datasource creation, duplication, deletion, and
+associated data retrieval (cedants, LOBs).
+"""
+
+import json
+import logging
+import time
+from typing import Dict, Any, List, Tuple, TYPE_CHECKING
+from .constants import SEARCH_DATABASE_SERVERS, SEARCH_EXPOSURE_SETS, CREATE_EXPOSURE_SET, EXPOSURE_SET_URI, SEARCH_EDMS, CREATE_EDM, UPGRADE_EDM_DATA_VERSION, DELETE_EDM, GET_CEDANTS, GET_LOBS, WORKFLOW_IN_PROGRESS_STATUSES, CREATE_IMPORT_FOLDER, SUBMIT_IMPORT_JOB
+from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError
+from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty, validate_file_exists, validate_import_file_extension
+from .utils import extract_id_from_location_header, paginate_search
+from .s3 import S3Manager
+
+if TYPE_CHECKING:
+    from . import IRPClient
+    from .portfolio import PortfolioManager
+    from .analysis import AnalysisManager
+    from .risk_data_job import RiskDataJobManager
+
+logger = logging.getLogger(__name__)
+
+
+class EDMManager:
+    """Manager for EDM (Exposure Data Management) operations."""
+
+    def __init__(self, irp: "IRPClient") -> None:
+        """
+        Initialize EDM manager.
+
+        Args:
+            irp: Owning IRP client instance
+        """
+        self._irp = irp
+        self.client = irp.client
+
+
+    @property
+    def portfolio_manager(self) -> "PortfolioManager":
+        """Return the owning client's portfolio manager."""
+        return self._irp.portfolio
+    
+    @property
+    def analysis_manager(self) -> "AnalysisManager":
+        """Return the owning client's analysis manager."""
+        return self._irp.analysis
+    
+    @property
+    def risk_data_job_manager(self) -> "RiskDataJobManager":
+        """Return the owning client's risk data job manager."""
+        return self._irp.risk_data_job
+
+
+    def validate_unique_edms(self, edm_names: List[str]) -> None:
+        """
+        Validate that EDM names are unique (don't already exist).
+
+        Args:
+            edm_names: List of EDM names to validate
+
+        Raises:
+            IRPAPIError: If any EDM names already exist
+        """
+        quoted = ", ".join(json.dumps(e) for e in edm_names)
+        edms = self.search_edms(filter=f"exposureName IN ({quoted})")
+        if (len(edms) > 0):
+            try:
+                existing_names = ', '.join(json.dumps(s['exposureName']) for s in edms)
+            except (KeyError, TypeError) as e:
+                raise IRPAPIError(
+                    f"Failed to extract EDM names from search response: {e}"
+                ) from e
+            raise IRPAPIError(f"The following EDMs already exist: {existing_names}; please use unique names")
+
+
+    def submit_create_edm_jobs(self, edm_data_list: List[Dict[str, Any]]) -> List[int]:
+        """
+        Submit multiple EDM creation jobs.
+
+        Args:
+            edm_data_list: List of EDM data dicts, each containing:
+                - server_name: str
+                - edm_name: str
+
+        Returns:
+            List of job IDs
+
+        Raises:
+            IRPValidationError: If edm_data_list is empty or invalid
+            IRPAPIError: If EDM creation fails or duplicate names exist
+        """
+        validate_list_not_empty(edm_data_list, "edm_data")
+
+        self.validate_unique_edms(list(e['edm_name'] for e in edm_data_list))
+
+        job_ids = []
+        for edm_data in edm_data_list:
+            # Validate edm_data_list entry
+            try:
+                server_name = edm_data['server_name']
+                edm_name = edm_data['edm_name']
+            except (KeyError, TypeError) as e:
+                raise IRPAPIError(
+                    f"Missing 'server_name' or 'server_name' in create edm data: {e}"
+                ) from e
+
+            # Submit job (returns tuple of job_id, request_body - we only need job_id here)
+            job_id, _ = self.submit_create_edm_job(
+                edm_name=edm_name,
+                server_name=server_name
+            )
+            job_ids.append(job_id)
+        
+        return job_ids
+
+
+    def search_database_servers(self, filter: str = "") -> List[Dict[str, Any]]:
+        """
+        Search database servers.
+
+        Args:
+            filter: Optional filter string for server names
+
+        Returns:
+            List of database server dicts
+        """
+        params = {}
+        if filter:
+            params['filter'] = filter
+        try:
+            response = self.client.request('GET', SEARCH_DATABASE_SERVERS, params=params)
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(
+                f"Failed to search database servers: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
+
+
+    def search_exposure_sets(self, filter: str = "") -> List[Dict[str, Any]]:
+        """
+        Search exposure sets.
+
+        Args:
+            filter: Optional filter string for exposure set names
+
+        Returns:
+            List of exposure set dicts
+        """
+        params = {}
+        if filter:
+            params['filter'] = filter
+        try:
+            response = self.client.request('GET', SEARCH_EXPOSURE_SETS, params=params)
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(
+                f"Failed to search exposure sets: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
+        
+    
+    def create_exposure_set(self, name: str) -> int:
+        """
+        Create a new exposure set.
+
+        Args:
+            name: Name of the exposure set
+
+        Returns:
+            The exposure set ID
+        """
+        validate_non_empty_string(name, "name")
+        data = {"exposureSetName": name}
+        try:
+            response = self.client.request('POST', CREATE_EXPOSURE_SET, json=data)
+            exposure_set_id = extract_id_from_location_header(response, "exposure set creation")
+            return int(exposure_set_id)
+        except Exception as e:
+            raise IRPAPIError(
+                f"Failed to create exposure set '{name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
+
+
+    def get_or_create_exposure_set(self, name: str) -> int:
+        """
+        Return the ID of the exposure set named ``name``, creating it if none exists.
+
+        Risk Modeler permits duplicate exposure set names. When the search
+        returns more than one exposure set named ``name``, the first is used.
+
+        Args:
+            name: Name of the exposure set
+
+        Returns:
+            The exposure set ID
+
+        Raises:
+            IRPValidationError: If name is empty
+            IRPAPIError: If the search or the creation fails
+        """
+        validate_non_empty_string(name, "name")
+
+        exposure_sets = self.search_exposure_sets(filter=f"exposureSetName=\"{name}\"")
+        if exposure_sets:
+            try:
+                return int(exposure_sets[0]['exposureSetId'])
+            except (KeyError, TypeError, IndexError, ValueError) as e:
+                raise IRPAPIError(
+                    f"Failed to extract exposure set ID for '{name}': {e}"
+                ) from e
+
+        return self.create_exposure_set(name=name)
+
+
+    def search_edms(self, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """
+        Search EDMs (exposures).
+
+        Args:
+            filter: Optional filter string for EDM names
+            limit: Maximum results per page (default: 100)
+            offset: Offset for pagination (default: 0)
+
+        Returns:
+            List of EDM dictionaries
+        """
+        params: Dict[str, Any] = {'limit': limit, 'offset': offset}
+        if filter:
+            params['filter'] = filter
+        try:
+            response = self.client.request('GET', SEARCH_EDMS, params=params)
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(
+                f"Failed to search EDMs: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
+
+    def search_edms_paginated(self, filter: str = "") -> List[Dict[str, Any]]:
+        """
+        Search all EDMs with automatic pagination.
+
+        Fetches all pages of results matching the filter criteria, paging via
+        ``paginate_search``.
+
+        Args:
+            filter: Optional filter string for EDM names
+
+        Returns:
+            Complete list of all matching EDMs across all pages
+
+        Raises:
+            IRPAPIError: If a request fails, or if pagination cannot be shown to
+                have read every page
+        """
+        return paginate_search(
+            lambda limit, offset: self.search_edms(
+                filter=filter,
+                limit=limit,
+                offset=offset
+            ),
+            "EDM search"
+        )
+
+
+    def submit_create_edm_job(self, edm_name: str, server_name: str = "databridge-1") -> Tuple[int, Dict[str, Any]]:
+        """
+        Submit job to create a new EDM (exposure).
+
+        Args:
+            edm_name: Name of the EDM
+            server_name: Name of the database server (default: "databridge-1")
+
+        Returns:
+            Tuple of (job_id, request_body) where request_body is the HTTP request payload
+        """
+        validate_non_empty_string(edm_name, "edm_name")
+
+        # Validate Database Server exists
+        database_servers = self.search_database_servers(filter=f"serverName=\"{server_name}\"")
+        if (len(database_servers) != 1):
+            raise IRPReferenceDataError(f"Database server {server_name} not found: {database_servers}")
+        try:
+            database_server_id = database_servers[0]['serverId']
+        except (KeyError, TypeError, IndexError) as e:
+            raise IRPAPIError(
+                f"Failed to extract server ID: {e}"
+            ) from e
+
+        # Validate Exposure Set exists; create if it does not exist
+        exposure_set_id = self.get_or_create_exposure_set(edm_name)
+
+        data = {
+            "exposureName": edm_name,
+            "serverId": database_server_id
+        }
+        try:
+            logger.info("Submitting EDM creation job for '%s' on server '%s'", edm_name, server_name)
+            response = self.client.request(
+                'POST',
+                CREATE_EDM.format(exposureSetId=exposure_set_id),
+                json=data
+            )
+            job_id = extract_id_from_location_header(response, "EDM creation")
+            logger.info("EDM creation job submitted — job ID: %s", job_id)
+            return int(job_id), data
+        except Exception as e:
+            raise IRPAPIError(
+                f"Failed to create EDM '{edm_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
+
+
+    def submit_upgrade_edm_data_version_jobs(self, edm_data_list: List[Dict[str, Any]]) -> List[int]:
+        """
+        Submit multiple EDM data version upgrade jobs.
+
+        Args:
+            edm_data_list: List of EDM upgrade data dicts, each containing:
+                - edm_name: str
+                - edm_version: str
+
+        Returns:
+            List of job IDs
+
+        Raises:
+            IRPValidationError: If edm_data_list is empty or invalid
+            IRPAPIError: If upgrade submission fails or EDM not found
+        """
+        validate_list_not_empty(edm_data_list, "edm_data")
+
+        job_ids = []
+        for edm_data in edm_data_list:
+            try:
+                edm_name = edm_data['edm_name']
+                edm_version = edm_data['edm_version']
+            except (KeyError, TypeError) as e:
+                raise IRPAPIError(
+                    f"Missing upgrade edm version data: {e}"
+                ) from e
+
+            # Submit job (returns tuple of job_id, request_body - we only need job_id here)
+            job_id, _ = self.submit_upgrade_edm_data_version_job(
+                edm_name=edm_name,
+                edm_version=edm_version
+            )
+            job_ids.append(job_id)
+
+        return job_ids
+
+
+    def submit_upgrade_edm_data_version_job(self, edm_name: str, edm_version: str) -> Tuple[int, Dict[str, Any]]:
+        """
+        Submit job to upgrade EDM data version.
+
+        Args:
+            edm_name: Name of the EDM to upgrade
+            edm_version: Target EDM data version (e.g., "22")
+
+        Returns:
+            Tuple of (job_id, request_body) where request_body is the HTTP request payload
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPAPIError: If EDM not found or upgrade fails
+        """
+        validate_non_empty_string(edm_name, "edm_name")
+        validate_non_empty_string(edm_version, "edm_version")
+
+        # Look up EDM to get exposure_id
+        edms = self.search_edms(filter=f"exposureName=\"{edm_name}\"")
+        if len(edms) != 1:
+            raise IRPAPIError(f"Expected 1 EDM with name '{edm_name}', found {len(edms)}")
+        try:
+            exposure_id = edms[0]['exposureId']
+        except (KeyError, IndexError, TypeError) as e:
+            raise IRPAPIError(f"Failed to extract exposure ID for EDM '{edm_name}': {e}") from e
+
+        try:
+            data = {"edmDataVersion": edm_version}
+            response = self.client.request(
+                'POST',
+                UPGRADE_EDM_DATA_VERSION.format(exposureId=exposure_id),
+                json=data
+            )
+            job_id = extract_id_from_location_header(response, "EDM data version upgrade")
+            return int(job_id), data
+        except Exception as e:
+            raise IRPAPIError(
+                f"Failed to upgrade EDM data version for EDM '{edm_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
+
+
+    def poll_data_version_upgrade_job_batch_to_completion(
+            self,
+            job_ids: List[int],
+            interval: int = 20,
+            timeout: int = 600000
+    ) -> List[Dict[str, Any]]:
+        """
+        Poll multiple EDM data version upgrade jobs until all complete or timeout.
+
+        Args:
+            job_ids: List of job IDs
+            interval: Polling interval in seconds (default: 20)
+            timeout: Maximum timeout in seconds (default: 600000)
+
+        Returns:
+            List of final job status details for all jobs
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPJobError: If jobs time out
+            IRPAPIError: If polling fails
+        """
+        validate_list_not_empty(job_ids, "job_ids")
+        validate_positive_int(interval, "interval")
+        validate_positive_int(timeout, "timeout")
+
+        start = time.time()
+        while True:
+            logger.info("Polling batch EDM upgrade job IDs: %s", ",".join(str(item) for item in job_ids))
+
+            all_completed = False
+            all_jobs = []
+            for job_id in job_ids:
+                workflow_response = self.client.get_workflow(job_id)
+                all_jobs.append(workflow_response)
+                try:
+                    status = workflow_response['status']
+                except (KeyError, TypeError) as e:
+                    raise IRPAPIError(
+                        f"Missing 'status' in workflow response for job ID {job_id}: {e}"
+                    ) from e
+                if status in WORKFLOW_IN_PROGRESS_STATUSES:
+                    all_jobs = []
+                    break
+                all_completed = True
+
+            if all_completed:
+                return all_jobs
+            
+            if time.time() - start > timeout:
+                logger.error("Batch EDM upgrade jobs timed out after %s seconds", timeout)
+                raise IRPJobError(
+                    f"Batch upgrade edm version jobs did not complete within {timeout} seconds"
+                )
+            time.sleep(interval)
+
+
+    def delete_edm(self, edm_name: str) -> Dict[str, Any]:
+        """
+        Delete an EDM and all its associated analyses.
+
+        Args:
+            edm_name: Name of EDM to delete
+
+        Returns:
+            Dict containing final delete job status
+
+        Raises:
+            IRPValidationError: If edm_name is invalid
+            IRPAPIError: If EDM not found or deletion fails
+        """
+        validate_non_empty_string(edm_name, "edm_name")
+        logger.info("Deleting EDM '%s' and associated analyses", edm_name)
+
+        edms = self.search_edms(filter=f"exposureName=\"{edm_name}\"")
+        if (len(edms) != 1):
+            raise IRPAPIError(f"Expected 1 EDM with name {edm_name}, found {len(edms)}")
+        try:
+            exposure_id = edms[0]['exposureId']
+        except (KeyError, IndexError, TypeError) as e:
+            raise IRPAPIError(
+                f"Failed to extract exposure ID for EDM '{edm_name}': {e}"
+            ) from e
+
+        analyses = self.analysis_manager.search_analyses(filter=f"exposureName=\"{edm_name}\"")
+        logger.info("Found %s analyses to delete for EDM '%s'", len(analyses), edm_name)
+        for analysis in analyses:
+            try:
+                self.analysis_manager.delete_analysis(analysis['analysisId'])
+            except (KeyError, TypeError) as e:
+                raise IRPAPIError(
+                    f"Failed to extract analysis ID from analysis data: {e}"
+                ) from e
+
+        delete_edm_job_id = self.submit_delete_edm_job(exposure_id)
+        return self.risk_data_job_manager.poll_risk_data_job_to_completion(delete_edm_job_id)
+
+
+    def submit_delete_edm_job(self, exposure_id: int) -> int:
+        """
+        Submit job to delete an EDM (exposure).
+
+        Args:
+            exposure_id: ID of the exposure (EDM)
+
+        Returns:
+            The job ID
+        """
+        validate_positive_int(exposure_id, "exposure_id")
+        try:
+            response = self.client.request(
+                'DELETE',
+                DELETE_EDM.format(exposureId=exposure_id)
+            )
+            job_id = extract_id_from_location_header(response, "EDM deletion")
+            return int(job_id)
+        except Exception as e:
+            raise IRPAPIError(
+                f"Failed to delete EDM with exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
+
+
+    def get_cedants_by_edm(self, exposure_id: int) -> List[Dict[str, Any]]:
+        """
+        Retrieve cedants for an EDM.
+
+        Args:
+            exposure_id: Exposure ID
+
+        Returns:
+            List of cedant data
+
+        Raises:
+            IRPValidationError: If exposure_id is invalid
+            IRPAPIError: If request fails
+        """
+        validate_positive_int(exposure_id, "exposure_id")
+        try:
+            response = self.client.request('GET', GET_CEDANTS.format(exposureId=exposure_id))
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(
+                f"Failed to get cedants for exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
+
+
+    def get_lobs_by_edm(self, exposure_id: int) -> List[Dict[str, Any]]:
+        """
+        Retrieve lines of business (LOBs) for an EDM.
+
+        Args:
+            exposure_id: Exposure ID
+
+        Returns:
+            List of LOB dicts
+
+        Raises:
+            IRPValidationError: If exposure_id is invalid
+            IRPAPIError: If request fails
+        """
+        validate_positive_int(exposure_id, "exposure_id")
+        try:
+            response = self.client.request('GET', GET_LOBS.format(exposureId=exposure_id))
+            return response.json()
+        except Exception as e:
+            raise IRPAPIError(
+                f"Failed to get LOBs for exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
+        
+
+    def submit_edm_import_job(
+        self,
+        edm_name: str,
+        edm_file_path: str,
+        server_name: str = "sql-instance-1"
+    ) -> Tuple[int, Dict[str, Any]]:
+        """
+        Submit EDM import job with S3 file upload.
+
+        All cheap, upload-independent checks run before the expensive S3 upload
+        so the call fails fast (e.g. on a bad server name, exposure-set error,
+        or duplicate EDM name) without burning a multi-GB transfer.
+
+        This method handles the complete EDM import workflow:
+        1. Look up database server
+        2. Create or get existing exposure set
+        3. Validate the EDM name is unique
+        4. Create import folder (get S3 credentials)
+        5. Upload the EDM database file to S3
+        6. Submit import job
+
+        The import folder's ``properties.fileExtension`` is read from
+        ``edm_file_path``, so a .bak and a .mdf file are both imported by
+        passing the path.
+
+        Args:
+            edm_name: Name for the EDM
+            edm_file_path: Path to the .bak or .mdf file to import
+            server_name: Database server name (default: "sql-instance-1")
+
+        Returns:
+            Tuple of (job_id, request_body) where request_body is the HTTP request payload
+
+        Raises:
+            IRPValidationError: If parameters are invalid
+            IRPFileError: If file upload fails
+            IRPAPIError: If API calls fail
+        """
+        validate_non_empty_string(edm_name, "edm_name")
+        validate_file_exists(edm_file_path, "edm_file_path")
+        file_extension = validate_import_file_extension(edm_file_path, "edm_file_path")
+        validate_non_empty_string(server_name, "server_name")
+
+        logger.info("Submitting EDM import job for '%s'", edm_name)
+        s3_manager = S3Manager()
+
+        # Step 1: Look up database server
+        database_servers = self.search_database_servers(filter=f"serverName=\"{server_name}\"")
+        if len(database_servers) != 1:
+            raise IRPReferenceDataError(f"Database server '{server_name}' not found")
+        try:
+            server_id = database_servers[0]['serverId']
+        except (KeyError, TypeError, IndexError) as e:
+            raise IRPAPIError(f"Failed to extract server ID: {e}") from e
+
+        # Step 2: Create or get existing exposure set
+        exposure_set_id = self.get_or_create_exposure_set(edm_name)
+
+        # Step 3: Validate the EDM name is unique before the upload
+        self.validate_unique_edms([edm_name])
+
+        logger.debug("Creating import folder for EDM '%s'", edm_name)
+        # Step 4: Create import folder
+        folder_data = {
+            "folderType": "EDM",
+            "properties": {
+                "fileExtension": file_extension
+            }
+        }
+        response = self.client.request('POST', CREATE_IMPORT_FOLDER, json=folder_data)
+        folder_response = response.json()
+
+        # Extract folder ID and upload details
+        try:
+            folder_id = folder_response['folderId']
+            folder_type = folder_response['folderType']
+            upload_details = folder_response['uploadDetails']['exposureFile']
+        except (KeyError, TypeError) as e:
+            raise IRPAPIError(
+                f"Create import folder response missing required fields: {e}"
+            ) from e
+
+        # Step 5: Upload file to S3
+        logger.debug("Uploading EDM file '%s' to S3", edm_file_path)
+        s3_manager.upload_file(edm_file_path, upload_details)
+
+        # Step 6: Submit import job
+        settings = {
+            "folderId": int(folder_id),
+            "exposureName": edm_name,
+            "serverId": server_id
+        }
+        import_data = {
+            "importType": folder_type,
+            "resourceUri": EXPOSURE_SET_URI.format(exposureSetId=exposure_set_id),
+            "settings": settings
+        }
+        response = self.client.request('POST', SUBMIT_IMPORT_JOB, json=import_data)
+        job_id = extract_id_from_location_header(response, "EDM import job submission")
+        logger.info("EDM import job submitted — job ID: %s", job_id)
+
+        return int(job_id), import_data
