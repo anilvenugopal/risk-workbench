@@ -51,6 +51,7 @@ MSSQL_TIMEOUT=30
 MSSQL_POOL_SIZE=5
 MSSQL_POOL_MAX_OVERFLOW=5
 MSSQL_POOL_RECYCLE=1800
+MSSQL_<NAME>_POOL_SIZE=...              # optional: overrides MSSQL_POOL_SIZE for one connection; _POOL_MAX_OVERFLOW likewise
 MSSQL_SQL_DIR=sql                       # base dir for execute_script_file
 
 KERBEROS_ENABLED=true                   # only for WINDOWS-auth targets
