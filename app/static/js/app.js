@@ -308,6 +308,7 @@ document.addEventListener('alpine:init', () => {
   // its first keystroke until its own check swaps in.
   Alpine.data('breakoutNames', () => ({
     blocked: false,
+    busy: false,
     recount() {
       this.blocked = !!this.$root.querySelector(
         '.bo-row .nc-input[data-pending], .bo-row .name-collision[data-nc="blocked"]');
@@ -1730,25 +1731,4 @@ window.addEventListener('pageshow', (e) => {
   const { btn, label } = plainPost;
   if (btn) { btn.textContent = label; btn.disabled = false; }
   plainPost = null;
-});
-
-// An hx-post form marked data-submitting locks its submitter for the request.
-// htmx has already read the form values when beforeRequest fires, so the
-// submitter is disabled at once.
-const htmxSubmits = new WeakMap();
-document.addEventListener('htmx:beforeRequest', (e) => {
-  const form = e.detail.elt;
-  const ev = e.detail.requestConfig.triggeringEvent;
-  const btn = ev && ev.submitter;
-  if (!btn || !form.matches('form[data-submitting]')) return;
-  htmxSubmits.set(form, { btn, label: btn.textContent });
-  btn.textContent = 'Submitting…';
-  btn.disabled = true;
-});
-document.addEventListener('htmx:afterRequest', (e) => {
-  const saved = htmxSubmits.get(e.detail.elt);
-  if (!saved) return;
-  htmxSubmits.delete(e.detail.elt);
-  saved.btn.textContent = saved.label;
-  saved.btn.disabled = false;
 });

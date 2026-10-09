@@ -42,14 +42,15 @@
 <div class="modal" id="breakout-modal" x-data>
   {%- set modal_class = 'bo-modal bo-modal--pane' if pane_open else 'bo-modal' -%}
   {% if confirmable %}
-  <form class="{{ modal_class }}" method="post" action="{{ base_url }}" data-submitting
+  <form class="{{ modal_class }}" method="post" action="{{ base_url }}"
         hx-post="{{ base_url }}" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
         x-data="breakoutNames()"
         @input="onInput($event)"
         @htmx:after-swap="onSwap($event)"
         @htmx:response-error="onCheckError($event)"
         @htmx:send-error="onCheckError($event)"
-        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $el.closest('.modal').remove()">
+        @htmx:before-request="if ($event.target === $el) busy = true"
+        @htmx:after-request="if ($event.target === $el) { busy = false; if ($event.detail.successful && $event.detail.xhr.status < 300) $el.closest('.modal').remove() }">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <input type="hidden" name="dimension" value="{{ modal.dimension }}">
     <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
@@ -58,11 +59,12 @@
      group-preview route (server-composed row appended to the cart); the
      submit posts the carted group JSONs to the cart confirm. n counts the
      cart rows — a tiny Alpine sliver; the server re-validates everything. #}
-  <form class="{{ modal_class }}" method="post" action="{{ base_url }}/groups" data-submitting
+  <form class="{{ modal_class }}" method="post" action="{{ base_url }}/groups"
         hx-post="{{ base_url }}/groups" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
-        x-data="{ n: 0, recount() { this.n = $el.querySelectorAll('.bo-cart-row').length } }"
+        x-data="{ n: 0, busy: false, recount() { this.n = $el.querySelectorAll('.bo-cart-row').length } }"
         @htmx:after-settle="recount()"
-        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $el.closest('.modal').remove()">
+        @htmx:before-request="if ($event.target === $el) busy = true"
+        @htmx:after-request="if ($event.target === $el) { busy = false; if ($event.detail.successful && $event.detail.xhr.status < 300) $el.closest('.modal').remove() }">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
   {% else %}
@@ -336,13 +338,15 @@
       {% if confirmable %}
       <span class="bo-modal__count"><strong>{{ modal.plan|length }}</strong> sub-portfolio{{ '' if modal.plan|length == 1 else 's' }} will be created</span>
       <button type="button" class="btn btn--sm" @click="$el.closest('.modal').remove()">Cancel</button>
-      <button type="submit" class="btn btn--sm btn--primary" :disabled="blocked">Create {{ modal.plan|length }} sub-portfolio{{ '' if modal.plan|length == 1 else 's' }}</button>
+      {%- set create_label = 'Create ' ~ modal.plan|length ~ ' sub-portfolio' ~ ('' if modal.plan|length == 1 else 's') %}
+      <button type="submit" class="btn btn--sm btn--primary" :disabled="blocked || busy"
+              x-text="busy ? 'Submitting…' : '{{ create_label }}'">{{ create_label }}</button>
       {% elif cart_ready %}
       <span class="bo-modal__count"><strong x-text="n">0</strong>
         <span x-text="n === 1 ? 'breakout' : 'breakouts'">breakouts</span></span>
       <button type="button" class="btn btn--sm" @click="$el.closest('.modal').remove()">Cancel</button>
-      <button type="submit" class="btn btn--sm btn--primary" :disabled="n === 0"
-              x-text="'Create ' + n + ' sub-portfolio' + (n === 1 ? '' : 's')">Create sub-portfolios</button>
+      <button type="submit" class="btn btn--sm btn--primary" :disabled="n === 0 || busy"
+              x-text="busy ? 'Submitting…' : 'Create ' + n + ' sub-portfolio' + (n === 1 ? '' : 's')">Create sub-portfolios</button>
       {% else %}
       <button type="button" class="btn btn--sm" @click="$el.closest('.modal').remove()">Close</button>
       {% endif %}
