@@ -64,10 +64,13 @@ _ENGINE_OVERRIDES: Dict[Tuple[str, str], Engine] = {}
 pyodbc.pooling = False
 
 
-def _pool_kwargs() -> dict:
+def _pool_kwargs(connection_name: str) -> dict:
+    prefix = f"MSSQL_{connection_name.upper()}_"
     return {
-        "pool_size": int(os.getenv("MSSQL_POOL_SIZE", "5")),
-        "max_overflow": int(os.getenv("MSSQL_POOL_MAX_OVERFLOW", "5")),
+        "pool_size": int(os.getenv(f"{prefix}POOL_SIZE") or os.getenv("MSSQL_POOL_SIZE", "5")),
+        "max_overflow": int(
+            os.getenv(f"{prefix}POOL_MAX_OVERFLOW") or os.getenv("MSSQL_POOL_MAX_OVERFLOW", "5")
+        ),
         "pool_timeout": int(os.getenv("MSSQL_POOL_TIMEOUT", "30")),
         "pool_recycle": int(os.getenv("MSSQL_POOL_RECYCLE", "1800")),
         "pool_pre_ping": True,
@@ -95,7 +98,8 @@ def get_engine(connection_name: str, database: Optional[str] = None) -> Engine:
                 f"Kerberos ticket could be obtained (check KERBEROS_* env)."
             )
         url = build_sqlalchemy_url(config, database=database)
-        eng = create_engine(url, **_pool_kwargs())
+        pool = _pool_kwargs(connection_name)
+        eng = create_engine(url, **pool)
         _attach_query_timing(eng)
 
         # Self-renew Kerberos on each new physical connection for WINDOWS targets.
@@ -106,8 +110,9 @@ def get_engine(connection_name: str, database: Optional[str] = None) -> Engine:
                 return None  # let the default connect proceed
 
         _ENGINES[key] = eng
-        logger.info("Created pooled engine for %s%s", config["name"],
-                    f"/{database}" if database else "")
+        logger.info("Created pooled engine for %s%s (pool_size=%d, max_overflow=%d)",
+                    config["name"], f"/{database}" if database else "",
+                    pool["pool_size"], pool["max_overflow"])
     return eng
 
 

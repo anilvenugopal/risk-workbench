@@ -131,37 +131,59 @@ class TestDisposeAll:
 
 
 class TestPoolKwargs:
+    @pytest.fixture(autouse=True)
+    def _clear_pool_env(self, monkeypatch):
+        for var in ("MSSQL_POOL_SIZE", "MSSQL_POOL_MAX_OVERFLOW",
+                    "MSSQL_WORKBENCH_POOL_SIZE", "MSSQL_WORKBENCH_POOL_MAX_OVERFLOW"):
+            monkeypatch.delenv(var, raising=False)
+
     def test_returns_expected_keys(self):
         from db.connection import _pool_kwargs
-        kwargs = _pool_kwargs()
+        kwargs = _pool_kwargs("WORKBENCH")
         assert "pool_size" in kwargs
         assert "max_overflow" in kwargs
         assert "pool_timeout" in kwargs
         assert "pool_recycle" in kwargs
         assert kwargs["pool_pre_ping"] is True
 
-    def test_env_override_applied(self, monkeypatch):
+    def test_per_connection_value_beats_global(self, monkeypatch):
+        from db.connection import _pool_kwargs
+        monkeypatch.setenv("MSSQL_POOL_SIZE", "5")
+        monkeypatch.setenv("MSSQL_POOL_MAX_OVERFLOW", "5")
+        monkeypatch.setenv("MSSQL_WORKBENCH_POOL_SIZE", "10")
+        monkeypatch.setenv("MSSQL_WORKBENCH_POOL_MAX_OVERFLOW", "15")
+        kwargs = _pool_kwargs("workbench")
+        assert kwargs["pool_size"] == 10
+        assert kwargs["max_overflow"] == 15
+
+    def test_global_value_used_without_per_connection_value(self, monkeypatch):
         from db.connection import _pool_kwargs
         monkeypatch.setenv("MSSQL_POOL_SIZE", "10")
-        kwargs = _pool_kwargs()
+        monkeypatch.setenv("MSSQL_POOL_MAX_OVERFLOW", "20")
+        monkeypatch.setenv("MSSQL_WORKBENCH_POOL_SIZE", "")
+        kwargs = _pool_kwargs("WORKBENCH")
         assert kwargs["pool_size"] == 10
+        assert kwargs["max_overflow"] == 20
+
+    def test_defaults_when_neither_set(self):
+        from db.connection import _pool_kwargs
+        kwargs = _pool_kwargs("WORKBENCH")
+        assert kwargs["pool_size"] == 5
+        assert kwargs["max_overflow"] == 5
 
 
 class TestEngineCache:
-    def test_engine_cached_in_engines_dict(self, sqlite_engine, monkeypatch):
-        """Line 55-56: second get_engine call for same key returns cached engine."""
+    def test_engine_cached_in_engines_dict(self, monkeypatch, tmp_path):
+        """Second get_engine call for the same key returns the cached engine."""
         from db import connection as conn_mod
 
-        # Bypass real SQL Server creation by patching build/config functions
+        # A file-backed SQLite engine uses QueuePool, which accepts the real pool kwargs.
         monkeypatch.setattr(conn_mod, "get_connection_config",
                             lambda name: {"auth_type": "SQL", "name": name})
         monkeypatch.setattr(conn_mod, "build_sqlalchemy_url",
-                            lambda cfg, database=None: "sqlite:///:memory:")
-        monkeypatch.setattr(conn_mod, "_pool_kwargs", lambda: {})
+                            lambda cfg, database=None: f"sqlite:///{tmp_path / 'cache.db'}")
 
-        # First call: creates and caches
         eng1 = conn_mod.get_engine("CACHED")
-        # Second call: must return cached (not create new)
         eng2 = conn_mod.get_engine("CACHED")
         assert eng1 is eng2
         assert ("CACHED", "") in _ENGINES
